@@ -2,6 +2,10 @@
 
 High-performance distributed shared lock service
 
+# About
+
+High-performance distributed shared lock service, Support sync Lock and Event.
+
 # Installation
 
 ```
