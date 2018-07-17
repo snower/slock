@@ -32,7 +32,7 @@ Usage of ./slock:
 ./slock --bind=0.0.0.0 --port=5658 --log=/var/log/slock.log
 ```
 
-#Show State
+# Show State
 
 ```
 ./slock --host=127.0.01 --port=5658 --info=0
