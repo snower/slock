@@ -18,10 +18,11 @@ type Client struct {
     protocol *ClientProtocol
     dbs []*ClientDB
     glock sync.Mutex
+    is_stop bool
 }
 
 func NewClient(host string, port int) *Client{
-    return &Client{host, port, nil, nil,make([]*ClientDB, 256), sync.Mutex{}}
+    return &Client{host, port, nil, nil,make([]*ClientDB, 256), sync.Mutex{}, false}
 }
 
 func (self *Client) Open() error {
@@ -50,6 +51,12 @@ func (self *Client) Handle(stream *Stream) (err error) {
 
         go self.HandleCommand(command.(ICommand))
     }
+    return nil
+}
+
+func (self *Client) Close() error {
+    self.protocol.Close()
+    self.is_stop = true
     return nil
 }
 
@@ -220,7 +227,7 @@ func (self *ClientDB) Event(event_key [16]byte, timeout uint32, expried uint32) 
 
 func (self *ClientDB) State() *ResultStateCommand {
     request_id := self.GetRequestId()
-    command := &StateCommand{Command{self.protocol, MAGIC, VERSION, COMMAND_STATE, request_id}, 0, self.db_id}
+    command := &StateCommand{Command{MAGIC, VERSION, COMMAND_STATE, request_id}, 0, self.db_id, [43]byte{}}
     result_command, err := self.SendStateCommand(command)
     if err != nil {
         return nil
@@ -273,7 +280,7 @@ func NewClientLock(db *ClientDB, lock_key [16]byte, timeout uint32, expried uint
 
 func (self *ClientLock) Lock() *ClientLockError{
     request_id := self.db.GetRequestId()
-    command := &LockCommand{Command{self.db.protocol, MAGIC, VERSION, COMMAND_LOCK, request_id}, 0, self.db.db_id, self.lock_id, self.lock_key, self.timeout, self.expried}
+    command := &LockCommand{Command{MAGIC, VERSION, COMMAND_LOCK, request_id}, 0, self.db.db_id, self.lock_id, self.lock_key, self.timeout, self.expried, [3]byte{}}
     result_command, err := self.db.SendLockCommand(command)
     if err != nil {
         return &ClientLockError{RESULT_ERROR, err}
@@ -286,8 +293,8 @@ func (self *ClientLock) Lock() *ClientLockError{
 
 func (self *ClientLock) Unlock() *ClientLockError{
     request_id := self.db.GetRequestId()
-    command := &LockCommand{Command{self.db.protocol, MAGIC, VERSION, COMMAND_UNLOCK, request_id}, 0, self.db.db_id, self.lock_id, self.lock_key, self.timeout, self.expried}
-    result_command, err := self.db.SendLockCommand(command)
+    command := &LockCommand{Command{ MAGIC, VERSION, COMMAND_UNLOCK, request_id}, 0, self.db.db_id, self.lock_id, self.lock_key, self.timeout, self.expried, [3]byte{}}
+    result_command, err := self.db.SendUnLockCommand(command)
     if err != nil {
         return &ClientLockError{RESULT_ERROR, err}
     }

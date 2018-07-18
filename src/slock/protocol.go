@@ -27,8 +27,8 @@ func NewServerProtocol(slock *SLock, stream *Stream) *ServerProtocol {
 
 func (self *ServerProtocol) Close() (err error) {
     if self.last_lock != nil {
-        if !self.last_lock.Expried {
-            self.last_lock.ExpriedTime = 0
+        if !self.last_lock.expried {
+            self.last_lock.expried_time = 0
         }
         self.last_lock = nil
     }
@@ -47,26 +47,26 @@ func (self *ServerProtocol) Read() (command CommandDecode, err error) {
     }
 
     if uint8(b[0]) != MAGIC {
-        command := NewCommand(self, b)
+        command := NewCommand(b)
         self.Write(NewResultCommand(command, RESULT_UNKNOWN_MAGIC))
         return nil, errors.New("unknown magic")
     }
 
     if uint8(b[1]) != VERSION {
-        command := NewCommand(self, b)
+        command := NewCommand(b)
         self.Write(NewResultCommand(command, RESULT_UNKNOWN_VERSION))
         return nil, errors.New("unknown version")
     }
 
     switch uint8(b[2]) {
     case COMMAND_LOCK:
-        return NewLockCommand(self, b), nil
+        return NewLockCommand(b), nil
     case COMMAND_UNLOCK:
-        return NewLockCommand(self, b), nil
+        return NewLockCommand(b), nil
     case COMMAND_STATE:
-        return NewStateCommand(self, b), nil
+        return NewStateCommand(b), nil
     default:
-        command := NewCommand(self, b)
+        command := NewCommand(b)
         self.Write(NewResultCommand(command, RESULT_UNKNOWN_VERSION))
         return nil, errors.New("unknown command")
     }
@@ -120,17 +120,14 @@ func (self *ClientProtocol) Read() (command CommandDecode, err error) {
     switch uint8(b[2]) {
     case COMMAND_LOCK:
         command := LockResultCommand{}
-        command.Protocol = self
         command.Decode(b)
         return &command, nil
     case COMMAND_UNLOCK:
         command := LockResultCommand{}
-        command.Protocol = self
         command.Decode(b)
         return &command, nil
     case COMMAND_STATE:
         command := ResultStateCommand{}
-        command.Protocol = self
         command.Decode(b)
         return &command, nil
     default:

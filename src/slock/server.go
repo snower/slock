@@ -74,7 +74,7 @@ func (self *Server) Handle(stream *Stream) (err error) {
         if command == nil {
             break
         }
-        self.slock.Handle(command.(ICommand))
+        self.slock.Handle(protocol, command.(ICommand))
     }
     return nil
 }

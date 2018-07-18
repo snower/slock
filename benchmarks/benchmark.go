@@ -17,7 +17,7 @@ func run(client *slock.Client, count *Count) {
         lock.Lock()
         lock.Unlock()
         count.count++
-        if count.count > 1000000 {
+        if count.count > 100000 {
             return
         }
     }
@@ -37,12 +37,12 @@ func main()  {
     }
 
     count := &Count{}
-    start_time := time.Now().Unix()
+    start_time := time.Now().UnixNano()
     for i:=0;i<200;i++{
         go run(clients[i], count)
     }
     run(clients[200], count)
-    end_time := time.Now().Unix()
-    pt := end_time - start_time
-    fmt.Printf("%d %d", pt, count.count / pt)
+    end_time := time.Now().UnixNano()
+    pt := float64(end_time - start_time) / 1000000000.0
+    fmt.Printf("%f %f", pt, float64(count.count) / pt)
 }

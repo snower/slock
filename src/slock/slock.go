@@ -33,15 +33,15 @@ func (self *SLock) GetDB(db_id uint8) *LockDB {
     return self.dbs[db_id]
 }
 
-func (self *SLock) DoLockComamnd(db *LockDB, command *LockCommand) (err error) {
-    return db.Lock(command)
+func (self *SLock) DoLockComamnd(db *LockDB, protocol Protocol, command *LockCommand) (err error) {
+    return db.Lock(protocol, command)
 }
 
-func (self *SLock) DoUnLockComamnd(db *LockDB, command *LockCommand) (err error) {
-    return db.UnLock(command)
+func (self *SLock) DoUnLockComamnd(db *LockDB, protocol Protocol, command *LockCommand) (err error) {
+    return db.UnLock(protocol, command)
 }
 
-func (self *SLock) GetState(command *StateCommand) (err error) {
+func (self *SLock) GetState(protocol Protocol, command *StateCommand) (err error) {
     db_state := uint8(0)
 
     db := self.dbs[command.DbId]
@@ -50,14 +50,14 @@ func (self *SLock) GetState(command *StateCommand) (err error) {
     }
 
     if db == nil {
-        command.Protocol.Write(NewStateResultCommand(command, RESULT_SUCCED, 0, db_state, nil))
+        protocol.Write(NewStateResultCommand(command, RESULT_SUCCED, 0, db_state, nil))
         return nil
     }
-    command.Protocol.Write(NewStateResultCommand(command, RESULT_SUCCED, 0, db_state, db.GetState()))
+    protocol.Write(NewStateResultCommand(command, RESULT_SUCCED, 0, db_state, db.GetState()))
     return nil
 }
 
-func (self *SLock) Handle(command ICommand) (err error) {
+func (self *SLock) Handle(protocol Protocol, command ICommand) (err error) {
     switch command.GetCommandType() {
     case COMMAND_LOCK:
         lock_command := command.(*LockCommand)
@@ -65,29 +65,29 @@ func (self *SLock) Handle(command ICommand) (err error) {
         if db == nil {
             db = self.GetOrNewDB(lock_command.DbId)
         }
-        db.Lock(lock_command)
+        db.Lock(protocol, lock_command)
 
     case COMMAND_UNLOCK:
         lock_command := command.(*LockCommand)
         db := self.dbs[lock_command.DbId]
         if db == nil {
-            self.Active(lock_command, RESULT_UNKNOWN_DB)
+            self.Active(protocol, lock_command, RESULT_UNKNOWN_DB)
             return nil
         }
-        db.UnLock(lock_command)
+        db.UnLock(protocol, lock_command)
 
     case COMMAND_STATE:
-        self.GetState(command.(*StateCommand))
+        self.GetState(protocol, command.(*StateCommand))
 
     default:
-        command.GetProtocol().Write(NewResultCommand(command.(*Command), RESULT_UNKNOWN_COMMAND))
+        protocol.Write(NewResultCommand(command, RESULT_UNKNOWN_COMMAND))
     }
     return nil
 }
 
-func (self *SLock) Active(command *LockCommand, r uint8) (err error) {
+func (self *SLock) Active(protocol Protocol, command *LockCommand, r uint8) (err error) {
     result := NewLockResultCommand(command, r, 0)
-    return command.Protocol.Write(result)
+    return protocol.Write(result)
 }
 
 func (self *SLock) Log() logging.Logger {
