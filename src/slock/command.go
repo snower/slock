@@ -50,21 +50,27 @@ type Command struct {
 
 func NewCommand(b []byte) *Command {
     command := Command{}
-    command.Decode(b)
+    if command.Decode(b) != nil {
+        return nil
+    }
+
     return &command
 }
 
 func (self *Command) Decode(b []byte) error{
     reader := bytes.NewReader(b)
-    binary.Read(reader, binary.LittleEndian, self)
-    return nil
+    return binary.Read(reader, binary.LittleEndian, self)
 }
 
 func (self *Command) Encode() (b []byte, err error) {
     buf := new(bytes.Buffer)
-    binary.Write(buf, binary.LittleEndian, self)
-    binary.Write(buf, binary.LittleEndian, make([]byte, 45))
-    return buf.Bytes(), nil
+    err = binary.Write(buf, binary.LittleEndian, self)
+    if err != nil {
+        return buf.Bytes(), err
+    }
+
+    err = binary.Write(buf, binary.LittleEndian, make([]byte, 45))
+    return buf.Bytes(), err
 }
 
 func (self *Command) GetCommandType() uint8{
@@ -89,15 +95,18 @@ func NewResultCommand(command ICommand, result uint8) *ResultCommand {
 
 func (self *ResultCommand) Decode(b []byte) error{
     reader := bytes.NewReader(b)
-    binary.Read(reader, binary.LittleEndian, self)
-    return nil
+    return binary.Read(reader, binary.LittleEndian, self)
 }
 
 func (self *ResultCommand) Encode() (b []byte, err error) {
     buf := new(bytes.Buffer)
-    binary.Write(buf, binary.LittleEndian, self)
-    binary.Write(buf, binary.LittleEndian, make([]byte, 44))
-    return buf.Bytes(), nil
+    err = binary.Write(buf, binary.LittleEndian, self)
+    if err != nil {
+        return buf.Bytes(), err
+    }
+
+    err = binary.Write(buf, binary.LittleEndian, make([]byte, 44))
+    return buf.Bytes(), err
 }
 
 func (self *ResultCommand) GetCommandType() uint8{
@@ -121,22 +130,21 @@ type LockCommand struct {
 
 func NewLockCommand(b []byte) *LockCommand {
     command := LockCommand{}
-    reader := bytes.NewReader(b)
-    binary.Read(reader, binary.LittleEndian, &command)
-    command.Decode(b)
+    if command.Decode(b) != nil {
+        return nil
+    }
     return &command
 }
 
 func (self *LockCommand) Decode(b []byte) error{
     reader := bytes.NewReader(b)
-    err := binary.Read(reader, binary.LittleEndian, self)
-    return err
+    return binary.Read(reader, binary.LittleEndian, self)
 }
 
 func (self *LockCommand) Encode() (b []byte, err error) {
     buf := new(bytes.Buffer)
-    binary.Write(buf, binary.LittleEndian, self)
-    return buf.Bytes(), nil
+    err = binary.Write(buf, binary.LittleEndian, self)
+    return buf.Bytes(), err
 }
 
 var RESULT_LOCK_COMMAND_BLANK_BYTERS = [10]byte{}
@@ -157,14 +165,13 @@ func NewLockResultCommand(command *LockCommand, result uint8, flag uint8) *LockR
 
 func (self *LockResultCommand) Decode(b []byte) error{
     reader := bytes.NewReader(b)
-    binary.Read(reader, binary.LittleEndian, self)
-    return nil
+    return binary.Read(reader, binary.LittleEndian, self)
 }
 
 func (self *LockResultCommand) Encode() (b []byte, err error) {
     buf := new(bytes.Buffer)
-    binary.Write(buf, binary.LittleEndian, self)
-    return buf.Bytes(), nil
+    err = binary.Write(buf, binary.LittleEndian, self)
+    return buf.Bytes(), err
 }
 
 type StateCommand struct {
@@ -176,20 +183,21 @@ type StateCommand struct {
 
 func NewStateCommand(b []byte) *StateCommand {
     command := StateCommand{}
-    command.Decode(b)
+    if command.Decode(b) != nil {
+        return nil
+    }
     return &command
 }
 
 func (self *StateCommand) Decode(b []byte) error{
     reader := bytes.NewReader(b)
-    binary.Read(reader, binary.LittleEndian, self)
-    return nil
+    return binary.Read(reader, binary.LittleEndian, self)
 }
 
 func (self *StateCommand) Encode() (b []byte, err error) {
     buf := new(bytes.Buffer)
-    binary.Write(buf, binary.LittleEndian, self)
-    return buf.Bytes(), nil
+    err = binary.Write(buf, binary.LittleEndian, self)
+    return buf.Bytes(), err
 }
 
 type ResultStateCommand struct {
@@ -211,12 +219,11 @@ func NewStateResultCommand(command *StateCommand, result uint8, flag uint8, db_s
 
 func (self *ResultStateCommand) Decode(b []byte) error{
     reader := bytes.NewReader(b)
-    binary.Read(reader, binary.LittleEndian, self)
-    return nil
+    return binary.Read(reader, binary.LittleEndian, self)
 }
 
 func (self *ResultStateCommand) Encode() (b []byte, err error) {
     buf := new(bytes.Buffer)
-    binary.Write(buf, binary.LittleEndian, self)
-    return buf.Bytes(), nil
+    err = binary.Write(buf, binary.LittleEndian, self)
+    return buf.Bytes(), err
 }
