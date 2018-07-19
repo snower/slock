@@ -6,7 +6,7 @@ import (
 )
 
 type LockManager struct {
-    lock_db *LockDB
+    lock_db        *LockDB
     locked         uint16
     db_id          uint8
     lock_key       [16]byte
@@ -14,9 +14,9 @@ type LockManager struct {
     locks          *LockQueue
     lock_maps      map[[16]byte]*Lock
     wait_locks     *LockQueue
-    glock *sync.Mutex
-    glock_index int
-    free_locks []*Lock
+    glock          *sync.Mutex
+    glock_index    int
+    free_locks     []*Lock
     free_lock_count int
 }
 
@@ -159,7 +159,7 @@ func (self *LockManager) FreeLock(lock *Lock) *Lock{
     return lock
 }
 
-func (self *LockManager) GetOrNewLock(protocol Protocol, command *LockCommand) *Lock {
+func (self *LockManager) GetOrNewLock(protocol *ServerProtocol, command *LockCommand) *Lock {
     if self.free_lock_count >= 0 {
         lock := self.free_locks[self.free_lock_count]
         self.free_lock_count--
@@ -177,7 +177,7 @@ func (self *LockManager) GetOrNewLock(protocol Protocol, command *LockCommand) *
 type Lock struct {
     manager             *LockManager
     command             *LockCommand
-    protocol            Protocol
+    protocol            *ServerProtocol
     start_time          int64
     expried_time        int64
     timeout_time        int64
@@ -185,12 +185,12 @@ type Lock struct {
     timeouted           bool
     expried             bool
     locked_freed        bool
-    wait_freed        bool
+    wait_freed          bool
     timeout_checked_count uint32
     expried_checked_count uint32
 }
 
-func NewLock(manager *LockManager, protocol Protocol, command *LockCommand) *Lock {
+func NewLock(manager *LockManager, protocol *ServerProtocol, command *LockCommand) *Lock {
     now := time.Now().Unix()
     return &Lock{manager, command, protocol,now, now + int64(command.Expried), now + int64(command.Timeout), false, false, false, true, true, 0, 0}
 }

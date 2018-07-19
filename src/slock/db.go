@@ -24,12 +24,12 @@ type LockDB struct {
     check_timeout_time int64
     check_expried_time int64
     glock              sync.Mutex
-    manager_glocks []*sync.Mutex
+    manager_glocks     []*sync.Mutex
     manager_glock_index int
-    manager_max_glocks int
-    is_stop            bool
+    manager_max_glocks  int
+    is_stop             bool
     state LockDBState
-    free_lock_managers []*LockManager
+    free_lock_managers  []*LockManager
     free_lock_manager_count int
 }
 
@@ -360,7 +360,7 @@ func (self *LockDB) DoExpried(lock *Lock) (err error) {
 
     current_lock := lock_manager.GetWaitLock()
     if current_lock != nil {
-        if self.DoLock(current_lock.protocol.(*ServerProtocol), lock_manager, current_lock, false) {
+        if self.DoLock(current_lock.protocol, lock_manager, current_lock, false) {
             lock_manager.wait_locks.Pop()
             current_lock.wait_freed = true
             self.RemoveTimeOut(current_lock)
@@ -432,8 +432,7 @@ func (self *LockDB) UnLock(protocol *ServerProtocol, command *LockCommand) (err 
 
     current_lock = lock_manager.GetWaitLock()
     if current_lock != nil {
-        server_protocol := current_lock.protocol.(*ServerProtocol)
-        if self.DoLock(server_protocol, lock_manager, current_lock, server_protocol == protocol) {
+        if self.DoLock(current_lock.protocol, lock_manager, current_lock, current_lock.protocol == protocol) {
             lock_manager.wait_locks.Pop()
             current_lock.wait_freed = true
             self.RemoveTimeOut(current_lock)
