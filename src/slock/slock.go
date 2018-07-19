@@ -34,11 +34,11 @@ func (self *SLock) GetDB(db_id uint8) *LockDB {
 }
 
 func (self *SLock) DoLockComamnd(db *LockDB, protocol Protocol, command *LockCommand) (err error) {
-    return db.Lock(protocol, command)
+    return db.Lock(protocol.(*ServerProtocol), command)
 }
 
 func (self *SLock) DoUnLockComamnd(db *LockDB, protocol Protocol, command *LockCommand) (err error) {
-    return db.UnLock(protocol, command)
+    return db.UnLock(protocol.(*ServerProtocol), command)
 }
 
 func (self *SLock) GetState(protocol Protocol, command *StateCommand) (err error) {
@@ -65,16 +65,16 @@ func (self *SLock) Handle(protocol Protocol, command ICommand) (err error) {
         if db == nil {
             db = self.GetOrNewDB(lock_command.DbId)
         }
-        db.Lock(protocol, lock_command)
+        db.Lock(protocol.(*ServerProtocol), lock_command)
 
     case COMMAND_UNLOCK:
         lock_command := command.(*LockCommand)
         db := self.dbs[lock_command.DbId]
         if db == nil {
-            self.Active(protocol, lock_command, RESULT_UNKNOWN_DB)
+            self.Active(protocol, lock_command, RESULT_UNKNOWN_DB, true)
             return nil
         }
-        db.UnLock(protocol, lock_command)
+        db.UnLock(protocol.(*ServerProtocol), lock_command)
 
     case COMMAND_STATE:
         self.GetState(protocol, command.(*StateCommand))
@@ -85,9 +85,35 @@ func (self *SLock) Handle(protocol Protocol, command ICommand) (err error) {
     return nil
 }
 
-func (self *SLock) Active(protocol Protocol, command *LockCommand, r uint8) (err error) {
+func (self *SLock) Active(protocol Protocol, command *LockCommand, r uint8, use_cached_command bool) (err error) {
+    if use_cached_command {
+        server_protocol, ok := protocol.(*ServerProtocol)
+        if ok {
+            if server_protocol.free_result_command_count >= 0 {
+                result_command := server_protocol.free_result_commands[server_protocol.free_result_command_count]
+                server_protocol.free_result_command_count--
+                result_command.CommandType = command.CommandType
+                result_command.RequestId = command.RequestId
+                result_command.Result = r
+                result_command.DbId = command.DbId
+                result_command.LockId = command.RequestId
+                result_command.LockKey = command.LockKey
+                err := protocol.Write(result_command)
+                server_protocol.FreeLockResultCommand(result_command)
+                return err
+            }
+        }
+    }
+
     result := NewLockResultCommand(command, r, 0)
-    return protocol.Write(result)
+    err = protocol.Write(result)
+    if use_cached_command {
+        server_protocol, ok := protocol.(*ServerProtocol)
+        if ok {
+            server_protocol.FreeLockResultCommand(result)
+        }
+    }
+    return err
 }
 
 func (self *SLock) Log() logging.Logger {

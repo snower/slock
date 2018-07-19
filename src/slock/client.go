@@ -280,7 +280,7 @@ func NewClientLock(db *ClientDB, lock_key [16]byte, timeout uint32, expried uint
 
 func (self *ClientLock) Lock() *ClientLockError{
     request_id := self.db.GetRequestId()
-    command := &LockCommand{Command{MAGIC, VERSION, COMMAND_LOCK, request_id}, 0, self.db.db_id, self.lock_id, self.lock_key, self.timeout, self.expried, [3]byte{}}
+    command := &LockCommand{Command{MAGIC, VERSION, COMMAND_LOCK, request_id}, 0, self.db.db_id, self.lock_id, self.lock_key, self.timeout, self.expried, 0,[1]byte{}}
     result_command, err := self.db.SendLockCommand(command)
     if err != nil {
         return &ClientLockError{RESULT_ERROR, err}
@@ -293,7 +293,7 @@ func (self *ClientLock) Lock() *ClientLockError{
 
 func (self *ClientLock) Unlock() *ClientLockError{
     request_id := self.db.GetRequestId()
-    command := &LockCommand{Command{ MAGIC, VERSION, COMMAND_UNLOCK, request_id}, 0, self.db.db_id, self.lock_id, self.lock_key, self.timeout, self.expried, [3]byte{}}
+    command := &LockCommand{Command{ MAGIC, VERSION, COMMAND_UNLOCK, request_id}, 0, self.db.db_id, self.lock_id, self.lock_key, self.timeout, self.expried, 0,[1]byte{}}
     result_command, err := self.db.SendUnLockCommand(command)
     if err != nil {
         return &ClientLockError{RESULT_ERROR, err}

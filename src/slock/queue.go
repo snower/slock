@@ -50,6 +50,7 @@ func (self *LockQueue) Pop() *Lock{
     }
 
     lock := self.queues[self.head_node_index][self.head_queue_index]
+    self.queues[self.head_node_index][self.head_queue_index] = nil
     self.head_queue_index++
 
     if self.head_queue_index >= self.node_queue_sizes[self.head_node_index] {

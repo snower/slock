@@ -125,7 +125,8 @@ type LockCommand struct {
     LockKey   [16]byte
     Timeout   uint32
     Expried   uint32
-    Blank [3]byte
+    Count     uint16
+    Blank     [1]byte
 }
 
 func NewLockCommand(b []byte) *LockCommand {

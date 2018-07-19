@@ -17,10 +17,14 @@ type ServerProtocol struct {
     slock *SLock
     stream *Stream
     last_lock *Lock
+    free_commands []*LockCommand
+    free_command_count int
+    free_result_commands []*LockResultCommand
+    free_result_command_count int
 }
 
 func NewServerProtocol(slock *SLock, stream *Stream) *ServerProtocol {
-    protocol := &ServerProtocol{slock,stream, nil}
+    protocol := &ServerProtocol{slock,stream, nil, make([]*LockCommand, 64), -1, make([]*LockResultCommand, 64), -1}
     slock.Log().Infof("connection open %s", protocol.RemoteAddr().String())
     return protocol
 }
@@ -60,8 +64,28 @@ func (self *ServerProtocol) Read() (command CommandDecode, err error) {
 
     switch uint8(b[2]) {
     case COMMAND_LOCK:
+        if self.free_command_count >= 0 {
+            lock_command := self.free_commands[self.free_command_count]
+            self.free_command_count--
+            err := lock_command.Decode(b)
+            if err != nil {
+                return nil, nil
+            }
+            return lock_command, nil
+        }
+
         return NewLockCommand(b), nil
     case COMMAND_UNLOCK:
+        if self.free_command_count >= 0 {
+            lock_command := self.free_commands[self.free_command_count]
+            self.free_command_count--
+            err := lock_command.Decode(b)
+            if err != nil {
+                return nil, nil
+            }
+            return lock_command, nil
+        }
+
         return NewLockCommand(b), nil
     case COMMAND_STATE:
         return NewStateCommand(b), nil
@@ -85,6 +109,21 @@ func (self *ServerProtocol) RemoteAddr() net.Addr {
     return self.stream.RemoteAddr()
 }
 
+func (self *ServerProtocol) FreeLockCommand(command *LockCommand) net.Addr {
+    if self.free_command_count < 63 {
+        self.free_command_count++
+        self.free_commands[self.free_command_count] = command
+    }
+    return nil
+}
+
+func (self *ServerProtocol) FreeLockResultCommand(command *LockResultCommand) net.Addr {
+    if self.free_result_command_count < 63 {
+        self.free_result_command_count++
+        self.free_result_commands[self.free_result_command_count] = command
+    }
+    return nil
+}
 
 type ClientProtocol struct {
     stream *Stream
