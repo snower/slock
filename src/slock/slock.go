@@ -87,19 +87,34 @@ func (self *SLock) Handle(protocol *ServerProtocol, command ICommand) (err error
 
 func (self *SLock) Active(protocol *ServerProtocol, command *LockCommand, r uint8, use_cached_command bool) (err error) {
     if use_cached_command {
-        if protocol.free_result_command_count >= 0 {
-            result_command := protocol.free_result_commands[protocol.free_result_command_count]
-            protocol.free_result_command_count--
-            result_command.CommandType = command.CommandType
-            result_command.RequestId = command.RequestId
-            result_command.Result = r
-            result_command.DbId = command.DbId
-            result_command.LockId = command.RequestId
-            result_command.LockKey = command.LockKey
-            err := protocol.Write(result_command, use_cached_command)
-            protocol.FreeLockResultCommand(result_command)
-            return err
+        buf := protocol.wbuf
+        buf[2] = byte(command.CommandType)
+
+        for i := 0; i < 16; i+=4 {
+            buf[3 + i] = command.RequestId[i]
+            buf[4 + i] = command.RequestId[i + 1]
+            buf[5 + i] = command.RequestId[i + 2]
+            buf[6 + i] = command.RequestId[i + 3]
         }
+
+        buf[19] = uint8(r)
+        buf[21] = byte(command.DbId)
+
+        for i := 0; i < 16; i+=4 {
+            buf[22 + i] = command.LockId[i]
+            buf[23 + i] = command.LockId[i + 1]
+            buf[24 + i] = command.LockId[i + 2]
+            buf[25 + i] = command.LockId[i + 3]
+        }
+
+        for i := 0; i < 16; i+=4 {
+            buf[38 + i] = command.LockKey[i]
+            buf[39 + i] = command.LockKey[i + 1]
+            buf[40 + i] = command.LockKey[i + 2]
+            buf[41 + i] = command.LockKey[i + 3]
+        }
+        
+        return protocol.stream.WriteBytes(buf)
     }
 
     result := NewLockResultCommand(command, r, 0)
