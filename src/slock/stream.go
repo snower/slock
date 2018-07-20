@@ -23,17 +23,16 @@ func NewStream(server *Server, client *Client, conn net.Conn) *Stream {
     return stream
 }
 
-func (self *Stream) ReadBytes(n int) (b []byte, err error) {
+func (self *Stream) ReadBytes(b []byte) (int, error) {
     if self.closed {
-        return nil, errors.New("stream closed")
+        return 0, errors.New("stream closed")
     }
 
-    b = make([]byte, n)
-    n, err = self.conn.Read(b)
+    n, err := self.conn.Read(b)
     if err == io.EOF {
-        return nil, io.EOF
+        return 0, io.EOF
     }
-    return b, err
+    return n, nil
 }
 
 func (self *Stream) Read(b []byte) (n int, err error) {

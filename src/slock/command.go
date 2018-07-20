@@ -34,11 +34,11 @@ type ICommand interface {
 }
 
 type CommandDecode interface {
-    Decode([]byte) error
+    Decode(buf *Buffer) error
 }
 
 type CommandEncode interface {
-    Encode() ([]byte, error)
+    Encode(buf *Buffer) error
 }
 
 type Command struct {
@@ -48,29 +48,31 @@ type Command struct {
     RequestId [16]byte
 }
 
-func NewCommand(b []byte) *Command {
+func NewCommand(buf *Buffer) *Command {
     command := Command{}
-    if command.Decode(b) != nil {
+    if command.Decode(buf) != nil {
         return nil
     }
 
     return &command
 }
 
-func (self *Command) Decode(b []byte) error{
-    reader := bytes.NewReader(b)
-    return binary.Read(reader, binary.LittleEndian, self)
+func (self *Command) Decode(buf *Buffer) error{
+    return binary.Read(buf, binary.LittleEndian, self)
 }
 
-func (self *Command) Encode() (b []byte, err error) {
-    buf := new(bytes.Buffer)
-    err = binary.Write(buf, binary.LittleEndian, self)
+func (self *Command) Encode(buf *Buffer) error {
+    wbuf := new(bytes.Buffer)
+
+    err := binary.Write(wbuf, binary.LittleEndian, self)
     if err != nil {
-        return buf.Bytes(), err
+        return err
     }
 
-    err = binary.Write(buf, binary.LittleEndian, make([]byte, 45))
-    return buf.Bytes(), err
+    err = binary.Write(wbuf, binary.LittleEndian, make([]byte, 45))
+
+    buf.Write(wbuf.Bytes())
+    return err
 }
 
 func (self *Command) GetCommandType() uint8{
@@ -93,20 +95,22 @@ func NewResultCommand(command ICommand, result uint8) *ResultCommand {
     return &ResultCommand{MAGIC, VERSION, command.GetCommandType(), command.GetRequestId(), result}
 }
 
-func (self *ResultCommand) Decode(b []byte) error{
-    reader := bytes.NewReader(b)
-    return binary.Read(reader, binary.LittleEndian, self)
+func (self *ResultCommand) Decode(buf *Buffer) error{
+    return binary.Read(buf, binary.LittleEndian, self)
 }
 
-func (self *ResultCommand) Encode() (b []byte, err error) {
-    buf := new(bytes.Buffer)
-    err = binary.Write(buf, binary.LittleEndian, self)
+func (self *ResultCommand) Encode(buf *Buffer) error {
+    wbuf := new(bytes.Buffer)
+
+    err := binary.Write(wbuf, binary.LittleEndian, self)
     if err != nil {
-        return buf.Bytes(), err
+        return err
     }
 
-    err = binary.Write(buf, binary.LittleEndian, make([]byte, 44))
-    return buf.Bytes(), err
+    err = binary.Write(wbuf, binary.LittleEndian, make([]byte, 44))
+
+    buf.Write(wbuf.Bytes())
+    return err
 }
 
 func (self *ResultCommand) GetCommandType() uint8{
@@ -129,23 +133,20 @@ type LockCommand struct {
     Blank     [1]byte
 }
 
-func NewLockCommand(b []byte) *LockCommand {
+func NewLockCommand(buf *Buffer) *LockCommand {
     command := LockCommand{}
-    if command.Decode(b) != nil {
+    if command.Decode(buf) != nil {
         return nil
     }
     return &command
 }
 
-func (self *LockCommand) Decode(b []byte) error{
-    reader := bytes.NewReader(b)
-    return binary.Read(reader, binary.LittleEndian, self)
+func (self *LockCommand) Decode(buf *Buffer) error{
+    return binary.Read(buf, binary.LittleEndian, self)
 }
 
-func (self *LockCommand) Encode() (b []byte, err error) {
-    buf := new(bytes.Buffer)
-    err = binary.Write(buf, binary.LittleEndian, self)
-    return buf.Bytes(), err
+func (self *LockCommand) Encode(buf *Buffer) error {
+    return binary.Write(buf, binary.LittleEndian, self)
 }
 
 var RESULT_LOCK_COMMAND_BLANK_BYTERS = [10]byte{}
@@ -164,15 +165,12 @@ func NewLockResultCommand(command *LockCommand, result uint8, flag uint8) *LockR
     return &LockResultCommand{result_command, flag, command.DbId, command.LockId, command.LockKey, RESULT_LOCK_COMMAND_BLANK_BYTERS}
 }
 
-func (self *LockResultCommand) Decode(b []byte) error{
-    reader := bytes.NewReader(b)
-    return binary.Read(reader, binary.LittleEndian, self)
+func (self *LockResultCommand) Decode(buf *Buffer) error{
+    return binary.Read(buf, binary.LittleEndian, self)
 }
 
-func (self *LockResultCommand) Encode() (b []byte, err error) {
-    buf := new(bytes.Buffer)
-    err = binary.Write(buf, binary.LittleEndian, self)
-    return buf.Bytes(), err
+func (self *LockResultCommand) Encode(buf *Buffer) error {
+    return binary.Write(buf, binary.LittleEndian, self)
 }
 
 type StateCommand struct {
@@ -182,23 +180,20 @@ type StateCommand struct {
     Blank [43]byte
 }
 
-func NewStateCommand(b []byte) *StateCommand {
+func NewStateCommand(buf *Buffer) *StateCommand {
     command := StateCommand{}
-    if command.Decode(b) != nil {
+    if command.Decode(buf) != nil {
         return nil
     }
     return &command
 }
 
-func (self *StateCommand) Decode(b []byte) error{
-    reader := bytes.NewReader(b)
-    return binary.Read(reader, binary.LittleEndian, self)
+func (self *StateCommand) Decode(buf *Buffer) error{
+    return binary.Read(buf, binary.LittleEndian, self)
 }
 
-func (self *StateCommand) Encode() (b []byte, err error) {
-    buf := new(bytes.Buffer)
-    err = binary.Write(buf, binary.LittleEndian, self)
-    return buf.Bytes(), err
+func (self *StateCommand) Encode(buf *Buffer) error {
+    return binary.Write(buf, binary.LittleEndian, self)
 }
 
 type ResultStateCommand struct {
@@ -218,13 +213,10 @@ func NewStateResultCommand(command *StateCommand, result uint8, flag uint8, db_s
     return &ResultStateCommand{result_command, flag, db_state, command.DbId, *state, [1]byte{}}
 }
 
-func (self *ResultStateCommand) Decode(b []byte) error{
-    reader := bytes.NewReader(b)
-    return binary.Read(reader, binary.LittleEndian, self)
+func (self *ResultStateCommand) Decode(buf *Buffer) error{
+    return binary.Read(buf, binary.LittleEndian, self)
 }
 
-func (self *ResultStateCommand) Encode() (b []byte, err error) {
-    buf := new(bytes.Buffer)
-    err = binary.Write(buf, binary.LittleEndian, self)
-    return buf.Bytes(), err
+func (self *ResultStateCommand) Encode(buf *Buffer) error {
+    return binary.Write(buf, binary.LittleEndian, self)
 }

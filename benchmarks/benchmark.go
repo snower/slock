@@ -24,6 +24,12 @@ func bench(client_count int, concurrentc int, max_count int)  {
     fmt.Printf("Run %d Client, %d concurrentc, %d\n", client_count, concurrentc, max_count)
 
     clients := make([]*slock.Client, client_count)
+    defer func() {
+        for _, c := range clients {
+            c.Close()
+        }
+    }()
+
     for c := 0; c < client_count; c++ {
         client := slock.NewClient("127.0.0.1", 5658)
         err := client.Open()
@@ -49,10 +55,6 @@ func bench(client_count int, concurrentc int, max_count int)  {
     end_time := time.Now().UnixNano()
     pt := float64(end_time - start_time) / 1000000000.0
     fmt.Printf("%d %fs %fr/s\n\n", count, pt, float64(count) / pt)
-
-    for _, c := range clients {
-        c.Close()
-    }
 }
 
 func main()  {
@@ -67,6 +69,10 @@ func main()  {
     bench(16, 64, 500000)
 
     bench(16, 256, 500000)
+
+    bench(64, 512, 500000)
+
+    bench(512, 512, 500000)
 
     bench(64, 4096, 500000)
 

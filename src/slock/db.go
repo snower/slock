@@ -237,6 +237,13 @@ func (self *LockDB) RemoveLockManager(lock_manager *LockManager) (err error) {
                 }
                 self.free_lock_manager_count++
                 self.free_lock_managers[self.free_lock_manager_count] = lock_manager
+            } else {
+                lock_manager.current_lock = nil
+                lock_manager.locks = nil
+                lock_manager.lock_maps = nil
+                lock_manager.wait_locks = nil
+                lock_manager.free_locks = nil
+                lock_manager.free_lock_count = -1
             }
             self.state.KeyCount--
         }
