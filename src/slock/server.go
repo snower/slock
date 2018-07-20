@@ -69,9 +69,11 @@ func (self *Server) Handle(stream *Stream) (err error) {
     for {
         command, err := protocol.Read()
         if err != nil {
+            self.slock.Log().Infof("read command error: %v", err)
             break
         }
         if command == nil {
+            self.slock.Log().Infof("read command decode error", err)
             break
         }
         self.slock.Handle(protocol, command.(ICommand))
