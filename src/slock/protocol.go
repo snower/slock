@@ -16,8 +16,7 @@ type ServerProtocol struct {
     slock *SLock
     stream *Stream
     rbuf []byte
-    wbufs [][]byte
-    wbuf_index int
+    wbuf []byte
     last_lock *Lock
     free_commands []*LockCommand
     free_command_count int
@@ -26,7 +25,7 @@ type ServerProtocol struct {
 }
 
 func NewServerProtocol(slock *SLock, stream *Stream) *ServerProtocol {
-    protocol := &ServerProtocol{slock,stream, make([]byte, 64), make([][]byte, 64), -1, nil, make([]*LockCommand, 64), -1, make([]*LockResultCommand, 64), -1}
+    protocol := &ServerProtocol{slock,stream, make([]byte, 64), make([]byte, 64), nil, make([]*LockCommand, 64), -1, make([]*LockResultCommand, 64), -1}
     slock.Log().Infof("connection open %s", protocol.RemoteAddr().String())
     return protocol
 }
@@ -102,22 +101,11 @@ func (self *ServerProtocol) Read() (command CommandDecode, err error) {
 
 func (self *ServerProtocol) Write(result CommandEncode, use_cached bool) (err error) {
     if use_cached {
-        if self.wbuf_index >= 0 {
-            wbuf := self.wbufs[self.wbuf_index]
-            self.wbuf_index--
-            err = result.Encode(wbuf)
-            if err != nil {
-                return err
-            }
-            err = self.stream.WriteBytes(wbuf)
-            if use_cached {
-                if self.wbuf_index < 64 {
-                    self.wbuf_index++
-                    self.wbufs[self.wbuf_index] = wbuf
-                }
-            }
+        err = result.Encode(self.wbuf)
+        if err != nil {
             return err
         }
+        return self.stream.WriteBytes(self.wbuf)
     }
 
     wbuf := make([]byte, 64)
@@ -125,14 +113,7 @@ func (self *ServerProtocol) Write(result CommandEncode, use_cached bool) (err er
     if err != nil {
         return err
     }
-    err = self.stream.WriteBytes(wbuf)
-    if use_cached {
-        if self.wbuf_index < 64 {
-            self.wbuf_index++
-            self.wbufs[self.wbuf_index] = wbuf
-        }
-    }
-    return err
+    return self.stream.WriteBytes(wbuf)
 }
 
 func (self *ServerProtocol) RemoteAddr() net.Addr {
