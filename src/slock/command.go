@@ -230,7 +230,7 @@ func (self *LockCommand) Encode(buf []byte) error {
     buf[61] = byte(self.Count)
     buf[62] = byte(self.Count >> 8)
 
-    buf[63] = self.Blank[0]
+    buf[63] = 0x00
 
     return nil
 }
@@ -315,13 +315,13 @@ func (self *LockResultCommand) Encode(buf []byte) error {
     }
 
     for i := 0; i < 8; i+=4 {
-        buf[54+i] = self.Blank[i]
-        buf[55+i] = self.Blank[i]
-        buf[56+i] = self.Blank[i]
-        buf[57+i] = self.Blank[i]
+        buf[54+i] = 0x00
+        buf[55+i] = 0x00
+        buf[56+i] = 0x00
+        buf[57+i] = 0x00
     }
-    buf[62] = self.Blank[8]
-    buf[63] = self.Blank[9]
+    buf[62] = 0x00
+    buf[63] = 0x00
 
     return nil
 }
@@ -369,7 +369,7 @@ func (self *StateCommand) Encode(buf []byte) error {
     buf[20] = byte(self.DbId)
 
     for i :=0; i<43; i++ {
-        buf[21 + i] = self.Blank[i]
+        buf[21 + i] = 0x00
     }
 
     return nil
@@ -480,7 +480,7 @@ func (self *ResultStateCommand) Encode(buf []byte) error {
     buf[61] = byte(self.State.KeyCount >> 16)
     buf[62] = byte(self.State.KeyCount >> 24)
 
-    buf[63] = self.Blank[0]
+    buf[63] = 0x00
 
     return nil
 }
