@@ -118,11 +118,7 @@ func (self *SLock) Active(protocol *ServerProtocol, command *LockCommand, r uint
     }
 
     result := NewLockResultCommand(command, r, 0)
-    err = protocol.Write(result, use_cached_command)
-    if use_cached_command {
-        protocol.FreeLockResultCommand(result)
-    }
-    return err
+    return protocol.Write(result, use_cached_command)
 }
 
 func (self *SLock) Log() logging.Logger {
