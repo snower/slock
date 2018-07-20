@@ -25,7 +25,11 @@ type ServerProtocol struct {
 }
 
 func NewServerProtocol(slock *SLock, stream *Stream) *ServerProtocol {
-    protocol := &ServerProtocol{slock,stream, make([]byte, 64), make([]byte, 64), nil, make([]*LockCommand, 64), -1, make([]*LockResultCommand, 64), -1}
+    wbuf := make([]byte, 64)
+    wbuf[0] = byte(MAGIC)
+    wbuf[1] = byte(VERSION)
+    
+    protocol := &ServerProtocol{slock, stream, make([]byte, 64), wbuf, nil, make([]*LockCommand, 64), -1, make([]*LockResultCommand, 64), -1}
     slock.Log().Infof("connection open %s", protocol.RemoteAddr().String())
     return protocol
 }
