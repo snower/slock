@@ -134,50 +134,77 @@ func NewClientDB(db_id uint8, client *Client, protocol *ClientProtocol) *ClientD
 }
 
 func (self *ClientDB) HandleLockCommandResult (command *LockResultCommand) error {
-    defer self.glock.Unlock()
     self.glock.Lock()
 
     request, ok := self.requests[command.RequestId]
     if ok {
-        request <- command
         delete(self.requests, command.RequestId)
+        self.glock.Unlock()
+
+        request <- command
+        return nil
     }
+
+    self.glock.Unlock()
     return nil
 }
 
 func (self *ClientDB) HandleUnLockCommandResult (command *LockResultCommand) error {
-    defer self.glock.Unlock()
     self.glock.Lock()
 
     request, ok := self.requests[command.RequestId]
     if ok {
-        request <- command
         delete(self.requests, command.RequestId)
+        self.glock.Unlock()
+
+        request <- command
+        return nil
     }
+
+    self.glock.Unlock()
     return nil
 }
 
 func (self *ClientDB) HandleStateCommandResult (command *ResultStateCommand) error {
-    defer self.glock.Unlock()
     self.glock.Lock()
 
     request, ok := self.requests[command.RequestId]
     if ok {
-        request <- command
         delete(self.requests, command.RequestId)
+        self.glock.Unlock()
+
+        request <- command
+        return nil
     }
+
+    self.glock.Unlock()
     return nil
 }
 
 func (self *ClientDB) SendLockCommand(command *LockCommand) (*LockResultCommand, error) {
-    err := self.protocol.Write(command)
-    if err != nil {
-        return nil, err
-    }
-    self.glock.Lock()
     waiter := make(chan ICommand)
+
+    self.glock.Lock()
+    _, ok := self.requests[command.RequestId]
+    if ok {
+        self.glock.Unlock()
+        return nil, errors.New("request used")
+    }
+
     self.requests[command.RequestId] = waiter
     self.glock.Unlock()
+
+    err := self.protocol.Write(command)
+    if err != nil {
+        self.glock.Lock()
+        _, ok := self.requests[command.RequestId]
+        if ok {
+            delete(self.requests, command.RequestId)
+        }
+        self.glock.Unlock()
+        return nil, err
+    }
+
     result_command := <-waiter
     if result_command == nil {
         return nil, errors.New("wait timeout")
@@ -186,14 +213,29 @@ func (self *ClientDB) SendLockCommand(command *LockCommand) (*LockResultCommand,
 }
 
 func (self *ClientDB) SendUnLockCommand(command *LockCommand) (*LockResultCommand, error) {
-    err := self.protocol.Write(command)
-    if err != nil {
-        return nil, err
-    }
-    self.glock.Lock()
     waiter := make(chan ICommand)
+
+    self.glock.Lock()
+    _, ok := self.requests[command.RequestId]
+    if ok {
+        self.glock.Unlock()
+        return nil, errors.New("request used")
+    }
+
     self.requests[command.RequestId] = waiter
     self.glock.Unlock()
+
+    err := self.protocol.Write(command)
+    if err != nil {
+        self.glock.Lock()
+        _, ok := self.requests[command.RequestId]
+        if ok {
+            delete(self.requests, command.RequestId)
+        }
+        self.glock.Unlock()
+        return nil, err
+    }
+
     result_command := <-waiter
     if result_command == nil {
         return nil, errors.New("wait timeout")
@@ -202,14 +244,29 @@ func (self *ClientDB) SendUnLockCommand(command *LockCommand) (*LockResultComman
 }
 
 func (self *ClientDB) SendStateCommand(command *StateCommand) (*ResultStateCommand, error) {
-    err := self.protocol.Write(command)
-    if err != nil {
-        return nil, err
-    }
-    self.glock.Lock()
     waiter := make(chan ICommand)
+
+    self.glock.Lock()
+    _, ok := self.requests[command.RequestId]
+    if ok {
+        self.glock.Unlock()
+        return nil, errors.New("request used")
+    }
+
     self.requests[command.RequestId] = waiter
     self.glock.Unlock()
+
+    err := self.protocol.Write(command)
+    if err != nil {
+        self.glock.Lock()
+        _, ok := self.requests[command.RequestId]
+        if ok {
+            delete(self.requests, command.RequestId)
+        }
+        self.glock.Unlock()
+        return nil, err
+    }
+
     result_command := <-waiter
     if result_command == nil {
         return nil, errors.New("wait timeout")
