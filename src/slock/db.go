@@ -261,7 +261,7 @@ func (self *LockDB) AddTimeOut(lock *Lock) (err error) {
     }
 
     if lock.timeout_checked_count >= 8 {
-        timeout_time := self.check_timeout_time + 179
+        timeout_time := self.check_timeout_time + 150
         if lock.timeout_time < timeout_time {
             timeout_time = lock.timeout_time
             if timeout_time < self.check_timeout_time {
@@ -326,7 +326,7 @@ func (self *LockDB) AddExpried(lock *Lock) (err error) {
     }
 
     if lock.expried_checked_count >= 7 {
-        expried_time := self.check_expried_time + 179
+        expried_time := self.check_expried_time + 150
         if lock.expried_time < expried_time {
             expried_time = lock.expried_time
             if expried_time < self.check_expried_time {
