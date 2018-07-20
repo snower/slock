@@ -158,19 +158,28 @@ func (self *LockCommand) Decode(buf []byte) error{
     self.Version = uint8(buf[1])
     self.CommandType = uint8(buf[2])
 
-    for i := 0; i < 16; i++{
+    for i := 0; i < 16; i+=4{
         self.RequestId[i] = buf[3 + i]
+        self.RequestId[i + 1] = buf[4 + i]
+        self.RequestId[i + 2] = buf[5 + i]
+        self.RequestId[i + 3] = buf[6 + i]
     }
 
     self.Flag = uint8(buf[19])
     self.DbId = uint8(buf[20])
 
-    for i := 0; i < 16; i++{
+    for i := 0; i < 16; i+=4{
         self.LockId[i] = buf[21 + i]
+        self.LockId[i + 1] = buf[22 + i]
+        self.LockId[i + 2] = buf[23 + i]
+        self.LockId[i + 3] = buf[24 + i]
     }
 
-    for i := 0; i < 16; i++{
+    for i := 0; i < 16; i+=4{
         self.LockKey[i] = buf[37 + i]
+        self.LockKey[i + 1] = buf[38 + i]
+        self.LockKey[i + 2] = buf[39 + i]
+        self.LockKey[i + 3] = buf[40 + i]
     }
 
     self.Timeout = uint32(buf[53]) | uint32(buf[54])<<8 | uint32(buf[55])<<16 | uint32(buf[56])<<24
@@ -184,19 +193,28 @@ func (self *LockCommand) Encode(buf []byte) error {
     buf[1] = byte(self.Version)
     buf[2] = byte(self.CommandType)
 
-    for i := 0; i < 16; i++ {
+    for i := 0; i < 16; i+=4 {
         buf[3 + i] = self.RequestId[i]
+        buf[4 + i] = self.RequestId[i + 1]
+        buf[5 + i] = self.RequestId[i + 2]
+        buf[6 + i] = self.RequestId[i + 3]
     }
 
     buf[19] = byte(self.Flag)
     buf[20] = byte(self.DbId)
 
-    for i := 0; i < 16; i++ {
+    for i := 0; i < 16; i+=4 {
         buf[21 + i] = self.LockId[i]
+        buf[22 + i] = self.LockId[i + 1]
+        buf[23 + i] = self.LockId[i + 2]
+        buf[24 + i] = self.LockId[i + 3]
     }
 
-    for i := 0; i < 16; i++ {
+    for i := 0; i < 16; i+=4 {
         buf[37 + i] = self.LockKey[i]
+        buf[38 + i] = self.LockKey[i + 1]
+        buf[39 + i] = self.LockKey[i + 2]
+        buf[40 + i] = self.LockKey[i + 3]
     }
 
     buf[53] = byte(self.Timeout)
@@ -238,20 +256,29 @@ func (self *LockResultCommand) Decode(buf []byte) error{
     self.Version = uint8(buf[1])
     self.CommandType = uint8(buf[2])
 
-    for i := 0; i < 16; i++{
+    for i := 0; i < 16; i+=4{
         self.RequestId[i] = buf[3 + i]
+        self.RequestId[i + 1] = buf[4 + i]
+        self.RequestId[i + 2] = buf[5 + i]
+        self.RequestId[i + 3] = buf[6 + i]
     }
 
     self.Result = uint8(buf[19])
     self.Flag = uint8(buf[20])
     self.DbId = uint8(buf[21])
 
-    for i := 0; i < 16; i++{
+    for i := 0; i < 16; i+=4{
         self.LockId[i] = buf[22 + i]
+        self.LockId[i + 1] = buf[23 + i]
+        self.LockId[i + 2] = buf[24 + i]
+        self.LockId[i + 3] = buf[25 + i]
     }
 
-    for i := 0; i < 16; i++{
+    for i := 0; i < 16; i+=4{
         self.LockKey[i] = buf[38 + i]
+        self.LockKey[i + 1] = buf[39 + i]
+        self.LockKey[i + 2] = buf[40 + i]
+        self.LockKey[i + 3] = buf[41 + i]
     }
 
     return nil
@@ -262,25 +289,39 @@ func (self *LockResultCommand) Encode(buf []byte) error {
     buf[1] = byte(self.Version)
     buf[2] = byte(self.CommandType)
 
-    for i := 0; i < 16; i++ {
+    for i := 0; i < 16; i+=4 {
         buf[3 + i] = self.RequestId[i]
+        buf[4 + i] = self.RequestId[i + 1]
+        buf[5 + i] = self.RequestId[i + 2]
+        buf[6 + i] = self.RequestId[i + 3]
     }
 
     buf[19] = uint8(self.Result)
     buf[20] = byte(self.Flag)
     buf[21] = byte(self.DbId)
 
-    for i := 0; i < 16; i++ {
+    for i := 0; i < 16; i+=4 {
         buf[22 + i] = self.LockId[i]
+        buf[23 + i] = self.LockId[i + 1]
+        buf[24 + i] = self.LockId[i + 2]
+        buf[25 + i] = self.LockId[i + 3]
     }
 
-    for i := 0; i < 16; i++ {
+    for i := 0; i < 16; i+=4 {
         buf[38 + i] = self.LockKey[i]
+        buf[39 + i] = self.LockKey[i + 1]
+        buf[40 + i] = self.LockKey[i + 2]
+        buf[41 + i] = self.LockKey[i + 3]
     }
 
-    for i :=0; i<10; i++ {
-        buf[54 + i] = self.Blank[i]
+    for i := 0; i < 8; i+=4 {
+        buf[54+i] = self.Blank[i]
+        buf[55+i] = self.Blank[i]
+        buf[56+i] = self.Blank[i]
+        buf[57+i] = self.Blank[i]
     }
+    buf[62] = self.Blank[8]
+    buf[63] = self.Blank[9]
 
     return nil
 }
