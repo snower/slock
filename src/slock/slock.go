@@ -50,10 +50,10 @@ func (self *SLock) GetState(protocol *ServerProtocol, command *StateCommand) (er
     }
 
     if db == nil {
-        protocol.Write(NewStateResultCommand(command, RESULT_SUCCED, 0, db_state, nil))
+        protocol.Write(NewStateResultCommand(command, RESULT_SUCCED, 0, db_state, nil), true)
         return nil
     }
-    protocol.Write(NewStateResultCommand(command, RESULT_SUCCED, 0, db_state, db.GetState()))
+    protocol.Write(NewStateResultCommand(command, RESULT_SUCCED, 0, db_state, db.GetState()), true)
     return nil
 }
 
@@ -80,7 +80,7 @@ func (self *SLock) Handle(protocol *ServerProtocol, command ICommand) (err error
         self.GetState(protocol, command.(*StateCommand))
 
     default:
-        protocol.Write(NewResultCommand(command, RESULT_UNKNOWN_COMMAND))
+        protocol.Write(NewResultCommand(command, RESULT_UNKNOWN_COMMAND), true)
     }
     return nil
 }
@@ -96,14 +96,14 @@ func (self *SLock) Active(protocol *ServerProtocol, command *LockCommand, r uint
             result_command.DbId = command.DbId
             result_command.LockId = command.RequestId
             result_command.LockKey = command.LockKey
-            err := protocol.Write(result_command)
+            err := protocol.Write(result_command, use_cached_command)
             protocol.FreeLockResultCommand(result_command)
             return err
         }
     }
 
     result := NewLockResultCommand(command, r, 0)
-    err = protocol.Write(result)
+    err = protocol.Write(result, use_cached_command)
     if use_cached_command {
         protocol.FreeLockResultCommand(result)
     }
