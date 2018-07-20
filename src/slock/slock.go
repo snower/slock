@@ -98,6 +98,7 @@ func (self *SLock) Active(protocol *ServerProtocol, command *LockCommand, r uint
         }
 
         buf[19] = uint8(r)
+        buf[20] = 0x00
         buf[21] = byte(command.DbId)
 
         for i := 0; i < 16; i+=4 {
@@ -113,6 +114,15 @@ func (self *SLock) Active(protocol *ServerProtocol, command *LockCommand, r uint
             buf[40 + i] = command.LockKey[i + 2]
             buf[41 + i] = command.LockKey[i + 3]
         }
+        
+        for i := 0; i < 8; i+=4 {
+            buf[54 + i] = 0x00
+            buf[55 + i] = 0x00
+            buf[56 + i] = 0x00
+            buf[57 + i] = 0x00
+        }
+        buf[62] = 0x00
+        buf[63] = 0x00
         
         return protocol.stream.WriteBytes(buf)
     }
