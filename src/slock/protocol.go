@@ -28,7 +28,7 @@ func NewServerProtocol(slock *SLock, stream *Stream) *ServerProtocol {
     wbuf[0] = byte(MAGIC)
     wbuf[1] = byte(VERSION)
     
-    protocol := &ServerProtocol{slock, stream, make([]byte, 64), wbuf, make([]*LockCommand, 64), -1, make([]*LockResultCommand, 64), -1}
+    protocol := &ServerProtocol{slock, stream, make([]byte, 64), wbuf, make([]*LockCommand, 8192), -1, make([]*LockResultCommand, 8192), -1}
     slock.Log().Infof("connection open %s", protocol.RemoteAddr().String())
     return protocol
 }
@@ -118,7 +118,7 @@ func (self *ServerProtocol) RemoteAddr() net.Addr {
 }
 
 func (self *ServerProtocol) FreeLockCommand(command *LockCommand) net.Addr {
-    if self.free_command_count < 63 {
+    if self.free_command_count < 8191 {
         self.free_command_count++
         self.free_commands[self.free_command_count] = command
     }
@@ -126,7 +126,7 @@ func (self *ServerProtocol) FreeLockCommand(command *LockCommand) net.Addr {
 }
 
 func (self *ServerProtocol) FreeLockResultCommand(command *LockResultCommand) net.Addr {
-    if self.free_result_command_count < 63 {
+    if self.free_result_command_count < 8191 {
         self.free_result_command_count++
         self.free_result_commands[self.free_result_command_count] = command
     }

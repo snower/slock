@@ -43,7 +43,7 @@ func NewLockDB(slock *SLock) *LockDB {
     }
     now := time.Now().Unix()
     state := LockDBState{0, 0, 0, 0, 0, 0, 0, 0}
-    db := &LockDB{slock, make(map[[16]byte]*LockManager, 0), make(map[int64][]*LockQueue, 0), make(map[int64][]*LockQueue, 0), now, now, sync.Mutex{}, manager_glocks, 0, manager_max_glocks, false, state, make([]*LockManager, 4096), -1}
+    db := &LockDB{slock, make(map[[16]byte]*LockManager, 0), make(map[int64][]*LockQueue, 0), make(map[int64][]*LockQueue, 0), now, now, sync.Mutex{}, manager_glocks, 0, manager_max_glocks, false, state, make([]*LockManager, 0xffff), -1}
     db.ResizeTimeOut()
     db.ResizeExpried()
     go db.CheckTimeOut()
@@ -231,8 +231,14 @@ func (self *LockDB) RemoveLockManager(lock_manager *LockManager) (err error) {
         if ok && current_lock_manager == lock_manager {
             delete(self.locks, lock_manager.lock_key)
             lock_manager.freed = true
+            atomic.AddUint32(&self.state.KeyCount, 0xffffffff)
 
-            if self.free_lock_manager_count < 4095 {
+            count := int(4095 + self.state.KeyCount / 2)
+            if count >= 65535 {
+                count = 65534
+            }
+
+            if self.free_lock_manager_count < count {
                 lock_manager.locked = 0
                 if lock_manager.locks != nil {
                     lock_manager.locks.Reset()
@@ -250,7 +256,26 @@ func (self *LockDB) RemoveLockManager(lock_manager *LockManager) (err error) {
                 lock_manager.free_locks = nil
                 lock_manager.free_lock_count = -1
             }
-            atomic.AddUint32(&self.state.KeyCount, 0xffffffff)
+
+            if self.state.KeyCount <= 4096 {
+                count = int(self.state.KeyCount)
+                if count < 8 {
+                    count = 8
+                }
+
+                for ; self.free_lock_manager_count >= count; {
+                    lock_manager = self.free_lock_managers[self.free_lock_manager_count]
+                    self.free_lock_managers[self.free_lock_manager_count] = nil
+                    self.free_lock_manager_count--
+
+                    lock_manager.current_lock = nil
+                    lock_manager.locks = nil
+                    lock_manager.lock_maps = nil
+                    lock_manager.wait_locks = nil
+                    lock_manager.free_locks = nil
+                    lock_manager.free_lock_count = -1
+                }
+            }
         }
     }
 
