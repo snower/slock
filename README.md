@@ -10,7 +10,7 @@ High-performance distributed shared lock service, Support sync Lock and Event.
 
 ```
 git clone https://github.com/snower/slock.git
-cd slock && go get && ./build.sh
+cd slock && ./init.sh && ./build.sh
 ```
 
 # Start
