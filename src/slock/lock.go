@@ -18,10 +18,11 @@ type LockManager struct {
     glock_index    int
     free_locks     []*Lock
     free_lock_count int
+    freed           bool
 }
 
 func NewLockManager(lock_db *LockDB, command *LockCommand, glock *sync.Mutex, glock_index int) *LockManager {
-    return &LockManager{lock_db,0, command.DbId, command.LockKey, nil, nil, nil, nil, glock, glock_index, nil, -1}
+    return &LockManager{lock_db,0, command.DbId, command.LockKey, nil, nil, nil, nil, glock, glock_index, nil, -1, false}
 }
 
 func (self *LockManager) GetDB() *LockDB{
@@ -135,8 +136,8 @@ func (self *LockManager) GetWaitLock() *Lock {
     lock := self.wait_locks.Head()
     for ; lock != nil; {
         if lock.timeouted {
-            lock.wait_freed = true
             self.wait_locks.Pop()
+            lock.wait_freed = true
             lock = self.wait_locks.Head()
         }
         return lock

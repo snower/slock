@@ -10,8 +10,19 @@ func run(client *slock.Client, count *int, max_count int, end_count *int) {
     for ;; {
         lock_key := client.SelectDB(0).GenLockId()
         lock := client.Lock(lock_key, 5, 5)
-        lock.Lock()
-        lock.Unlock()
+
+        err := lock.Lock()
+        if err != nil {
+            fmt.Printf("Lock Error %v\n", err)
+            continue
+        }
+
+        err = lock.Unlock()
+        if err != nil {
+            fmt.Printf("UnLock Error %v\n", err)
+            continue
+        }
+
         *count++
         if *count > max_count {
             *end_count++
@@ -39,6 +50,7 @@ func bench(client_count int, concurrentc int, max_count int)  {
         }
         clients[c] = client
     }
+    fmt.Printf("Client Opened %d\n", len(clients))
 
     var count int
     var end_count int

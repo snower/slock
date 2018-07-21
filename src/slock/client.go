@@ -39,7 +39,20 @@ func (self *Client) Open() error {
 
 func (self *Client) Handle(stream *Stream) (err error) {
     protocol := NewClientProtocol(stream)
-    defer protocol.Close()
+
+    defer func() {
+        defer self.glock.Unlock()
+        self.glock.Lock()
+
+        protocol.Close()
+
+        for _, db := range self.dbs {
+            if db != nil {
+                db.HandleClose()
+            }
+        }
+    }()
+
     for {
         command, err := protocol.Read()
         if err != nil {
@@ -51,6 +64,7 @@ func (self *Client) Handle(stream *Stream) (err error) {
 
         go self.HandleCommand(command.(ICommand))
     }
+
     return nil
 }
 
@@ -131,6 +145,18 @@ type ClientDB struct {
 
 func NewClientDB(db_id uint8, client *Client, protocol *ClientProtocol) *ClientDB {
     return &ClientDB{db_id, client, protocol, make(map[[16]byte]chan ICommand, 0), sync.Mutex{}}
+}
+
+func (self *ClientDB) HandleClose() error {
+    defer self.glock.Unlock()
+    self.glock.Lock()
+
+    for request_id := range self.requests {
+        self.requests[request_id] <- nil
+    }
+
+    self.requests = make(map[[16]byte]chan ICommand, 0)
+    return nil
 }
 
 func (self *ClientDB) HandleLockCommandResult (command *LockResultCommand) error {

@@ -17,7 +17,6 @@ type ServerProtocol struct {
     stream *Stream
     rbuf []byte
     wbuf []byte
-    last_lock *Lock
     free_commands []*LockCommand
     free_command_count int
     free_result_commands []*LockResultCommand
@@ -29,18 +28,12 @@ func NewServerProtocol(slock *SLock, stream *Stream) *ServerProtocol {
     wbuf[0] = byte(MAGIC)
     wbuf[1] = byte(VERSION)
     
-    protocol := &ServerProtocol{slock, stream, make([]byte, 64), wbuf, nil, make([]*LockCommand, 64), -1, make([]*LockResultCommand, 64), -1}
+    protocol := &ServerProtocol{slock, stream, make([]byte, 64), wbuf, make([]*LockCommand, 64), -1, make([]*LockResultCommand, 64), -1}
     slock.Log().Infof("connection open %s", protocol.RemoteAddr().String())
     return protocol
 }
 
 func (self *ServerProtocol) Close() (err error) {
-    if self.last_lock != nil {
-        if !self.last_lock.expried {
-            self.last_lock.expried_time = 0
-        }
-        self.last_lock = nil
-    }
     self.stream.Close()
     self.slock.Log().Infof("connection close %s", self.RemoteAddr().String())
     return nil
@@ -176,15 +169,24 @@ func (self *ClientProtocol) Read() (command CommandDecode, err error) {
     switch uint8(self.rbuf[2]) {
     case COMMAND_LOCK:
         command := LockResultCommand{}
-        command.Decode(self.rbuf)
+        err := command.Decode(self.rbuf)
+        if err != nil {
+            return nil, err
+        }
         return &command, nil
     case COMMAND_UNLOCK:
         command := LockResultCommand{}
-        command.Decode(self.rbuf)
+        err := command.Decode(self.rbuf)
+        if err != nil {
+            return nil, err
+        }
         return &command, nil
     case COMMAND_STATE:
         command := ResultStateCommand{}
-        command.Decode(self.rbuf)
+        err := command.Decode(self.rbuf)
+        if err != nil {
+            return nil, err
+        }
         return &command, nil
     default:
         return nil, errors.New("unknown command")

@@ -192,10 +192,11 @@ func (self *LockDB) GetOrNewLockManager(command *LockCommand) *LockManager{
         lock_manager = self.free_lock_managers[self.free_lock_manager_count]
         self.free_lock_manager_count--
         lock_manager.lock_key = command.LockKey
+        lock_manager.freed = false
     }else{
         lock_manager = NewLockManager(self, command, self.manager_glocks[self.manager_glock_index], self.manager_glock_index)
         self.manager_glock_index++
-        if self.manager_glock_index >= 64 {
+        if self.manager_glock_index >= self.manager_max_glocks {
             self.manager_glock_index = 0
         }
     }
@@ -227,6 +228,8 @@ func (self *LockDB) RemoveLockManager(lock_manager *LockManager) (err error) {
         current_lock_manager, ok := self.locks[lock_manager.lock_key]
         if ok && current_lock_manager == lock_manager {
             delete(self.locks, lock_manager.lock_key)
+            lock_manager.freed = true
+
             if self.free_lock_manager_count < 4095 {
                 lock_manager.locked = 0
                 if lock_manager.locks != nil {
@@ -261,21 +264,26 @@ func (self *LockDB) AddTimeOut(lock *Lock) (err error) {
     }
 
     if lock.timeout_checked_count >= 8 {
-        timeout_time := self.check_timeout_time + 150
-        if lock.timeout_time < timeout_time {
-            timeout_time = lock.timeout_time
-            if timeout_time < self.check_timeout_time {
-                timeout_time = self.check_timeout_time + 1
+        if lock.protocol.stream.closed {
+            timeout_time := self.check_timeout_time + 2
+            self.timeout_locks[timeout_time % 180][lock.manager.glock_index].Push(lock)
+        } else {
+            timeout_time := self.check_timeout_time + 150
+            if lock.timeout_time < timeout_time {
+                timeout_time = lock.timeout_time
+                if timeout_time < self.check_timeout_time {
+                    timeout_time = self.check_timeout_time + 2
+                }
             }
-        }
 
-        self.timeout_locks[timeout_time % 180][lock.manager.glock_index].Push(lock)
+            self.timeout_locks[timeout_time%180][lock.manager.glock_index].Push(lock)
+        }
     } else {
         timeout_time := self.check_timeout_time + 1<<lock.timeout_checked_count
         if lock.timeout_time < timeout_time {
             timeout_time = lock.timeout_time
             if timeout_time < self.check_timeout_time {
-                timeout_time = self.check_timeout_time + 1
+                timeout_time = self.check_timeout_time + 2
             }
         }
 
@@ -300,20 +308,20 @@ func (self *LockDB) DoTimeOut(lock *Lock) (err error) {
     }
 
     self.slock.Active(lock.protocol, lock.command, RESULT_TIMEOUT, false)
+    lock.timeouted = true
+    self.state.WaitCount--
     if lock.timeout_time > lock.start_time {
         self.slock.Log().Infof("lock timeout %d %x %x %x %s", lock.command.DbId, lock.command.LockKey, lock.command.LockId, lock.command.RequestId, lock.protocol.RemoteAddr().String())
-    }
-
-    lock.timeouted = true
-    lock.manager.GetWaitLock()
-    self.state.WaitCount--
-    if lock.timeout_time <= lock.start_time {
         self.state.TimeoutedCount++
     }
+
+    lock.manager.GetWaitLock()
     return nil
 }
 
 func (self *LockDB) AddExpried(lock *Lock) (err error) {
+    lock.expried = false
+
     if lock.expried_time <= lock.start_time {
         go func() {
             self.DoExpried(lock)
@@ -326,21 +334,25 @@ func (self *LockDB) AddExpried(lock *Lock) (err error) {
     }
 
     if lock.expried_checked_count >= 7 {
-        expried_time := self.check_expried_time + 150
-        if lock.expried_time < expried_time {
-            expried_time = lock.expried_time
-            if expried_time < self.check_expried_time {
-                expried_time = self.check_expried_time + 1
+        if lock.protocol.stream.closed {
+            expried_time := self.check_expried_time + 2
+            self.expried_locks[expried_time % 180][lock.manager.glock_index].Push(lock)
+        } else {
+            expried_time := self.check_expried_time + 150
+            if lock.expried_time < expried_time {
+                expried_time = lock.expried_time
+                if expried_time < self.check_expried_time {
+                    expried_time = self.check_expried_time + 2
+                }
             }
+            self.expried_locks[expried_time % 180][lock.manager.glock_index].Push(lock)
         }
-
-        self.expried_locks[expried_time % 180][lock.manager.glock_index].Push(lock)
     }else{
         expried_time := self.check_expried_time + 2<<lock.expried_checked_count
         if lock.expried_time < expried_time {
             expried_time = lock.expried_time
             if expried_time < self.check_expried_time {
-                expried_time = self.check_expried_time + 1
+                expried_time = self.check_expried_time + 2
             }
         }
 
@@ -362,17 +374,17 @@ func (self *LockDB) DoExpried(lock *Lock) (err error) {
         return nil
     }
 
+    lock_manager := lock.manager
+    lock.expried = true
+    lock_manager.locked--
+    self.state.LockedCount--
     if lock.expried_time > lock.start_time {
         self.slock.Active(lock.protocol, lock.command, RESULT_EXPRIED, false)
         self.state.ExpriedCount++
         self.slock.Log().Infof("lock expried %d %x %x %x %s", lock.command.DbId, lock.command.LockKey, lock.command.LockId, lock.command.RequestId, lock.protocol.RemoteAddr().String())
     }
-
-    lock_manager := lock.manager
-    lock.expried = true
     lock_manager.RemoveLock(lock)
-    lock_manager.locked--
-    self.state.LockedCount--
+
 
     current_lock := lock_manager.GetWaitLock()
     if current_lock != nil {
@@ -389,14 +401,20 @@ func (self *LockDB) DoExpried(lock *Lock) (err error) {
 func (self *LockDB) Lock(protocol *ServerProtocol, command *LockCommand) (err error) {
     lock_manager := self.GetOrNewLockManager(command)
 
-    defer lock_manager.glock.Unlock()
     lock_manager.glock.Lock()
+
+    if lock_manager.freed {
+        lock_manager.glock.Unlock()
+        return self.Lock(protocol, command)
+    }
 
     if lock_manager.locked > 0 {
         current_lock := lock_manager.GetLockedLock(command)
         if current_lock != nil {
             self.slock.Active(protocol, command, RESULT_LOCKED_ERROR, true)
             protocol.FreeLockCommand(command)
+
+            lock_manager.glock.Unlock()
             return nil
         }
     }
@@ -407,6 +425,8 @@ func (self *LockDB) Lock(protocol *ServerProtocol, command *LockCommand) (err er
         self.AddTimeOut(lock)
         self.state.WaitCount++
     }
+
+    lock_manager.glock.Unlock()
     return nil
 }
 
