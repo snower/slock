@@ -5,6 +5,7 @@ import (
     "fmt"
     "time"
     "sync"
+    "flag"
 )
 
 func run(client *slock.Client, count *int, max_count int, end_count *int, clock *sync.Mutex) {
@@ -34,7 +35,7 @@ func run(client *slock.Client, count *int, max_count int, end_count *int, clock 
     }
 }
 
-func bench(client_count int, concurrentc int, max_count int)  {
+func bench(client_count int, concurrentc int, max_count int, port int, host string)  {
     clock := sync.Mutex{}
 
     fmt.Printf("Run %d Client, %d concurrentc, %d Count Lock and Unlock\n", client_count, concurrentc, max_count)
@@ -47,7 +48,7 @@ func bench(client_count int, concurrentc int, max_count int)  {
     }()
 
     for c := 0; c < client_count; c++ {
-        client := slock.NewClient("127.0.0.1", 5658)
+        client := slock.NewClient(host, port)
         err := client.Open()
         if err != nil {
             fmt.Printf("Connect Error: %v", err)
@@ -75,23 +76,48 @@ func bench(client_count int, concurrentc int, max_count int)  {
 }
 
 func main()  {
-    bench(1, 1, 200000)
+    port := flag.Int("port", 5658, "port")
+    host := flag.String("host", "127.0.0.1", "host")
+    client := flag.Int("client", 0, "client count")
+    conc := flag.Int("conc", 0, "concurrentc")
+    count := flag.Int("count", 0, "lock and unlock count")
 
-    bench(1, 64, 300000)
+    flag.Parse()
 
-    bench(64, 64, 500000)
+    if *client > 0 || *conc > 0 || *count > 0 {
+        if *client <= 0 {
+            *client = 16
+        }
 
-    bench(8, 64, 500000)
+        if *conc <= 0 {
+            *conc = 512
+        }
 
-    bench(16, 64, 500000)
+        if *count <= 0 {
+            *count = 500000
+        }
 
-    bench(16, 256, 500000)
+        bench(*client, *conc, *count, *port, *host)
+        return
+    }
 
-    bench(64, 512, 500000)
+    bench(1, 1, 200000, *port, *host)
 
-    bench(512, 512, 500000)
+    bench(1, 64, 300000, *port, *host)
 
-    bench(64, 4096, 500000)
+    bench(64, 64, 500000, *port, *host)
 
-    bench(4096, 4096, 500000)
+    bench(8, 64, 500000, *port, *host)
+
+    bench(16, 64, 500000, *port, *host)
+
+    bench(16, 256, 500000, *port, *host)
+
+    bench(64, 512, 500000, *port, *host)
+
+    bench(512, 512, 500000, *port, *host)
+
+    bench(64, 4096, 500000, *port, *host)
+
+    bench(4096, 4096, 500000, *port, *host)
 }

@@ -32,7 +32,7 @@ func ShowDBStateInfo(host string, port int, db_id uint8)  {
 }
 
 func main() {
-    port := flag.Int64("port", 5658, "bind port")
+    port := flag.Int("port", 5658, "port")
     bind_host := flag.String("bind", "0.0.0.0", "bind host")
     client_host := flag.String("host", "127.0.0.1", "client host")
     log := flag.String("log", "-", "log filename")
@@ -42,7 +42,7 @@ func main() {
     flag.Parse()
 
     if *info >= 0 {
-        ShowDBStateInfo(*client_host, int(*port), uint8(*info))
+        ShowDBStateInfo(*client_host, *port, uint8(*info))
         return
     }
 
