@@ -33,6 +33,7 @@ type LockDB struct {
     state LockDBState
     free_lock_managers  [1048576]*LockManager
     free_lock_manager_count int
+    free_lock_manager_timeout bool
 }
 
 func NewLockDB(slock *SLock) *LockDB {
@@ -43,7 +44,7 @@ func NewLockDB(slock *SLock) *LockDB {
     }
     now := time.Now().Unix()
     state := LockDBState{0, 0, 0, 0, 0, 0, 0, 0}
-    db := &LockDB{slock, make(map[[16]byte]*LockManager, 0), make(map[int64][]*LockQueue, 0), make(map[int64][]*LockQueue, 0), now, now, sync.Mutex{}, manager_glocks, 0, manager_max_glocks, false, state, [1048576]*LockManager{}, -1}
+    db := &LockDB{slock, make(map[[16]byte]*LockManager, 0), make(map[int64][]*LockQueue, 0), make(map[int64][]*LockQueue, 0), now, now, sync.Mutex{}, manager_glocks, 0, manager_max_glocks, false, state, [1048576]*LockManager{}, -1, true}
     db.ResizeTimeOut()
     db.ResizeExpried()
     go db.CheckTimeOut()
@@ -266,25 +267,46 @@ func (self *LockDB) RemoveLockManager(lock_manager *LockManager) (err error) {
                 lock_manager.free_lock_count = -1
             }
 
-            if self.state.KeyCount > 256 {
-                count := int(self.state.KeyCount) * 4
 
-                for ; self.free_lock_manager_count >= count; {
-                    lock_manager = self.free_lock_managers[self.free_lock_manager_count]
-                    self.free_lock_managers[self.free_lock_manager_count] = nil
-                    self.free_lock_manager_count--
-
-                    lock_manager.current_lock = nil
-                    lock_manager.locks = nil
-                    lock_manager.lock_maps = nil
-                    lock_manager.wait_locks = nil
-                    lock_manager.free_locks = nil
-                    lock_manager.free_lock_count = -1
-                }
+            if self.free_lock_manager_timeout && int(self.state.KeyCount * 4) < self.free_lock_manager_count {
+                go func(last_lock_count uint64) {
+                    time.Sleep(300 * 1e9)
+                    self.CheckFreeLockManagerTimeOut(lock_manager, last_lock_count)
+                }(self.state.LockCount)
+                self.free_lock_manager_timeout = false
             }
         }
     }
 
+    return nil
+}
+
+func (self *LockDB) CheckFreeLockManagerTimeOut(lock_manager *LockManager, last_lock_count uint64) (err error) {
+    defer self.glock.Unlock()
+    self.glock.Lock()
+
+    count := int((self.state.LockCount - last_lock_count) / 300 * 4)
+    for ; self.free_lock_manager_count >= count; {
+        lock_manager = self.free_lock_managers[self.free_lock_manager_count]
+        self.free_lock_managers[self.free_lock_manager_count] = nil
+        self.free_lock_manager_count--
+
+        lock_manager.current_lock = nil
+        lock_manager.locks = nil
+        lock_manager.lock_maps = nil
+        lock_manager.wait_locks = nil
+        lock_manager.free_locks = nil
+        lock_manager.free_lock_count = -1
+    }
+    self.free_lock_manager_timeout = true
+
+    if self.free_lock_manager_timeout && int(self.state.KeyCount * 4) < self.free_lock_manager_count {
+        go func(last_lock_count uint64) {
+            time.Sleep(300 * 1e9)
+            self.CheckFreeLockManagerTimeOut(lock_manager, last_lock_count)
+        }(self.state.LockCount)
+        self.free_lock_manager_timeout = false
+    }
     return nil
 }
 
