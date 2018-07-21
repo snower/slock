@@ -31,7 +31,7 @@ type LockDB struct {
     manager_max_glocks  int
     is_stop             bool
     state LockDBState
-    free_lock_managers  []*LockManager
+    free_lock_managers  [0xffff]*LockManager
     free_lock_manager_count int
 }
 
@@ -43,7 +43,7 @@ func NewLockDB(slock *SLock) *LockDB {
     }
     now := time.Now().Unix()
     state := LockDBState{0, 0, 0, 0, 0, 0, 0, 0}
-    db := &LockDB{slock, make(map[[16]byte]*LockManager, 0), make(map[int64][]*LockQueue, 0), make(map[int64][]*LockQueue, 0), now, now, sync.Mutex{}, manager_glocks, 0, manager_max_glocks, false, state, make([]*LockManager, 0xffff), -1}
+    db := &LockDB{slock, make(map[[16]byte]*LockManager, 0), make(map[int64][]*LockQueue, 0), make(map[int64][]*LockQueue, 0), now, now, sync.Mutex{}, manager_glocks, 0, manager_max_glocks, false, state, [0xffff]*LockManager{}, -1}
     db.ResizeTimeOut()
     db.ResizeExpried()
     go db.CheckTimeOut()
@@ -259,8 +259,8 @@ func (self *LockDB) RemoveLockManager(lock_manager *LockManager) (err error) {
 
             if self.state.KeyCount <= 4096 {
                 count = int(self.state.KeyCount)
-                if count < 8 {
-                    count = 8
+                if count < 64 {
+                    count = 64
                 }
 
                 for ; self.free_lock_manager_count >= count; {
