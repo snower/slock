@@ -201,12 +201,24 @@ func (self *LockDB) GetOrNewLockManager(command *LockCommand) *LockManager{
         lock_manager.lock_key = command.LockKey
     }else{
         lock_managers := make([]LockManager, 4096)
+        lock_queues := make([]*Lock, 4096 * 64)
+        locks := make([]Lock, 4096)
+
         for i := 0; i < 4096; i++ {
+            locks[i].manager = &lock_managers[i]
+            locks[i].locked = false
+            locks[i].timeouted = false
+            locks[i].expried = false
+            locks[i].locked_freed = true
+            locks[i].wait_freed = true
+
             lock_managers[i].lock_db = self
             lock_managers[i].db_id = command.DbId
             lock_managers[i].glock = self.manager_glocks[self.manager_glock_index]
             lock_managers[i].glock_index = self.manager_glock_index
-            lock_managers[i].free_lock_count = -1
+            lock_managers[i].free_locks = lock_queues[i * 64: (i + 1) * 64]
+            lock_managers[i].free_locks[0] = &locks[i]
+            lock_managers[i].free_lock_count = 0
             self.manager_glock_index++
             if self.manager_glock_index >= self.manager_max_glocks {
                 self.manager_glock_index = 0
@@ -295,6 +307,10 @@ func (self *LockDB) RemoveLockManager(lock_manager *LockManager) (err error) {
 
 func (self *LockDB) CheckFreeLockManagerTimeOut(lock_manager *LockManager, last_lock_count uint64) (err error) {
     count := int((self.state.LockCount - last_lock_count) / 300 * 4)
+    if count < 1024 {
+        count = 1024
+    }
+
     self.glock.Lock()
     for ; self.free_lock_manager_count >= count; {
         lock_manager = self.free_lock_managers[self.free_lock_manager_count]
