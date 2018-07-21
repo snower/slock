@@ -31,7 +31,7 @@ type LockDB struct {
     manager_max_glocks  int
     is_stop             bool
     state LockDBState
-    free_lock_managers  [0xffff]*LockManager
+    free_lock_managers  [1048576]*LockManager
     free_lock_manager_count int
 }
 
@@ -43,7 +43,7 @@ func NewLockDB(slock *SLock) *LockDB {
     }
     now := time.Now().Unix()
     state := LockDBState{0, 0, 0, 0, 0, 0, 0, 0}
-    db := &LockDB{slock, make(map[[16]byte]*LockManager, 0), make(map[int64][]*LockQueue, 0), make(map[int64][]*LockQueue, 0), now, now, sync.Mutex{}, manager_glocks, 0, manager_max_glocks, false, state, [0xffff]*LockManager{}, -1}
+    db := &LockDB{slock, make(map[[16]byte]*LockManager, 0), make(map[int64][]*LockQueue, 0), make(map[int64][]*LockQueue, 0), now, now, sync.Mutex{}, manager_glocks, 0, manager_max_glocks, false, state, [1048576]*LockManager{}, -1}
     db.ResizeTimeOut()
     db.ResizeExpried()
     go db.CheckTimeOut()
@@ -196,11 +196,25 @@ func (self *LockDB) GetOrNewLockManager(command *LockCommand) *LockManager{
         lock_manager.lock_key = command.LockKey
         lock_manager.freed = false
     }else{
-        lock_manager = NewLockManager(self, command, self.manager_glocks[self.manager_glock_index], self.manager_glock_index)
-        self.manager_glock_index++
-        if self.manager_glock_index >= self.manager_max_glocks {
-            self.manager_glock_index = 0
+        lock_managers := make([]LockManager, 4096)
+        for i := 0; i < 4096; i++ {
+            lock_managers[i].lock_db = self
+            lock_managers[i].db_id = command.DbId
+            lock_managers[i].glock = self.manager_glocks[self.manager_glock_index]
+            lock_managers[i].glock_index = self.manager_glock_index
+            lock_managers[i].free_lock_count = -1
+            self.manager_glock_index++
+            if self.manager_glock_index >= self.manager_max_glocks {
+                self.manager_glock_index = 0
+            }
+            self.free_lock_manager_count++
+            self.free_lock_managers[self.free_lock_manager_count] = &lock_managers[i]
         }
+
+        lock_manager = self.free_lock_managers[self.free_lock_manager_count]
+        self.free_lock_manager_count--
+        lock_manager.lock_key = command.LockKey
+        lock_manager.freed = false
     }
 
     self.locks[command.LockKey] = lock_manager
@@ -233,12 +247,7 @@ func (self *LockDB) RemoveLockManager(lock_manager *LockManager) (err error) {
             lock_manager.freed = true
             atomic.AddUint32(&self.state.KeyCount, 0xffffffff)
 
-            count := int(4095 + self.state.KeyCount / 2)
-            if count >= 65535 {
-                count = 65534
-            }
-
-            if self.free_lock_manager_count < count {
+            if self.free_lock_manager_count < 1048575 {
                 lock_manager.locked = 0
                 if lock_manager.locks != nil {
                     lock_manager.locks.Reset()
@@ -257,11 +266,8 @@ func (self *LockDB) RemoveLockManager(lock_manager *LockManager) (err error) {
                 lock_manager.free_lock_count = -1
             }
 
-            if self.state.KeyCount <= 4096 {
-                count = int(self.state.KeyCount)
-                if count < 64 {
-                    count = 64
-                }
+            if self.state.KeyCount > 256 {
+                count := int(self.state.KeyCount) * 4
 
                 for ; self.free_lock_manager_count >= count; {
                     lock_manager = self.free_lock_managers[self.free_lock_manager_count]
