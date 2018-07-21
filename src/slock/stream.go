@@ -2,7 +2,6 @@ package slock
 
 import (
     "errors"
-    "io"
     "net"
     "time"
 )
@@ -28,11 +27,7 @@ func (self *Stream) ReadBytes(b []byte) (int, error) {
         return 0, errors.New("stream closed")
     }
 
-    n, err := self.conn.Read(b)
-    if err == io.EOF {
-        return 0, io.EOF
-    }
-    return n, nil
+    return self.conn.Read(b)
 }
 
 func (self *Stream) Read(b []byte) (n int, err error) {

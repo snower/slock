@@ -418,7 +418,9 @@ func (self *LockDB) DoExpried(lock *Lock) (err error) {
         if self.DoLock(current_lock.protocol, lock_manager, current_lock, false) {
             lock_manager.wait_locks.Pop()
             current_lock.wait_freed = true
-            self.RemoveTimeOut(current_lock)
+            //self.RemoveTimeOut(current_lock)
+            lock.timeouted = true
+            atomic.AddUint32(&self.state.WaitCount, 0xffffffff)
         }
     }
 
@@ -484,7 +486,8 @@ func (self *LockDB) UnLock(protocol *ServerProtocol, command *LockCommand) (err 
         return nil
     }
 
-    self.RemoveExpried(current_lock)
+    //self.RemoveExpried(current_lock)
+    current_lock.expried = true
     lock_manager.RemoveLock(current_lock)
     lock_manager.locked--
     self.slock.Active(protocol, command, RESULT_SUCCED, true)
@@ -498,7 +501,9 @@ func (self *LockDB) UnLock(protocol *ServerProtocol, command *LockCommand) (err 
         if self.DoLock(current_lock.protocol, lock_manager, current_lock, current_lock.protocol == protocol) {
             lock_manager.wait_locks.Pop()
             current_lock.wait_freed = true
-            self.RemoveTimeOut(current_lock)
+            //self.RemoveTimeOut(current_lock)
+            current_lock.timeouted = true
+            atomic.AddUint32(&self.state.WaitCount, 0xffffffff)
         }
     }
     return nil
