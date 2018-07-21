@@ -37,7 +37,7 @@ func run(client *slock.Client, count *int, max_count int, end_count *int, clock 
 func bench(client_count int, concurrentc int, max_count int)  {
     clock := sync.Mutex{}
 
-    fmt.Printf("Run %d Client, %d concurrentc, %d\n", client_count, concurrentc, max_count)
+    fmt.Printf("Run %d Client, %d concurrentc, %d Count Lock and Unlock\n", client_count, concurrentc, max_count)
 
     clients := make([]*slock.Client, client_count)
     defer func() {
