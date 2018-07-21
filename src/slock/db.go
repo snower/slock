@@ -194,8 +194,11 @@ func (self *LockDB) GetOrNewLockManager(command *LockCommand) *LockManager{
     if self.free_lock_manager_count >= 0{
         lock_manager = self.free_lock_managers[self.free_lock_manager_count]
         self.free_lock_manager_count--
-        lock_manager.lock_key = command.LockKey
         lock_manager.freed = false
+        self.locks[command.LockKey] = lock_manager
+        self.glock.Unlock()
+
+        lock_manager.lock_key = command.LockKey
     }else{
         lock_managers := make([]LockManager, 4096)
         for i := 0; i < 4096; i++ {
@@ -214,12 +217,12 @@ func (self *LockDB) GetOrNewLockManager(command *LockCommand) *LockManager{
 
         lock_manager = self.free_lock_managers[self.free_lock_manager_count]
         self.free_lock_manager_count--
-        lock_manager.lock_key = command.LockKey
         lock_manager.freed = false
+        self.locks[command.LockKey] = lock_manager
+        self.glock.Unlock()
+        
+        lock_manager.lock_key = command.LockKey
     }
-
-    self.locks[command.LockKey] = lock_manager
-    self.glock.Unlock()
 
     atomic.AddUint32(&self.state.KeyCount, 1)
     return lock_manager
