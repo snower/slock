@@ -4,9 +4,10 @@ import (
     "slock"
     "fmt"
     "time"
+    "sync"
 )
 
-func run(client *slock.Client, count *int, max_count int, end_count *int) {
+func run(client *slock.Client, count *int, max_count int, end_count *int, clock *sync.Mutex) {
     for ;; {
         lock_key := client.SelectDB(0).GenLockId()
         lock := client.Lock(lock_key, 5, 5)
@@ -25,13 +26,17 @@ func run(client *slock.Client, count *int, max_count int, end_count *int) {
 
         *count++
         if *count > max_count {
+            clock.Lock()
             *end_count++
+            clock.Unlock()
             return
         }
     }
 }
 
 func bench(client_count int, concurrentc int, max_count int)  {
+    clock := sync.Mutex{}
+
     fmt.Printf("Run %d Client, %d concurrentc, %d\n", client_count, concurrentc, max_count)
 
     clients := make([]*slock.Client, client_count)
@@ -56,7 +61,7 @@ func bench(client_count int, concurrentc int, max_count int)  {
     var end_count int
     start_time := time.Now().UnixNano()
     for i:=0; i < concurrentc; i++{
-        go run(clients[i % client_count], &count, max_count, &end_count)
+        go run(clients[i % client_count], &count, max_count, &end_count, &clock)
     }
     for ;; {
         if end_count >= concurrentc {
