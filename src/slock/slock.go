@@ -24,15 +24,14 @@ type SLock struct {
 
 func NewSLock(log_file string, log_level string) *SLock {
     logger := InitLogger(log_file, log_level)
-
     free_lock_commands := make([][]*LockCommand, FREE_COMMANDS_SLOT_COUNT)
     free_lock_command_count := make([]uint32, FREE_COMMANDS_SLOT_COUNT)
     free_lock_result_commands := make([][]*LockResultCommand, FREE_COMMANDS_SLOT_COUNT)
     free_lock_result_command_count := make([]uint32, FREE_COMMANDS_SLOT_COUNT)
     for i := 0; i < FREE_COMMANDS_SLOT_COUNT; i++ {
-        free_lock_commands[i] = make([]*LockCommand, FREE_LOCK_COMMAND_MAX_COUNT + 1)
+        free_lock_commands[i] = make([]*LockCommand, FREE_LOCK_COMMAND_MAX_COUNT)
         free_lock_command_count[i] = 0xffffffff
-        free_lock_result_commands[i] = make([]*LockResultCommand, FREE_LOCK_RESULT_COMMAND_MAX_COUNT + 1)
+        free_lock_result_commands[i] = make([]*LockResultCommand, FREE_LOCK_RESULT_COMMAND_MAX_COUNT)
         free_lock_result_command_count[i] = 0xffffffff
 
         lock_commands := make([]LockCommand, 4096)
@@ -42,14 +41,14 @@ func NewSLock(log_file string, log_level string) *SLock {
         }
 
         lock_result_commands := make([]LockResultCommand, 64)
-        for j := 0; j < 64; j++ {
+        for j := 0; j < 4096; j++ {
             free_lock_result_commands[i][j] = &lock_result_commands[j]
             free_lock_result_command_count[i]++
         }
     }
     slock := &SLock{make([]*LockDB, 256), sync.Mutex{}, logger, free_lock_commands, free_lock_command_count, free_lock_result_commands, free_lock_result_command_count, 0}
     slock.CheckFreeCommand(0)
-    return slock
+    return nil
 }
 
 func (self *SLock) CheckFreeCommand(last_lock_count uint64) error{
@@ -227,7 +226,7 @@ func (self *SLock) Active(protocol *ServerProtocol, command *LockCommand, r uint
         lock_command.Magic = MAGIC
         lock_command.Version = VERSION
     } else {
-        protocol.free_result_commands[free_index] = nil
+        self.free_lock_result_commands[free_index] = nil
     }
 
     lock_command.CommandType = command.CommandType
