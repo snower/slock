@@ -14,14 +14,14 @@ type LockQueue struct {
     tail_queue_index int
 }
 
-func NewLockQueue(node_size int, queue_size int) *LockQueue {
+func NewLockQueue(base_node_size int, node_size int, queue_size int) *LockQueue {
     queues := make([][]*Lock, node_size)
     node_queue_sizes := make([]int, node_size)
 
     queues[0] = make([]*Lock, queue_size)
     node_queue_sizes[0] = queue_size
 
-    return &LockQueue{queues, node_queue_sizes,node_size, node_size, 0, queue_size, queue_size, 0, 0, 0, 0}
+    return &LockQueue{queues, node_queue_sizes,base_node_size, node_size, 0, queue_size, queue_size, 0, 0, 0, 0}
 }
 
 func (self *LockQueue) Push(lock *Lock) {

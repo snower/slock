@@ -59,7 +59,7 @@ func (self *LockDB) ResizeTimeOut () error{
         if !ok {
             self.timeout_locks[i] = make([]*LockQueue, self.manager_max_glocks)
             for j := 0; j < self.manager_max_glocks; j++ {
-                self.timeout_locks[i][j] = NewLockQueue(8, 64)
+                self.timeout_locks[i][j] = NewLockQueue(3, 10, 1024)
             }
         }
     }
@@ -73,7 +73,7 @@ func (self *LockDB) ResizeExpried () error{
         if !ok {
             self.expried_locks[i] = make([]*LockQueue, self.manager_max_glocks)
             for j := 0; j < self.manager_max_glocks; j++ {
-                self.expried_locks[i][j] = NewLockQueue(8, 64)
+                self.expried_locks[i][j] = NewLockQueue(3, 10, 1024)
             }
         }
     }
@@ -103,19 +103,21 @@ func (self *LockDB) CheckTimeTimeOut(check_timeout_time int64, now int64) (err e
                     if lock.timeout_time <= now {
                         self.DoTimeOut(lock)
                         if lock.locked_freed && lock.wait_freed {
+                            lock.manager.glock.Lock()
                             lock.manager.FreeLock(lock)
+                            lock.manager.glock.Unlock()
                         }
                     } else {
                         lock.timeout_checked_count++
-                        func() {
-                            defer lock.manager.glock.Unlock()
-                            lock.manager.glock.Lock()
-                            self.AddTimeOut(lock)
-                        }()
+                        lock.manager.glock.Lock()
+                        self.AddTimeOut(lock)
+                        lock.manager.glock.Unlock()
                     }
                 }else{
                     if lock.locked_freed && lock.wait_freed {
+                        lock.manager.glock.Lock()
                         lock.manager.FreeLock(lock)
+                        lock.manager.glock.Unlock()
                     }
                 }
 
@@ -150,7 +152,9 @@ func (self *LockDB) CheckTimeExpried(check_expried_time int64, now int64) (err e
                     if lock.expried_time <= now {
                         self.DoExpried(lock)
                         if lock.locked_freed && lock.wait_freed {
+                            lock.manager.glock.Lock()
                             lock.manager.FreeLock(lock)
+                            lock.manager.glock.Unlock()
                         }
 
                         if lock.manager.locked <= 0 {
@@ -158,15 +162,15 @@ func (self *LockDB) CheckTimeExpried(check_expried_time int64, now int64) (err e
                         }
                     } else {
                         lock.expried_checked_count++
-                        func() {
-                            defer lock.manager.glock.Unlock()
-                            lock.manager.glock.Lock()
-                            self.AddExpried(lock)
-                        }()
+                        lock.manager.glock.Lock()
+                        self.AddExpried(lock)
+                        lock.manager.glock.Unlock()
                     }
                 } else {
                     if lock.locked_freed && lock.wait_freed {
+                        lock.manager.glock.Lock()
                         lock.manager.FreeLock(lock)
+                        lock.manager.glock.Unlock()
                     }
 
                     if lock.manager.locked <= 0 {
@@ -267,7 +271,6 @@ func (self *LockDB) GetLockManager(command *LockCommand) *LockManager{
 }
 
 func (self *LockDB) RemoveLockManager(lock_manager *LockManager) (err error) {
-    defer lock_manager.glock.Unlock()
     lock_manager.glock.Lock()
 
     if lock_manager.locked <= 0 {
@@ -300,6 +303,7 @@ func (self *LockDB) RemoveLockManager(lock_manager *LockManager) (err error) {
                 lock_manager.free_lock_count = -1
             }
 
+            lock_manager.glock.Unlock()
             atomic.AddUint32(&self.state.KeyCount, 0xffffffff)
 
 
@@ -312,8 +316,12 @@ func (self *LockDB) RemoveLockManager(lock_manager *LockManager) (err error) {
             }
         } else {
             self.glock.Unlock()
+            lock_manager.glock.Unlock()
         }
+        return nil
     }
+
+    lock_manager.glock.Unlock()
 
     return nil
 }
@@ -395,22 +403,24 @@ func (self *LockDB) RemoveTimeOut(lock *Lock) (err error) {
 }
 
 func (self *LockDB) DoTimeOut(lock *Lock) (err error) {
-    defer lock.manager.glock.Unlock()
     lock.manager.glock.Lock()
 
     if lock.timeouted {
+        lock.manager.glock.Unlock()
         return nil
     }
 
-    self.slock.Active(lock.protocol, lock.command, RESULT_TIMEOUT, false)
     lock.timeouted = true
+    lock.manager.GetWaitLock()
+    lock.manager.glock.Unlock()
+
+    self.slock.Active(lock.protocol, lock.command, RESULT_TIMEOUT, false)
     atomic.AddUint32(&self.state.WaitCount, 0xffffffff)
     if lock.timeout_time > lock.start_time {
         self.slock.Log().Infof("lock timeout %d %x %x %x %s", lock.command.DbId, lock.command.LockKey, lock.command.LockId, lock.command.RequestId, lock.protocol.RemoteAddr().String())
         atomic.AddUint32(&self.state.TimeoutedCount, 1)
     }
 
-    lock.manager.GetWaitLock()
     return nil
 }
 
@@ -462,34 +472,48 @@ func (self *LockDB) RemoveExpried(lock *Lock) (err error) {
 }
 
 func (self *LockDB) DoExpried(lock *Lock) (err error) {
-    defer lock.manager.glock.Unlock()
     lock.manager.glock.Lock()
 
     if lock.expried {
+        lock.manager.glock.Unlock()
         return nil
     }
 
     lock_manager := lock.manager
     lock.expried = true
     lock_manager.locked--
+    lock_manager.RemoveLock(lock)
+
+    wait_lock := lock_manager.GetWaitLock()
+    if wait_lock != nil {
+        if self.DoLock(lock_manager, wait_lock) {
+            lock_manager.wait_locks.Pop()
+            wait_lock.wait_freed = true
+            //self.RemoveTimeOut(wait_lock)
+            lock.timeouted = true
+            lock.manager.glock.Unlock()
+
+            atomic.AddUint32(&self.state.LockedCount, 0xffffffff)
+            if lock.expried_time > lock.start_time {
+                self.slock.Active(lock.protocol, lock.command, RESULT_EXPRIED, false)
+                atomic.AddUint32(&self.state.ExpriedCount, 1)
+                self.slock.Log().Infof("lock expried %d %x %x %x %s", lock.command.DbId, lock.command.LockKey, lock.command.LockId, lock.command.RequestId, lock.protocol.RemoteAddr().String())
+            }
+
+            self.slock.Active(wait_lock.protocol, wait_lock.command, RESULT_SUCCED, false)
+            atomic.AddUint64(&self.state.LockCount, 1)
+            atomic.AddUint32(&self.state.LockedCount, 1)
+            atomic.AddUint32(&self.state.WaitCount, 0xffffffff)
+            return nil
+        }
+    }
+
+    lock.manager.glock.Unlock()
     atomic.AddUint32(&self.state.LockedCount, 0xffffffff)
     if lock.expried_time > lock.start_time {
         self.slock.Active(lock.protocol, lock.command, RESULT_EXPRIED, false)
         atomic.AddUint32(&self.state.ExpriedCount, 1)
         self.slock.Log().Infof("lock expried %d %x %x %x %s", lock.command.DbId, lock.command.LockKey, lock.command.LockId, lock.command.RequestId, lock.protocol.RemoteAddr().String())
-    }
-    lock_manager.RemoveLock(lock)
-
-
-    current_lock := lock_manager.GetWaitLock()
-    if current_lock != nil {
-        if self.DoLock(current_lock.protocol, lock_manager, current_lock, false) {
-            lock_manager.wait_locks.Pop()
-            current_lock.wait_freed = true
-            //self.RemoveTimeOut(current_lock)
-            lock.timeouted = true
-            atomic.AddUint32(&self.state.WaitCount, 0xffffffff)
-        }
     }
 
     return nil
@@ -508,22 +532,29 @@ func (self *LockDB) Lock(protocol *ServerProtocol, command *LockCommand) (err er
     if lock_manager.locked > 0 {
         current_lock := lock_manager.GetLockedLock(command)
         if current_lock != nil {
+            lock_manager.glock.Unlock()
+
             self.slock.Active(protocol, command, RESULT_LOCKED_ERROR, true)
             protocol.FreeLockCommand(command)
-
-            lock_manager.glock.Unlock()
             return nil
         }
     }
 
     lock := lock_manager.GetOrNewLock(protocol, command)
-    if !self.DoLock(protocol, lock_manager, lock, true) {
+    if !self.DoLock(lock_manager, lock) {
         lock_manager.AddWaitLock(lock)
         self.AddTimeOut(lock)
+        lock_manager.glock.Unlock()
+
         atomic.AddUint32(&self.state.WaitCount, 1)
+    } else {
+        lock_manager.glock.Unlock()
+
+        self.slock.Active(protocol, lock.command, RESULT_SUCCED, true)
+        atomic.AddUint64(&self.state.LockCount, 1)
+        atomic.AddUint32(&self.state.LockedCount, 1)
     }
 
-    lock_manager.glock.Unlock()
     return nil
 }
 
@@ -536,10 +567,11 @@ func (self *LockDB) UnLock(protocol *ServerProtocol, command *LockCommand) (err 
         return nil
     }
 
-    defer lock_manager.glock.Unlock()
     lock_manager.glock.Lock()
 
     if lock_manager.locked <= 0 {
+        lock_manager.glock.Unlock()
+
         self.slock.Active(protocol, command, RESULT_UNLOCK_ERROR, true)
         protocol.FreeLockCommand(command)
         atomic.AddUint32(&self.state.UnlockErrorCount, 1)
@@ -548,6 +580,8 @@ func (self *LockDB) UnLock(protocol *ServerProtocol, command *LockCommand) (err 
 
     current_lock := lock_manager.GetLockedLock(command)
     if current_lock == nil {
+        lock_manager.glock.Unlock()
+
         self.slock.Active(protocol, command, RESULT_UNOWN_ERROR, true)
         protocol.FreeLockCommand(command)
         atomic.AddUint32(&self.state.UnlockErrorCount, 1)
@@ -558,33 +592,43 @@ func (self *LockDB) UnLock(protocol *ServerProtocol, command *LockCommand) (err 
     current_lock.expried = true
     lock_manager.RemoveLock(current_lock)
     lock_manager.locked--
-    self.slock.Active(protocol, command, RESULT_SUCCED, true)
+
+    wait_lock := lock_manager.GetWaitLock()
+    if wait_lock != nil {
+        if self.DoLock(lock_manager, wait_lock) {
+            lock_manager.wait_locks.Pop()
+            wait_lock.wait_freed = true
+            //self.RemoveTimeOut(wait_lock)
+            wait_lock.timeouted = true
+            lock_manager.glock.Unlock()
+
+            self.slock.Active(protocol, command, RESULT_SUCCED, true)
+            self.slock.Active(protocol, wait_lock.command, RESULT_SUCCED, wait_lock.protocol == protocol)
+            atomic.AddUint64(&self.state.LockCount, 1)
+            atomic.AddUint32(&self.state.LockedCount, 1)
+            atomic.AddUint32(&self.state.WaitCount, 0xffffffff)
+        } else{
+            lock_manager.glock.Unlock()
+            self.slock.Active(protocol, command, RESULT_SUCCED, true)
+        }
+    }else{
+        lock_manager.glock.Unlock()
+        self.slock.Active(protocol, command, RESULT_SUCCED, true)
+    }
+
     protocol.FreeLockCommand(command)
     protocol.FreeLockCommand(current_lock.command)
     atomic.AddUint64(&self.state.UnLockCount, 1)
     atomic.AddUint32(&self.state.LockedCount, 0xffffffff)
 
-    current_lock = lock_manager.GetWaitLock()
-    if current_lock != nil {
-        if self.DoLock(current_lock.protocol, lock_manager, current_lock, current_lock.protocol == protocol) {
-            lock_manager.wait_locks.Pop()
-            current_lock.wait_freed = true
-            //self.RemoveTimeOut(current_lock)
-            current_lock.timeouted = true
-            atomic.AddUint32(&self.state.WaitCount, 0xffffffff)
-        }
-    }
     return nil
 }
 
-func (self *LockDB) DoLock(protocol *ServerProtocol, lock_manager *LockManager, lock *Lock, use_cached_command bool) bool{
+func (self *LockDB) DoLock(lock_manager *LockManager, lock *Lock) bool{
     if lock_manager.locked == 0 {
         lock_manager.AddLock(lock)
         lock_manager.locked++
         self.AddExpried(lock)
-        self.slock.Active(protocol, lock.command, RESULT_SUCCED, use_cached_command)
-        atomic.AddUint64(&self.state.LockCount, 1)
-        atomic.AddUint32(&self.state.LockedCount, 1)
         return true
     }
 
@@ -592,9 +636,6 @@ func (self *LockDB) DoLock(protocol *ServerProtocol, lock_manager *LockManager, 
         lock_manager.AddLock(lock)
         lock_manager.locked++
         self.AddExpried(lock)
-        self.slock.Active(protocol, lock.command, RESULT_SUCCED, use_cached_command)
-        atomic.AddUint64(&self.state.LockCount, 1)
-        atomic.AddUint32(&self.state.LockedCount, 1)
         return true
     }
 

@@ -39,7 +39,7 @@ func (self *LockManager) AddLock(lock *Lock) *Lock {
     }
 
     if self.locks == nil {
-        self.locks = NewLockQueue(4, 4)
+        self.locks = NewLockQueue(4, 16, 4)
     }
 
     if self.lock_maps == nil {
@@ -120,7 +120,7 @@ func (self *LockManager) GetLockedLock(command *LockCommand) *Lock {
 
 func (self *LockManager) AddWaitLock(lock *Lock) *Lock {
     if self.wait_locks == nil {
-        self.wait_locks = NewLockQueue(4, 4)
+        self.wait_locks = NewLockQueue(4, 16, 4)
     }
 
     lock.wait_freed = false
