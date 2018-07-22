@@ -398,7 +398,6 @@ func (self *LockDB) DoTimeOut(lock *Lock) (err error) {
     }
 
     lock.manager.GetWaitLock()
-    lock.protocol.FreeLockCommand(lock.command)
     return nil
 }
 
@@ -467,7 +466,6 @@ func (self *LockDB) DoExpried(lock *Lock) (err error) {
         self.slock.Log().Infof("lock expried %d %x %x %x %s", lock.command.DbId, lock.command.LockKey, lock.command.LockId, lock.command.RequestId, lock.protocol.RemoteAddr().String())
     }
     lock_manager.RemoveLock(lock)
-    lock.protocol.FreeLockCommand(lock.command)
 
 
     current_lock := lock_manager.GetWaitLock()
