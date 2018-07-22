@@ -3,6 +3,7 @@ package slock
 import (
     "net"
     "errors"
+    "sync/atomic"
 )
 
 type Protocol interface {
@@ -17,18 +18,18 @@ type ServerProtocol struct {
     stream *Stream
     rbuf []byte
     wbuf []byte
-    free_commands [8192]*LockCommand
-    free_command_count int
-    free_result_commands [8192]*LockResultCommand
-    free_result_command_count int
+    free_commands []*LockCommand
+    free_command_count *uint32
+    free_result_commands []*LockResultCommand
+    free_result_command_count *uint32
 }
 
-func NewServerProtocol(slock *SLock, stream *Stream) *ServerProtocol {
+func NewServerProtocol(slock *SLock, stream *Stream, free_commands []*LockCommand, free_command_count *uint32, free_result_commands []*LockResultCommand, free_result_command_count *uint32) *ServerProtocol {
     wbuf := make([]byte, 64)
     wbuf[0] = byte(MAGIC)
     wbuf[1] = byte(VERSION)
     
-    protocol := &ServerProtocol{slock, stream, make([]byte, 64), wbuf, [8192]*LockCommand{}, -1, [8192]*LockResultCommand{}, -1}
+    protocol := &ServerProtocol{slock, stream, make([]byte, 64), wbuf, free_commands, free_command_count, free_result_commands, free_result_command_count}
     slock.Log().Infof("connection open %s", protocol.RemoteAddr().String())
     return protocol
 }
@@ -64,44 +65,18 @@ func (self *ServerProtocol) Read() (command CommandDecode, err error) {
     command_type := uint8(self.rbuf[2])
     switch command_type {
     case COMMAND_LOCK:
-        if self.free_command_count >= 0 {
-            lock_command := self.free_commands[self.free_command_count]
-            self.free_command_count--
-            buf := self.rbuf
-
-            lock_command.CommandType = command_type
-
-            for i := 0; i < 16; i+=4{
-                lock_command.RequestId[i] = buf[3 + i]
-                lock_command.RequestId[i + 1] = buf[4 + i]
-                lock_command.RequestId[i + 2] = buf[5 + i]
-                lock_command.RequestId[i + 3] = buf[6 + i]
+        free_command_count := atomic.AddUint32(self.free_command_count, 0xffffffff)
+        free_index := (free_command_count + 1) & FREE_LOCK_COMMAND_MAX_COUNT
+        lock_command := self.free_commands[free_index]
+        if lock_command == nil {
+            commands := make([]LockCommand, 4096)
+            for i := 1; i < 4096; i++ {
+                self.FreeLockCommand(&commands[i])
             }
-
-            lock_command.Flag = uint8(buf[19])
-            lock_command.DbId = uint8(buf[20])
-
-            for i := 0; i < 16; i+=4{
-                lock_command.LockId[i] = buf[21 + i]
-                lock_command.LockId[i + 1] = buf[22 + i]
-                lock_command.LockId[i + 2] = buf[23 + i]
-                lock_command.LockId[i + 3] = buf[24 + i]
-            }
-
-            for i := 0; i < 16; i+=4{
-                lock_command.LockKey[i] = buf[37 + i]
-                lock_command.LockKey[i + 1] = buf[38 + i]
-                lock_command.LockKey[i + 2] = buf[39 + i]
-                lock_command.LockKey[i + 3] = buf[40 + i]
-            }
-
-            lock_command.Timeout = uint32(buf[53]) | uint32(buf[54])<<8 | uint32(buf[55])<<16 | uint32(buf[56])<<24
-            lock_command.Expried = uint32(buf[57]) | uint32(buf[58])<<8 | uint32(buf[59])<<16 | uint32(buf[60])<<24
-            lock_command.Count = uint16(buf[61]) | uint16(buf[62])<<8
-            return lock_command, nil
+            lock_command = &commands[0]
+        } else {
+            self.free_commands[free_index] = nil
         }
-
-        lock_command := &LockCommand{}
         buf := self.rbuf
 
         lock_command.CommandType = command_type
@@ -135,44 +110,18 @@ func (self *ServerProtocol) Read() (command CommandDecode, err error) {
         lock_command.Count = uint16(buf[61]) | uint16(buf[62])<<8
         return lock_command, nil
     case COMMAND_UNLOCK:
-        if self.free_command_count >= 0 {
-            lock_command := self.free_commands[self.free_command_count]
-            self.free_command_count--
-            buf := self.rbuf
-
-            lock_command.CommandType = command_type
-
-            for i := 0; i < 16; i+=4{
-                lock_command.RequestId[i] = buf[3 + i]
-                lock_command.RequestId[i + 1] = buf[4 + i]
-                lock_command.RequestId[i + 2] = buf[5 + i]
-                lock_command.RequestId[i + 3] = buf[6 + i]
+        free_command_count := atomic.AddUint32(self.free_command_count, 0xffffffff)
+        free_index := (free_command_count + 1) & FREE_LOCK_COMMAND_MAX_COUNT
+        lock_command := self.free_commands[free_index]
+        if lock_command == nil {
+            commands := make([]LockCommand, 4096)
+            for i := 1; i < 4096; i++ {
+                self.FreeLockCommand(&commands[i])
             }
-
-            lock_command.Flag = uint8(buf[19])
-            lock_command.DbId = uint8(buf[20])
-
-            for i := 0; i < 16; i+=4{
-                lock_command.LockId[i] = buf[21 + i]
-                lock_command.LockId[i + 1] = buf[22 + i]
-                lock_command.LockId[i + 2] = buf[23 + i]
-                lock_command.LockId[i + 3] = buf[24 + i]
-            }
-
-            for i := 0; i < 16; i+=4{
-                lock_command.LockKey[i] = buf[37 + i]
-                lock_command.LockKey[i + 1] = buf[38 + i]
-                lock_command.LockKey[i + 2] = buf[39 + i]
-                lock_command.LockKey[i + 3] = buf[40 + i]
-            }
-
-            lock_command.Timeout = uint32(buf[53]) | uint32(buf[54])<<8 | uint32(buf[55])<<16 | uint32(buf[56])<<24
-            lock_command.Expried = uint32(buf[57]) | uint32(buf[58])<<8 | uint32(buf[59])<<16 | uint32(buf[60])<<24
-            lock_command.Count = uint16(buf[61]) | uint16(buf[62])<<8
-            return lock_command, nil
+            lock_command = &commands[0]
+        } else {
+            self.free_commands[free_index] = nil
         }
-
-        lock_command := &LockCommand{}
         buf := self.rbuf
 
         lock_command.CommandType = command_type
@@ -242,18 +191,14 @@ func (self *ServerProtocol) RemoteAddr() net.Addr {
 }
 
 func (self *ServerProtocol) FreeLockCommand(command *LockCommand) net.Addr {
-    if self.free_command_count < 8191 {
-        self.free_command_count++
-        self.free_commands[self.free_command_count] = command
-    }
+    free_command_count := atomic.AddUint32(self.free_command_count, 1)
+    self.free_commands[free_command_count & FREE_LOCK_COMMAND_MAX_COUNT] = command
     return nil
 }
 
 func (self *ServerProtocol) FreeLockResultCommand(command *LockResultCommand) net.Addr {
-    if self.free_result_command_count < 8191 {
-        self.free_result_command_count++
-        self.free_result_commands[self.free_result_command_count] = command
-    }
+    free_result_command_count := atomic.AddUint32(self.free_result_command_count, 1)
+    self.free_result_commands[free_result_command_count & FREE_LOCK_RESULT_COMMAND_MAX_COUNT] = command
     return nil
 }
 

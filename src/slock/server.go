@@ -65,7 +65,15 @@ func (self *Server) Loop() {
 }
 
 func (self *Server) Handle(stream *Stream) (err error) {
-    protocol := NewServerProtocol(self.slock, stream)
+    protocol := NewServerProtocol(self.slock, stream, self.slock.free_lock_commands[self.slock.free_index], &self.slock.free_lock_command_count[self.slock.free_index], self.slock.free_lock_result_commands[self.slock.free_index], &self.slock.free_lock_result_command_count[self.slock.free_index])
+
+    self.slock.glock.Lock()
+    self.slock.free_index++
+    if self.slock.free_index >= FREE_COMMANDS_SLOT_COUNT {
+        self.slock.free_index = 0
+    }
+    self.slock.glock.Unlock()
+
     defer protocol.Close()
     for {
         command, err := protocol.Read()

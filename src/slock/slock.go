@@ -3,17 +3,107 @@ package slock
 import (
     "github.com/hhkbp2/go-logging"
     "sync"
+    "sync/atomic"
+    "time"
 )
+
+const FREE_COMMANDS_SLOT_COUNT = 8
+const FREE_LOCK_COMMAND_MAX_COUNT uint32 = 0x0005ffff
+const FREE_LOCK_RESULT_COMMAND_MAX_COUNT uint32 = 0x00001fff
 
 type SLock struct {
     dbs    []*LockDB
     glock  sync.Mutex
     logger logging.Logger
+    free_lock_commands [][]*LockCommand
+    free_lock_command_count []uint32
+    free_lock_result_commands [][]*LockResultCommand
+    free_lock_result_command_count []uint32
+    free_index int
 }
 
 func NewSLock(log_file string, log_level string) *SLock {
     logger := InitLogger(log_file, log_level)
-    return &SLock{make([]*LockDB, 256), sync.Mutex{}, logger}
+    free_lock_commands := make([][]*LockCommand, FREE_COMMANDS_SLOT_COUNT)
+    free_lock_command_count := make([]uint32, FREE_COMMANDS_SLOT_COUNT)
+    free_lock_result_commands := make([][]*LockResultCommand, FREE_COMMANDS_SLOT_COUNT)
+    free_lock_result_command_count := make([]uint32, FREE_COMMANDS_SLOT_COUNT)
+    for i := 0; i < FREE_COMMANDS_SLOT_COUNT; i++ {
+        free_lock_commands[i] = make([]*LockCommand, FREE_LOCK_COMMAND_MAX_COUNT)
+        free_lock_command_count[i] = 0xffffffff
+        free_lock_result_commands[i] = make([]*LockResultCommand, FREE_LOCK_RESULT_COMMAND_MAX_COUNT)
+        free_lock_result_command_count[i] = 0xffffffff
+
+        lock_commands := make([]LockCommand, 4096)
+        for j := 0; j < 4096; j++ {
+            free_lock_commands[i][j] = &lock_commands[j]
+            free_lock_command_count[i]++
+        }
+
+        lock_result_commands := make([]LockResultCommand, 64)
+        for j := 0; j < 4096; j++ {
+            free_lock_result_commands[i][j] = &lock_result_commands[j]
+            free_lock_result_command_count[i]++
+        }
+    }
+    slock := &SLock{make([]*LockDB, 256), sync.Mutex{}, logger, free_lock_commands, free_lock_command_count, free_lock_result_commands, free_lock_result_command_count, 0}
+    slock.CheckFreeCommand(0)
+    return nil
+}
+
+func (self *SLock) CheckFreeCommand(last_lock_count uint64) error{
+    lock_count := uint64(0)
+    for i := 0; i < 256; i++ {
+        db := self.dbs[i]
+        if db != nil {
+            state := db.GetState()
+            lock_count += state.LockCount
+        }
+    }
+
+    count := int(lock_count - last_lock_count) / 300 * 4
+    if count < 4096 {
+        count = 4096
+    }
+
+    for i := 0; i < FREE_COMMANDS_SLOT_COUNT; i++ {
+        command_count := 0
+        for j := 0; j < 65536; j++ {
+            if self.free_lock_commands[i][j] != nil {
+                command_count++
+            }
+        }
+
+        for ; count < command_count; {
+            free_command_count := atomic.AddUint32(&self.free_lock_command_count[i], 0xffffffff)
+            self.free_lock_commands[i][(free_command_count + 1) & FREE_LOCK_COMMAND_MAX_COUNT] = nil
+        }
+    }
+
+    count = int(lock_count - last_lock_count) / 300 * 4
+    if count < 64 {
+        count = 64
+    }
+
+    for i := 0; i < FREE_COMMANDS_SLOT_COUNT; i++ {
+        command_count := 0
+        for j := 0; j < 4096; j++ {
+            if self.free_lock_result_commands[i][j] != nil {
+                command_count++
+            }
+        }
+
+        for ; count < command_count; {
+            free_result_command_count := atomic.AddUint32(&self.free_lock_result_command_count[i], 0xffffffff)
+            self.free_lock_result_commands[i][(free_result_command_count + 1) & FREE_LOCK_RESULT_COMMAND_MAX_COUNT] = nil
+        }
+    }
+
+    go func(last_lock_count uint64) {
+        time.Sleep(300 * 1e9)
+        self.CheckFreeCommand(last_lock_count)
+    }(lock_count)
+    return nil
 }
 
 func (self *SLock) GetOrNewDB(db_id uint8) *LockDB {
@@ -72,6 +162,7 @@ func (self *SLock) Handle(protocol *ServerProtocol, command ICommand) (err error
         db := self.dbs[lock_command.DbId]
         if db == nil {
             self.Active(protocol, lock_command, RESULT_UNKNOWN_DB, true)
+            protocol.FreeLockCommand(lock_command)
             return nil
         }
         db.UnLock(protocol, lock_command)
@@ -127,8 +218,27 @@ func (self *SLock) Active(protocol *ServerProtocol, command *LockCommand, r uint
         return protocol.stream.WriteBytes(buf)
     }
 
-    result := NewLockResultCommand(command, r, 0)
-    return protocol.Write(result, use_cached_command)
+    free_result_command_count := atomic.AddUint32(protocol.free_result_command_count, 0xffffffff)
+    free_index := (free_result_command_count + 1) & FREE_LOCK_RESULT_COMMAND_MAX_COUNT
+    lock_command := protocol.free_result_commands[free_index]
+    if lock_command == nil {
+        lock_command = &LockResultCommand{}
+        lock_command.Magic = MAGIC
+        lock_command.Version = VERSION
+    } else {
+        self.free_lock_result_commands[free_index] = nil
+    }
+
+    lock_command.CommandType = command.CommandType
+    lock_command.RequestId = command.RequestId
+    lock_command.Flag = 0
+    lock_command.DbId = command.DbId
+    lock_command.LockId = command.LockId
+    lock_command.LockKey = command.LockKey
+    lock_command.Result = r
+    err = protocol.Write(lock_command, use_cached_command)
+    protocol.FreeLockResultCommand(lock_command)
+    return err
 }
 
 func (self *SLock) Log() logging.Logger {
