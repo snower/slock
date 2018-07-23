@@ -532,6 +532,15 @@ func (self *LockDB) Lock(protocol *ServerProtocol, command *LockCommand) (err er
     }
 
     if lock_manager.locked > 0 {
+        if command.LockId == ZERO_LOCK_ID {
+            lock_manager.glock.Unlock()
+
+            command.LockId = lock_manager.current_lock.command.LockId
+            self.slock.Active(protocol, command, RESULT_UNOWN_ERROR, true)
+            protocol.FreeLockCommand(command)
+            return nil
+        }
+
         current_lock := lock_manager.GetLockedLock(command)
         if current_lock != nil {
             lock_manager.glock.Unlock()
@@ -582,15 +591,35 @@ func (self *LockDB) UnLock(protocol *ServerProtocol, command *LockCommand) (err 
 
     current_lock := lock_manager.GetLockedLock(command)
     if current_lock == nil {
-        if lock_manager.current_lock == nil || command.LockId != ZERO_LOCK_ID {
+        current_lock = lock_manager.current_lock
+
+        if current_lock == nil {
             lock_manager.glock.Unlock()
 
             self.slock.Active(protocol, command, RESULT_UNOWN_ERROR, true)
             protocol.FreeLockCommand(command)
             atomic.AddUint32(&self.state.UnlockErrorCount, 1)
             return nil
+        } else {
+            if command.LockId != ZERO_LOCK_ID {
+                lock_manager.glock.Unlock()
+
+                self.slock.Active(protocol, command, RESULT_UNOWN_ERROR, true)
+                protocol.FreeLockCommand(command)
+                atomic.AddUint32(&self.state.UnlockErrorCount, 1)
+                return nil
+            }
+
+            command.LockId = current_lock.command.LockId
+            if !current_lock.protocol.stream.closed {
+                lock_manager.glock.Unlock()
+
+                self.slock.Active(protocol, command, RESULT_UNOWN_ERROR, true)
+                protocol.FreeLockCommand(command)
+                atomic.AddUint32(&self.state.UnlockErrorCount, 1)
+                return nil
+            }
         }
-        current_lock = lock_manager.current_lock
     }
 
     //self.RemoveExpried(current_lock)
