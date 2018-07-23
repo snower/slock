@@ -127,8 +127,46 @@ func (self *SLock) Active(protocol *ServerProtocol, command *LockCommand, r uint
         return protocol.stream.WriteBytes(buf)
     }
 
-    result := NewLockResultCommand(command, r, 0)
-    return protocol.Write(result, use_cached_command)
+    protocol.free_result_command_lock.Lock()
+    buf := protocol.owbuf
+    buf[2] = byte(command.CommandType)
+
+    for i := 0; i < 16; i+=4 {
+        buf[3 + i] = command.RequestId[i]
+        buf[4 + i] = command.RequestId[i + 1]
+        buf[5 + i] = command.RequestId[i + 2]
+        buf[6 + i] = command.RequestId[i + 3]
+    }
+
+    buf[19] = uint8(r)
+    buf[20] = 0x00
+    buf[21] = byte(command.DbId)
+
+    for i := 0; i < 16; i+=4 {
+        buf[22 + i] = command.LockId[i]
+        buf[23 + i] = command.LockId[i + 1]
+        buf[24 + i] = command.LockId[i + 2]
+        buf[25 + i] = command.LockId[i + 3]
+    }
+
+    for i := 0; i < 16; i+=4 {
+        buf[38 + i] = command.LockKey[i]
+        buf[39 + i] = command.LockKey[i + 1]
+        buf[40 + i] = command.LockKey[i + 2]
+        buf[41 + i] = command.LockKey[i + 3]
+    }
+
+    for i := 0; i < 8; i+=4 {
+        buf[54 + i] = 0x00
+        buf[55 + i] = 0x00
+        buf[56 + i] = 0x00
+        buf[57 + i] = 0x00
+    }
+    buf[62] = 0x00
+    buf[63] = 0x00
+    err = protocol.stream.WriteBytes(buf)
+    protocol.free_result_command_lock.Unlock()
+    return err
 }
 
 func (self *SLock) Log() logging.Logger {
