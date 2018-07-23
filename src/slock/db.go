@@ -8,7 +8,6 @@ import (
 
 const TIMEOUT_QUEUE_LENGTH int64 = 15
 const EXPRIED_QUEUE_LENGTH int64 = 15
-var ZERO_LOCK_ID = [16]byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
 
 type LockDBState struct {
     LockCount uint64
@@ -532,11 +531,15 @@ func (self *LockDB) Lock(protocol *ServerProtocol, command *LockCommand) (err er
     }
 
     if lock_manager.locked > 0 {
-        if command.LockId == ZERO_LOCK_ID {
+        if command.Flag & 0x01 == 1 {
             lock_manager.glock.Unlock()
 
             command.LockId = lock_manager.current_lock.command.LockId
-            self.slock.Active(protocol, command, RESULT_UNOWN_ERROR, true)
+            if lock_manager.current_lock.protocol.stream.closed {
+                self.slock.Active(protocol, command, RESULT_SUCCED, true)
+            }else {
+                self.slock.Active(protocol, command, RESULT_UNOWN_ERROR, true)
+            }
             protocol.FreeLockCommand(command)
             return nil
         }
@@ -593,15 +596,8 @@ func (self *LockDB) UnLock(protocol *ServerProtocol, command *LockCommand) (err 
     if current_lock == nil {
         current_lock = lock_manager.current_lock
 
-        if current_lock == nil {
-            lock_manager.glock.Unlock()
-
-            self.slock.Active(protocol, command, RESULT_UNOWN_ERROR, true)
-            protocol.FreeLockCommand(command)
-            atomic.AddUint32(&self.state.UnlockErrorCount, 1)
-            return nil
-        } else {
-            if command.LockId != ZERO_LOCK_ID {
+        if command.Flag & 0x01 == 1 {
+            if current_lock == nil {
                 lock_manager.glock.Unlock()
 
                 self.slock.Active(protocol, command, RESULT_UNOWN_ERROR, true)
@@ -611,14 +607,13 @@ func (self *LockDB) UnLock(protocol *ServerProtocol, command *LockCommand) (err 
             }
 
             command.LockId = current_lock.command.LockId
-            if !current_lock.protocol.stream.closed {
-                lock_manager.glock.Unlock()
+        } else {
+            lock_manager.glock.Unlock()
 
-                self.slock.Active(protocol, command, RESULT_UNOWN_ERROR, true)
-                protocol.FreeLockCommand(command)
-                atomic.AddUint32(&self.state.UnlockErrorCount, 1)
-                return nil
-            }
+            self.slock.Active(protocol, command, RESULT_UNOWN_ERROR, true)
+            protocol.FreeLockCommand(command)
+            atomic.AddUint32(&self.state.UnlockErrorCount, 1)
+            return nil
         }
     }
 
