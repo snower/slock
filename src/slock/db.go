@@ -556,7 +556,9 @@ func (self *LockDB) Lock(protocol *ServerProtocol, command *LockCommand) (err er
 
     lock := lock_manager.GetOrNewLock(protocol, command)
     if !self.DoLock(lock_manager, lock) {
-        lock_manager.AddWaitLock(lock)
+        if command.Timeout > 0 {
+            lock_manager.AddWaitLock(lock)
+        }
         self.AddTimeOut(lock)
         lock_manager.glock.Unlock()
 
@@ -655,14 +657,24 @@ func (self *LockDB) UnLock(protocol *ServerProtocol, command *LockCommand) (err 
 
 func (self *LockDB) DoLock(lock_manager *LockManager, lock *Lock) bool{
     if lock_manager.locked == 0 {
-        lock_manager.AddLock(lock)
+        if lock.command.Expried > 0 {
+            lock_manager.AddLock(lock)
+        } else {
+            lock.locked = true
+        }
+
         lock_manager.locked++
         self.AddExpried(lock)
         return true
     }
 
     if(lock_manager.locked <= lock.command.Count && lock_manager.locked <= lock_manager.current_lock.command.Count){
-        lock_manager.AddLock(lock)
+        if lock.command.Expried > 0 {
+            lock_manager.AddLock(lock)
+        } else {
+            lock.locked = true
+        }
+
         lock_manager.locked++
         self.AddExpried(lock)
         return true
