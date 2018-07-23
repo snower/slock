@@ -6,6 +6,9 @@ import (
     "sync/atomic"
 )
 
+const TIMEOUT_QUEUE_LENGTH int64 = 15
+const EXPRIED_QUEUE_LENGTH int64 = 15
+var ZERO_LOCK_ID = [16]byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
 
 type LockDBState struct {
     LockCount uint64
@@ -21,8 +24,8 @@ type LockDBState struct {
 type LockDB struct {
     slock              *SLock
     locks              map[[16]byte]*LockManager
-    timeout_locks      map[int64][]*LockQueue
-    expried_locks      map[int64][]*LockQueue
+    timeout_locks      [][]*LockQueue
+    expried_locks      [][]*LockQueue
     check_timeout_time int64
     check_expried_time int64
     glock              sync.Mutex
@@ -34,17 +37,21 @@ type LockDB struct {
     free_lock_managers  [1048576]*LockManager
     free_lock_manager_count int
     free_lock_manager_timeout bool
+    free_locks []*LockQueue
 }
 
 func NewLockDB(slock *SLock) *LockDB {
     manager_max_glocks := 64
     manager_glocks := make([]*sync.Mutex, manager_max_glocks)
+    free_locks := make([]*LockQueue, manager_max_glocks)
     for i:=0; i< manager_max_glocks; i++{
         manager_glocks[i] = &sync.Mutex{}
+        free_locks[i] = NewLockQueue(2, 16, 4096)
     }
+
     now := time.Now().Unix()
     state := LockDBState{0, 0, 0, 0, 0, 0, 0, 0}
-    db := &LockDB{slock, make(map[[16]byte]*LockManager, 0), make(map[int64][]*LockQueue, 0), make(map[int64][]*LockQueue, 0), now, now, sync.Mutex{}, manager_glocks, 0, manager_max_glocks, false, state, [1048576]*LockManager{}, -1, true}
+    db := &LockDB{slock, make(map[[16]byte]*LockManager, 0), make([][]*LockQueue, TIMEOUT_QUEUE_LENGTH), make([][]*LockQueue, EXPRIED_QUEUE_LENGTH), now, now, sync.Mutex{}, manager_glocks, 0, manager_max_glocks, false, state, [1048576]*LockManager{}, -1, true, free_locks}
     db.ResizeTimeOut()
     db.ResizeExpried()
     go db.CheckTimeOut()
@@ -54,13 +61,10 @@ func NewLockDB(slock *SLock) *LockDB {
 
 func (self *LockDB) ResizeTimeOut () error{
     var i int64
-    for i = 0; i < 180; i++ {
-        _, ok := self.timeout_locks[i]
-        if !ok {
-            self.timeout_locks[i] = make([]*LockQueue, self.manager_max_glocks)
-            for j := 0; j < self.manager_max_glocks; j++ {
-                self.timeout_locks[i][j] = NewLockQueue(3, 10, 1024)
-            }
+    for i = 0; i < TIMEOUT_QUEUE_LENGTH; i++ {
+        self.timeout_locks[i] = make([]*LockQueue, self.manager_max_glocks)
+        for j := 0; j < self.manager_max_glocks; j++ {
+            self.timeout_locks[i][j] = NewLockQueue(4, 16, 4096)
         }
     }
     return nil
@@ -68,13 +72,10 @@ func (self *LockDB) ResizeTimeOut () error{
 
 func (self *LockDB) ResizeExpried () error{
     var i int64
-    for i = 0; i < 180; i++ {
-        _, ok := self.expried_locks[i]
-        if !ok {
-            self.expried_locks[i] = make([]*LockQueue, self.manager_max_glocks)
-            for j := 0; j < self.manager_max_glocks; j++ {
-                self.expried_locks[i][j] = NewLockQueue(3, 10, 1024)
-            }
+    for i = 0; i < EXPRIED_QUEUE_LENGTH; i++ {
+        self.expried_locks[i] = make([]*LockQueue, self.manager_max_glocks)
+        for j := 0; j < self.manager_max_glocks; j++ {
+            self.expried_locks[i][j] = NewLockQueue(4, 16, 4096)
         }
     }
     return nil
@@ -94,37 +95,40 @@ func (self *LockDB) CheckTimeOut() (err error) {
 }
 
 func (self *LockDB) CheckTimeTimeOut(check_timeout_time int64, now int64) (err error) {
-    timeout_locks, ok := self.timeout_locks[check_timeout_time % 180]
-    if ok {
-        for i := 0; i < self.manager_max_glocks; i++ {
-            lock := timeout_locks[i].Pop()
-            for ; lock != nil; {
-                if !lock.timeouted {
-                    if lock.timeout_time <= now {
-                        self.DoTimeOut(lock)
-                        if lock.locked_freed && lock.wait_freed {
-                            lock.manager.glock.Lock()
+    timeout_locks := self.timeout_locks[check_timeout_time % TIMEOUT_QUEUE_LENGTH]
+    for i := 0; i < self.manager_max_glocks; i++ {
+        lock := timeout_locks[i].Pop()
+        for ; lock != nil; {
+            lock.ref_count--
+            if !lock.timeouted {
+                if lock.timeout_time <= now {
+                    self.DoTimeOut(lock)
+                    if lock.ref_count == 0 {
+                        lock.manager.glock.Lock()
+                        if lock.ref_count == 0 {
                             lock.manager.FreeLock(lock)
-                            lock.manager.glock.Unlock()
                         }
-                    } else {
-                        lock.timeout_checked_count++
-                        lock.manager.glock.Lock()
-                        self.AddTimeOut(lock)
                         lock.manager.glock.Unlock()
                     }
-                }else{
-                    if lock.locked_freed && lock.wait_freed {
-                        lock.manager.glock.Lock()
-                        lock.manager.FreeLock(lock)
-                        lock.manager.glock.Unlock()
-                    }
+                } else {
+                    lock.timeout_checked_count++
+                    lock.manager.glock.Lock()
+                    self.AddTimeOut(lock)
+                    lock.manager.glock.Unlock()
                 }
-
-                lock = timeout_locks[i].Pop()
+            }else{
+                if lock.ref_count == 0 {
+                    lock.manager.glock.Lock()
+                    if lock.ref_count == 0 {
+                        lock.manager.FreeLock(lock)
+                    }
+                    lock.manager.glock.Unlock()
+                }
             }
-            timeout_locks[i].Reset()
+
+            lock = timeout_locks[i].Pop()
         }
+        timeout_locks[i].Reset()
     }
     return nil
 }
@@ -143,44 +147,47 @@ func (self *LockDB) CheckExpried() (err error) {
 }
 
 func (self *LockDB) CheckTimeExpried(check_expried_time int64, now int64) (err error) {
-    expried_locks, ok := self.expried_locks[check_expried_time % 180]
-    if ok {
-        for i := 0; i < self.manager_max_glocks; i++ {
-            lock := expried_locks[i].Pop()
-            for ; lock != nil; {
-                if !lock.expried {
-                    if lock.expried_time <= now {
-                        self.DoExpried(lock)
-                        if lock.locked_freed && lock.wait_freed {
-                            lock.manager.glock.Lock()
+    expried_locks := self.expried_locks[check_expried_time % EXPRIED_QUEUE_LENGTH]
+    for i := 0; i < self.manager_max_glocks; i++ {
+        lock := expried_locks[i].Pop()
+        for ; lock != nil; {
+            lock.ref_count--
+            if !lock.expried {
+                if lock.expried_time <= now {
+                    self.DoExpried(lock)
+                    if lock.ref_count == 0 {
+                        lock.manager.glock.Lock()
+                        if lock.ref_count == 0 {
                             lock.manager.FreeLock(lock)
-                            lock.manager.glock.Unlock()
                         }
-
-                        if lock.manager.locked <= 0 {
-                            self.RemoveLockManager(lock.manager)
-                        }
-                    } else {
-                        lock.expried_checked_count++
-                        lock.manager.glock.Lock()
-                        self.AddExpried(lock)
-                        lock.manager.glock.Unlock()
-                    }
-                } else {
-                    if lock.locked_freed && lock.wait_freed {
-                        lock.manager.glock.Lock()
-                        lock.manager.FreeLock(lock)
                         lock.manager.glock.Unlock()
                     }
 
                     if lock.manager.locked <= 0 {
                         self.RemoveLockManager(lock.manager)
                     }
+                } else {
+                    lock.expried_checked_count++
+                    lock.manager.glock.Lock()
+                    self.AddExpried(lock)
+                    lock.manager.glock.Unlock()
                 }
-                lock = expried_locks[i].Pop()
+            } else {
+                if lock.ref_count == 0 {
+                    lock.manager.glock.Lock()
+                    if lock.ref_count == 0 {
+                        lock.manager.FreeLock(lock)
+                    }
+                    lock.manager.glock.Unlock()
+                }
+
+                if lock.manager.locked <= 0 {
+                    self.RemoveLockManager(lock.manager)
+                }
             }
-            expried_locks[i].Reset()
+            lock = expried_locks[i].Pop()
         }
+        expried_locks[i].Reset()
     }
     return nil
 }
@@ -205,37 +212,14 @@ func (self *LockDB) GetOrNewLockManager(command *LockCommand) *LockManager{
         lock_manager.lock_key = command.LockKey
     }else{
         lock_managers := make([]LockManager, 4096)
-        lock_queues := make([]*Lock, 4096 * 64)
-
-        locks := make([]Lock, 4096 * 2)
 
         for i := 0; i < 4096; i++ {
-            lock_managers[i].free_locks = lock_queues[i * 64: (i + 1) * 64]
-
-            lock_index := i * 2
-            locks[lock_index].manager = &lock_managers[i]
-            locks[lock_index].locked = false
-            locks[lock_index].timeouted = false
-            locks[lock_index].expried = false
-            locks[lock_index].locked_freed = true
-            locks[lock_index].wait_freed = true
-            lock_managers[i].free_locks[0] = &locks[lock_index]
-
-            lock_index = i * 2 + 1
-            locks[lock_index].manager = &lock_managers[i]
-            locks[lock_index].locked = false
-            locks[lock_index].timeouted = false
-            locks[lock_index].expried = false
-            locks[lock_index].locked_freed = true
-            locks[lock_index].wait_freed = true
-            lock_managers[i].free_locks[1] = &locks[lock_index]
-
-            lock_managers[i].free_lock_count = 1
-
             lock_managers[i].lock_db = self
             lock_managers[i].db_id = command.DbId
             lock_managers[i].glock = self.manager_glocks[self.manager_glock_index]
             lock_managers[i].glock_index = self.manager_glock_index
+            lock_managers[i].free_locks = self.free_locks[self.manager_glock_index]
+
             self.manager_glock_index++
             if self.manager_glock_index >= self.manager_max_glocks {
                 self.manager_glock_index = 0
@@ -285,7 +269,6 @@ func (self *LockDB) RemoveLockManager(lock_manager *LockManager) (err error) {
                 self.free_lock_managers[self.free_lock_manager_count] = lock_manager
                 self.glock.Unlock()
 
-                lock_manager.locked = 0
                 if lock_manager.locks != nil {
                     lock_manager.locks.Reset()
                 }
@@ -300,7 +283,6 @@ func (self *LockDB) RemoveLockManager(lock_manager *LockManager) (err error) {
                 lock_manager.lock_maps = nil
                 lock_manager.wait_locks = nil
                 lock_manager.free_locks = nil
-                lock_manager.free_lock_count = -1
             }
 
             lock_manager.glock.Unlock()
@@ -343,7 +325,6 @@ func (self *LockDB) CheckFreeLockManagerTimeOut(lock_manager *LockManager, last_
         lock_manager.lock_maps = nil
         lock_manager.wait_locks = nil
         lock_manager.free_locks = nil
-        lock_manager.free_lock_count = -1
     }
     self.glock.Unlock()
     self.free_lock_manager_timeout = true
@@ -362,16 +343,24 @@ func (self *LockDB) AddTimeOut(lock *Lock) (err error) {
     if lock.timeout_time <= lock.start_time {
         go func() {
             self.DoTimeOut(lock)
+            if lock.ref_count == 0 {
+                lock.manager.glock.Lock()
+                if lock.ref_count == 0 {
+                    lock.manager.FreeLock(lock)
+                }
+                lock.manager.glock.Unlock()
+            }
         }()
         return nil
     }
 
-    if lock.timeout_checked_count >= 8 {
+    if lock.timeout_checked_count > 5 {
         if lock.protocol.stream.closed {
             timeout_time := self.check_timeout_time + 2
-            self.timeout_locks[timeout_time % 180][lock.manager.glock_index].Push(lock)
+            self.timeout_locks[timeout_time % TIMEOUT_QUEUE_LENGTH][lock.manager.glock_index].Push(lock)
+            lock.ref_count++
         } else {
-            timeout_time := self.check_timeout_time + 150
+            timeout_time := self.check_timeout_time + 5
             if lock.timeout_time < timeout_time {
                 timeout_time = lock.timeout_time
                 if timeout_time < self.check_timeout_time {
@@ -379,10 +368,11 @@ func (self *LockDB) AddTimeOut(lock *Lock) (err error) {
                 }
             }
 
-            self.timeout_locks[timeout_time%180][lock.manager.glock_index].Push(lock)
+            self.timeout_locks[timeout_time % TIMEOUT_QUEUE_LENGTH][lock.manager.glock_index].Push(lock)
+            lock.ref_count++
         }
     } else {
-        timeout_time := self.check_timeout_time + 1<<lock.timeout_checked_count
+        timeout_time := self.check_timeout_time + lock.timeout_checked_count
         if lock.timeout_time < timeout_time {
             timeout_time = lock.timeout_time
             if timeout_time < self.check_timeout_time {
@@ -390,7 +380,8 @@ func (self *LockDB) AddTimeOut(lock *Lock) (err error) {
             }
         }
 
-        self.timeout_locks[timeout_time % 180][lock.manager.glock_index].Push(lock)
+        self.timeout_locks[timeout_time % TIMEOUT_QUEUE_LENGTH][lock.manager.glock_index].Push(lock)
+        lock.ref_count++
     }
 
     return nil
@@ -430,7 +421,14 @@ func (self *LockDB) AddExpried(lock *Lock) (err error) {
     if lock.expried_time <= lock.start_time {
         go func() {
             self.DoExpried(lock)
-            time.Sleep(1e9)
+            if lock.ref_count == 0 {
+                lock.manager.glock.Lock()
+                if lock.ref_count == 0 {
+                    lock.manager.FreeLock(lock)
+                }
+                lock.manager.glock.Unlock()
+            }
+
             if lock.manager.locked <= 0 {
                 self.RemoveLockManager(lock.manager)
             }
@@ -438,22 +436,25 @@ func (self *LockDB) AddExpried(lock *Lock) (err error) {
         return nil
     }
 
-    if lock.expried_checked_count >= 7 {
+    if lock.expried_checked_count > 5 {
         if lock.protocol.stream.closed {
             expried_time := self.check_expried_time + 2
-            self.expried_locks[expried_time % 180][lock.manager.glock_index].Push(lock)
+            self.expried_locks[expried_time % EXPRIED_QUEUE_LENGTH][lock.manager.glock_index].Push(lock)
+            lock.ref_count++
         } else {
-            expried_time := self.check_expried_time + 150
+            expried_time := self.check_expried_time + 5
             if lock.expried_time < expried_time {
                 expried_time = lock.expried_time
                 if expried_time < self.check_expried_time {
                     expried_time = self.check_expried_time + 2
                 }
             }
-            self.expried_locks[expried_time % 180][lock.manager.glock_index].Push(lock)
+
+            self.expried_locks[expried_time % EXPRIED_QUEUE_LENGTH][lock.manager.glock_index].Push(lock)
+            lock.ref_count++
         }
     }else{
-        expried_time := self.check_expried_time + 2<<lock.expried_checked_count
+        expried_time := self.check_expried_time + lock.expried_checked_count
         if lock.expried_time < expried_time {
             expried_time = lock.expried_time
             if expried_time < self.check_expried_time {
@@ -461,7 +462,8 @@ func (self *LockDB) AddExpried(lock *Lock) (err error) {
             }
         }
 
-        self.expried_locks[expried_time % 180][lock.manager.glock_index].Push(lock)
+        self.expried_locks[expried_time % EXPRIED_QUEUE_LENGTH][lock.manager.glock_index].Push(lock)
+        lock.ref_count++
     }
     return nil
 }
@@ -488,7 +490,7 @@ func (self *LockDB) DoExpried(lock *Lock) (err error) {
     if wait_lock != nil {
         if self.DoLock(lock_manager, wait_lock) {
             lock_manager.wait_locks.Pop()
-            wait_lock.wait_freed = true
+            wait_lock.ref_count--
             //self.RemoveTimeOut(wait_lock)
             lock.timeouted = true
             lock.manager.glock.Unlock()
@@ -580,12 +582,15 @@ func (self *LockDB) UnLock(protocol *ServerProtocol, command *LockCommand) (err 
 
     current_lock := lock_manager.GetLockedLock(command)
     if current_lock == nil {
-        lock_manager.glock.Unlock()
+        if lock_manager.current_lock == nil || command.LockId != ZERO_LOCK_ID {
+            lock_manager.glock.Unlock()
 
-        self.slock.Active(protocol, command, RESULT_UNOWN_ERROR, true)
-        protocol.FreeLockCommand(command)
-        atomic.AddUint32(&self.state.UnlockErrorCount, 1)
-        return nil
+            self.slock.Active(protocol, command, RESULT_UNOWN_ERROR, true)
+            protocol.FreeLockCommand(command)
+            atomic.AddUint32(&self.state.UnlockErrorCount, 1)
+            return nil
+        }
+        current_lock = lock_manager.current_lock
     }
 
     //self.RemoveExpried(current_lock)
@@ -597,7 +602,7 @@ func (self *LockDB) UnLock(protocol *ServerProtocol, command *LockCommand) (err 
     if wait_lock != nil {
         if self.DoLock(lock_manager, wait_lock) {
             lock_manager.wait_locks.Pop()
-            wait_lock.wait_freed = true
+            wait_lock.ref_count--
             //self.RemoveTimeOut(wait_lock)
             wait_lock.timeouted = true
             lock_manager.glock.Unlock()
