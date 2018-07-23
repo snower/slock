@@ -58,43 +58,43 @@ go run benchmarks/benchmark.go
 
 Run 1 Client, 1 concurrentc, 200000 Count Lock and Unlock
 Client Opened 1
-200001 11.000591s 18180.932783r/s
+200001 12.000736s 16665.727692r/s
 
 Run 1 Client, 64 concurrentc, 300000 Count Lock and Unlock
 Client Opened 1
-300064 4.000925s 74998.656167r/s
+300064 4.000302s 75010.336326r/s
 
 Run 64 Client, 64 concurrentc, 500000 Count Lock and Unlock
 Client Opened 64
-500062 6.000585s 83335.541868r/s
+500064 6.004223s 83285.379641r/s
 
 Run 8 Client, 64 concurrentc, 500000 Count Lock and Unlock
 Client Opened 8
-500064 5.000616s 100000.484100r/s
+500064 5.000532s 100002.165810r/s
 
 Run 16 Client, 64 concurrentc, 500000 Count Lock and Unlock
 Client Opened 16
-500064 5.000482s 100003.154116r/s
+500064 5.002968s 99953.464025r/s
 
 Run 16 Client, 256 concurrentc, 500000 Count Lock and Unlock
 Client Opened 16
-500256 5.002156s 100008.078737r/s
+500256 4.000981s 125033.329293r/s
 
 Run 64 Client, 512 concurrentc, 500000 Count Lock and Unlock
 Client Opened 64
-500512 5.003930s 100023.780488r/s
+500512 4.008893s 124850.438685r/s
 
 Run 512 Client, 512 concurrentc, 500000 Count Lock and Unlock
 Client Opened 512
-500511 7.009299s 71406.716735r/s
+500504 6.014160s 83220.933636r/s
 
 Run 64 Client, 4096 concurrentc, 500000 Count Lock and Unlock
 Client Opened 64
-504070 5.042368s 99966.930058r/s
+504058 5.042950s 99953.006215r/s
 
 Run 4096 Client, 4096 concurrentc, 500000 Count Lock and Unlock
 Client Opened 4096
-504084 7.042551s 71576.909286r/s
+504066 6.139644s 82100.197687r/s
 
 ```
 
