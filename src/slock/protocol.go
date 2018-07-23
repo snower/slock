@@ -17,12 +17,10 @@ type ServerProtocol struct {
     stream *Stream
     rbuf []byte
     wbuf []byte
-    free_commands []*LockCommand
+    free_commands [16384]*LockCommand
     free_command_count int
-    free_command_max_count int
-    free_result_commands []*LockResultCommand
+    free_result_commands [16384]*LockResultCommand
     free_result_command_count int
-    free_result_command_max_count int
 }
 
 func NewServerProtocol(slock *SLock, stream *Stream) *ServerProtocol {
@@ -30,11 +28,7 @@ func NewServerProtocol(slock *SLock, stream *Stream) *ServerProtocol {
     wbuf[0] = byte(MAGIC)
     wbuf[1] = byte(VERSION)
     
-    protocol := &ServerProtocol{slock, stream, make([]byte, 64), wbuf, make([]*LockCommand, 4096), 63, 4095, nil, -1, 0}
-    commands := make([]LockCommand, 64)
-    for i := 0; i < 64; i++ {
-        protocol.free_commands[i] = &commands[i]
-    }
+    protocol := &ServerProtocol{slock, stream, make([]byte, 64), wbuf, [16384]*LockCommand{}, -1, [16384]*LockResultCommand{}, -1}
     slock.Log().Infof("connection open %s", protocol.RemoteAddr().String())
     return protocol
 }
@@ -107,11 +101,7 @@ func (self *ServerProtocol) Read() (command CommandDecode, err error) {
             return lock_command, nil
         }
 
-        lock_commands := make([]LockCommand, 4096)
-        lock_command := &lock_commands[0]
-        for i := 1; i < 4096; i++ {
-            self.FreeLockCommand(&lock_commands[i])
-        }
+        lock_command := &LockCommand{}
         buf := self.rbuf
 
         lock_command.CommandType = command_type
@@ -182,11 +172,7 @@ func (self *ServerProtocol) Read() (command CommandDecode, err error) {
             return lock_command, nil
         }
 
-        lock_commands := make([]LockCommand, 4096)
-        lock_command := &lock_commands[0]
-        for i := 1; i < 4096; i++ {
-            self.FreeLockCommand(&lock_commands[i])
-        }
+        lock_command := &LockCommand{}
         buf := self.rbuf
 
         lock_command.CommandType = command_type
@@ -256,33 +242,18 @@ func (self *ServerProtocol) RemoteAddr() net.Addr {
 }
 
 func (self *ServerProtocol) FreeLockCommand(command *LockCommand) net.Addr {
-    if self.free_command_count >= self.free_command_max_count {
-        self.free_command_max_count = (self.free_command_max_count + 1) * 2 - 1
-        free_commands := make([]*LockCommand, self.free_command_max_count + 1)
-        copy(free_commands, self.free_commands)
-        self.free_commands = free_commands
+    if self.free_command_count < 16383 {
+        self.free_command_count++
+        self.free_commands[self.free_command_count] = command
     }
-
-    self.free_command_count++
-    self.free_commands[self.free_command_count] = command
     return nil
 }
 
 func (self *ServerProtocol) FreeLockResultCommand(command *LockResultCommand) net.Addr {
-    if self.free_result_commands == nil {
-        self.free_result_commands = make([]*LockResultCommand, 4096)
-        self.free_result_command_max_count = 4095
+    if self.free_result_command_count < 16383 {
+        self.free_result_command_count++
+        self.free_result_commands[self.free_result_command_count] = command
     }
-
-    if self.free_result_command_count >= self.free_result_command_max_count {
-        self.free_result_command_max_count = (self.free_result_command_max_count+1)*2 - 1
-        free_commands := make([]*LockResultCommand, self.free_result_command_max_count+1)
-        copy(free_commands, self.free_result_commands)
-        self.free_result_commands = free_commands
-    }
-
-    self.free_result_command_count++
-    self.free_result_commands[self.free_result_command_count] = command
     return nil
 }
 
