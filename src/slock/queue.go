@@ -1,5 +1,7 @@
 package slock
 
+import "errors"
+
 type LockQueue struct {
     queues [][]*Lock
     node_queue_sizes []int
@@ -10,8 +12,12 @@ type LockQueue struct {
     queue_size int
     head_node_index int
     tail_node_index int
+    head_queue []*Lock
+    tail_queue []*Lock
     head_queue_index int
     tail_queue_index int
+    head_queue_size int
+    tail_queue_size int
 }
 
 func NewLockQueue(base_node_size int, node_size int, queue_size int) *LockQueue {
@@ -21,13 +27,14 @@ func NewLockQueue(base_node_size int, node_size int, queue_size int) *LockQueue 
     queues[0] = make([]*Lock, queue_size)
     node_queue_sizes[0] = queue_size
 
-    return &LockQueue{queues, node_queue_sizes,base_node_size, node_size, 0, queue_size, queue_size, 0, 0, 0, 0}
+    return &LockQueue{queues, node_queue_sizes,base_node_size, node_size, 0, queue_size, queue_size, 0, 0, queues[0], queues[0], 0, 0, queue_size, queue_size}
 }
 
-func (self *LockQueue) Push(lock *Lock) {
-    self.queues[self.tail_node_index][self.tail_queue_index] = lock
+func (self *LockQueue) Push(lock *Lock) error {
+    self.tail_queue[self.tail_queue_index] = lock
     self.tail_queue_index++
-    if self.tail_queue_index >= self.node_queue_sizes[self.tail_node_index]{
+
+    if self.tail_queue_index >= self.tail_queue_size{
         self.tail_queue_index = 0
         self.tail_node_index++
 
@@ -41,7 +48,37 @@ func (self *LockQueue) Push(lock *Lock) {
             self.queues[self.tail_node_index] = make([]*Lock, self.queue_size)
             self.node_queue_sizes[self.tail_node_index] = self.queue_size
         }
+
+        self.tail_queue = self.queues[self.tail_node_index]
+        self.tail_queue_size = self.node_queue_sizes[self.tail_node_index]
     }
+
+    return nil
+}
+
+func (self *LockQueue) PushLeft(lock *Lock) error{
+    if self.head_node_index <= 0 && self.head_queue_index <= 0 {
+        return errors.New("full")
+    }
+
+    self.head_queue_index--
+
+    if self.head_queue_index < 0 {
+        self.head_node_index--
+        if self.head_node_index < 0 {
+            self.head_node_index = 0
+            self.head_queue_index = 0
+            return nil
+        }
+
+        self.head_queue_index = self.node_queue_sizes[self.head_node_index]
+        self.head_queue = self.queues[self.head_node_index]
+        self.head_queue_size = self.node_queue_sizes[self.head_node_index]
+    }
+
+    self.head_queue[self.head_queue_index] = lock
+
+    return nil
 }
 
 func (self *LockQueue) Pop() *Lock{
@@ -49,14 +86,34 @@ func (self *LockQueue) Pop() *Lock{
         return nil
     }
 
-    lock := self.queues[self.head_node_index][self.head_queue_index]
-    self.queues[self.head_node_index][self.head_queue_index] = nil
+    lock := self.head_queue[self.head_queue_index]
+    self.head_queue[self.head_queue_index] = nil
     self.head_queue_index++
 
-    if self.head_queue_index >= self.node_queue_sizes[self.head_node_index] {
+    if self.head_queue_index >= self.head_queue_size {
         self.head_queue_index = 0
         self.head_node_index++
+        self.head_queue = self.queues[self.head_node_index]
+        self.head_queue_size = self.node_queue_sizes[self.head_node_index]
     }
+    return lock
+}
+
+func (self *LockQueue) PopRight() *Lock{
+    if self.tail_queue_index <= self.head_queue_index && self.tail_node_index <= self.head_node_index {
+        return nil
+    }
+
+    self.tail_queue_index--
+    if self.tail_queue_index < 0 {
+        self.tail_node_index--
+        self.tail_queue_index = self.node_queue_sizes[self.tail_node_index]
+        self.tail_queue = self.queues[self.tail_node_index]
+        self.tail_queue_size = self.node_queue_sizes[self.tail_node_index]
+    }
+
+    lock := self.tail_queue[self.tail_queue_index]
+    self.tail_queue[self.tail_queue_index] = nil
     return lock
 }
 
@@ -65,7 +122,7 @@ func (self *LockQueue) Head() *Lock{
         return nil
     }
 
-    return self.queues[self.head_node_index][self.head_queue_index]
+    return self.head_queue[self.head_queue_index]
 }
 
 func (self *LockQueue) Tail() *Lock{
@@ -73,7 +130,7 @@ func (self *LockQueue) Tail() *Lock{
         return nil
     }
 
-    return self.queues[self.tail_node_index][self.tail_queue_index]
+    return self.tail_queue[self.tail_queue_index]
 }
 
 func (self *LockQueue) Shrink(size int) int{
@@ -108,8 +165,12 @@ func (self *LockQueue) Reset() error{
 
     self.head_node_index=0
     self.head_queue_index = 0
+    self.head_queue = self.queues[0]
+    self.tail_queue = self.queues[0]
     self.tail_node_index = 0
     self.tail_queue_index = 0
+    self.head_queue_size = self.node_queue_sizes[0]
+    self.tail_queue_size = self.node_queue_sizes[0]
     return nil
 }
 
