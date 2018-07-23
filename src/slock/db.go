@@ -632,7 +632,7 @@ func (self *LockDB) UnLock(protocol *ServerProtocol, command *LockCommand) (err 
             lock_manager.glock.Unlock()
 
             self.slock.Active(protocol, command, RESULT_SUCCED, true)
-            self.slock.Active(protocol, wait_lock.command, RESULT_SUCCED, wait_lock.protocol == protocol)
+            self.slock.Active(wait_lock.protocol, wait_lock.command, RESULT_SUCCED, wait_lock.protocol == protocol)
             atomic.AddUint64(&self.state.LockCount, 1)
             atomic.AddUint32(&self.state.LockedCount, 1)
             atomic.AddUint32(&self.state.WaitCount, 0xffffffff)
