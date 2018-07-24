@@ -82,29 +82,16 @@ func (self *ServerProtocol) Read() (command CommandDecode, err error) {
 
             lock_command.CommandType = command_type
 
-            for i := 0; i < 16; i+=4{
-                lock_command.RequestId[i] = buf[3 + i]
-                lock_command.RequestId[i + 1] = buf[4 + i]
-                lock_command.RequestId[i + 2] = buf[5 + i]
-                lock_command.RequestId[i + 3] = buf[6 + i]
-            }
+            lock_command.RequestId[0] = uint64(buf[3]) | uint64(buf[4])<<8 | uint64(buf[5])<<16 | uint64(buf[6])<<24 | uint64(buf[7])<<32 | uint64(buf[8])<<40 | uint64(buf[9])<<48 | uint64(buf[10])<<56
+            lock_command.RequestId[1] = uint64(buf[11]) | uint64(buf[12])<<8 | uint64(buf[13])<<16 | uint64(buf[14])<<24 | uint64(buf[15])<<32 | uint64(buf[16])<<40 | uint64(buf[17])<<48 | uint64(buf[18])<<56
 
-            lock_command.Flag = uint8(buf[19])
-            lock_command.DbId = uint8(buf[20])
+            lock_command.Flag, lock_command.DbId = uint8(buf[19]), uint8(buf[20])
 
-            for i := 0; i < 16; i+=4{
-                lock_command.LockId[i] = buf[21 + i]
-                lock_command.LockId[i + 1] = buf[22 + i]
-                lock_command.LockId[i + 2] = buf[23 + i]
-                lock_command.LockId[i + 3] = buf[24 + i]
-            }
+            lock_command.LockId[0] = uint64(buf[21]) | uint64(buf[22])<<8 | uint64(buf[23])<<16 | uint64(buf[24])<<24 | uint64(buf[25])<<32 | uint64(buf[26])<<40 | uint64(buf[27])<<48 | uint64(buf[28])<<56
+            lock_command.LockId[1] = uint64(buf[29]) | uint64(buf[30])<<8 | uint64(buf[31])<<16 | uint64(buf[32])<<24 | uint64(buf[33])<<32 | uint64(buf[34])<<40 | uint64(buf[35])<<48 | uint64(buf[36])<<56
 
-            for i := 0; i < 16; i+=4{
-                lock_command.LockKey[i] = buf[37 + i]
-                lock_command.LockKey[i + 1] = buf[38 + i]
-                lock_command.LockKey[i + 2] = buf[39 + i]
-                lock_command.LockKey[i + 3] = buf[40 + i]
-            }
+            lock_command.LockKey[0] = uint64(buf[37]) | uint64(buf[38])<<8 | uint64(buf[39])<<16 | uint64(buf[40])<<24 | uint64(buf[41])<<32 | uint64(buf[42])<<40 | uint64(buf[43])<<48 | uint64(buf[44])<<56
+            lock_command.LockKey[1] = uint64(buf[45]) | uint64(buf[46])<<8 | uint64(buf[47])<<16 | uint64(buf[48])<<24 | uint64(buf[49])<<32 | uint64(buf[50])<<40 | uint64(buf[51])<<48 | uint64(buf[52])<<56
 
             lock_command.Timeout = uint32(buf[53]) | uint32(buf[54])<<8 | uint32(buf[55])<<16 | uint32(buf[56])<<24
             lock_command.Expried = uint32(buf[57]) | uint32(buf[58])<<8 | uint32(buf[59])<<16 | uint32(buf[60])<<24
@@ -121,29 +108,16 @@ func (self *ServerProtocol) Read() (command CommandDecode, err error) {
 
         lock_command.CommandType = command_type
 
-        for i := 0; i < 16; i+=4{
-            lock_command.RequestId[i] = buf[3 + i]
-            lock_command.RequestId[i + 1] = buf[4 + i]
-            lock_command.RequestId[i + 2] = buf[5 + i]
-            lock_command.RequestId[i + 3] = buf[6 + i]
-        }
+        lock_command.RequestId[0] = uint64(buf[3]) | uint64(buf[4])<<8 | uint64(buf[5])<<16 | uint64(buf[6])<<24 | uint64(buf[7])<<32 | uint64(buf[8])<<40 | uint64(buf[9])<<48 | uint64(buf[10])<<56
+        lock_command.RequestId[1] = uint64(buf[11]) | uint64(buf[12])<<8 | uint64(buf[13])<<16 | uint64(buf[14])<<24 | uint64(buf[15])<<32 | uint64(buf[16])<<40 | uint64(buf[17])<<48 | uint64(buf[18])<<56
 
-        lock_command.Flag = uint8(buf[19])
-        lock_command.DbId = uint8(buf[20])
+        lock_command.Flag, lock_command.DbId = uint8(buf[19]), uint8(buf[20])
 
-        for i := 0; i < 16; i+=4{
-            lock_command.LockId[i] = buf[21 + i]
-            lock_command.LockId[i + 1] = buf[22 + i]
-            lock_command.LockId[i + 2] = buf[23 + i]
-            lock_command.LockId[i + 3] = buf[24 + i]
-        }
+        lock_command.LockId[0] = uint64(buf[21]) | uint64(buf[22])<<8 | uint64(buf[23])<<16 | uint64(buf[24])<<24 | uint64(buf[25])<<32 | uint64(buf[26])<<40 | uint64(buf[27])<<48 | uint64(buf[28])<<56
+        lock_command.LockId[1] = uint64(buf[29]) | uint64(buf[30])<<8 | uint64(buf[31])<<16 | uint64(buf[32])<<24 | uint64(buf[33])<<32 | uint64(buf[34])<<40 | uint64(buf[35])<<48 | uint64(buf[36])<<56
 
-        for i := 0; i < 16; i+=4{
-            lock_command.LockKey[i] = buf[37 + i]
-            lock_command.LockKey[i + 1] = buf[38 + i]
-            lock_command.LockKey[i + 2] = buf[39 + i]
-            lock_command.LockKey[i + 3] = buf[40 + i]
-        }
+        lock_command.LockKey[0] = uint64(buf[37]) | uint64(buf[38])<<8 | uint64(buf[39])<<16 | uint64(buf[40])<<24 | uint64(buf[41])<<32 | uint64(buf[42])<<40 | uint64(buf[43])<<48 | uint64(buf[44])<<56
+        lock_command.LockKey[1] = uint64(buf[45]) | uint64(buf[46])<<8 | uint64(buf[47])<<16 | uint64(buf[48])<<24 | uint64(buf[49])<<32 | uint64(buf[50])<<40 | uint64(buf[51])<<48 | uint64(buf[52])<<56
 
         lock_command.Timeout = uint32(buf[53]) | uint32(buf[54])<<8 | uint32(buf[55])<<16 | uint32(buf[56])<<24
         lock_command.Expried = uint32(buf[57]) | uint32(buf[58])<<8 | uint32(buf[59])<<16 | uint32(buf[60])<<24
@@ -157,29 +131,16 @@ func (self *ServerProtocol) Read() (command CommandDecode, err error) {
 
             lock_command.CommandType = command_type
 
-            for i := 0; i < 16; i+=4{
-                lock_command.RequestId[i] = buf[3 + i]
-                lock_command.RequestId[i + 1] = buf[4 + i]
-                lock_command.RequestId[i + 2] = buf[5 + i]
-                lock_command.RequestId[i + 3] = buf[6 + i]
-            }
+            lock_command.RequestId[0] = uint64(buf[3]) | uint64(buf[4])<<8 | uint64(buf[5])<<16 | uint64(buf[6])<<24 | uint64(buf[7])<<32 | uint64(buf[8])<<40 | uint64(buf[9])<<48 | uint64(buf[10])<<56
+            lock_command.RequestId[1] = uint64(buf[11]) | uint64(buf[12])<<8 | uint64(buf[13])<<16 | uint64(buf[14])<<24 | uint64(buf[15])<<32 | uint64(buf[16])<<40 | uint64(buf[17])<<48 | uint64(buf[18])<<56
 
-            lock_command.Flag = uint8(buf[19])
-            lock_command.DbId = uint8(buf[20])
+            lock_command.Flag, lock_command.DbId = uint8(buf[19]), uint8(buf[20])
 
-            for i := 0; i < 16; i+=4{
-                lock_command.LockId[i] = buf[21 + i]
-                lock_command.LockId[i + 1] = buf[22 + i]
-                lock_command.LockId[i + 2] = buf[23 + i]
-                lock_command.LockId[i + 3] = buf[24 + i]
-            }
+            lock_command.LockId[0] = uint64(buf[21]) | uint64(buf[22])<<8 | uint64(buf[23])<<16 | uint64(buf[24])<<24 | uint64(buf[25])<<32 | uint64(buf[26])<<40 | uint64(buf[27])<<48 | uint64(buf[28])<<56
+            lock_command.LockId[1] = uint64(buf[29]) | uint64(buf[30])<<8 | uint64(buf[31])<<16 | uint64(buf[32])<<24 | uint64(buf[33])<<32 | uint64(buf[34])<<40 | uint64(buf[35])<<48 | uint64(buf[36])<<56
 
-            for i := 0; i < 16; i+=4{
-                lock_command.LockKey[i] = buf[37 + i]
-                lock_command.LockKey[i + 1] = buf[38 + i]
-                lock_command.LockKey[i + 2] = buf[39 + i]
-                lock_command.LockKey[i + 3] = buf[40 + i]
-            }
+            lock_command.LockKey[0] = uint64(buf[37]) | uint64(buf[38])<<8 | uint64(buf[39])<<16 | uint64(buf[40])<<24 | uint64(buf[41])<<32 | uint64(buf[42])<<40 | uint64(buf[43])<<48 | uint64(buf[44])<<56
+            lock_command.LockKey[1] = uint64(buf[45]) | uint64(buf[46])<<8 | uint64(buf[47])<<16 | uint64(buf[48])<<24 | uint64(buf[49])<<32 | uint64(buf[50])<<40 | uint64(buf[51])<<48 | uint64(buf[52])<<56
 
             lock_command.Timeout = uint32(buf[53]) | uint32(buf[54])<<8 | uint32(buf[55])<<16 | uint32(buf[56])<<24
             lock_command.Expried = uint32(buf[57]) | uint32(buf[58])<<8 | uint32(buf[59])<<16 | uint32(buf[60])<<24
@@ -196,29 +157,16 @@ func (self *ServerProtocol) Read() (command CommandDecode, err error) {
 
         lock_command.CommandType = command_type
 
-        for i := 0; i < 16; i+=4{
-            lock_command.RequestId[i] = buf[3 + i]
-            lock_command.RequestId[i + 1] = buf[4 + i]
-            lock_command.RequestId[i + 2] = buf[5 + i]
-            lock_command.RequestId[i + 3] = buf[6 + i]
-        }
+        lock_command.RequestId[0] = uint64(buf[3]) | uint64(buf[4])<<8 | uint64(buf[5])<<16 | uint64(buf[6])<<24 | uint64(buf[7])<<32 | uint64(buf[8])<<40 | uint64(buf[9])<<48 | uint64(buf[10])<<56
+        lock_command.RequestId[1] = uint64(buf[11]) | uint64(buf[12])<<8 | uint64(buf[13])<<16 | uint64(buf[14])<<24 | uint64(buf[15])<<32 | uint64(buf[16])<<40 | uint64(buf[17])<<48 | uint64(buf[18])<<56
 
-        lock_command.Flag = uint8(buf[19])
-        lock_command.DbId = uint8(buf[20])
+        lock_command.Flag, lock_command.DbId = uint8(buf[19]), uint8(buf[20])
 
-        for i := 0; i < 16; i+=4{
-            lock_command.LockId[i] = buf[21 + i]
-            lock_command.LockId[i + 1] = buf[22 + i]
-            lock_command.LockId[i + 2] = buf[23 + i]
-            lock_command.LockId[i + 3] = buf[24 + i]
-        }
+        lock_command.LockId[0] = uint64(buf[21]) | uint64(buf[22])<<8 | uint64(buf[23])<<16 | uint64(buf[24])<<24 | uint64(buf[25])<<32 | uint64(buf[26])<<40 | uint64(buf[27])<<48 | uint64(buf[28])<<56
+        lock_command.LockId[1] = uint64(buf[29]) | uint64(buf[30])<<8 | uint64(buf[31])<<16 | uint64(buf[32])<<24 | uint64(buf[33])<<32 | uint64(buf[34])<<40 | uint64(buf[35])<<48 | uint64(buf[36])<<56
 
-        for i := 0; i < 16; i+=4{
-            lock_command.LockKey[i] = buf[37 + i]
-            lock_command.LockKey[i + 1] = buf[38 + i]
-            lock_command.LockKey[i + 2] = buf[39 + i]
-            lock_command.LockKey[i + 3] = buf[40 + i]
-        }
+        lock_command.LockKey[0] = uint64(buf[37]) | uint64(buf[38])<<8 | uint64(buf[39])<<16 | uint64(buf[40])<<24 | uint64(buf[41])<<32 | uint64(buf[42])<<40 | uint64(buf[43])<<48 | uint64(buf[44])<<56
+        lock_command.LockKey[1] = uint64(buf[45]) | uint64(buf[46])<<8 | uint64(buf[47])<<16 | uint64(buf[48])<<24 | uint64(buf[49])<<32 | uint64(buf[50])<<40 | uint64(buf[51])<<48 | uint64(buf[52])<<56
 
         lock_command.Timeout = uint32(buf[53]) | uint32(buf[54])<<8 | uint32(buf[55])<<16 | uint32(buf[56])<<24
         lock_command.Expried = uint32(buf[57]) | uint32(buf[58])<<8 | uint32(buf[59])<<16 | uint32(buf[60])<<24

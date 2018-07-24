@@ -22,7 +22,7 @@ type LockDBState struct {
 
 type LockDB struct {
     slock              *SLock
-    locks              map[[16]byte]*LockManager
+    locks              map[[2]uint64]*LockManager
     timeout_locks      [][]*LockQueue
     expried_locks      [][]*LockQueue
     check_timeout_time int64
@@ -50,7 +50,7 @@ func NewLockDB(slock *SLock) *LockDB {
 
     now := time.Now().Unix()
     state := LockDBState{0, 0, 0, 0, 0, 0, 0, 0}
-    db := &LockDB{slock, make(map[[16]byte]*LockManager, 0), make([][]*LockQueue, TIMEOUT_QUEUE_LENGTH), make([][]*LockQueue, EXPRIED_QUEUE_LENGTH), now, now, sync.Mutex{}, manager_glocks, 0, manager_max_glocks, false, state, [1048576]*LockManager{}, -1, true, free_locks}
+    db := &LockDB{slock, make(map[[2]uint64]*LockManager, 0), make([][]*LockQueue, TIMEOUT_QUEUE_LENGTH), make([][]*LockQueue, EXPRIED_QUEUE_LENGTH), now, now, sync.Mutex{}, manager_glocks, 0, manager_max_glocks, false, state, [1048576]*LockManager{}, -1, true, free_locks}
     db.ResizeTimeOut()
     db.ResizeExpried()
     go db.CheckTimeOut()

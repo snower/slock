@@ -90,39 +90,19 @@ func (self *SLock) Active(protocol *ServerProtocol, command *LockCommand, r uint
         buf := protocol.wbuf
         buf[2] = byte(command.CommandType)
 
-        for i := 0; i < 16; i+=4 {
-            buf[3 + i] = command.RequestId[i]
-            buf[4 + i] = command.RequestId[i + 1]
-            buf[5 + i] = command.RequestId[i + 2]
-            buf[6 + i] = command.RequestId[i + 3]
-        }
+        buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10] = byte(command.RequestId[0]), byte(command.RequestId[0] >> 8), byte(command.RequestId[0] >> 16), byte(command.RequestId[0] >> 24), byte(command.RequestId[0] >> 32), byte(command.RequestId[0] >> 40), byte(command.RequestId[0] >> 48), byte(command.RequestId[0] >> 56)
+        buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18] = byte(command.RequestId[1]), byte(command.RequestId[1] >> 8), byte(command.RequestId[1] >> 16), byte(command.RequestId[1] >> 24), byte(command.RequestId[1] >> 32), byte(command.RequestId[1] >> 40), byte(command.RequestId[1] >> 48), byte(command.RequestId[1] >> 56)
 
-        buf[19] = uint8(r)
-        buf[20] = 0x00
-        buf[21] = byte(command.DbId)
+        buf[19], buf[20], buf[21] = r, 0x00, byte(command.DbId)
 
-        for i := 0; i < 16; i+=4 {
-            buf[22 + i] = command.LockId[i]
-            buf[23 + i] = command.LockId[i + 1]
-            buf[24 + i] = command.LockId[i + 2]
-            buf[25 + i] = command.LockId[i + 3]
-        }
+        buf[22], buf[23], buf[24], buf[25], buf[26], buf[27], buf[28], buf[29] = byte(command.LockId[0]), byte(command.LockId[0] >> 8), byte(command.LockId[0] >> 16), byte(command.LockId[0] >> 24), byte(command.LockId[0] >> 32), byte(command.LockId[0] >> 40), byte(command.LockId[0] >> 48), byte(command.LockId[0] >> 56)
+        buf[30], buf[31], buf[32], buf[33], buf[34], buf[35], buf[36], buf[37] = byte(command.LockId[1]), byte(command.LockId[1] >> 8), byte(command.LockId[1] >> 16), byte(command.LockId[1] >> 24), byte(command.LockId[1] >> 32), byte(command.LockId[1] >> 40), byte(command.LockId[1] >> 48), byte(command.LockId[1] >> 56)
 
-        for i := 0; i < 16; i+=4 {
-            buf[38 + i] = command.LockKey[i]
-            buf[39 + i] = command.LockKey[i + 1]
-            buf[40 + i] = command.LockKey[i + 2]
-            buf[41 + i] = command.LockKey[i + 3]
-        }
-        
-        for i := 0; i < 8; i+=4 {
-            buf[54 + i] = 0x00
-            buf[55 + i] = 0x00
-            buf[56 + i] = 0x00
-            buf[57 + i] = 0x00
-        }
-        buf[62] = 0x00
-        buf[63] = 0x00
+        buf[38], buf[39], buf[40], buf[41], buf[42], buf[43], buf[44], buf[45] = byte(command.LockKey[0]), byte(command.LockKey[0] >> 8), byte(command.LockKey[0] >> 16), byte(command.LockKey[0] >> 24), byte(command.LockKey[0] >> 32), byte(command.LockKey[0] >> 40), byte(command.LockKey[0] >> 48), byte(command.LockKey[0] >> 56)
+        buf[46], buf[47], buf[48], buf[49], buf[50], buf[51], buf[52], buf[53] = byte(command.LockKey[1]), byte(command.LockKey[1] >> 8), byte(command.LockKey[1] >> 16), byte(command.LockKey[1] >> 24), byte(command.LockKey[1] >> 32), byte(command.LockKey[1] >> 40), byte(command.LockKey[1] >> 48), byte(command.LockKey[1] >> 56)
+
+        buf[54], buf[55], buf[56], buf[57], buf[58], buf[59], buf[60], buf[61] = 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+        buf[62], buf[63] = 0x00, 0x00
         
         return protocol.stream.WriteBytes(buf)
     }
@@ -131,39 +111,20 @@ func (self *SLock) Active(protocol *ServerProtocol, command *LockCommand, r uint
     buf := protocol.owbuf
     buf[2] = byte(command.CommandType)
 
-    for i := 0; i < 16; i+=4 {
-        buf[3 + i] = command.RequestId[i]
-        buf[4 + i] = command.RequestId[i + 1]
-        buf[5 + i] = command.RequestId[i + 2]
-        buf[6 + i] = command.RequestId[i + 3]
-    }
+    buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10] = byte(command.RequestId[0]), byte(command.RequestId[0] >> 8), byte(command.RequestId[0] >> 16), byte(command.RequestId[0] >> 24), byte(command.RequestId[0] >> 32), byte(command.RequestId[0] >> 40), byte(command.RequestId[0] >> 48), byte(command.RequestId[0] >> 56)
+    buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18] = byte(command.RequestId[1]), byte(command.RequestId[1] >> 8), byte(command.RequestId[1] >> 16), byte(command.RequestId[1] >> 24), byte(command.RequestId[1] >> 32), byte(command.RequestId[1] >> 40), byte(command.RequestId[1] >> 48), byte(command.RequestId[1] >> 56)
 
-    buf[19] = uint8(r)
-    buf[20] = 0x00
-    buf[21] = byte(command.DbId)
+    buf[19], buf[20], buf[21] = r, 0x00, byte(command.DbId)
 
-    for i := 0; i < 16; i+=4 {
-        buf[22 + i] = command.LockId[i]
-        buf[23 + i] = command.LockId[i + 1]
-        buf[24 + i] = command.LockId[i + 2]
-        buf[25 + i] = command.LockId[i + 3]
-    }
+    buf[22], buf[23], buf[24], buf[25], buf[26], buf[27], buf[28], buf[29] = byte(command.LockId[0]), byte(command.LockId[0] >> 8), byte(command.LockId[0] >> 16), byte(command.LockId[0] >> 24), byte(command.LockId[0] >> 32), byte(command.LockId[0] >> 40), byte(command.LockId[0] >> 48), byte(command.LockId[0] >> 56)
+    buf[30], buf[31], buf[32], buf[33], buf[34], buf[35], buf[36], buf[37] = byte(command.LockId[1]), byte(command.LockId[1] >> 8), byte(command.LockId[1] >> 16), byte(command.LockId[1] >> 24), byte(command.LockId[1] >> 32), byte(command.LockId[1] >> 40), byte(command.LockId[1] >> 48), byte(command.LockId[1] >> 56)
 
-    for i := 0; i < 16; i+=4 {
-        buf[38 + i] = command.LockKey[i]
-        buf[39 + i] = command.LockKey[i + 1]
-        buf[40 + i] = command.LockKey[i + 2]
-        buf[41 + i] = command.LockKey[i + 3]
-    }
+    buf[38], buf[39], buf[40], buf[41], buf[42], buf[43], buf[44], buf[45] = byte(command.LockKey[0]), byte(command.LockKey[0] >> 8), byte(command.LockKey[0] >> 16), byte(command.LockKey[0] >> 24), byte(command.LockKey[0] >> 32), byte(command.LockKey[0] >> 40), byte(command.LockKey[0] >> 48), byte(command.LockKey[0] >> 56)
+    buf[46], buf[47], buf[48], buf[49], buf[50], buf[51], buf[52], buf[53] = byte(command.LockKey[1]), byte(command.LockKey[1] >> 8), byte(command.LockKey[1] >> 16), byte(command.LockKey[1] >> 24), byte(command.LockKey[1] >> 32), byte(command.LockKey[1] >> 40), byte(command.LockKey[1] >> 48), byte(command.LockKey[1] >> 56)
 
-    for i := 0; i < 8; i+=4 {
-        buf[54 + i] = 0x00
-        buf[55 + i] = 0x00
-        buf[56 + i] = 0x00
-        buf[57 + i] = 0x00
-    }
-    buf[62] = 0x00
-    buf[63] = 0x00
+    buf[54], buf[55], buf[56], buf[57], buf[58], buf[59], buf[60], buf[61] = 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+    buf[62], buf[63] = 0x00, 0x00
+
     err = protocol.stream.WriteBytes(buf)
     protocol.free_result_command_lock.Unlock()
     return err

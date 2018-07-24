@@ -9,10 +9,10 @@ type LockManager struct {
     lock_db        *LockDB
     locked         uint16
     db_id          uint8
-    lock_key       [16]byte
+    lock_key       [2]uint64
     current_lock   *Lock
     locks          *LockQueue
-    lock_maps      map[[16]byte]*Lock
+    lock_maps      map[[2]uint64]*Lock
     wait_locks     *LockQueue
     glock          *sync.Mutex
     glock_index    int
@@ -42,7 +42,7 @@ func (self *LockManager) AddLock(lock *Lock) *Lock {
     }
 
     if self.lock_maps == nil {
-        self.lock_maps = make(map[[16]byte]*Lock, 0)
+        self.lock_maps = make(map[[2]uint64]*Lock, 0)
     }
 
     self.locks.Push(lock)

@@ -25,7 +25,7 @@ const (
 
 type ICommand interface {
     GetCommandType() uint8
-    GetRequestId() [16]byte
+    GetRequestId() [2]uint64
 }
 
 type CommandDecode interface {
@@ -40,7 +40,7 @@ type Command struct {
     Magic     uint8
     Version   uint8
     CommandType   uint8
-    RequestId [16]byte
+    RequestId [2]uint64
 }
 
 func NewCommand(buf []byte) *Command {
@@ -57,9 +57,9 @@ func (self *Command) Decode(buf []byte) error{
     self.Version = uint8(buf[1])
     self.CommandType = uint8(buf[2])
 
-    for i := 0; i < 16; i++{
-        self.RequestId[i] = buf[3 + i]
-    }
+    self.RequestId[0] = uint64(buf[3]) | uint64(buf[4])<<8 | uint64(buf[5])<<16 | uint64(buf[6])<<24 | uint64(buf[7])<<32 | uint64(buf[8])<<40 | uint64(buf[9])<<48 | uint64(buf[10])<<56
+    self.RequestId[1] = uint64(buf[11]) | uint64(buf[12])<<8 | uint64(buf[13])<<16 | uint64(buf[14])<<24 | uint64(buf[15])<<32 | uint64(buf[16])<<40 | uint64(buf[17])<<48 | uint64(buf[18])<<56
+
     return nil
 }
 
@@ -68,9 +68,8 @@ func (self *Command) Encode(buf []byte) error {
     buf[1] = byte(self.Version)
     buf[2] = byte(self.CommandType)
 
-    for i := 0; i < 16; i++ {
-        buf[3 + i] = self.RequestId[i]
-    }
+    buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10] = byte(self.RequestId[0]), byte(self.RequestId[0] >> 8), byte(self.RequestId[0] >> 16), byte(self.RequestId[0] >> 24), byte(self.RequestId[0] >> 32), byte(self.RequestId[0] >> 40), byte(self.RequestId[0] >> 48), byte(self.RequestId[0] >> 56)
+    buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18] = byte(self.RequestId[1]), byte(self.RequestId[1] >> 8), byte(self.RequestId[1] >> 16), byte(self.RequestId[1] >> 24), byte(self.RequestId[1] >> 32), byte(self.RequestId[1] >> 40), byte(self.RequestId[1] >> 48), byte(self.RequestId[1] >> 56)
 
     copy(buf[19:], make([]byte, 45))
     return nil
@@ -80,7 +79,7 @@ func (self *Command) GetCommandType() uint8{
     return self.CommandType
 }
 
-func (self *Command) GetRequestId() [16]byte{
+func (self *Command) GetRequestId() [2]uint64{
     return self.RequestId
 }
 
@@ -88,7 +87,7 @@ type ResultCommand struct {
     Magic     uint8
     Version   uint8
     CommandType   uint8
-    RequestId [16]byte
+    RequestId [2]uint64
     Result    uint8
 }
 
@@ -101,9 +100,8 @@ func (self *ResultCommand) Decode(buf []byte) error{
     self.Version = uint8(buf[1])
     self.CommandType = uint8(buf[2])
 
-    for i := 0; i < 16; i++{
-        self.RequestId[i] = buf[3 + i]
-    }
+    self.RequestId[0] = uint64(buf[3]) | uint64(buf[4])<<8 | uint64(buf[5])<<16 | uint64(buf[6])<<24 | uint64(buf[7])<<32 | uint64(buf[8])<<40 | uint64(buf[9])<<48 | uint64(buf[10])<<56
+    self.RequestId[1] = uint64(buf[11]) | uint64(buf[12])<<8 | uint64(buf[13])<<16 | uint64(buf[14])<<24 | uint64(buf[15])<<32 | uint64(buf[16])<<40 | uint64(buf[17])<<48 | uint64(buf[18])<<56
 
     self.Result = uint8(buf[19])
 
@@ -115,9 +113,8 @@ func (self *ResultCommand) Encode(buf []byte) error {
     buf[1] = byte(self.Version)
     buf[2] = byte(self.CommandType)
 
-    for i := 0; i < 16; i++ {
-        buf[3 + i] = self.RequestId[i]
-    }
+    buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10] = byte(self.RequestId[0]), byte(self.RequestId[0] >> 8), byte(self.RequestId[0] >> 16), byte(self.RequestId[0] >> 24), byte(self.RequestId[0] >> 32), byte(self.RequestId[0] >> 40), byte(self.RequestId[0] >> 48), byte(self.RequestId[0] >> 56)
+    buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18] = byte(self.RequestId[1]), byte(self.RequestId[1] >> 8), byte(self.RequestId[1] >> 16), byte(self.RequestId[1] >> 24), byte(self.RequestId[1] >> 32), byte(self.RequestId[1] >> 40), byte(self.RequestId[1] >> 48), byte(self.RequestId[1] >> 56)
 
     buf[19] = uint8(self.Result)
 
@@ -129,7 +126,7 @@ func (self *ResultCommand) GetCommandType() uint8{
     return self.CommandType
 }
 
-func (self *ResultCommand) GetRequestId() [16]byte{
+func (self *ResultCommand) GetRequestId() [2]uint64{
     return self.RequestId
 }
 
@@ -137,8 +134,8 @@ type LockCommand struct {
     Command
     Flag      uint8
     DbId      uint8
-    LockId    [16]byte
-    LockKey   [16]byte
+    LockId    [2]uint64
+    LockKey   [2]uint64
     Timeout   uint32
     Expried   uint32
     Count     uint16
@@ -154,33 +151,18 @@ func NewLockCommand(buf []byte) *LockCommand {
 }
 
 func (self *LockCommand) Decode(buf []byte) error{
-    self.Magic = uint8(buf[0])
-    self.Version = uint8(buf[1])
-    self.CommandType = uint8(buf[2])
+    self.Magic, self.Version, self.CommandType = uint8(buf[0]), uint8(buf[1]), uint8(buf[2])
 
-    for i := 0; i < 16; i+=4{
-        self.RequestId[i] = buf[3 + i]
-        self.RequestId[i + 1] = buf[4 + i]
-        self.RequestId[i + 2] = buf[5 + i]
-        self.RequestId[i + 3] = buf[6 + i]
-    }
+    self.RequestId[0] = uint64(buf[3]) | uint64(buf[4])<<8 | uint64(buf[5])<<16 | uint64(buf[6])<<24 | uint64(buf[7])<<32 | uint64(buf[8])<<40 | uint64(buf[9])<<48 | uint64(buf[10])<<56
+    self.RequestId[1] = uint64(buf[11]) | uint64(buf[12])<<8 | uint64(buf[13])<<16 | uint64(buf[14])<<24 | uint64(buf[15])<<32 | uint64(buf[16])<<40 | uint64(buf[17])<<48 | uint64(buf[18])<<56
 
-    self.Flag = uint8(buf[19])
-    self.DbId = uint8(buf[20])
+    self.Flag, self.DbId = uint8(buf[19]), uint8(buf[20])
 
-    for i := 0; i < 16; i+=4{
-        self.LockId[i] = buf[21 + i]
-        self.LockId[i + 1] = buf[22 + i]
-        self.LockId[i + 2] = buf[23 + i]
-        self.LockId[i + 3] = buf[24 + i]
-    }
+    self.LockId[0] = uint64(buf[21]) | uint64(buf[22])<<8 | uint64(buf[23])<<16 | uint64(buf[24])<<24 | uint64(buf[25])<<32 | uint64(buf[26])<<40 | uint64(buf[27])<<48 | uint64(buf[28])<<56
+    self.LockId[1] = uint64(buf[29]) | uint64(buf[30])<<8 | uint64(buf[31])<<16 | uint64(buf[32])<<24 | uint64(buf[33])<<32 | uint64(buf[34])<<40 | uint64(buf[35])<<48 | uint64(buf[36])<<56
 
-    for i := 0; i < 16; i+=4{
-        self.LockKey[i] = buf[37 + i]
-        self.LockKey[i + 1] = buf[38 + i]
-        self.LockKey[i + 2] = buf[39 + i]
-        self.LockKey[i + 3] = buf[40 + i]
-    }
+    self.LockKey[0] = uint64(buf[37]) | uint64(buf[38])<<8 | uint64(buf[39])<<16 | uint64(buf[40])<<24 | uint64(buf[41])<<32 | uint64(buf[42])<<40 | uint64(buf[43])<<48 | uint64(buf[44])<<56
+    self.LockKey[1] = uint64(buf[45]) | uint64(buf[46])<<8 | uint64(buf[47])<<16 | uint64(buf[48])<<24 | uint64(buf[49])<<32 | uint64(buf[50])<<40 | uint64(buf[51])<<48 | uint64(buf[52])<<56
 
     self.Timeout = uint32(buf[53]) | uint32(buf[54])<<8 | uint32(buf[55])<<16 | uint32(buf[56])<<24
     self.Expried = uint32(buf[57]) | uint32(buf[58])<<8 | uint32(buf[59])<<16 | uint32(buf[60])<<24
@@ -189,48 +171,23 @@ func (self *LockCommand) Decode(buf []byte) error{
 }
 
 func (self *LockCommand) Encode(buf []byte) error {
-    buf[0] = byte(self.Magic)
-    buf[1] = byte(self.Version)
-    buf[2] = byte(self.CommandType)
+    buf[0], buf[1], buf[2] = byte(self.Magic), byte(self.Version), byte(self.CommandType)
 
-    for i := 0; i < 16; i+=4 {
-        buf[3 + i] = self.RequestId[i]
-        buf[4 + i] = self.RequestId[i + 1]
-        buf[5 + i] = self.RequestId[i + 2]
-        buf[6 + i] = self.RequestId[i + 3]
-    }
+    buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10] = byte(self.RequestId[0]), byte(self.RequestId[0] >> 8), byte(self.RequestId[0] >> 16), byte(self.RequestId[0] >> 24), byte(self.RequestId[0] >> 32), byte(self.RequestId[0] >> 40), byte(self.RequestId[0] >> 48), byte(self.RequestId[0] >> 56)
+    buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18] = byte(self.RequestId[1]), byte(self.RequestId[1] >> 8), byte(self.RequestId[1] >> 16), byte(self.RequestId[1] >> 24), byte(self.RequestId[1] >> 32), byte(self.RequestId[1] >> 40), byte(self.RequestId[1] >> 48), byte(self.RequestId[1] >> 56)
 
-    buf[19] = byte(self.Flag)
-    buf[20] = byte(self.DbId)
+    buf[19], buf[20] = byte(self.Flag), byte(self.DbId)
 
-    for i := 0; i < 16; i+=4 {
-        buf[21 + i] = self.LockId[i]
-        buf[22 + i] = self.LockId[i + 1]
-        buf[23 + i] = self.LockId[i + 2]
-        buf[24 + i] = self.LockId[i + 3]
-    }
+    buf[21], buf[22], buf[23], buf[24], buf[25], buf[26], buf[27], buf[28] = byte(self.LockId[0]), byte(self.LockId[0] >> 8), byte(self.LockId[0] >> 16), byte(self.LockId[0] >> 24), byte(self.LockId[0] >> 32), byte(self.LockId[0] >> 40), byte(self.LockId[0] >> 48), byte(self.LockId[0] >> 56)
+    buf[29], buf[30], buf[31], buf[32], buf[33], buf[34], buf[35], buf[36] = byte(self.LockId[1]), byte(self.LockId[1] >> 8), byte(self.LockId[1] >> 16), byte(self.LockId[1] >> 24), byte(self.LockId[1] >> 32), byte(self.LockId[1] >> 40), byte(self.LockId[1] >> 48), byte(self.LockId[1] >> 56)
 
-    for i := 0; i < 16; i+=4 {
-        buf[37 + i] = self.LockKey[i]
-        buf[38 + i] = self.LockKey[i + 1]
-        buf[39 + i] = self.LockKey[i + 2]
-        buf[40 + i] = self.LockKey[i + 3]
-    }
+    buf[37], buf[38], buf[39], buf[40], buf[41], buf[42], buf[43], buf[44] = byte(self.LockKey[0]), byte(self.LockKey[0] >> 8), byte(self.LockKey[0] >> 16), byte(self.LockKey[0] >> 24), byte(self.LockKey[0] >> 32), byte(self.LockKey[0] >> 40), byte(self.LockKey[0] >> 48), byte(self.LockKey[0] >> 56)
+    buf[45], buf[46], buf[47], buf[48], buf[49], buf[50], buf[51], buf[52] = byte(self.LockKey[1]), byte(self.LockKey[1] >> 8), byte(self.LockKey[1] >> 16), byte(self.LockKey[1] >> 24), byte(self.LockKey[1] >> 32), byte(self.LockKey[1] >> 40), byte(self.LockKey[1] >> 48), byte(self.LockKey[1] >> 56)
 
-    buf[53] = byte(self.Timeout)
-    buf[54] = byte(self.Timeout >> 8)
-    buf[55] = byte(self.Timeout >> 16)
-    buf[56] = byte(self.Timeout >> 24)
 
-    buf[57] = byte(self.Expried)
-    buf[58] = byte(self.Expried >> 8)
-    buf[59] = byte(self.Expried >> 16)
-    buf[60] = byte(self.Expried >> 24)
+    buf[53], buf[54], buf[55], buf[56], buf[57], buf[58], buf[59], buf[60] = byte(self.Timeout), byte(self.Timeout >> 8), byte(self.Timeout >> 16), byte(self.Timeout >> 24), byte(self.Expried), byte(self.Expried >> 8), byte(self.Expried >> 16), byte(self.Expried >> 24)
 
-    buf[61] = byte(self.Count)
-    buf[62] = byte(self.Count >> 8)
-
-    buf[63] = 0x00
+    buf[61], buf[62], buf[63] = byte(self.Count), byte(self.Count >> 8), 0x00
 
     return nil
 }
@@ -241,8 +198,8 @@ type LockResultCommand struct {
     ResultCommand
     Flag      uint8
     DbId      uint8
-    LockId    [16]byte
-    LockKey   [16]byte
+    LockId    [2]uint64
+    LockKey   [2]uint64
     Blank [10]byte
 }
 
@@ -252,77 +209,38 @@ func NewLockResultCommand(command *LockCommand, result uint8, flag uint8) *LockR
 }
 
 func (self *LockResultCommand) Decode(buf []byte) error{
-    self.Magic = uint8(buf[0])
-    self.Version = uint8(buf[1])
-    self.CommandType = uint8(buf[2])
+    self.Magic, self.Version, self.CommandType = uint8(buf[0]), uint8(buf[1]), uint8(buf[2])
 
-    for i := 0; i < 16; i+=4{
-        self.RequestId[i] = buf[3 + i]
-        self.RequestId[i + 1] = buf[4 + i]
-        self.RequestId[i + 2] = buf[5 + i]
-        self.RequestId[i + 3] = buf[6 + i]
-    }
+    self.RequestId[0] = uint64(buf[3]) | uint64(buf[4])<<8 | uint64(buf[5])<<16 | uint64(buf[6])<<24 | uint64(buf[7])<<32 | uint64(buf[8])<<40 | uint64(buf[9])<<48 | uint64(buf[10])<<56
+    self.RequestId[1] = uint64(buf[11]) | uint64(buf[12])<<8 | uint64(buf[13])<<16 | uint64(buf[14])<<24 | uint64(buf[15])<<32 | uint64(buf[16])<<40 | uint64(buf[17])<<48 | uint64(buf[18])<<56
 
-    self.Result = uint8(buf[19])
-    self.Flag = uint8(buf[20])
-    self.DbId = uint8(buf[21])
+    self.Result, self.Flag, self.DbId = uint8(buf[19]), uint8(buf[20]), uint8(buf[21])
 
-    for i := 0; i < 16; i+=4{
-        self.LockId[i] = buf[22 + i]
-        self.LockId[i + 1] = buf[23 + i]
-        self.LockId[i + 2] = buf[24 + i]
-        self.LockId[i + 3] = buf[25 + i]
-    }
+    self.LockId[0] = uint64(buf[22]) | uint64(buf[23])<<8 | uint64(buf[24])<<16 | uint64(buf[25])<<24 | uint64(buf[26])<<32 | uint64(buf[27])<<40 | uint64(buf[28])<<48 | uint64(buf[29])<<56
+    self.LockId[1] = uint64(buf[30]) | uint64(buf[31])<<8 | uint64(buf[32])<<16 | uint64(buf[33])<<24 | uint64(buf[34])<<32 | uint64(buf[35])<<40 | uint64(buf[36])<<48 | uint64(buf[37])<<56
 
-    for i := 0; i < 16; i+=4{
-        self.LockKey[i] = buf[38 + i]
-        self.LockKey[i + 1] = buf[39 + i]
-        self.LockKey[i + 2] = buf[40 + i]
-        self.LockKey[i + 3] = buf[41 + i]
-    }
+    self.LockKey[0] = uint64(buf[38]) | uint64(buf[39])<<8 | uint64(buf[40])<<16 | uint64(buf[41])<<24 | uint64(buf[42])<<32 | uint64(buf[43])<<40 | uint64(buf[44])<<48 | uint64(buf[45])<<56
+    self.LockKey[1] = uint64(buf[46]) | uint64(buf[47])<<8 | uint64(buf[48])<<16 | uint64(buf[49])<<24 | uint64(buf[50])<<32 | uint64(buf[51])<<40 | uint64(buf[52])<<48 | uint64(buf[53])<<56
 
     return nil
 }
 
 func (self *LockResultCommand) Encode(buf []byte) error {
-    buf[0] = byte(self.Magic)
-    buf[1] = byte(self.Version)
-    buf[2] = byte(self.CommandType)
+    buf[0], buf[1], buf[2] = byte(self.Magic), byte(self.Version), byte(self.CommandType)
 
-    for i := 0; i < 16; i+=4 {
-        buf[3 + i] = self.RequestId[i]
-        buf[4 + i] = self.RequestId[i + 1]
-        buf[5 + i] = self.RequestId[i + 2]
-        buf[6 + i] = self.RequestId[i + 3]
-    }
+    buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10] = byte(self.RequestId[0]), byte(self.RequestId[0] >> 8), byte(self.RequestId[0] >> 16), byte(self.RequestId[0] >> 24), byte(self.RequestId[0] >> 32), byte(self.RequestId[0] >> 40), byte(self.RequestId[0] >> 48), byte(self.RequestId[0] >> 56)
+    buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18] = byte(self.RequestId[1]), byte(self.RequestId[1] >> 8), byte(self.RequestId[1] >> 16), byte(self.RequestId[1] >> 24), byte(self.RequestId[1] >> 32), byte(self.RequestId[1] >> 40), byte(self.RequestId[1] >> 48), byte(self.RequestId[1] >> 56)
 
-    buf[19] = uint8(self.Result)
-    buf[20] = byte(self.Flag)
-    buf[21] = byte(self.DbId)
+    buf[19], buf[20], buf[21] = uint8(self.Result), byte(self.Flag), byte(self.DbId)
 
-    for i := 0; i < 16; i+=4 {
-        buf[22 + i] = self.LockId[i]
-        buf[23 + i] = self.LockId[i + 1]
-        buf[24 + i] = self.LockId[i + 2]
-        buf[25 + i] = self.LockId[i + 3]
-    }
+    buf[22], buf[23], buf[24], buf[25], buf[26], buf[27], buf[28], buf[29] = byte(self.LockId[0]), byte(self.LockId[0] >> 8), byte(self.LockId[0] >> 16), byte(self.LockId[0] >> 24), byte(self.LockId[0] >> 32), byte(self.LockId[0] >> 40), byte(self.LockId[0] >> 48), byte(self.LockId[0] >> 56)
+    buf[30], buf[31], buf[32], buf[33], buf[34], buf[35], buf[36], buf[37] = byte(self.LockId[1]), byte(self.LockId[1] >> 8), byte(self.LockId[1] >> 16), byte(self.LockId[1] >> 24), byte(self.LockId[1] >> 32), byte(self.LockId[1] >> 40), byte(self.LockId[1] >> 48), byte(self.LockId[1] >> 56)
 
-    for i := 0; i < 16; i+=4 {
-        buf[38 + i] = self.LockKey[i]
-        buf[39 + i] = self.LockKey[i + 1]
-        buf[40 + i] = self.LockKey[i + 2]
-        buf[41 + i] = self.LockKey[i + 3]
-    }
+    buf[38], buf[39], buf[40], buf[41], buf[42], buf[43], buf[44], buf[45] = byte(self.LockKey[0]), byte(self.LockKey[0] >> 8), byte(self.LockKey[0] >> 16), byte(self.LockKey[0] >> 24), byte(self.LockKey[0] >> 32), byte(self.LockKey[0] >> 40), byte(self.LockKey[0] >> 48), byte(self.LockKey[0] >> 56)
+    buf[46], buf[47], buf[48], buf[49], buf[50], buf[51], buf[52], buf[53] = byte(self.LockKey[1]), byte(self.LockKey[1] >> 8), byte(self.LockKey[1] >> 16), byte(self.LockKey[1] >> 24), byte(self.LockKey[1] >> 32), byte(self.LockKey[1] >> 40), byte(self.LockKey[1] >> 48), byte(self.LockKey[1] >> 56)
 
-    for i := 0; i < 8; i+=4 {
-        buf[54+i] = 0x00
-        buf[55+i] = 0x00
-        buf[56+i] = 0x00
-        buf[57+i] = 0x00
-    }
-    buf[62] = 0x00
-    buf[63] = 0x00
-
+    buf[54], buf[55], buf[56], buf[57], buf[58], buf[59], buf[60], buf[61] = 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+    buf[62], buf[63] = 0x00, 0x00
     return nil
 }
 
@@ -346,9 +264,8 @@ func (self *StateCommand) Decode(buf []byte) error{
     self.Version = uint8(buf[1])
     self.CommandType = uint8(buf[2])
 
-    for i := 0; i < 16; i++{
-        self.RequestId[i] = buf[3 + i]
-    }
+    self.RequestId[0] = uint64(buf[3]) | uint64(buf[4])<<8 | uint64(buf[5])<<16 | uint64(buf[6])<<24 | uint64(buf[7])<<32 | uint64(buf[8])<<40 | uint64(buf[9])<<48 | uint64(buf[10])<<56
+    self.RequestId[1] = uint64(buf[11]) | uint64(buf[12])<<8 | uint64(buf[13])<<16 | uint64(buf[14])<<24 | uint64(buf[15])<<32 | uint64(buf[16])<<40 | uint64(buf[17])<<48 | uint64(buf[18])<<56
 
     self.Flag = uint8(buf[19])
     self.DbId = uint8(buf[20])
@@ -361,9 +278,8 @@ func (self *StateCommand) Encode(buf []byte) error {
     buf[1] = byte(self.Version)
     buf[2] = byte(self.CommandType)
 
-    for i := 0; i < 16; i++ {
-        buf[3 + i] = self.RequestId[i]
-    }
+    buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10] = byte(self.RequestId[0]), byte(self.RequestId[0] >> 8), byte(self.RequestId[0] >> 16), byte(self.RequestId[0] >> 24), byte(self.RequestId[0] >> 32), byte(self.RequestId[0] >> 40), byte(self.RequestId[0] >> 48), byte(self.RequestId[0] >> 56)
+    buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18] = byte(self.RequestId[1]), byte(self.RequestId[1] >> 8), byte(self.RequestId[1] >> 16), byte(self.RequestId[1] >> 24), byte(self.RequestId[1] >> 32), byte(self.RequestId[1] >> 40), byte(self.RequestId[1] >> 48), byte(self.RequestId[1] >> 56)
 
     buf[19] = byte(self.Flag)
     buf[20] = byte(self.DbId)
@@ -397,9 +313,8 @@ func (self *ResultStateCommand) Decode(buf []byte) error{
     self.Version = uint8(buf[1])
     self.CommandType = uint8(buf[2])
 
-    for i := 0; i < 16; i++{
-        self.RequestId[i] = buf[3 + i]
-    }
+    self.RequestId[0] = uint64(buf[3]) | uint64(buf[4])<<8 | uint64(buf[5])<<16 | uint64(buf[6])<<24 | uint64(buf[7])<<32 | uint64(buf[8])<<40 | uint64(buf[9])<<48 | uint64(buf[10])<<56
+    self.RequestId[1] = uint64(buf[11]) | uint64(buf[12])<<8 | uint64(buf[13])<<16 | uint64(buf[14])<<24 | uint64(buf[15])<<32 | uint64(buf[16])<<40 | uint64(buf[17])<<48 | uint64(buf[18])<<56
 
     self.Result = uint8(buf[19])
     self.Flag = uint8(buf[20])
@@ -423,9 +338,8 @@ func (self *ResultStateCommand) Encode(buf []byte) error {
     buf[1] = byte(self.Version)
     buf[2] = byte(self.CommandType)
 
-    for i := 0; i < 16; i++ {
-        buf[3 + i] = self.RequestId[i]
-    }
+    buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10] = byte(self.RequestId[0]), byte(self.RequestId[0] >> 8), byte(self.RequestId[0] >> 16), byte(self.RequestId[0] >> 24), byte(self.RequestId[0] >> 32), byte(self.RequestId[0] >> 40), byte(self.RequestId[0] >> 48), byte(self.RequestId[0] >> 56)
+    buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18] = byte(self.RequestId[1]), byte(self.RequestId[1] >> 8), byte(self.RequestId[1] >> 16), byte(self.RequestId[1] >> 24), byte(self.RequestId[1] >> 32), byte(self.RequestId[1] >> 40), byte(self.RequestId[1] >> 48), byte(self.RequestId[1] >> 56)
 
     buf[19] = uint8(self.Result)
     buf[20] = byte(self.Flag)

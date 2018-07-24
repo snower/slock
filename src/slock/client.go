@@ -123,11 +123,11 @@ func (self *Client) SelectDB(db_id uint8) *ClientDB {
     return db
 }
 
-func (self *Client) Lock(lock_key [16]byte, timeout uint32, expried uint32) *ClientLock {
+func (self *Client) Lock(lock_key [2]uint64, timeout uint32, expried uint32) *ClientLock {
     return self.SelectDB(0).Lock(lock_key, timeout, expried)
 }
 
-func (self *Client) Event(event_key [16]byte, timeout uint32, expried uint32) *ClientEvent {
+func (self *Client) Event(event_key [2]uint64, timeout uint32, expried uint32) *ClientEvent {
     return self.SelectDB(0).Event(event_key, timeout, expried)
 }
 
@@ -139,12 +139,12 @@ type ClientDB struct {
     db_id uint8
     client *Client
     protocol *ClientProtocol
-    requests map[[16]byte]chan ICommand
+    requests map[[2]uint64]chan ICommand
     glock sync.Mutex
 }
 
 func NewClientDB(db_id uint8, client *Client, protocol *ClientProtocol) *ClientDB {
-    return &ClientDB{db_id, client, protocol, make(map[[16]byte]chan ICommand, 0), sync.Mutex{}}
+    return &ClientDB{db_id, client, protocol, make(map[[2]uint64]chan ICommand, 0), sync.Mutex{}}
 }
 
 func (self *ClientDB) HandleClose() error {
@@ -155,7 +155,7 @@ func (self *ClientDB) HandleClose() error {
         self.requests[request_id] <- nil
     }
 
-    self.requests = make(map[[16]byte]chan ICommand, 0)
+    self.requests = make(map[[2]uint64]chan ICommand, 0)
     return nil
 }
 
@@ -300,11 +300,11 @@ func (self *ClientDB) SendStateCommand(command *StateCommand) (*ResultStateComma
     return result_command.(*ResultStateCommand), nil
 }
 
-func (self *ClientDB) Lock(lock_key [16]byte, timeout uint32, expried uint32) *ClientLock {
+func (self *ClientDB) Lock(lock_key [2]uint64, timeout uint32, expried uint32) *ClientLock {
     return NewClientLock(self, lock_key, timeout, expried)
 }
 
-func (self *ClientDB) Event(event_key [16]byte, timeout uint32, expried uint32) *ClientEvent {
+func (self *ClientDB) Event(event_key [2]uint64, timeout uint32, expried uint32) *ClientEvent {
     return NewClientEvent(self, event_key, timeout, expried)
 }
 
@@ -318,25 +318,34 @@ func (self *ClientDB) State() *ResultStateCommand {
     return result_command
 }
 
-func (self *ClientDB) GetRequestId() [16]byte {
-    request_id := [16]byte{}
+func (self *ClientDB) GetRequestId() [2]uint64 {
+    request_id := [2]uint64{}
     now := fmt.Sprintf("%x", int32(time.Now().Unix()))
     letters_count := len(LETTERS)
-    for i := 0; i< 8; i++ {
-        request_id[i] = now[i]
-        request_id[8 + i] = LETTERS[rand.Intn(letters_count)]
+    request_id[0] = uint64(now[0]) | uint64(now[1])<<8 | uint64(now[2])<<16 | uint64(now[3])<<24 | uint64(now[4])<<32 | uint64(now[5])<<40 | uint64(now[6])<<48 | uint64(now[7])<<56
+
+    randstr := [16]byte{}
+    for i := 0; i < 8; i++{
+        randstr[i] = LETTERS[rand.Intn(letters_count)]
     }
+    request_id[0] = uint64(randstr[0]) | uint64(randstr[1])<<8 | uint64(randstr[2])<<16 | uint64(randstr[3])<<24 | uint64(randstr[4])<<32 | uint64(randstr[5])<<40 | uint64(randstr[6])<<48 | uint64(randstr[7])<<56
+
     return request_id
 }
 
-func (self *ClientDB) GenLockId() (request_id [16]byte) {
+func (self *ClientDB) GenLockId() ([2]uint64) {
+    lock_id := [2]uint64{}
     now := fmt.Sprintf("%x", int32(time.Now().Unix()))
     letters_count := len(LETTERS)
-    for i := 0; i< 8; i++ {
-        request_id[i] = now[i]
-        request_id[8 + i] = LETTERS[rand.Intn(letters_count)]
+    lock_id[0] = uint64(now[0]) | uint64(now[1])<<8 | uint64(now[2])<<16 | uint64(now[3])<<24 | uint64(now[4])<<32 | uint64(now[5])<<40 | uint64(now[6])<<48 | uint64(now[7])<<56
+
+    randstr := [16]byte{}
+    for i := 0; i < 8; i++{
+        randstr[i] = LETTERS[rand.Intn(letters_count)]
     }
-    return request_id
+    lock_id[0] = uint64(randstr[0]) | uint64(randstr[1])<<8 | uint64(randstr[2])<<16 | uint64(randstr[3])<<24 | uint64(randstr[4])<<32 | uint64(randstr[5])<<40 | uint64(randstr[6])<<48 | uint64(randstr[7])<<56
+
+    return lock_id
 }
 
 type ClientLockError struct {
@@ -350,14 +359,14 @@ func (self ClientLockError) Error() string {
 
 type ClientLock struct {
     db *ClientDB
-    request_id [16]byte
-    lock_id [16]byte
-    lock_key [16]byte
+    request_id [2]uint64
+    lock_id [2]uint64
+    lock_key [2]uint64
     timeout uint32
     expried uint32
 }
 
-func NewClientLock(db *ClientDB, lock_key [16]byte, timeout uint32, expried uint32) *ClientLock {
+func NewClientLock(db *ClientDB, lock_key [2]uint64, timeout uint32, expried uint32) *ClientLock {
     return &ClientLock{db, db.GetRequestId(), db.GenLockId(), lock_key, timeout, expried}
 }
 
@@ -389,7 +398,7 @@ func (self *ClientLock) Unlock() *ClientLockError{
 
 type ClientEvent struct {
     db *ClientDB
-    event_key [16]byte
+    event_key [2]uint64
     timeout uint32
     expried uint32
     event_lock *ClientLock
@@ -398,7 +407,7 @@ type ClientEvent struct {
     glock sync.Mutex
 }
 
-func NewClientEvent(db *ClientDB, event_key [16]byte, timeout uint32, expried uint32) *ClientEvent {
+func NewClientEvent(db *ClientDB, event_key [2]uint64, timeout uint32, expried uint32) *ClientEvent {
     return &ClientEvent{db, event_key, timeout, expried, nil, nil, nil, sync.Mutex{}}
 }
 
