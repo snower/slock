@@ -1,5 +1,7 @@
 package slock
 
+import "errors"
+
 const MAGIC = 0x56
 const VERSION = 0x01
 
@@ -151,6 +153,10 @@ func NewLockCommand(buf []byte) *LockCommand {
 }
 
 func (self *LockCommand) Decode(buf []byte) error{
+    if len(buf) < 64 {
+        return errors.New("buf too short")
+    }
+
     self.Magic, self.Version, self.CommandType = uint8(buf[0]), uint8(buf[1]), uint8(buf[2])
 
     self.RequestId[0] = uint64(buf[3]) | uint64(buf[4])<<8 | uint64(buf[5])<<16 | uint64(buf[6])<<24 | uint64(buf[7])<<32 | uint64(buf[8])<<40 | uint64(buf[9])<<48 | uint64(buf[10])<<56
@@ -171,6 +177,10 @@ func (self *LockCommand) Decode(buf []byte) error{
 }
 
 func (self *LockCommand) Encode(buf []byte) error {
+    if len(buf) < 64 {
+        return errors.New("buf too short")
+    }
+
     buf[0], buf[1], buf[2] = byte(self.Magic), byte(self.Version), byte(self.CommandType)
 
     buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10] = byte(self.RequestId[0]), byte(self.RequestId[0] >> 8), byte(self.RequestId[0] >> 16), byte(self.RequestId[0] >> 24), byte(self.RequestId[0] >> 32), byte(self.RequestId[0] >> 40), byte(self.RequestId[0] >> 48), byte(self.RequestId[0] >> 56)
@@ -209,6 +219,10 @@ func NewLockResultCommand(command *LockCommand, result uint8, flag uint8) *LockR
 }
 
 func (self *LockResultCommand) Decode(buf []byte) error{
+    if len(buf) < 64 {
+        return errors.New("buf too short")
+    }
+
     self.Magic, self.Version, self.CommandType = uint8(buf[0]), uint8(buf[1]), uint8(buf[2])
 
     self.RequestId[0] = uint64(buf[3]) | uint64(buf[4])<<8 | uint64(buf[5])<<16 | uint64(buf[6])<<24 | uint64(buf[7])<<32 | uint64(buf[8])<<40 | uint64(buf[9])<<48 | uint64(buf[10])<<56
@@ -226,6 +240,10 @@ func (self *LockResultCommand) Decode(buf []byte) error{
 }
 
 func (self *LockResultCommand) Encode(buf []byte) error {
+    if len(buf) < 64 {
+        return errors.New("buf too short")
+    }
+
     buf[0], buf[1], buf[2] = byte(self.Magic), byte(self.Version), byte(self.CommandType)
 
     buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10] = byte(self.RequestId[0]), byte(self.RequestId[0] >> 8), byte(self.RequestId[0] >> 16), byte(self.RequestId[0] >> 24), byte(self.RequestId[0] >> 32), byte(self.RequestId[0] >> 40), byte(self.RequestId[0] >> 48), byte(self.RequestId[0] >> 56)
