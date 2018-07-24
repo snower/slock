@@ -109,6 +109,10 @@ func (self *LockDB) CheckTimeTimeOut(check_timeout_time int64, now int64) (err e
                         }
                         lock.manager.glock.Unlock()
                     }
+
+                    if lock.manager.locked <= 0 {
+                        self.RemoveLockManager(lock.manager)
+                    }
                 } else {
                     lock.timeout_checked_count++
                     lock.manager.glock.Lock()
@@ -122,6 +126,10 @@ func (self *LockDB) CheckTimeTimeOut(check_timeout_time int64, now int64) (err e
                         lock.manager.FreeLock(lock)
                     }
                     lock.manager.glock.Unlock()
+                }
+
+                if lock.manager.locked <= 0 {
+                    self.RemoveLockManager(lock.manager)
                 }
             }
 
@@ -309,10 +317,11 @@ func (self *LockDB) RemoveLockManager(lock_manager *LockManager) (err error) {
 
 func (self *LockDB) CheckFreeLockManagerTimeOut(lock_manager *LockManager, last_lock_count uint64) (err error) {
     count := int((self.state.LockCount - last_lock_count) / 300 * 4)
-    if count < 1024 {
-        count = 1024
+    if count < 4096 {
+        count = 4096
     }
 
+    free_count := 0
     self.glock.Lock()
     for ; self.free_lock_manager_count >= count; {
         lock_manager = self.free_lock_managers[self.free_lock_manager_count]
@@ -324,8 +333,24 @@ func (self *LockDB) CheckFreeLockManagerTimeOut(lock_manager *LockManager, last_
         lock_manager.lock_maps = nil
         lock_manager.wait_locks = nil
         lock_manager.free_locks = nil
+
+        free_count++
+        if free_count >= 4096 {
+            break
+        }
     }
     self.glock.Unlock()
+
+    for ; free_count >= 0; {
+        for i := 0; i < self.manager_max_glocks; i++ {
+            if self.free_locks[i].Len() > 64 {
+                self.manager_glocks[i].Lock()
+                self.free_locks[i].PopRight()
+                self.manager_glocks[i].Unlock()
+            }
+        }
+        free_count -= 64
+    }
     self.free_lock_manager_timeout = true
 
     if self.free_lock_manager_timeout && int(self.state.KeyCount * 4) < self.free_lock_manager_count {
