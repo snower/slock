@@ -3,6 +3,7 @@ package slock
 import (
     "github.com/hhkbp2/go-logging"
     "sync"
+    "errors"
 )
 
 type SLock struct {
@@ -88,6 +89,10 @@ func (self *SLock) Handle(protocol *ServerProtocol, command ICommand) (err error
 func (self *SLock) Active(protocol *ServerProtocol, command *LockCommand, r uint8, use_cached_command bool) (err error) {
     if use_cached_command {
         buf := protocol.wbuf
+        if len(buf) < 64 {
+            return errors.New("buf too short")
+        }
+
         buf[2] = byte(command.CommandType)
 
         buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10] = byte(command.RequestId[0]), byte(command.RequestId[0] >> 8), byte(command.RequestId[0] >> 16), byte(command.RequestId[0] >> 24), byte(command.RequestId[0] >> 32), byte(command.RequestId[0] >> 40), byte(command.RequestId[0] >> 48), byte(command.RequestId[0] >> 56)
@@ -109,6 +114,11 @@ func (self *SLock) Active(protocol *ServerProtocol, command *LockCommand, r uint
 
     protocol.free_result_command_lock.Lock()
     buf := protocol.owbuf
+
+    if len(buf) < 64 {
+        return errors.New("buf too short")
+    }
+
     buf[2] = byte(command.CommandType)
 
     buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10] = byte(command.RequestId[0]), byte(command.RequestId[0] >> 8), byte(command.RequestId[0] >> 16), byte(command.RequestId[0] >> 24), byte(command.RequestId[0] >> 32), byte(command.RequestId[0] >> 40), byte(command.RequestId[0] >> 48), byte(command.RequestId[0] >> 56)

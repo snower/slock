@@ -51,34 +51,38 @@ func (self *ServerProtocol) Close() (err error) {
 }
 
 func (self *ServerProtocol) Read() (command CommandDecode, err error) {
-    n, err := self.stream.ReadBytes(self.rbuf)
+    buf := self.rbuf
+
+    _, err = self.stream.ReadBytes(buf)
     if err != nil {
         return nil, err
     }
 
-    if n != 64 {
+    if len(buf) < 64 {
         return nil, errors.New("command data too short")
     }
 
-    if uint8(self.rbuf[0]) != MAGIC {
-        command := NewCommand(self.rbuf)
-        self.Write(NewResultCommand(command, RESULT_UNKNOWN_MAGIC), true)
-        return nil, errors.New("unknown magic")
+    mv := uint16(buf[0]) | uint16(buf[0]<<8)
+    if mv != 0x0156 {
+        if mv & 0xff != MAGIC {
+            command := NewCommand(buf)
+            self.Write(NewResultCommand(command, RESULT_UNKNOWN_MAGIC), true)
+            return nil, errors.New("unknown magic")
+        }
+
+        if (mv>>8) & 0xff != VERSION {
+            command := NewCommand(buf)
+            self.Write(NewResultCommand(command, RESULT_UNKNOWN_VERSION), true)
+            return nil, errors.New("unknown version")
+        }
     }
 
-    if uint8(self.rbuf[1]) != VERSION {
-        command := NewCommand(self.rbuf)
-        self.Write(NewResultCommand(command, RESULT_UNKNOWN_VERSION), true)
-        return nil, errors.New("unknown version")
-    }
-
-    command_type := uint8(self.rbuf[2])
+    command_type := uint8(buf[2])
     switch command_type {
     case COMMAND_LOCK:
         if self.free_command_count >= 0 {
             lock_command := self.free_commands[self.free_command_count]
             self.free_command_count--
-            buf := self.rbuf
 
             lock_command.CommandType = command_type
 
@@ -104,7 +108,6 @@ func (self *ServerProtocol) Read() (command CommandDecode, err error) {
         for i := 1; i < 64; i++ {
             self.FreeLockCommand(&lock_commands[i])
         }
-        buf := self.rbuf
 
         lock_command.CommandType = command_type
 
@@ -127,7 +130,6 @@ func (self *ServerProtocol) Read() (command CommandDecode, err error) {
         if self.free_command_count >= 0 {
             lock_command := self.free_commands[self.free_command_count]
             self.free_command_count--
-            buf := self.rbuf
 
             lock_command.CommandType = command_type
 
@@ -153,7 +155,6 @@ func (self *ServerProtocol) Read() (command CommandDecode, err error) {
         for i := 1; i < 64; i++ {
             self.FreeLockCommand(&lock_commands[i])
         }
-        buf := self.rbuf
 
         lock_command.CommandType = command_type
 
@@ -174,13 +175,13 @@ func (self *ServerProtocol) Read() (command CommandDecode, err error) {
         return lock_command, nil
     case COMMAND_STATE:
         state_command := &StateCommand{}
-        err := state_command.Decode(self.rbuf)
+        err := state_command.Decode(buf)
         if err != nil {
             return nil, err
         }
         return state_command, nil
     default:
-        command := NewCommand(self.rbuf)
+        command := NewCommand(buf)
         self.Write(NewResultCommand(command, RESULT_UNKNOWN_VERSION), true)
         return nil, errors.New("unknown command")
     }
