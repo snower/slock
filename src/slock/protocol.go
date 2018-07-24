@@ -62,7 +62,7 @@ func (self *ServerProtocol) Read() (command CommandDecode, err error) {
         return nil, errors.New("command data too short")
     }
 
-    mv := uint16(buf[0]) | uint16(buf[0]<<8)
+    mv := uint16(buf[0]) | uint16(buf[1])<<8
     if mv != 0x0156 {
         if mv & 0xff != MAGIC {
             command := NewCommand(buf)
