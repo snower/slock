@@ -223,6 +223,9 @@ func (self *LockDB) GetOrNewLockManager(command *LockCommand) *LockManager{
         for i := 0; i < 4096; i++ {
             lock_managers[i].lock_db = self
             lock_managers[i].db_id = command.DbId
+            lock_managers[i].locks = NewLockQueue(4, 16, 4)
+            lock_managers[i].lock_maps = make(map[[2]uint64]*Lock, 0)
+            lock_managers[i].wait_locks = NewLockQueue(4, 16, 4)
             lock_managers[i].glock = self.manager_glocks[self.manager_glock_index]
             lock_managers[i].glock_index = self.manager_glock_index
             lock_managers[i].free_locks = self.free_locks[self.manager_glock_index]

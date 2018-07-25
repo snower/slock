@@ -37,14 +37,6 @@ func (self *LockManager) AddLock(lock *Lock) *Lock {
         return lock
     }
 
-    if self.locks == nil {
-        self.locks = NewLockQueue(4, 16, 4)
-    }
-
-    if self.lock_maps == nil {
-        self.lock_maps = make(map[[2]uint64]*Lock, 0)
-    }
-
     self.locks.Push(lock)
     self.lock_maps[lock.command.LockId] = lock
     return lock
@@ -56,10 +48,6 @@ func (self *LockManager) RemoveLock(lock *Lock) *Lock {
     if self.current_lock == lock {
         self.current_lock = nil
         lock.ref_count--
-
-        if self.locks == nil {
-            return lock
-        }
 
         locked_lock := self.locks.Pop()
         for ; locked_lock != nil; {
@@ -77,10 +65,6 @@ func (self *LockManager) RemoveLock(lock *Lock) *Lock {
             locked_lock = self.locks.Pop()
         }
 
-        return lock
-    }
-
-    if self.lock_maps == nil {
         return lock
     }
 
@@ -108,10 +92,6 @@ func (self *LockManager) GetLockedLock(command *LockCommand) *Lock {
         return self.current_lock
     }
 
-    if self.lock_maps == nil {
-        return nil
-    }
-
     locked_lock, ok := self.lock_maps[command.LockId]
     if ok {
         return locked_lock
@@ -120,20 +100,12 @@ func (self *LockManager) GetLockedLock(command *LockCommand) *Lock {
 }
 
 func (self *LockManager) AddWaitLock(lock *Lock) *Lock {
-    if self.wait_locks == nil {
-        self.wait_locks = NewLockQueue(4, 16, 4)
-    }
-
     self.wait_locks.Push(lock)
     lock.ref_count++
     return lock
 }
 
 func (self *LockManager) GetWaitLock() *Lock {
-    if self.wait_locks == nil {
-        return nil
-    }
-
     lock := self.wait_locks.Head()
     for ; lock != nil; {
         if lock.timeouted {
