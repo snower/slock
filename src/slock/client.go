@@ -38,7 +38,7 @@ func (self *Client) Open() error {
 }
 
 func (self *Client) Handle(stream *Stream) (err error) {
-    protocol := NewClientProtocol(stream)
+    protocol := self.protocol
 
     defer func() {
         defer self.glock.Unlock()
