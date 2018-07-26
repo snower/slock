@@ -10,13 +10,21 @@ const TIMEOUT_QUEUE_LENGTH int64 = 15
 const EXPRIED_QUEUE_LENGTH int64 = 15
 
 type LockDBState struct {
+    _padding0      [8]uint64
     LockCount uint64
+    _padding1      [8]uint64
     UnLockCount uint64
+    _padding2      [17]uint32
     LockedCount uint32
+    _padding3      [17]uint32
     WaitCount uint32
+    _padding4      [17]uint32
     TimeoutedCount uint32
+    _padding5      [17]uint32
     ExpriedCount uint32
+    _padding6      [17]uint32
     UnlockErrorCount uint32
+    _padding7      [17]uint32
     KeyCount uint32
 }
 
@@ -31,12 +39,12 @@ type LockDB struct {
     manager_glocks     []*sync.Mutex
     manager_glock_index int
     manager_max_glocks  int
-    is_stop             bool
-    state LockDBState
     free_lock_managers  [1048576]*LockManager
     free_lock_manager_count int
     free_lock_manager_timeout bool
     free_locks []*LockQueue
+    is_stop             bool
+    state LockDBState
 }
 
 func NewLockDB(slock *SLock) *LockDB {
@@ -49,8 +57,7 @@ func NewLockDB(slock *SLock) *LockDB {
     }
 
     now := time.Now().Unix()
-    state := LockDBState{0, 0, 0, 0, 0, 0, 0, 0}
-    db := &LockDB{slock, make(map[[2]uint64]*LockManager, 0), make([][]*LockQueue, TIMEOUT_QUEUE_LENGTH), make([][]*LockQueue, EXPRIED_QUEUE_LENGTH), now, now, sync.Mutex{}, manager_glocks, 0, manager_max_glocks, false, state, [1048576]*LockManager{}, -1, true, free_locks}
+    db := &LockDB{slock, make(map[[2]uint64]*LockManager, 0), make([][]*LockQueue, TIMEOUT_QUEUE_LENGTH), make([][]*LockQueue, EXPRIED_QUEUE_LENGTH), now, now, sync.Mutex{}, manager_glocks, 0, manager_max_glocks, [1048576]*LockManager{}, -1, true, free_locks, false, LockDBState{},}
     db.ResizeTimeOut()
     db.ResizeExpried()
     go db.CheckTimeOut()

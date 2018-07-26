@@ -9,6 +9,7 @@ type LockManager struct {
     lock_db        *LockDB
     locked         uint16
     db_id          uint8
+    freed           bool
     lock_key       [2]uint64
     current_lock   *Lock
     locks          *LockQueue
@@ -17,11 +18,10 @@ type LockManager struct {
     glock          *sync.Mutex
     glock_index    int
     free_locks     *LockQueue
-    freed           bool
 }
 
 func NewLockManager(lock_db *LockDB, command *LockCommand, glock *sync.Mutex, glock_index int, free_locks *LockQueue) *LockManager {
-    return &LockManager{lock_db,0, command.DbId, command.LockKey, nil, nil, nil, nil, glock, glock_index, free_locks, true}
+    return &LockManager{lock_db,0, command.DbId, true, command.LockKey, nil, nil, nil, nil, glock, glock_index, free_locks}
 }
 
 func (self *LockManager) GetDB() *LockDB{

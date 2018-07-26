@@ -3,31 +3,33 @@ package slock
 import "errors"
 
 type LockQueue struct {
-    queues [][]*Lock
-    node_queue_sizes []int
-    base_node_size int
-    node_size int
-    shrink_node_size int
-    base_queue_size int
-    queue_size int
-    head_node_index int
-    tail_node_index int
+    head_queue_index int32
     head_queue []*Lock
+    head_queue_size int32
+    head_node_index int32
+
+    tail_queue_index int32
     tail_queue []*Lock
-    head_queue_index int
-    tail_queue_index int
-    head_queue_size int
-    tail_queue_size int
+    tail_queue_size int32
+    tail_node_index int32
+
+    queues [][]*Lock
+    node_queue_sizes []int32
+    base_node_size int32
+    node_size int32
+    shrink_node_size int32
+    base_queue_size int32
+    queue_size int32
 }
 
-func NewLockQueue(base_node_size int, node_size int, queue_size int) *LockQueue {
+func NewLockQueue(base_node_size int32, node_size int32, queue_size int32) *LockQueue {
     queues := make([][]*Lock, node_size)
-    node_queue_sizes := make([]int, node_size)
+    node_queue_sizes := make([]int32, node_size)
 
     queues[0] = make([]*Lock, queue_size)
     node_queue_sizes[0] = queue_size
 
-    return &LockQueue{queues, node_queue_sizes,base_node_size, node_size, 0, queue_size, queue_size, 0, 0, queues[0], queues[0], 0, 0, queue_size, queue_size}
+    return &LockQueue{0, queues[0],queue_size, 0, 0, queues[0], queue_size, 0, queues, node_queue_sizes,base_node_size, node_size, 0, queue_size, queue_size}
 }
 
 func (self *LockQueue) Push(lock *Lock) error {
@@ -133,12 +135,12 @@ func (self *LockQueue) Tail() *Lock{
     return self.tail_queue[self.tail_queue_index]
 }
 
-func (self *LockQueue) Shrink(size int) int{
+func (self *LockQueue) Shrink(size int32) int32{
     if size == 0 {
         size = self.node_queue_sizes[self.head_node_index]
     }
 
-    shrink_size := 0
+    shrink_size := int32(0)
     for size >= self.node_queue_sizes[self.head_node_index] {
         if self.shrink_node_size >= self.node_size {
             break
@@ -174,7 +176,7 @@ func (self *LockQueue) Reset() error{
     return nil
 }
 
-func (self *LockQueue) Len() int{
+func (self *LockQueue) Len() int32{
     queue_len := self.node_queue_sizes[self.head_node_index] - self.head_queue_index
     for i := self.head_node_index + 1; i < self.tail_node_index; i++{
         queue_len += self.node_queue_sizes[self.head_node_index]
