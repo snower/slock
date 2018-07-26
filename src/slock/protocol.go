@@ -34,7 +34,8 @@ func NewServerProtocol(slock *SLock, stream *Stream) *ServerProtocol {
     owbuf[0] = byte(MAGIC)
     owbuf[1] = byte(VERSION)
 
-    protocol := &ServerProtocol{slock, stream, make([]byte, 64), wbuf, owbuf, make([]*LockCommand, 4096), 63, 4095, sync.Mutex{}}
+    protocol := &ServerProtocol{slock, stream, make([]byte, 64), wbuf, owbuf,
+    make([]*LockCommand, 4096), 63, 4095, sync.Mutex{}}
     lock_commands := make([]LockCommand, 64)
     for i := 0; i < 64; i++ {
         protocol.free_commands[i] = &lock_commands[i]

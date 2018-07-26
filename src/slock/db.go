@@ -10,22 +10,20 @@ const TIMEOUT_QUEUE_LENGTH int64 = 15
 const EXPRIED_QUEUE_LENGTH int64 = 15
 
 type LockDBState struct {
-    _padding0      [8]uint64
-    LockCount uint64
-    _padding1      [8]uint64
-    UnLockCount uint64
-    _padding2      [17]uint32
-    LockedCount uint32
-    _padding3      [17]uint32
-    WaitCount uint32
-    _padding4      [17]uint32
-    TimeoutedCount uint32
-    _padding5      [17]uint32
-    ExpriedCount uint32
-    _padding6      [17]uint32
-    UnlockErrorCount uint32
-    _padding7      [17]uint32
-    KeyCount uint32
+    LockCount           uint64
+    UnLockCount         uint64
+    _padding1           uint32
+    LockedCount         uint32
+    _padding2           uint32
+    KeyCount            uint32
+    _padding3           uint32
+    WaitCount           uint32
+    _padding4           uint32
+    TimeoutedCount      uint32
+    _padding5           uint32
+    ExpriedCount        uint32
+    _padding6           uint32
+    UnlockErrorCount    uint32
 }
 
 type LockDB struct {
@@ -39,7 +37,7 @@ type LockDB struct {
     manager_glocks     []*sync.Mutex
     manager_glock_index int
     manager_max_glocks  int
-    free_lock_managers  [1048576]*LockManager
+    free_lock_managers  []*LockManager
     free_lock_manager_count int
     free_lock_manager_timeout bool
     free_locks []*LockQueue
@@ -57,7 +55,11 @@ func NewLockDB(slock *SLock) *LockDB {
     }
 
     now := time.Now().Unix()
-    db := &LockDB{slock, make(map[[2]uint64]*LockManager, 0), make([][]*LockQueue, TIMEOUT_QUEUE_LENGTH), make([][]*LockQueue, EXPRIED_QUEUE_LENGTH), now, now, sync.Mutex{}, manager_glocks, 0, manager_max_glocks, [1048576]*LockManager{}, -1, true, free_locks, false, LockDBState{},}
+    db := &LockDB{slock, make(map[[2]uint64]*LockManager, 0), make([][]*LockQueue, TIMEOUT_QUEUE_LENGTH),
+    make([][]*LockQueue, EXPRIED_QUEUE_LENGTH), now, now, sync.Mutex{},
+    manager_glocks, 0, manager_max_glocks,
+    make([]*LockManager, 2097152), -1, true, free_locks, false, LockDBState{}}
+
     db.ResizeTimeOut()
     db.ResizeExpried()
     go db.CheckTimeOut()
@@ -281,7 +283,7 @@ func (self *LockDB) RemoveLockManager(lock_manager *LockManager) (err error) {
             delete(self.locks, lock_manager.lock_key)
             lock_manager.freed = true
 
-            if self.free_lock_manager_count < 1048575 {
+            if self.free_lock_manager_count < 2097151 {
                 self.free_lock_manager_count++
                 self.free_lock_managers[self.free_lock_manager_count] = lock_manager
                 self.glock.Unlock()

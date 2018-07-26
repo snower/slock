@@ -21,7 +21,8 @@ type LockManager struct {
 }
 
 func NewLockManager(lock_db *LockDB, command *LockCommand, glock *sync.Mutex, glock_index int, free_locks *LockQueue) *LockManager {
-    return &LockManager{lock_db,0, command.DbId, true, command.LockKey, nil, nil, nil, nil, glock, glock_index, free_locks}
+    return &LockManager{lock_db,0, command.DbId, true, command.LockKey,
+    nil, nil, nil, nil, glock, glock_index, free_locks}
 }
 
 func (self *LockManager) GetDB() *LockDB{

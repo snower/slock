@@ -29,7 +29,10 @@ func NewLockQueue(base_node_size int32, node_size int32, queue_size int32) *Lock
     queues[0] = make([]*Lock, queue_size)
     node_queue_sizes[0] = queue_size
 
-    return &LockQueue{0, queues[0],queue_size, 0, 0, queues[0], queue_size, 0, queues, node_queue_sizes,base_node_size, node_size, 0, queue_size, queue_size}
+    return &LockQueue{0, queues[0],queue_size, 0,
+    0, queues[0], queue_size, 0,
+    queues, node_queue_sizes,base_node_size, node_size,
+    0, queue_size, queue_size}
 }
 
 func (self *LockQueue) Push(lock *Lock) error {
