@@ -4,13 +4,15 @@ import "errors"
 
 type LockQueue struct {
     head_queue_index int32
-    head_queue []*Lock
     head_queue_size int32
-    head_node_index int32
+    head_queue []*Lock
+
 
     tail_queue_index int32
-    tail_queue []*Lock
     tail_queue_size int32
+    tail_queue []*Lock
+
+    head_node_index int32
     tail_node_index int32
 
     queues [][]*Lock
@@ -29,8 +31,8 @@ func NewLockQueue(base_node_size int32, node_size int32, queue_size int32) *Lock
     queues[0] = make([]*Lock, queue_size)
     node_queue_sizes[0] = queue_size
 
-    return &LockQueue{0, queues[0],queue_size, 0,
-    0, queues[0], queue_size, 0,
+    return &LockQueue{0, queue_size, queues[0], 0,
+        queue_size, queues[0], 0, 0,
     queues, node_queue_sizes,base_node_size, node_size,
     0, queue_size, queue_size}
 }

@@ -7,22 +7,22 @@ import (
 
 type LockManager struct {
     lock_db        *LockDB
-    locked         uint16
-    db_id          uint8
-    freed           bool
     lock_key       [2]uint64
     current_lock   *Lock
     locks          *LockQueue
     lock_maps      map[[2]uint64]*Lock
     wait_locks     *LockQueue
     glock          *sync.Mutex
-    glock_index    int
     free_locks     *LockQueue
+    locked         uint16
+    db_id          uint8
+    freed          bool
+    glock_index    int8
 }
 
-func NewLockManager(lock_db *LockDB, command *LockCommand, glock *sync.Mutex, glock_index int, free_locks *LockQueue) *LockManager {
-    return &LockManager{lock_db,0, command.DbId, true, command.LockKey,
-    nil, nil, nil, nil, glock, glock_index, free_locks}
+func NewLockManager(lock_db *LockDB, command *LockCommand, glock *sync.Mutex, glock_index int8, free_locks *LockQueue) *LockManager {
+    return &LockManager{lock_db, command.LockKey,
+    nil, nil, nil, nil, glock, free_locks, 0, command.DbId, true, glock_index}
 }
 
 func (self *LockManager) GetDB() *LockDB{
@@ -141,14 +141,14 @@ func (self *LockManager) GetOrNewLock(protocol *ServerProtocol, command *LockCom
     }
 
     lock.manager = self
-    lock.protocol = protocol
     lock.command = command
+    lock.protocol = protocol
     lock.start_time = time.Now().Unix()
     lock.expried_time = lock.start_time + int64(command.Expried)
     lock.timeout_time = lock.start_time + int64(command.Timeout)
-    lock.ref_count++
     lock.timeout_checked_count = 2
     lock.expried_checked_count = 2
+    lock.ref_count++
     return lock
 }
 
@@ -159,17 +159,17 @@ type Lock struct {
     start_time          int64
     expried_time        int64
     timeout_time        int64
+    timeout_checked_count int64
+    expried_checked_count int64
     locked              bool
     timeouted           bool
     expried             bool
     ref_count           uint8
-    timeout_checked_count int64
-    expried_checked_count int64
 }
 
 func NewLock(manager *LockManager, protocol *ServerProtocol, command *LockCommand) *Lock {
     now := time.Now().Unix()
-    return &Lock{manager, command, protocol,now, now + int64(command.Expried), now + int64(command.Timeout), false, false, false, 0, 0, 0}
+    return &Lock{manager, command, protocol,now, now + int64(command.Expried), now + int64(command.Timeout), 0, 0,false, false, false, 0}
 }
 
 func (self *Lock) GetDB() *LockDB{
