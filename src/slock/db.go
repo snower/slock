@@ -430,7 +430,23 @@ func (self *LockDB) DoTimeOut(lock *Lock) (err error) {
     self.slock.Active(lock.protocol, lock.command, RESULT_TIMEOUT, false)
     atomic.AddUint32(&self.state.WaitCount, 0xffffffff)
     atomic.AddUint32(&self.state.TimeoutedCount, 1)
-    self.slock.Log().Infof("lock timeout %d %x %x %x %s", lock.command.DbId, lock.command.LockKey, lock.command.LockId, lock.command.RequestId, lock.protocol.RemoteAddr().String())
+
+    lock_key := [16]byte{byte(lock.command.LockKey[0]), byte(lock.command.LockKey[0] >> 8), byte(lock.command.LockKey[0] >> 16), byte(lock.command.LockKey[0] >> 24),
+        byte(lock.command.LockKey[0] >> 32), byte(lock.command.LockKey[0] >> 40), byte(lock.command.LockKey[0] >> 48), byte(lock.command.LockKey[0] >> 56),
+        byte(lock.command.LockKey[1]), byte(lock.command.LockKey[1] >> 8), byte(lock.command.LockKey[1] >> 16), byte(lock.command.LockKey[1] >> 24),
+        byte(lock.command.LockKey[1] >> 32), byte(lock.command.LockKey[1] >> 40), byte(lock.command.LockKey[1] >> 48), byte(lock.command.LockKey[1] >> 56)}
+
+    lock_id := [16]byte{byte(lock.command.LockId[0]), byte(lock.command.LockId[0] >> 8), byte(lock.command.LockId[0] >> 16), byte(lock.command.LockId[0] >> 24),
+        byte(lock.command.LockId[0] >> 32), byte(lock.command.LockId[0] >> 40), byte(lock.command.LockId[0] >> 48), byte(lock.command.LockId[0] >> 56),
+        byte(lock.command.LockId[1]), byte(lock.command.LockId[1] >> 8), byte(lock.command.LockId[1] >> 16), byte(lock.command.LockId[1] >> 24),
+        byte(lock.command.LockId[1] >> 32), byte(lock.command.LockId[1] >> 40), byte(lock.command.LockId[1] >> 48), byte(lock.command.LockId[1] >> 56)}
+
+    request_id := [16]byte{byte(lock.command.RequestId[0]), byte(lock.command.RequestId[0] >> 8), byte(lock.command.RequestId[0] >> 16), byte(lock.command.RequestId[0] >> 24),
+        byte(lock.command.RequestId[0] >> 32), byte(lock.command.RequestId[0] >> 40), byte(lock.command.RequestId[0] >> 48), byte(lock.command.RequestId[0] >> 56),
+        byte(lock.command.RequestId[1]), byte(lock.command.RequestId[1] >> 8), byte(lock.command.RequestId[1] >> 16), byte(lock.command.RequestId[1] >> 24),
+        byte(lock.command.RequestId[1] >> 32), byte(lock.command.RequestId[1] >> 40), byte(lock.command.RequestId[1] >> 48), byte(lock.command.RequestId[1] >> 56)}
+
+    self.slock.Log().Infof("LockTimeout DbId:%d LockKey:%x LockId:%x RequestId:%x RemoteAddr:%s", lock.command.DbId, lock_key, lock_id, request_id, lock.protocol.RemoteAddr().String())
 
     return nil
 }
@@ -494,7 +510,23 @@ func (self *LockDB) DoExpried(lock *Lock) (err error) {
     self.slock.Active(lock.protocol, lock.command, RESULT_EXPRIED, false)
     atomic.AddUint32(&self.state.LockedCount, 0xffffffff)
     atomic.AddUint32(&self.state.ExpriedCount, 1)
-    self.slock.Log().Infof("lock expried %d %x %x %x %s", lock.command.DbId, lock.command.LockKey, lock.command.LockId, lock.command.RequestId, lock.protocol.RemoteAddr().String())
+
+    lock_key := [16]byte{byte(lock.command.LockKey[0]), byte(lock.command.LockKey[0] >> 8), byte(lock.command.LockKey[0] >> 16), byte(lock.command.LockKey[0] >> 24),
+        byte(lock.command.LockKey[0] >> 32), byte(lock.command.LockKey[0] >> 40), byte(lock.command.LockKey[0] >> 48), byte(lock.command.LockKey[0] >> 56),
+        byte(lock.command.LockKey[1]), byte(lock.command.LockKey[1] >> 8), byte(lock.command.LockKey[1] >> 16), byte(lock.command.LockKey[1] >> 24),
+        byte(lock.command.LockKey[1] >> 32), byte(lock.command.LockKey[1] >> 40), byte(lock.command.LockKey[1] >> 48), byte(lock.command.LockKey[1] >> 56)}
+
+    lock_id := [16]byte{byte(lock.command.LockId[0]), byte(lock.command.LockId[0] >> 8), byte(lock.command.LockId[0] >> 16), byte(lock.command.LockId[0] >> 24),
+        byte(lock.command.LockId[0] >> 32), byte(lock.command.LockId[0] >> 40), byte(lock.command.LockId[0] >> 48), byte(lock.command.LockId[0] >> 56),
+        byte(lock.command.LockId[1]), byte(lock.command.LockId[1] >> 8), byte(lock.command.LockId[1] >> 16), byte(lock.command.LockId[1] >> 24),
+        byte(lock.command.LockId[1] >> 32), byte(lock.command.LockId[1] >> 40), byte(lock.command.LockId[1] >> 48), byte(lock.command.LockId[1] >> 56)}
+
+    request_id := [16]byte{byte(lock.command.RequestId[0]), byte(lock.command.RequestId[0] >> 8), byte(lock.command.RequestId[0] >> 16), byte(lock.command.RequestId[0] >> 24),
+        byte(lock.command.RequestId[0] >> 32), byte(lock.command.RequestId[0] >> 40), byte(lock.command.RequestId[0] >> 48), byte(lock.command.RequestId[0] >> 56),
+        byte(lock.command.RequestId[1]), byte(lock.command.RequestId[1] >> 8), byte(lock.command.RequestId[1] >> 16), byte(lock.command.RequestId[1] >> 24),
+        byte(lock.command.RequestId[1] >> 32), byte(lock.command.RequestId[1] >> 40), byte(lock.command.RequestId[1] >> 48), byte(lock.command.RequestId[1] >> 56)}
+
+    self.slock.Log().Infof("LockExpried DbId:%d LockKey:%x LockId:%x RequestId:%x RemoteAddr:%s", lock.command.DbId, lock_key, lock_id, request_id, lock.protocol.RemoteAddr().String())
 
     if wait_lock != nil {
         lock_manager.glock.Lock()
