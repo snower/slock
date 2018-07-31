@@ -1,6 +1,8 @@
 package slock
 
-import "errors"
+import (
+    "errors"
+)
 
 type LockQueue struct {
     head_queue_index int32
@@ -69,7 +71,6 @@ func (self *LockQueue) PushLeft(lock *Lock) error{
     }
 
     self.head_queue_index--
-
     if self.head_queue_index < 0 {
         self.head_node_index--
         if self.head_node_index < 0 {
@@ -78,7 +79,7 @@ func (self *LockQueue) PushLeft(lock *Lock) error{
             return nil
         }
 
-        self.head_queue_index = self.node_queue_sizes[self.head_node_index]
+        self.head_queue_index = self.node_queue_sizes[self.head_node_index] - 1
         self.head_queue = self.queues[self.head_node_index]
         self.head_queue_size = self.node_queue_sizes[self.head_node_index]
     }
@@ -114,11 +115,17 @@ func (self *LockQueue) PopRight() *Lock{
     self.tail_queue_index--
     if self.tail_queue_index < 0 {
         self.tail_node_index--
-        self.tail_queue_index = self.node_queue_sizes[self.tail_node_index]
+        if self.tail_node_index < 0 {
+            self.tail_queue_index = 0
+            self.tail_node_index = 0
+            return nil;
+        }
+
+        self.tail_queue_index = self.node_queue_sizes[self.tail_node_index] - 1
         self.tail_queue = self.queues[self.tail_node_index]
         self.tail_queue_size = self.node_queue_sizes[self.tail_node_index]
     }
-
+    
     lock := self.tail_queue[self.tail_queue_index]
     self.tail_queue[self.tail_queue_index] = nil
     return lock
