@@ -92,10 +92,10 @@ func (self *LockDB) CheckTimeOut() (err error) {
         time.Sleep(1e9)
 
         now := time.Now().Unix()
-        for self.check_timeout_time <= now {
-            go self.CheckTimeTimeOut(self.check_timeout_time, now)
-            self.check_timeout_time++
+        for i := self.check_timeout_time - 2; i <= now; i++ {
+            go self.CheckTimeTimeOut(i, now)
         }
+        self.check_timeout_time = now
     }
     return nil
 }
@@ -152,10 +152,10 @@ func (self *LockDB) CheckExpried() (err error) {
         time.Sleep(1e9)
 
         now := time.Now().Unix()
-        for self.check_expried_time <= now {
-            go self.CheckTimeExpried(self.check_expried_time, now)
-            self.check_expried_time++
+        for i := self.check_expried_time - 2; i <= now; i++ {
+            go self.CheckTimeExpried(i, now)
         }
+        self.check_expried_time = now
     }
     return nil
 }
@@ -378,16 +378,12 @@ func (self *LockDB) AddTimeOut(lock *Lock) (err error) {
 
     if lock.timeout_checked_count > 5 {
         if lock.protocol.stream.closed {
-            timeout_time := self.check_timeout_time + 2
-            self.timeout_locks[timeout_time % TIMEOUT_QUEUE_LENGTH][lock.manager.glock_index].Push(lock)
+            self.timeout_locks[self.check_timeout_time % TIMEOUT_QUEUE_LENGTH][lock.manager.glock_index].Push(lock)
             lock.ref_count++
         } else {
             timeout_time := self.check_timeout_time + 5
             if lock.timeout_time < timeout_time {
                 timeout_time = lock.timeout_time
-                if timeout_time < self.check_timeout_time {
-                    timeout_time = self.check_timeout_time + 2
-                }
             }
 
             self.timeout_locks[timeout_time % TIMEOUT_QUEUE_LENGTH][lock.manager.glock_index].Push(lock)
@@ -397,9 +393,6 @@ func (self *LockDB) AddTimeOut(lock *Lock) (err error) {
         timeout_time := self.check_timeout_time + lock.timeout_checked_count
         if lock.timeout_time < timeout_time {
             timeout_time = lock.timeout_time
-            if timeout_time < self.check_timeout_time {
-                timeout_time = self.check_timeout_time + 2
-            }
         }
 
         self.timeout_locks[timeout_time % TIMEOUT_QUEUE_LENGTH][lock.manager.glock_index].Push(lock)
@@ -428,6 +421,7 @@ func (self *LockDB) DoTimeOut(lock *Lock) (err error) {
     lock.manager.glock.Unlock()
 
     self.slock.Active(lock.protocol, lock.command, RESULT_TIMEOUT, false)
+    self.slock.FreeLockCommand(lock.command)
     atomic.AddUint32(&self.state.WaitCount, 0xffffffff)
     atomic.AddUint32(&self.state.TimeoutedCount, 1)
 
@@ -456,16 +450,12 @@ func (self *LockDB) AddExpried(lock *Lock) (err error) {
 
     if lock.expried_checked_count > 5 {
         if lock.protocol.stream.closed {
-            expried_time := self.check_expried_time + 2
-            self.expried_locks[expried_time % EXPRIED_QUEUE_LENGTH][lock.manager.glock_index].Push(lock)
+            self.expried_locks[self.check_expried_time % EXPRIED_QUEUE_LENGTH][lock.manager.glock_index].Push(lock)
             lock.ref_count++
         } else {
             expried_time := self.check_expried_time + 5
             if lock.expried_time < expried_time {
                 expried_time = lock.expried_time
-                if expried_time < self.check_expried_time {
-                    expried_time = self.check_expried_time + 2
-                }
             }
 
             self.expried_locks[expried_time % EXPRIED_QUEUE_LENGTH][lock.manager.glock_index].Push(lock)
@@ -475,9 +465,6 @@ func (self *LockDB) AddExpried(lock *Lock) (err error) {
         expried_time := self.check_expried_time + lock.expried_checked_count
         if lock.expried_time < expried_time {
             expried_time = lock.expried_time
-            if expried_time < self.check_expried_time {
-                expried_time = self.check_expried_time + 2
-            }
         }
 
         self.expried_locks[expried_time % EXPRIED_QUEUE_LENGTH][lock.manager.glock_index].Push(lock)
@@ -508,6 +495,7 @@ func (self *LockDB) DoExpried(lock *Lock) (err error) {
     lock.manager.glock.Unlock()
 
     self.slock.Active(lock.protocol, lock.command, RESULT_EXPRIED, false)
+    self.slock.FreeLockCommand(lock.command)
     atomic.AddUint32(&self.state.LockedCount, 0xffffffff)
     atomic.AddUint32(&self.state.ExpriedCount, 1)
 
@@ -537,6 +525,7 @@ func (self *LockDB) DoExpried(lock *Lock) (err error) {
                     lock_manager.glock.Lock()
                     continue
                 }
+                lock_manager.waited = false
             }
             return nil
         }
@@ -694,6 +683,7 @@ func (self *LockDB) UnLock(protocol *ServerProtocol, command *LockCommand) (err 
                     lock_manager.glock.Lock()
                     continue
                 }
+                lock_manager.waited = false
             }
             return nil
         }
@@ -705,6 +695,10 @@ func (self *LockDB) UnLock(protocol *ServerProtocol, command *LockCommand) (err 
 func (self *LockDB) DoLock(lock_manager *LockManager, lock *Lock) bool{
     if lock_manager.locked == 0 {
         return true
+    }
+
+    if lock_manager.waited {
+        return false
     }
 
     if(lock_manager.locked <= lock.command.Count && lock_manager.locked <= lock_manager.current_lock.command.Count){
@@ -745,6 +739,7 @@ func (self *LockDB) WakeUpWaitLock(lock_manager *LockManager, wait_lock *Lock, p
         protocol.FreeLockCommand(wait_lock_command)
     } else {
         self.slock.Active(wait_lock_protocol, wait_lock_command, RESULT_SUCCED, false)
+        self.slock.FreeLockCommand(wait_lock_command)
     }
 
     atomic.AddUint64(&self.state.LockCount, 1)

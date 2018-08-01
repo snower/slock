@@ -7,14 +7,17 @@ import (
 )
 
 type SLock struct {
-    dbs    []*LockDB
-    glock  sync.Mutex
-    logger logging.Logger
+    dbs                     []*LockDB
+    glock                   sync.Mutex
+    logger                  logging.Logger
+    free_lock_commands      *LockCommandQueue
+    free_lock_command_lock  sync.Mutex
+    free_lock_command_count int32
 }
 
 func NewSLock(log_file string, log_level string) *SLock {
     logger := InitLogger(log_file, log_level)
-    return &SLock{make([]*LockDB, 256), sync.Mutex{}, logger}
+    return &SLock{make([]*LockDB, 256), sync.Mutex{}, logger, NewLockCommandQueue(16, 64, 4096), sync.Mutex{}, 0}
 }
 
 func (self *SLock) GetOrNewDB(db_id uint8) *LockDB {
@@ -142,4 +145,50 @@ func (self *SLock) Active(protocol *ServerProtocol, command *LockCommand, r uint
 
 func (self *SLock) Log() logging.Logger {
     return self.logger
+}
+
+func (self *SLock) FreeLockCommand(command *LockCommand) *LockCommand{
+    self.free_lock_command_lock.Lock()
+    self.free_lock_commands.Push(command)
+    self.free_lock_command_count++
+    self.free_lock_command_lock.Unlock()
+    return command
+}
+
+func (self *SLock) GetLockCommand() *LockCommand{
+    self.free_lock_command_lock.Lock()
+    command := self.free_lock_commands.PopRight()
+    if command != nil {
+        self.free_lock_command_count--
+    }
+    self.free_lock_command_lock.Unlock()
+    return command
+}
+
+func (self *SLock) FreeLockCommands(commands []*LockCommand) error{
+    self.free_lock_command_lock.Lock()
+    for _, command := range commands {
+        self.free_lock_commands.Push(command)
+        self.free_lock_command_count++
+    }
+    self.free_lock_command_lock.Unlock()
+    return nil
+}
+
+func (self *SLock) GetLockCommands(count int32) []*LockCommand{
+    self.free_lock_command_lock.Lock()
+    if count > self.free_lock_command_count {
+        count = self.free_lock_command_count
+    }
+    commands := make([]*LockCommand, count)
+    for i := int32(0); i < count; i++ {
+        command := self.free_lock_commands.PopRight()
+        if command == nil {
+            break
+        }
+        commands[i] = command
+        self.free_lock_command_count--
+    }
+    self.free_lock_command_lock.Unlock()
+    return commands
 }
