@@ -91,11 +91,20 @@ func (self *LockDB) CheckTimeOut() (err error) {
     for !self.is_stop {
         time.Sleep(1e9)
 
+
+        check_timeout_time := self.check_timeout_time
+
         now := time.Now().Unix()
-        for i := self.check_timeout_time - 2; i <= now; i++ {
-            go self.CheckTimeTimeOut(i, now)
+        self.check_timeout_time = now + 1
+        for _, manager_glock := range self.manager_glocks {
+            manager_glock.Lock()
+            manager_glock.Unlock()
         }
-        self.check_timeout_time = now
+
+        for ; check_timeout_time <= now; {
+            go self.CheckTimeTimeOut(check_timeout_time, now)
+            check_timeout_time++
+        }
     }
     return nil
 }
@@ -151,11 +160,20 @@ func (self *LockDB) CheckExpried() (err error) {
     for !self.is_stop {
         time.Sleep(1e9)
 
+        check_expried_time := self.check_expried_time
+
         now := time.Now().Unix()
-        for i := self.check_expried_time - 2; i <= now; i++ {
-            go self.CheckTimeExpried(i, now)
+        self.check_expried_time = now + 1
+        for _, manager_glock := range self.manager_glocks {
+            manager_glock.Lock()
+            manager_glock.Unlock()
         }
-        self.check_expried_time = now
+
+        for ; check_expried_time <= now; {
+            go self.CheckTimeExpried(check_expried_time, now)
+            check_expried_time++
+        }
+
     }
     return nil
 }
@@ -384,6 +402,9 @@ func (self *LockDB) AddTimeOut(lock *Lock) (err error) {
             timeout_time := self.check_timeout_time + 5
             if lock.timeout_time < timeout_time {
                 timeout_time = lock.timeout_time
+                if timeout_time < self.check_timeout_time {
+                    timeout_time = self.check_timeout_time
+                }
             }
 
             self.timeout_locks[timeout_time % TIMEOUT_QUEUE_LENGTH][lock.manager.glock_index].Push(lock)
@@ -393,6 +414,9 @@ func (self *LockDB) AddTimeOut(lock *Lock) (err error) {
         timeout_time := self.check_timeout_time + lock.timeout_checked_count
         if lock.timeout_time < timeout_time {
             timeout_time = lock.timeout_time
+            if timeout_time < self.check_timeout_time {
+                timeout_time = self.check_timeout_time
+            }
         }
 
         self.timeout_locks[timeout_time % TIMEOUT_QUEUE_LENGTH][lock.manager.glock_index].Push(lock)
@@ -456,6 +480,9 @@ func (self *LockDB) AddExpried(lock *Lock) (err error) {
             expried_time := self.check_expried_time + 5
             if lock.expried_time < expried_time {
                 expried_time = lock.expried_time
+                if expried_time < self.check_expried_time {
+                    expried_time = self.check_expried_time
+                }
             }
 
             self.expried_locks[expried_time % EXPRIED_QUEUE_LENGTH][lock.manager.glock_index].Push(lock)
@@ -465,6 +492,9 @@ func (self *LockDB) AddExpried(lock *Lock) (err error) {
         expried_time := self.check_expried_time + lock.expried_checked_count
         if lock.expried_time < expried_time {
             expried_time = lock.expried_time
+            if expried_time < self.check_expried_time {
+                expried_time = self.check_expried_time
+            }
         }
 
         self.expried_locks[expried_time % EXPRIED_QUEUE_LENGTH][lock.manager.glock_index].Push(lock)
