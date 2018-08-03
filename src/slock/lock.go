@@ -1,7 +1,6 @@
 package slock
 
 import (
-    "time"
     "sync"
 )
 
@@ -142,12 +141,14 @@ func (self *LockManager) GetOrNewLock(protocol *ServerProtocol, command *LockCom
         }
     }
 
+    now := self.lock_db.current_time
+
     lock.manager = self
     lock.command = command
     lock.protocol = protocol
-    lock.start_time = time.Now().Unix()
-    lock.expried_time = lock.start_time + int64(command.Expried)
-    lock.timeout_time = lock.start_time + int64(command.Timeout)
+    lock.start_time = now
+    lock.expried_time = now + int64(command.Expried)
+    lock.timeout_time = now + int64(command.Timeout)
     lock.timeout_checked_count = 2
     lock.expried_checked_count = 2
     lock.ref_count++
@@ -170,7 +171,7 @@ type Lock struct {
 }
 
 func NewLock(manager *LockManager, protocol *ServerProtocol, command *LockCommand) *Lock {
-    now := time.Now().Unix()
+    now := manager.lock_db.current_time
     return &Lock{manager, command, protocol,now, now + int64(command.Expried), now + int64(command.Timeout), 0, 0,false, false, false, 0}
 }
 

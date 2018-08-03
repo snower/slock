@@ -31,6 +31,7 @@ type LockDB struct {
     locks              map[[2]uint64]*LockManager
     timeout_locks      [][]*LockQueue
     expried_locks      [][]*LockQueue
+    current_time       int64
     check_timeout_time int64
     check_expried_time int64
     glock              sync.Mutex
@@ -56,12 +57,13 @@ func NewLockDB(slock *SLock) *LockDB {
 
     now := time.Now().Unix()
     db := &LockDB{slock, make(map[[2]uint64]*LockManager, 2097152), make([][]*LockQueue, TIMEOUT_QUEUE_LENGTH),
-    make([][]*LockQueue, EXPRIED_QUEUE_LENGTH), now, now, sync.Mutex{},
+    make([][]*LockQueue, EXPRIED_QUEUE_LENGTH), now, now, now, sync.Mutex{},
     manager_glocks, make([]*LockManager, 2097152), free_locks, -1,
     0, manager_max_glocks, false, true, LockDBState{}}
 
     db.ResizeTimeOut()
     db.ResizeExpried()
+    go db.UpdateCurrentTime()
     go db.CheckTimeOut()
     go db.CheckExpried()
     return db
@@ -83,6 +85,14 @@ func (self *LockDB) ResizeExpried () error{
         for j := int8(0); j < self.manager_max_glocks; j++ {
             self.expried_locks[i][j] = NewLockQueue(4, 16, 4096)
         }
+    }
+    return nil
+}
+
+func (self *LockDB) UpdateCurrentTime() (err error) {
+    for !self.is_stop {
+        time.Sleep(5e8)
+        self.current_time = time.Now().Unix()
     }
     return nil
 }

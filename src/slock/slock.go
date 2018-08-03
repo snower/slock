@@ -115,7 +115,8 @@ func (self *SLock) Active(protocol *ServerProtocol, command *LockCommand, r uint
         return protocol.stream.WriteBytes(buf)
     }
 
-    protocol.free_result_command_lock.Lock()
+    free_result_command_lock := protocol.free_result_command_lock
+    free_result_command_lock.Lock()
     buf := protocol.owbuf
 
     if len(buf) < 64 {
@@ -139,7 +140,7 @@ func (self *SLock) Active(protocol *ServerProtocol, command *LockCommand, r uint
     buf[62], buf[63] = 0x00, 0x00
 
     err = protocol.stream.WriteBytes(buf)
-    protocol.free_result_command_lock.Unlock()
+    free_result_command_lock.Unlock()
     return err
 }
 
