@@ -11,18 +11,19 @@ const EXPRIED_QUEUE_LENGTH int64 = 15
 
 type LockDBState struct {
     LockCount           uint64
+    _padding0           [4]uint64
     UnLockCount         uint64
-    _padding1           uint32
+    _padding1           [7]uint32
     LockedCount         uint32
-    _padding2           uint32
+    _padding2           [7]uint32
     KeyCount            uint32
-    _padding3           uint32
+    _padding3           [7]uint32
     WaitCount           uint32
-    _padding4           uint32
+    _padding4           [7]uint32
     TimeoutedCount      uint32
-    _padding5           uint32
+    _padding5           [7]uint32
     ExpriedCount        uint32
-    _padding6           uint32
+    _padding6           [7]uint32
     UnlockErrorCount    uint32
 }
 
