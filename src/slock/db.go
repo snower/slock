@@ -779,6 +779,7 @@ func (self *LockDB) WakeUpWaitLock(lock_manager *LockManager, wait_lock *Lock, p
         lock_manager.AddLock(wait_lock)
         lock_manager.locked++
         self.AddExpried(wait_lock)
+        lock_manager.GetWaitLock()
         lock_manager.glock.Unlock()
 
         self.slock.Active(wait_lock.protocol, wait_lock.command, RESULT_SUCCED, wait_lock.protocol == protocol)
