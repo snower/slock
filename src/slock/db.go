@@ -454,30 +454,31 @@ func (self *LockDB) DoTimeOut(lock *Lock) (err error) {
     }
 
     lock.timeouted = true
+    lock_protocol, lock_command := lock.protocol, lock.command
     lock.manager.GetWaitLock()
     lock.manager.glock.Unlock()
 
-    self.slock.Active(lock.protocol, lock.command, RESULT_TIMEOUT, false)
-    self.slock.FreeLockCommand(lock.command)
+    self.slock.Active(lock_protocol, lock_command, RESULT_TIMEOUT, false)
+    self.slock.FreeLockCommand(lock_command)
     atomic.AddUint32(&self.state.WaitCount, 0xffffffff)
     atomic.AddUint32(&self.state.TimeoutedCount, 1)
 
-    lock_key := [16]byte{byte(lock.command.LockKey[0]), byte(lock.command.LockKey[0] >> 8), byte(lock.command.LockKey[0] >> 16), byte(lock.command.LockKey[0] >> 24),
-        byte(lock.command.LockKey[0] >> 32), byte(lock.command.LockKey[0] >> 40), byte(lock.command.LockKey[0] >> 48), byte(lock.command.LockKey[0] >> 56),
-        byte(lock.command.LockKey[1]), byte(lock.command.LockKey[1] >> 8), byte(lock.command.LockKey[1] >> 16), byte(lock.command.LockKey[1] >> 24),
-        byte(lock.command.LockKey[1] >> 32), byte(lock.command.LockKey[1] >> 40), byte(lock.command.LockKey[1] >> 48), byte(lock.command.LockKey[1] >> 56)}
+    lock_key := [16]byte{byte(lock_command.LockKey[0]), byte(lock_command.LockKey[0] >> 8), byte(lock_command.LockKey[0] >> 16), byte(lock_command.LockKey[0] >> 24),
+        byte(lock_command.LockKey[0] >> 32), byte(lock_command.LockKey[0] >> 40), byte(lock_command.LockKey[0] >> 48), byte(lock_command.LockKey[0] >> 56),
+        byte(lock_command.LockKey[1]), byte(lock_command.LockKey[1] >> 8), byte(lock_command.LockKey[1] >> 16), byte(lock_command.LockKey[1] >> 24),
+        byte(lock_command.LockKey[1] >> 32), byte(lock_command.LockKey[1] >> 40), byte(lock_command.LockKey[1] >> 48), byte(lock_command.LockKey[1] >> 56)}
 
-    lock_id := [16]byte{byte(lock.command.LockId[0]), byte(lock.command.LockId[0] >> 8), byte(lock.command.LockId[0] >> 16), byte(lock.command.LockId[0] >> 24),
-        byte(lock.command.LockId[0] >> 32), byte(lock.command.LockId[0] >> 40), byte(lock.command.LockId[0] >> 48), byte(lock.command.LockId[0] >> 56),
-        byte(lock.command.LockId[1]), byte(lock.command.LockId[1] >> 8), byte(lock.command.LockId[1] >> 16), byte(lock.command.LockId[1] >> 24),
-        byte(lock.command.LockId[1] >> 32), byte(lock.command.LockId[1] >> 40), byte(lock.command.LockId[1] >> 48), byte(lock.command.LockId[1] >> 56)}
+    lock_id := [16]byte{byte(lock_command.LockId[0]), byte(lock_command.LockId[0] >> 8), byte(lock_command.LockId[0] >> 16), byte(lock_command.LockId[0] >> 24),
+        byte(lock_command.LockId[0] >> 32), byte(lock_command.LockId[0] >> 40), byte(lock_command.LockId[0] >> 48), byte(lock_command.LockId[0] >> 56),
+        byte(lock_command.LockId[1]), byte(lock_command.LockId[1] >> 8), byte(lock_command.LockId[1] >> 16), byte(lock_command.LockId[1] >> 24),
+        byte(lock_command.LockId[1] >> 32), byte(lock_command.LockId[1] >> 40), byte(lock_command.LockId[1] >> 48), byte(lock_command.LockId[1] >> 56)}
 
-    request_id := [16]byte{byte(lock.command.RequestId[0]), byte(lock.command.RequestId[0] >> 8), byte(lock.command.RequestId[0] >> 16), byte(lock.command.RequestId[0] >> 24),
-        byte(lock.command.RequestId[0] >> 32), byte(lock.command.RequestId[0] >> 40), byte(lock.command.RequestId[0] >> 48), byte(lock.command.RequestId[0] >> 56),
-        byte(lock.command.RequestId[1]), byte(lock.command.RequestId[1] >> 8), byte(lock.command.RequestId[1] >> 16), byte(lock.command.RequestId[1] >> 24),
-        byte(lock.command.RequestId[1] >> 32), byte(lock.command.RequestId[1] >> 40), byte(lock.command.RequestId[1] >> 48), byte(lock.command.RequestId[1] >> 56)}
+    request_id := [16]byte{byte(lock_command.RequestId[0]), byte(lock_command.RequestId[0] >> 8), byte(lock_command.RequestId[0] >> 16), byte(lock_command.RequestId[0] >> 24),
+        byte(lock_command.RequestId[0] >> 32), byte(lock_command.RequestId[0] >> 40), byte(lock_command.RequestId[0] >> 48), byte(lock_command.RequestId[0] >> 56),
+        byte(lock_command.RequestId[1]), byte(lock_command.RequestId[1] >> 8), byte(lock_command.RequestId[1] >> 16), byte(lock_command.RequestId[1] >> 24),
+        byte(lock_command.RequestId[1] >> 32), byte(lock_command.RequestId[1] >> 40), byte(lock_command.RequestId[1] >> 48), byte(lock_command.RequestId[1] >> 56)}
 
-    self.slock.Log().Infof("LockTimeout DbId:%d LockKey:%x LockId:%x RequestId:%x RemoteAddr:%s", lock.command.DbId, lock_key, lock_id, request_id, lock.protocol.RemoteAddr().String())
+    self.slock.Log().Infof("LockTimeout DbId:%d LockKey:%x LockId:%x RequestId:%x RemoteAddr:%s", lock_command.DbId, lock_key, lock_id, request_id, lock.protocol.RemoteAddr().String())
 
     return nil
 }
@@ -532,32 +533,33 @@ func (self *LockDB) DoExpried(lock *Lock) (err error) {
     lock_manager := lock.manager
     lock.expried = true
     lock_manager.locked--
+    lock_protocol, lock_command := lock.protocol, lock.command
     lock_manager.RemoveLock(lock)
 
     wait_lock := lock_manager.GetWaitLock()
     lock.manager.glock.Unlock()
 
-    self.slock.Active(lock.protocol, lock.command, RESULT_EXPRIED, false)
-    self.slock.FreeLockCommand(lock.command)
+    self.slock.Active(lock_protocol, lock_command, RESULT_EXPRIED, false)
+    self.slock.FreeLockCommand(lock_command)
     atomic.AddUint32(&self.state.LockedCount, 0xffffffff)
     atomic.AddUint32(&self.state.ExpriedCount, 1)
 
-    lock_key := [16]byte{byte(lock.command.LockKey[0]), byte(lock.command.LockKey[0] >> 8), byte(lock.command.LockKey[0] >> 16), byte(lock.command.LockKey[0] >> 24),
-        byte(lock.command.LockKey[0] >> 32), byte(lock.command.LockKey[0] >> 40), byte(lock.command.LockKey[0] >> 48), byte(lock.command.LockKey[0] >> 56),
-        byte(lock.command.LockKey[1]), byte(lock.command.LockKey[1] >> 8), byte(lock.command.LockKey[1] >> 16), byte(lock.command.LockKey[1] >> 24),
-        byte(lock.command.LockKey[1] >> 32), byte(lock.command.LockKey[1] >> 40), byte(lock.command.LockKey[1] >> 48), byte(lock.command.LockKey[1] >> 56)}
+    lock_key := [16]byte{byte(lock_command.LockKey[0]), byte(lock_command.LockKey[0] >> 8), byte(lock_command.LockKey[0] >> 16), byte(lock_command.LockKey[0] >> 24),
+        byte(lock_command.LockKey[0] >> 32), byte(lock_command.LockKey[0] >> 40), byte(lock_command.LockKey[0] >> 48), byte(lock_command.LockKey[0] >> 56),
+        byte(lock_command.LockKey[1]), byte(lock_command.LockKey[1] >> 8), byte(lock_command.LockKey[1] >> 16), byte(lock_command.LockKey[1] >> 24),
+        byte(lock_command.LockKey[1] >> 32), byte(lock_command.LockKey[1] >> 40), byte(lock_command.LockKey[1] >> 48), byte(lock_command.LockKey[1] >> 56)}
 
-    lock_id := [16]byte{byte(lock.command.LockId[0]), byte(lock.command.LockId[0] >> 8), byte(lock.command.LockId[0] >> 16), byte(lock.command.LockId[0] >> 24),
-        byte(lock.command.LockId[0] >> 32), byte(lock.command.LockId[0] >> 40), byte(lock.command.LockId[0] >> 48), byte(lock.command.LockId[0] >> 56),
-        byte(lock.command.LockId[1]), byte(lock.command.LockId[1] >> 8), byte(lock.command.LockId[1] >> 16), byte(lock.command.LockId[1] >> 24),
-        byte(lock.command.LockId[1] >> 32), byte(lock.command.LockId[1] >> 40), byte(lock.command.LockId[1] >> 48), byte(lock.command.LockId[1] >> 56)}
+    lock_id := [16]byte{byte(lock_command.LockId[0]), byte(lock_command.LockId[0] >> 8), byte(lock_command.LockId[0] >> 16), byte(lock_command.LockId[0] >> 24),
+        byte(lock_command.LockId[0] >> 32), byte(lock_command.LockId[0] >> 40), byte(lock_command.LockId[0] >> 48), byte(lock_command.LockId[0] >> 56),
+        byte(lock_command.LockId[1]), byte(lock_command.LockId[1] >> 8), byte(lock_command.LockId[1] >> 16), byte(lock_command.LockId[1] >> 24),
+        byte(lock_command.LockId[1] >> 32), byte(lock_command.LockId[1] >> 40), byte(lock_command.LockId[1] >> 48), byte(lock_command.LockId[1] >> 56)}
 
-    request_id := [16]byte{byte(lock.command.RequestId[0]), byte(lock.command.RequestId[0] >> 8), byte(lock.command.RequestId[0] >> 16), byte(lock.command.RequestId[0] >> 24),
-        byte(lock.command.RequestId[0] >> 32), byte(lock.command.RequestId[0] >> 40), byte(lock.command.RequestId[0] >> 48), byte(lock.command.RequestId[0] >> 56),
-        byte(lock.command.RequestId[1]), byte(lock.command.RequestId[1] >> 8), byte(lock.command.RequestId[1] >> 16), byte(lock.command.RequestId[1] >> 24),
-        byte(lock.command.RequestId[1] >> 32), byte(lock.command.RequestId[1] >> 40), byte(lock.command.RequestId[1] >> 48), byte(lock.command.RequestId[1] >> 56)}
+    request_id := [16]byte{byte(lock_command.RequestId[0]), byte(lock_command.RequestId[0] >> 8), byte(lock_command.RequestId[0] >> 16), byte(lock_command.RequestId[0] >> 24),
+        byte(lock_command.RequestId[0] >> 32), byte(lock_command.RequestId[0] >> 40), byte(lock_command.RequestId[0] >> 48), byte(lock_command.RequestId[0] >> 56),
+        byte(lock_command.RequestId[1]), byte(lock_command.RequestId[1] >> 8), byte(lock_command.RequestId[1] >> 16), byte(lock_command.RequestId[1] >> 24),
+        byte(lock_command.RequestId[1] >> 32), byte(lock_command.RequestId[1] >> 40), byte(lock_command.RequestId[1] >> 48), byte(lock_command.RequestId[1] >> 56)}
 
-    self.slock.Log().Infof("LockExpried DbId:%d LockKey:%x LockId:%x RequestId:%x RemoteAddr:%s", lock.command.DbId, lock_key, lock_id, request_id, lock.protocol.RemoteAddr().String())
+    self.slock.Log().Infof("LockExpried DbId:%d LockKey:%x LockId:%x RequestId:%x RemoteAddr:%s", lock_command.DbId, lock_key, lock_id, request_id, lock.protocol.RemoteAddr().String())
 
     if wait_lock != nil {
         lock_manager.glock.Lock()
@@ -706,6 +708,7 @@ func (self *LockDB) UnLock(protocol *ServerProtocol, command *LockCommand) (err 
 
     //self.RemoveExpried(current_lock)
     current_lock.expried = true
+    current_lock_command := current_lock.command
     lock_manager.RemoveLock(current_lock)
     lock_manager.locked--
     wait_lock := lock_manager.GetWaitLock()
@@ -713,7 +716,7 @@ func (self *LockDB) UnLock(protocol *ServerProtocol, command *LockCommand) (err 
 
     self.slock.Active(protocol, command, RESULT_SUCCED, true)
     protocol.FreeLockCommand(command)
-    protocol.FreeLockCommand(current_lock.command)
+    protocol.FreeLockCommand(current_lock_command)
     atomic.AddUint64(&self.state.UnLockCount, 1)
     atomic.AddUint32(&self.state.LockedCount, 0xffffffff)
 
@@ -758,7 +761,6 @@ func (self *LockDB) WakeUpWaitLock(lock_manager *LockManager, wait_lock *Lock, p
         return wait_lock
     }
 
-    wait_lock.ref_count--
     //self.RemoveTimeOut(wait_lock)
     wait_lock.timeouted = true
 
@@ -776,9 +778,6 @@ func (self *LockDB) WakeUpWaitLock(lock_manager *LockManager, wait_lock *Lock, p
     }
 
     wait_lock_protocol, wait_lock_command := wait_lock.protocol, wait_lock.command
-    if wait_lock.ref_count == 0 {
-        lock_manager.FreeLock(wait_lock)
-    }
     wait_lock = lock_manager.GetWaitLock()
     lock_manager.glock.Unlock()
 

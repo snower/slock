@@ -49,6 +49,9 @@ func (self *LockManager) RemoveLock(lock *Lock) *Lock {
     if self.current_lock == lock {
         self.current_lock = nil
         lock.ref_count--
+        if lock.ref_count == 0 {
+            self.FreeLock(lock)
+        }
 
         locked_lock := self.locks.Pop()
         for ; locked_lock != nil; {
@@ -62,6 +65,9 @@ func (self *LockManager) RemoveLock(lock *Lock) *Lock {
             }
 
             locked_lock.ref_count--
+            if locked_lock.ref_count == 0 {
+                self.FreeLock(locked_lock)
+            }
 
             locked_lock = self.locks.Pop()
         }
@@ -82,6 +88,9 @@ func (self *LockManager) RemoveLock(lock *Lock) *Lock {
 
         self.locks.Pop()
         locked_lock.ref_count--
+        if locked_lock.ref_count == 0 {
+            self.FreeLock(locked_lock)
+        }
 
         locked_lock = self.locks.Head()
     }
@@ -113,6 +122,9 @@ func (self *LockManager) GetWaitLock() *Lock {
         if lock.timeouted {
             self.wait_locks.Pop()
             lock.ref_count--
+            if lock.ref_count == 0{
+                self.FreeLock(lock)
+            }
 
             lock = self.wait_locks.Head()
         }
@@ -151,7 +163,7 @@ func (self *LockManager) GetOrNewLock(protocol *ServerProtocol, command *LockCom
     lock.timeout_time = now + int64(command.Timeout)
     lock.timeout_checked_count = 2
     lock.expried_checked_count = 2
-    lock.ref_count++
+    lock.ref_count = 0
     return lock
 }
 
