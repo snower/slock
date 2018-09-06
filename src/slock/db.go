@@ -140,8 +140,8 @@ func (self *LockDB) CheckTimeTimeOut(check_timeout_time int64, now int64) (err e
                         lock_manager.glock.Unlock()
                     }
 
-                    if lock.manager.locked <= 0 {
-                        self.RemoveLockManager(lock.manager)
+                    if lock_manager.locked <= 0 {
+                        self.RemoveLockManager(lock_manager)
                     }
                 } else {
                     lock.timeout_checked_count++
@@ -212,7 +212,7 @@ func (self *LockDB) CheckTimeExpried(check_expried_time int64, now int64) (err e
                     }
 
                     if lock_manager.locked <= 0 {
-                        self.RemoveLockManager(lock.manager)
+                        self.RemoveLockManager(lock_manager)
                     }
                 } else {
                     lock.expried_checked_count++
