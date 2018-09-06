@@ -486,7 +486,7 @@ func (self *LockDB) DoTimeOut(lock *Lock) (err error) {
         byte(lock_command.RequestId[1]), byte(lock_command.RequestId[1] >> 8), byte(lock_command.RequestId[1] >> 16), byte(lock_command.RequestId[1] >> 24),
         byte(lock_command.RequestId[1] >> 32), byte(lock_command.RequestId[1] >> 40), byte(lock_command.RequestId[1] >> 48), byte(lock_command.RequestId[1] >> 56)}
 
-    self.slock.Log().Infof("LockTimeout DbId:%d LockKey:%x LockId:%x RequestId:%x RemoteAddr:%s", lock_command.DbId, lock_key, lock_id, request_id, lock.protocol.RemoteAddr().String())
+    self.slock.Log().Infof("LockTimeout DbId:%d LockKey:%x LockId:%x RequestId:%x RemoteAddr:%s", lock_command.DbId, lock_key, lock_id, request_id, lock_protocol.RemoteAddr().String())
 
     return nil
 }
@@ -570,7 +570,7 @@ func (self *LockDB) DoExpried(lock *Lock) (err error) {
         byte(lock_command.RequestId[1]), byte(lock_command.RequestId[1] >> 8), byte(lock_command.RequestId[1] >> 16), byte(lock_command.RequestId[1] >> 24),
         byte(lock_command.RequestId[1] >> 32), byte(lock_command.RequestId[1] >> 40), byte(lock_command.RequestId[1] >> 48), byte(lock_command.RequestId[1] >> 56)}
 
-    self.slock.Log().Infof("LockExpried DbId:%d LockKey:%x LockId:%x RequestId:%x RemoteAddr:%s", lock_command.DbId, lock_key, lock_id, request_id, lock.protocol.RemoteAddr().String())
+    self.slock.Log().Infof("LockExpried DbId:%d LockKey:%x LockId:%x RequestId:%x RemoteAddr:%s", lock_command.DbId, lock_key, lock_id, request_id, lock_protocol.RemoteAddr().String())
 
     if wait_lock != nil {
         lock_manager.glock.Lock()
