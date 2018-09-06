@@ -450,17 +450,21 @@ func (self *LockDB) RemoveTimeOut(lock *Lock) (err error) {
 }
 
 func (self *LockDB) DoTimeOut(lock *Lock) (err error) {
-    lock.manager.glock.Lock()
+    lock_manager := lock.manager
+    if lock_manager == nil{
+        return nil
+    }
 
+    lock_manager.glock.Lock()
     if lock.timeouted {
-        lock.manager.glock.Unlock()
+        lock_manager.glock.Unlock()
         return nil
     }
 
     lock.timeouted = true
     lock_protocol, lock_command := lock.protocol, lock.command
-    lock.manager.GetWaitLock()
-    lock.manager.glock.Unlock()
+    lock_manager.GetWaitLock()
+    lock_manager.glock.Unlock()
 
     self.slock.Active(lock_protocol, lock_command, RESULT_TIMEOUT, false)
     self.slock.FreeLockCommand(lock_command)
@@ -527,21 +531,24 @@ func (self *LockDB) RemoveExpried(lock *Lock) (err error) {
 }
 
 func (self *LockDB) DoExpried(lock *Lock) (err error) {
-    lock.manager.glock.Lock()
-
-    if lock.expried {
-        lock.manager.glock.Unlock()
+    lock_manager := lock.manager
+    if lock_manager == nil{
         return nil
     }
 
-    lock_manager := lock.manager
+    lock_manager.glock.Lock()
+    if lock.expried {
+        lock_manager.glock.Unlock()
+        return nil
+    }
+
     lock.expried = true
     lock_manager.locked--
     lock_protocol, lock_command := lock.protocol, lock.command
     lock_manager.RemoveLock(lock)
 
     wait_lock := lock_manager.GetWaitLock()
-    lock.manager.glock.Unlock()
+    lock_manager.glock.Unlock()
 
     self.slock.Active(lock_protocol, lock_command, RESULT_EXPRIED, false)
     self.slock.FreeLockCommand(lock_command)
