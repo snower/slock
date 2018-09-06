@@ -10,21 +10,23 @@ const TIMEOUT_QUEUE_LENGTH int64 = 15
 const EXPRIED_QUEUE_LENGTH int64 = 15
 
 type LockDBState struct {
+    _padding0           [30]uint32
     LockCount           uint64
-    _padding0           [4]uint64
+    _padding1           [30]uint32
     UnLockCount         uint64
-    _padding1           [7]uint32
+    _padding2           [31]uint32
     LockedCount         uint32
-    _padding2           [7]uint32
+    _padding3           [31]uint32
     KeyCount            uint32
-    _padding3           [7]uint32
+    _padding4           [31]uint32
     WaitCount           uint32
-    _padding4           [7]uint32
+    _padding5           [31]uint32
     TimeoutedCount      uint32
-    _padding5           [7]uint32
+    _padding6           [31]uint32
     ExpriedCount        uint32
-    _padding6           [7]uint32
+    _padding7           [31]uint32
     UnlockErrorCount    uint32
+    _padding8           [31]uint32
 }
 
 type LockDB struct {
@@ -750,7 +752,12 @@ func (self *LockDB) DoLock(lock_manager *LockManager, lock *Lock) bool{
 }
 
 func (self *LockDB) WakeUpWaitLock(lock_manager *LockManager, wait_lock *Lock, protocol *ServerProtocol) *Lock {
-    lock_manager.wait_locks.Pop()
+    if wait_lock.timeouted {
+        wait_lock = lock_manager.GetWaitLock()
+        lock_manager.glock.Unlock()
+        return wait_lock
+    }
+
     wait_lock.ref_count--
     //self.RemoveTimeOut(wait_lock)
     wait_lock.timeouted = true
