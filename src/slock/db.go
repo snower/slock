@@ -744,8 +744,10 @@ func (self *LockDB) DoLock(lock_manager *LockManager, lock *Lock) bool{
         return false
     }
 
-    if(lock_manager.locked <= lock.command.Count && lock_manager.locked <= lock_manager.current_lock.command.Count){
-        return true
+    if(lock_manager.locked <= lock_manager.current_lock.command.Count){
+        if(lock.command.Count <= 0 || lock_manager.locked <= lock.command.Count) {
+            return true
+        }
     }
 
     return false
