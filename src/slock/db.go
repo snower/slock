@@ -601,7 +601,7 @@ func (self *LockDB) Lock(protocol *ServerProtocol, command *LockCommand) (err er
     }
 
     if lock_manager.locked > 0 {
-        if command.Flag & 0x01 == 1 {
+        if command.Flag & 0x01 != 0 {
             lock_manager.glock.Unlock()
 
             command.LockId = lock_manager.current_lock.command.LockId
@@ -616,6 +616,13 @@ func (self *LockDB) Lock(protocol *ServerProtocol, command *LockCommand) (err er
 
         current_lock := lock_manager.GetLockedLock(command)
         if current_lock != nil {
+            if command.Flag & 0x02 != 0 {
+                current_lock.command.Timeout = command.Timeout
+                current_lock.command.Expried = command.Expried
+                current_lock.command.Count = command.Count
+                current_lock.timeout_time = self.current_time + int64(command.Timeout)
+                current_lock.expried_time = self.current_time + int64(command.Expried)
+            }
             lock_manager.glock.Unlock()
 
             self.slock.Active(protocol, command, RESULT_LOCKED_ERROR, true)
