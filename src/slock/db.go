@@ -412,21 +412,16 @@ func (self *LockDB) AddTimeOut(lock *Lock) (err error) {
     lock.timeouted = false
 
     if lock.timeout_checked_count > 5 {
-        if lock.protocol.stream.closed {
-            self.timeout_locks[self.check_timeout_time % TIMEOUT_QUEUE_LENGTH][lock.manager.glock_index].Push(lock)
-            lock.ref_count++
-        } else {
-            timeout_time := self.check_timeout_time + 5
-            if lock.timeout_time < timeout_time {
-                timeout_time = lock.timeout_time
-                if timeout_time < self.check_timeout_time {
-                    timeout_time = self.check_timeout_time
-                }
+        timeout_time := self.check_timeout_time + 5
+        if lock.timeout_time < timeout_time {
+            timeout_time = lock.timeout_time
+            if timeout_time < self.check_timeout_time {
+                timeout_time = self.check_timeout_time
             }
-
-            self.timeout_locks[timeout_time % TIMEOUT_QUEUE_LENGTH][lock.manager.glock_index].Push(lock)
-            lock.ref_count++
         }
+
+        self.timeout_locks[timeout_time % TIMEOUT_QUEUE_LENGTH][lock.manager.glock_index].Push(lock)
+        lock.ref_count++
     } else {
         timeout_time := self.check_timeout_time + lock.timeout_checked_count
         if lock.timeout_time < timeout_time {
@@ -495,21 +490,16 @@ func (self *LockDB) AddExpried(lock *Lock) (err error) {
     lock.expried = false
 
     if lock.expried_checked_count > 5 {
-        if lock.protocol.stream.closed {
-            self.expried_locks[self.check_expried_time % EXPRIED_QUEUE_LENGTH][lock.manager.glock_index].Push(lock)
-            lock.ref_count++
-        } else {
-            expried_time := self.check_expried_time + 5
-            if lock.expried_time < expried_time {
-                expried_time = lock.expried_time
-                if expried_time < self.check_expried_time {
-                    expried_time = self.check_expried_time
-                }
+        expried_time := self.check_expried_time + 5
+        if lock.expried_time < expried_time {
+            expried_time = lock.expried_time
+            if expried_time < self.check_expried_time {
+                expried_time = self.check_expried_time
             }
-
-            self.expried_locks[expried_time % EXPRIED_QUEUE_LENGTH][lock.manager.glock_index].Push(lock)
-            lock.ref_count++
         }
+
+        self.expried_locks[expried_time % EXPRIED_QUEUE_LENGTH][lock.manager.glock_index].Push(lock)
+        lock.ref_count++
     }else{
         expried_time := self.check_expried_time + lock.expried_checked_count
         if lock.expried_time < expried_time {
@@ -605,11 +595,7 @@ func (self *LockDB) Lock(protocol *ServerProtocol, command *LockCommand) (err er
             lock_manager.glock.Unlock()
 
             command.LockId = lock_manager.current_lock.command.LockId
-            if lock_manager.current_lock.protocol.stream.closed {
-                self.slock.Active(protocol, command, RESULT_SUCCED, true)
-            }else {
-                self.slock.Active(protocol, command, RESULT_UNOWN_ERROR, true)
-            }
+            self.slock.Active(protocol, command, RESULT_UNOWN_ERROR, true)
             protocol.FreeLockCommand(command)
             return nil
         }
