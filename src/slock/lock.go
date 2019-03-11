@@ -30,6 +30,7 @@ func (self *LockManager) GetDB() *LockDB{
 }
 
 func (self *LockManager) AddLock(lock *Lock) *Lock {
+    lock.expried_time = self.lock_db.current_time + int64(lock.command.Expried)
     lock.locked = true
     lock.ref_count++
 
@@ -109,6 +110,15 @@ func (self *LockManager) GetLockedLock(command *LockCommand) *Lock {
     return nil
 }
 
+func (self *LockManager) UpdateLockedLock(lock *Lock, timeout uint32, expried uint32, count uint16) error {
+    lock.command.Timeout = timeout
+    lock.command.Expried = expried
+    lock.command.Count = count
+    lock.timeout_time = self.lock_db.current_time + int64(timeout)
+    lock.expried_time = self.lock_db.current_time + int64(expried)
+    return nil;
+}
+
 func (self *LockManager) AddWaitLock(lock *Lock) *Lock {
     self.wait_locks.Push(lock)
     lock.ref_count++
@@ -159,7 +169,7 @@ func (self *LockManager) GetOrNewLock(protocol *ServerProtocol, command *LockCom
     lock.command = command
     lock.protocol = protocol
     lock.start_time = now
-    lock.expried_time = now + int64(command.Expried)
+    lock.expried_time = 0
     lock.timeout_time = now + int64(command.Timeout)
     lock.timeout_checked_count = 2
     lock.expried_checked_count = 2
@@ -184,7 +194,7 @@ type Lock struct {
 
 func NewLock(manager *LockManager, protocol *ServerProtocol, command *LockCommand) *Lock {
     now := manager.lock_db.current_time
-    return &Lock{manager, command, protocol,now, now + int64(command.Expried), now + int64(command.Timeout), 0, 0,false, false, false, 0}
+    return &Lock{manager, command, protocol,now, 0, now + int64(command.Timeout), 0, 0,false, false, false, 0}
 }
 
 func (self *Lock) GetDB() *LockDB{

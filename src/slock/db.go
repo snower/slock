@@ -594,7 +594,12 @@ func (self *LockDB) Lock(protocol *ServerProtocol, command *LockCommand) (err er
         if command.Flag & 0x01 != 0 {
             lock_manager.glock.Unlock()
 
-            command.LockId = lock_manager.current_lock.command.LockId
+            current_lock := lock_manager.current_lock
+            command.LockId = current_lock.command.LockId
+            command.Expried = uint32(current_lock.expried_time - current_lock.start_time)
+            command.Timeout = current_lock.command.Timeout
+            command.Count = current_lock.command.Count
+
             self.slock.Active(protocol, command, RESULT_UNOWN_ERROR, true)
             protocol.FreeLockCommand(command)
             return nil
@@ -603,13 +608,15 @@ func (self *LockDB) Lock(protocol *ServerProtocol, command *LockCommand) (err er
         current_lock := lock_manager.GetLockedLock(command)
         if current_lock != nil {
             if command.Flag & 0x02 != 0 {
-                current_lock.command.Timeout = command.Timeout
-                current_lock.command.Expried = command.Expried
-                current_lock.command.Count = command.Count
-                current_lock.timeout_time = self.current_time + int64(command.Timeout)
-                current_lock.expried_time = self.current_time + int64(command.Expried)
+                lock_manager.UpdateLockedLock(current_lock, command.Timeout, command.Expried, command.Count)
+                lock_manager.glock.Unlock()
+
+                command.Expried = uint32(current_lock.expried_time - current_lock.start_time)
+                command.Timeout = current_lock.command.Timeout
+                command.Count = current_lock.command.Count
+            } else {
+                lock_manager.glock.Unlock()
             }
-            lock_manager.glock.Unlock()
 
             self.slock.Active(protocol, command, RESULT_LOCKED_ERROR, true)
             protocol.FreeLockCommand(command)
