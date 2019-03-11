@@ -72,35 +72,32 @@ func NewLockDB(slock *SLock) *LockDB {
     return db
 }
 
-func (self *LockDB) ResizeTimeOut () error{
+func (self *LockDB) ResizeTimeOut (){
     for i := int64(0); i < TIMEOUT_QUEUE_LENGTH; i++ {
         self.timeout_locks[i] = make([]*LockQueue, self.manager_max_glocks)
         for j := int8(0); j < self.manager_max_glocks; j++ {
             self.timeout_locks[i][j] = NewLockQueue(4, 16, 4096)
         }
     }
-    return nil
 }
 
-func (self *LockDB) ResizeExpried () error{
+func (self *LockDB) ResizeExpried (){
     for i := int64(0); i < EXPRIED_QUEUE_LENGTH; i++ {
         self.expried_locks[i] = make([]*LockQueue, self.manager_max_glocks)
         for j := int8(0); j < self.manager_max_glocks; j++ {
             self.expried_locks[i][j] = NewLockQueue(4, 16, 4096)
         }
     }
-    return nil
 }
 
-func (self *LockDB) UpdateCurrentTime() (err error) {
+func (self *LockDB) UpdateCurrentTime(){
     for !self.is_stop {
         time.Sleep(5e8)
         self.current_time = time.Now().Unix()
     }
-    return nil
 }
 
-func (self *LockDB) CheckTimeOut() (err error) {
+func (self *LockDB) CheckTimeOut(){
     for !self.is_stop {
         time.Sleep(1e9)
 
@@ -119,10 +116,9 @@ func (self *LockDB) CheckTimeOut() (err error) {
             check_timeout_time++
         }
     }
-    return nil
 }
 
-func (self *LockDB) CheckTimeTimeOut(check_timeout_time int64, now int64) (err error) {
+func (self *LockDB) CheckTimeTimeOut(check_timeout_time int64, now int64) {
     timeout_locks := self.timeout_locks[check_timeout_time % TIMEOUT_QUEUE_LENGTH]
     for i := int8(0); i < self.manager_max_glocks; i++ {
         lock := timeout_locks[i].Pop()
@@ -168,10 +164,9 @@ func (self *LockDB) CheckTimeTimeOut(check_timeout_time int64, now int64) (err e
         }
         timeout_locks[i].Reset()
     }
-    return nil
 }
 
-func (self *LockDB) CheckExpried() (err error) {
+func (self *LockDB) CheckExpried(){
     for !self.is_stop {
         time.Sleep(1e9)
 
@@ -190,10 +185,9 @@ func (self *LockDB) CheckExpried() (err error) {
         }
 
     }
-    return nil
 }
 
-func (self *LockDB) CheckTimeExpried(check_expried_time int64, now int64) (err error) {
+func (self *LockDB) CheckTimeExpried(check_expried_time int64, now int64){
     expried_locks := self.expried_locks[check_expried_time % EXPRIED_QUEUE_LENGTH]
     for i := int8(0); i < self.manager_max_glocks; i++ {
         lock := expried_locks[i].Pop()
@@ -238,7 +232,6 @@ func (self *LockDB) CheckTimeExpried(check_expried_time int64, now int64) (err e
         }
         expried_locks[i].Reset()
     }
-    return nil
 }
 
 
@@ -360,7 +353,7 @@ func (self *LockDB) RemoveLockManager(lock_manager *LockManager) (err error) {
     return nil
 }
 
-func (self *LockDB) CheckFreeLockManagerTimeOut(lock_manager *LockManager, last_lock_count uint64) (err error) {
+func (self *LockDB) CheckFreeLockManagerTimeOut(lock_manager *LockManager, last_lock_count uint64){
     count := int32((self.state.LockCount - last_lock_count) / 300 * 4)
     if count < 4096 {
         count = 4096
@@ -405,7 +398,6 @@ func (self *LockDB) CheckFreeLockManagerTimeOut(lock_manager *LockManager, last_
         }(self.state.LockCount)
         self.free_lock_manager_timeout = false
     }
-    return nil
 }
 
 func (self *LockDB) AddTimeOut(lock *Lock) (err error) {

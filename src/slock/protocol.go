@@ -222,7 +222,6 @@ func (self *ServerProtocol) Read() (command CommandDecode, err error) {
         self.Write(NewResultCommand(command, RESULT_UNKNOWN_VERSION), true)
         return nil, errors.New("unknown command")
     }
-    return nil, nil
 }
 
 func (self *ServerProtocol) Write(result CommandEncode, use_cached bool) (err error) {
@@ -245,9 +244,8 @@ func (self *ServerProtocol) RemoteAddr() net.Addr {
     return self.stream.RemoteAddr()
 }
 
-func (self *ServerProtocol) FreeLockCommand(command *LockCommand) net.Addr {
-    self.free_commands.Push(command)
-    return nil
+func (self *ServerProtocol) FreeLockCommand(command *LockCommand) error {
+    return self.free_commands.Push(command)
 }
 
 type ClientProtocol struct {
@@ -261,8 +259,7 @@ func NewClientProtocol(stream *Stream) *ClientProtocol {
 }
 
 func (self *ClientProtocol) Close() (err error) {
-    self.stream.Close()
-    return nil
+    return self.stream.Close()
 }
 
 func (self *ClientProtocol) Read() (command CommandDecode, err error) {
@@ -308,7 +305,6 @@ func (self *ClientProtocol) Read() (command CommandDecode, err error) {
     default:
         return nil, errors.New("unknown command")
     }
-    return nil, nil
 }
 
 func (self *ClientProtocol) Write(result CommandEncode) (err error) {
