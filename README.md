@@ -85,6 +85,14 @@ Client Opened 512
 
 ```
 
+# Resources
+
+Go Client [goslock](https://github.com/snower/goslock)
+
+PHP Client [phslock](https://github.com/snower/phslock)
+
+Pyhon Client [pyslock](https://github.com/snower/pyslock)
+
 # License
 
 slock uses the MIT license, see LICENSE file for the details.
