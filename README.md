@@ -91,7 +91,7 @@ Go Client [goslock](https://github.com/snower/goslock)
 
 PHP Client [phslock](https://github.com/snower/phslock)
 
-Pyhon Client [pyslock](https://github.com/snower/pyslock)
+Python Client [pyslock](https://github.com/snower/pyslock)
 
 # License
 
