@@ -61,8 +61,11 @@ func NewServerProtocol(slock *SLock, stream *Stream) *ServerProtocol {
 }
 
 func (self *ServerProtocol) Close() (err error) {
-    self.stream.Close()
-    self.slock.Log().Infof("connection close %s", self.RemoteAddr().String())
+    if self.stream.Close() != nil {
+        self.slock.Log().Infof("connection close error: %s", self.RemoteAddr().String())
+    } else {
+        self.slock.Log().Infof("connection close %s", self.RemoteAddr().String())
+    }
 
     self.slock.free_lock_command_lock.Lock()
     for ;; {

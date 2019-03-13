@@ -35,20 +35,20 @@ func (self *Client) Open() error {
     return nil
 }
 
-func (self *Client) Handle(stream *Stream) (err error) {
+func (self *Client) Handle(stream *Stream) {
     client_protocol := self.protocol
 
     defer func() {
         defer self.glock.Unlock()
         self.glock.Lock()
 
-        client_protocol.Close()
-
         for _, db := range self.dbs {
             if db != nil {
                 db.HandleClose()
             }
         }
+
+        client_protocol.Close()
     }()
 
     for {
@@ -62,12 +62,14 @@ func (self *Client) Handle(stream *Stream) (err error) {
 
         go self.HandleCommand(command.(protocol.ICommand))
     }
-
-    return nil
 }
 
 func (self *Client) Close() error {
-    self.protocol.Close()
+    err := self.protocol.Close()
+    if err != nil {
+        return err
+    }
+
     self.is_stop = true
     return nil
 }
@@ -92,7 +94,7 @@ func (self *Client) HandleCommand(command protocol.ICommand) error{
         if db == nil {
             db = self.GetDb(lock_command.DbId)
         }
-        db.HandleLockCommandResult(lock_command)
+        return db.HandleLockCommandResult(lock_command)
 
     case protocol.COMMAND_UNLOCK:
         lock_command := command.(*protocol.LockResultCommand)
@@ -100,7 +102,7 @@ func (self *Client) HandleCommand(command protocol.ICommand) error{
         if db == nil {
             db = self.GetDb(lock_command.DbId)
         }
-        db.HandleUnLockCommandResult(lock_command)
+        return db.HandleUnLockCommandResult(lock_command)
 
     case protocol.COMMAND_STATE:
         state_command := command.(*protocol.ResultStateCommand)
@@ -108,7 +110,7 @@ func (self *Client) HandleCommand(command protocol.ICommand) error{
         if db == nil {
             db = self.GetDb(state_command.DbId)
         }
-        db.HandleStateCommandResult(state_command)
+        return db.HandleStateCommandResult(state_command)
     }
     return nil
 }

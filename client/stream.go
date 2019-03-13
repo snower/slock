@@ -16,7 +16,9 @@ func NewStream(client *Client, conn net.Conn) *Stream {
     stream := &Stream{client, conn, false}
     tcp_conn, ok := conn.(*net.TCPConn)
     if ok {
-        tcp_conn.SetNoDelay(true)
+        if tcp_conn.SetNoDelay(true) != nil {
+            return nil
+        }
     }
     return stream
 }

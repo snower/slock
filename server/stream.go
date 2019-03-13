@@ -16,7 +16,9 @@ func NewStream(server *Server, conn net.Conn) *Stream {
     stream := &Stream{server, conn, false}
     tcp_conn, ok := conn.(*net.TCPConn)
     if ok {
-        tcp_conn.SetNoDelay(true)
+        if tcp_conn.SetNoDelay(true) != nil {
+            return nil
+        }
     }
     return stream
 }
@@ -61,7 +63,11 @@ func (self *Stream) Close() error {
 
     self.closed = true
     if self.server != nil {
-        self.server.RemoveStream(self)
+        err := self.server.RemoveStream(self)
+        if err != nil {
+            self.closed = false
+            return err
+        }
         self.server = nil
     }
     return self.conn.Close()

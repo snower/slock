@@ -60,14 +60,21 @@ func (self *Server) Loop() {
             continue
         }
         stream := NewStream(self, conn)
-        self.AddStream(stream)
-        go self.Handle(stream)
+        if self.AddStream(stream) == nil {
+            go self.Handle(stream)
+        }
     }
 }
 
-func (self *Server) Handle(stream *Stream) (err error) {
+func (self *Server) Handle(stream *Stream) {
     server_protocol := NewServerProtocol(self.slock, stream)
-    defer server_protocol.Close()
+    defer func() {
+        err := server_protocol.Close()
+        if err != nil {
+            self.slock.Log().Infof("server protocol close error: %v", err)
+        }
+    }()
+
     for {
         command, err := server_protocol.Read()
         if err != nil {
@@ -76,11 +83,16 @@ func (self *Server) Handle(stream *Stream) (err error) {
             }
             break
         }
+
         if command == nil {
             self.slock.Log().Infof("read command decode error", err)
             break
         }
-        self.slock.Handle(server_protocol, command.(protocol.ICommand))
+
+        err = self.slock.Handle(server_protocol, command.(protocol.ICommand))
+        if err != nil {
+            self.slock.Log().Infof("slock handle command error", err)
+            break
+        }
     }
-    return nil
 }

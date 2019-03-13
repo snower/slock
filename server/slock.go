@@ -39,12 +39,12 @@ func (self *SLock) GetDB(db_id uint8) *LockDB {
     return self.dbs[db_id]
 }
 
-func (self *SLock) DoLockComamnd(db *LockDB, protocol *ServerProtocol, command *protocol.LockCommand) (err error) {
-    return db.Lock(protocol, command)
+func (self *SLock) DoLockComamnd(db *LockDB, server_protocol *ServerProtocol, command *protocol.LockCommand) (err error) {
+    return db.Lock(server_protocol, command)
 }
 
-func (self *SLock) DoUnLockComamnd(db *LockDB, protocol *ServerProtocol, command *protocol.LockCommand) (err error) {
-    return db.UnLock(protocol, command)
+func (self *SLock) DoUnLockComamnd(db *LockDB, server_protocol *ServerProtocol, command *protocol.LockCommand) (err error) {
+    return db.UnLock(server_protocol, command)
 }
 
 func (self *SLock) GetState(server_protocol *ServerProtocol, command *protocol.StateCommand) (err error) {
@@ -56,11 +56,9 @@ func (self *SLock) GetState(server_protocol *ServerProtocol, command *protocol.S
     }
 
     if db == nil {
-        server_protocol.Write(protocol.NewStateResultCommand(command, protocol.RESULT_SUCCED, 0, db_state, nil), true)
-        return nil
+        return server_protocol.Write(protocol.NewStateResultCommand(command, protocol.RESULT_SUCCED, 0, db_state, nil), true)
     }
-    server_protocol.Write(protocol.NewStateResultCommand(command, protocol.RESULT_SUCCED, 0, db_state, db.GetState()), true)
-    return nil
+    return server_protocol.Write(protocol.NewStateResultCommand(command, protocol.RESULT_SUCCED, 0, db_state, db.GetState()), true)
 }
 
 func (self *SLock) Handle(server_protocol *ServerProtocol, command protocol.ICommand) (err error) {
@@ -71,29 +69,27 @@ func (self *SLock) Handle(server_protocol *ServerProtocol, command protocol.ICom
         if db == nil {
             db = self.GetOrNewDB(lock_command.DbId)
         }
-        db.Lock(server_protocol, lock_command)
+        return db.Lock(server_protocol, lock_command)
 
     case protocol.COMMAND_UNLOCK:
         lock_command := command.(*protocol.LockCommand)
         db := self.dbs[lock_command.DbId]
         if db == nil {
-            self.Active(server_protocol, lock_command, protocol.RESULT_UNKNOWN_DB, true)
-            return nil
+            return self.Active(server_protocol, lock_command, protocol.RESULT_UNKNOWN_DB, true)
         }
-        db.UnLock(server_protocol, lock_command)
+        return db.UnLock(server_protocol, lock_command)
 
     case protocol.COMMAND_STATE:
-        self.GetState(server_protocol, command.(*protocol.StateCommand))
+        return self.GetState(server_protocol, command.(*protocol.StateCommand))
 
     default:
-        server_protocol.Write(protocol.NewResultCommand(command, protocol.RESULT_UNKNOWN_COMMAND), true)
+        return server_protocol.Write(protocol.NewResultCommand(command, protocol.RESULT_UNKNOWN_COMMAND), true)
     }
-    return nil
 }
 
-func (self *SLock) Active(protocol *ServerProtocol, command *protocol.LockCommand, r uint8, use_cached_command bool) (err error) {
+func (self *SLock) Active(server_protocol *ServerProtocol, command *protocol.LockCommand, r uint8, use_cached_command bool) (err error) {
     if use_cached_command {
-        buf := protocol.wbuf
+        buf := server_protocol.wbuf
         if len(buf) < 64 {
             return errors.New("buf too short")
         }
@@ -114,12 +110,12 @@ func (self *SLock) Active(protocol *ServerProtocol, command *protocol.LockComman
         buf[54], buf[55], buf[56], buf[57], buf[58], buf[59], buf[60], buf[61] = 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
         buf[62], buf[63] = 0x00, 0x00
         
-        return protocol.stream.WriteBytes(buf)
+        return server_protocol.stream.WriteBytes(buf)
     }
 
-    free_result_command_lock := protocol.free_result_command_lock
+    free_result_command_lock := server_protocol.free_result_command_lock
     free_result_command_lock.Lock()
-    buf := protocol.owbuf
+    buf := server_protocol.owbuf
 
     if len(buf) < 64 {
         return errors.New("buf too short")
@@ -141,7 +137,7 @@ func (self *SLock) Active(protocol *ServerProtocol, command *protocol.LockComman
     buf[54], buf[55], buf[56], buf[57], buf[58], buf[59], buf[60], buf[61] = 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
     buf[62], buf[63] = 0x00, 0x00
 
-    err = protocol.stream.WriteBytes(buf)
+    err = server_protocol.stream.WriteBytes(buf)
     free_result_command_lock.Unlock()
     return err
 }
@@ -152,7 +148,9 @@ func (self *SLock) Log() logging.Logger {
 
 func (self *SLock) FreeLockCommand(command *protocol.LockCommand) *protocol.LockCommand{
     self.free_lock_command_lock.Lock()
-    self.free_lock_commands.Push(command)
+    if self.free_lock_commands.Push(command) != nil {
+        return nil
+    }
     self.free_lock_command_count++
     self.free_lock_command_lock.Unlock()
     return command
@@ -171,7 +169,9 @@ func (self *SLock) GetLockCommand() *protocol.LockCommand{
 func (self *SLock) FreeLockCommands(commands []*protocol.LockCommand) error{
     self.free_lock_command_lock.Lock()
     for _, command := range commands {
-        self.free_lock_commands.Push(command)
+        if self.free_lock_commands.Push(command) != nil {
+            continue
+        }
         self.free_lock_command_count++
     }
     self.free_lock_command_lock.Unlock()
