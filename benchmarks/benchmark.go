@@ -1,7 +1,7 @@
 package main
 
 import (
-    "slock"
+    "github.com/snower/slock/slock"
     "fmt"
     "time"
     "sync"

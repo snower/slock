@@ -9,14 +9,13 @@ High-performance distributed shared lock service, Support sync Lock and Event.
 # Installation
 
 ```
-git clone https://github.com/snower/slock.git
-cd slock && ./init.sh && ./build.sh
+go get github.com/snower/slock
 ```
 
 # Start
 
 ```
-./slock -h
+./bin/slock -h
 Usage of ./slock:
   -bind string
     	bind host (default "0.0.0.0")
@@ -33,13 +32,13 @@ Usage of ./slock:
 ```
 
 ```
-./slock --bind=0.0.0.0 --port=5658 --log=/var/log/slock.log
+./bin/slock --bind=0.0.0.0 --port=5658 --log=/var/log/slock.log
 ```
 
 # Show State
 
 ```
-./slock --host=127.0.01 --port=5658 --info=0
+./bin/slock --host=127.0.01 --port=5658 --info=0
 slock DB ID:	0
 LockCount:	2
 UnLockCount:	2
@@ -54,7 +53,7 @@ KeyCount:	0
 # Benchmark
 
 ```
-go run benchmarks/benchmark2.go
+go run src/github.com/snower/slock/benchmarks/benchmark2.go
 Run 1 Client, 1 concurrentc, 2000000 Count Lock and Unlock
 Client Opened 1
 2000064 8.000466s 249993.436789r/s
