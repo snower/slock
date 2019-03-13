@@ -2,8 +2,8 @@ package main
 
 import "flag"
 import (
-    "slock"
     "fmt"
+    "github.com/snower/slock/slock"
 )
 
 func ShowDBStateInfo(host string, port int, db_id uint8)  {
