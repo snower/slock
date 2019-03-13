@@ -11,13 +11,14 @@ type SLock struct {
     glock                   sync.Mutex
     logger                  logging.Logger
     free_lock_commands      *LockCommandQueue
-    free_lock_command_lock  sync.Mutex
+    free_lock_command_lock  *sync.Mutex
     free_lock_command_count int32
 }
 
 func NewSLock(log_file string, log_level string) *SLock {
     logger := InitLogger(log_file, log_level)
-    return &SLock{make([]*LockDB, 256), sync.Mutex{}, logger, NewLockCommandQueue(16, 64, 4096), sync.Mutex{}, 0}
+    return &SLock{make([]*LockDB, 256), sync.Mutex{}, logger, NewLockCommandQueue(16, 64, 4096),
+        &sync.Mutex{}, 0}
 }
 
 func (self *SLock) GetOrNewDB(db_id uint8) *LockDB {

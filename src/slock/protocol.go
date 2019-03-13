@@ -17,7 +17,7 @@ type ServerProtocol struct {
     slock *SLock
     stream *Stream
     free_commands *LockCommandQueue
-    free_result_command_lock sync.Mutex
+    free_result_command_lock *sync.Mutex
     rbuf []byte
     wbuf []byte
     owbuf []byte
@@ -33,7 +33,7 @@ func NewServerProtocol(slock *SLock, stream *Stream) *ServerProtocol {
     owbuf[1] = byte(VERSION)
 
     protocol := &ServerProtocol{slock, stream, NewLockCommandQueue(4, 16, 256),
-    sync.Mutex{}, make([]byte, 64), wbuf, owbuf}
+    &sync.Mutex{}, make([]byte, 64), wbuf, owbuf}
 
     if slock.free_lock_command_count > 64 {
         slock.free_lock_command_lock.Lock()
