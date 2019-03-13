@@ -144,7 +144,7 @@ func (self *LockQueue) Tail() *Lock{
         return nil
     }
 
-    return self.tail_queue[self.tail_queue_index]
+    return self.tail_queue[self.tail_queue_index - 1]
 }
 
 func (self *LockQueue) Shrink(size int32) int32{
@@ -189,9 +189,13 @@ func (self *LockQueue) Reset() error{
 }
 
 func (self *LockQueue) Len() int32{
+    if self.tail_node_index <= self.head_node_index {
+        return self.tail_queue_index - self.head_queue_index
+    }
+
     queue_len := self.node_queue_sizes[self.head_node_index] - self.head_queue_index
     for i := self.head_node_index + 1; i < self.tail_node_index; i++{
-        queue_len += self.node_queue_sizes[self.head_node_index]
+        queue_len += self.node_queue_sizes[i]
     }
     queue_len += self.tail_queue_index
     return queue_len
@@ -337,7 +341,7 @@ func (self *LockCommandQueue) Tail() *LockCommand{
         return nil
     }
 
-    return self.tail_queue[self.tail_queue_index]
+    return self.tail_queue[self.tail_queue_index - 1]
 }
 
 func (self *LockCommandQueue) Shrink(size int32) int32{
@@ -382,9 +386,13 @@ func (self *LockCommandQueue) Reset() error{
 }
 
 func (self *LockCommandQueue) Len() int32{
+    if self.tail_node_index <= self.head_node_index {
+        return self.tail_queue_index - self.head_queue_index
+    }
+
     queue_len := self.node_queue_sizes[self.head_node_index] - self.head_queue_index
     for i := self.head_node_index + 1; i < self.tail_node_index; i++{
-        queue_len += self.node_queue_sizes[self.head_node_index]
+        queue_len += self.node_queue_sizes[i]
     }
     queue_len += self.tail_queue_index
     return queue_len
