@@ -1,0 +1,81 @@
+package client
+
+import (
+    "sync"
+    "github.com/snower/slock/protocol"
+)
+
+type Event struct {
+    db *Database
+    event_key [2]uint64
+    timeout uint32
+    expried uint32
+    event_lock *Lock
+    check_lock *Lock
+    wait_lock *Lock
+    glock sync.Mutex
+}
+
+func NewEvent(db *Database, event_key [2]uint64, timeout uint32, expried uint32) *Event {
+    return &Event{db, event_key, timeout, expried, nil, nil, nil, sync.Mutex{}}
+}
+
+func (self *Event) Clear() error{
+    defer self.glock.Unlock()
+    self.glock.Lock()
+
+    if self.event_lock == nil {
+        self.event_lock = &Lock{self.db, self.db.GetRequestId(), self.event_key, self.event_key, self.timeout, self.expried}
+    }
+    err := self.event_lock.Lock()
+    if err != nil && err.Result != protocol.RESULT_LOCKED_ERROR {
+        return err
+    }
+
+    return nil
+}
+
+func (self *Event) Set() error{
+    defer self.glock.Unlock()
+    self.glock.Lock()
+
+    if self.event_lock == nil {
+        self.event_lock = &Lock{self.db, self.db.GetRequestId(), self.event_key, self.event_key, self.timeout, self.expried}
+    }
+    err := self.event_lock.Unlock()
+    if err != nil && err.Result != protocol.RESULT_UNLOCK_ERROR {
+        return err
+    }
+
+    return nil
+}
+
+func (self *Event) IsSet() (bool, error){
+    defer self.glock.Unlock()
+    self.glock.Lock()
+
+    self.check_lock = &Lock{self.db, self.db.GetRequestId(), self.event_key, self.event_key, 0, 0}
+
+    err := self.check_lock.Lock()
+
+    if err != nil && err.Result != protocol.RESULT_TIMEOUT {
+        return true, nil
+    }
+
+    return false, err
+}
+
+func (self *Event) Wait(timeout uint32) (bool, error) {
+    defer self.glock.Unlock()
+    self.glock.Lock()
+
+    self.wait_lock = &Lock{self.db, self.db.GetRequestId(), self.event_key, self.event_key, timeout, 0}
+
+    err := self.wait_lock.Lock()
+
+    if err == nil {
+        return true, nil
+    }
+
+    return false, err
+}

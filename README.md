@@ -86,8 +86,6 @@ Client Opened 512
 
 # Resources
 
-Go Client [goslock](https://github.com/snower/goslock)
-
 PHP Client [phslock](https://github.com/snower/phslock)
 
 Python Client [pyslock](https://github.com/snower/pyslock)
