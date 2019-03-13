@@ -1,4 +1,4 @@
-package slock
+package protocol
 
 import (
     "bytes"

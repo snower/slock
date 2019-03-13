@@ -1,7 +1,8 @@
-package slock
+package server
 
 import (
     "errors"
+    "github.com/snower/slock/protocol"
 )
 
 type LockQueue struct {
@@ -204,17 +205,17 @@ func (self *LockQueue) Len() int32{
 type LockCommandQueue struct {
     head_queue_index int32
     head_queue_size int32
-    head_queue []*LockCommand
+    head_queue []*protocol.LockCommand
 
 
     tail_queue_index int32
     tail_queue_size int32
-    tail_queue []*LockCommand
+    tail_queue []*protocol.LockCommand
 
     head_node_index int32
     tail_node_index int32
 
-    queues [][]*LockCommand
+    queues [][]*protocol.LockCommand
     node_queue_sizes []int32
     base_node_size int32
     node_size int32
@@ -224,10 +225,10 @@ type LockCommandQueue struct {
 }
 
 func NewLockCommandQueue(base_node_size int32, node_size int32, queue_size int32) *LockCommandQueue {
-    queues := make([][]*LockCommand, node_size)
+    queues := make([][]*protocol.LockCommand, node_size)
     node_queue_sizes := make([]int32, node_size)
 
-    queues[0] = make([]*LockCommand, queue_size)
+    queues[0] = make([]*protocol.LockCommand, queue_size)
     node_queue_sizes[0] = queue_size
 
     return &LockCommandQueue{0, queue_size, queues[0], 0,
@@ -236,7 +237,7 @@ func NewLockCommandQueue(base_node_size int32, node_size int32, queue_size int32
         0, queue_size, queue_size}
 }
 
-func (self *LockCommandQueue) Push(lock *LockCommand) error {
+func (self *LockCommandQueue) Push(lock *protocol.LockCommand) error {
     self.tail_queue[self.tail_queue_index] = lock
     self.tail_queue_index++
 
@@ -246,12 +247,12 @@ func (self *LockCommandQueue) Push(lock *LockCommand) error {
 
         if self.tail_node_index >= self.node_size {
             self.queue_size = self.queue_size * 2
-            self.queues = append(self.queues, make([]*LockCommand, self.queue_size))
+            self.queues = append(self.queues, make([]*protocol.LockCommand, self.queue_size))
             self.node_queue_sizes = append(self.node_queue_sizes, self.queue_size)
             self.node_size++
         } else if self.queues[self.tail_node_index] == nil {
             self.queue_size = self.queue_size * 2
-            self.queues[self.tail_node_index] = make([]*LockCommand, self.queue_size)
+            self.queues[self.tail_node_index] = make([]*protocol.LockCommand, self.queue_size)
             self.node_queue_sizes[self.tail_node_index] = self.queue_size
         }
 
@@ -262,7 +263,7 @@ func (self *LockCommandQueue) Push(lock *LockCommand) error {
     return nil
 }
 
-func (self *LockCommandQueue) PushLeft(lock *LockCommand) error{
+func (self *LockCommandQueue) PushLeft(lock *protocol.LockCommand) error{
     if self.head_node_index <= 0 && self.head_queue_index <= 0 {
         return errors.New("full")
     }
@@ -286,7 +287,7 @@ func (self *LockCommandQueue) PushLeft(lock *LockCommand) error{
     return nil
 }
 
-func (self *LockCommandQueue) Pop() *LockCommand{
+func (self *LockCommandQueue) Pop() *protocol.LockCommand{
     if self.tail_queue_index <= self.head_queue_index && self.tail_node_index <= self.head_node_index {
         return nil
     }
@@ -304,7 +305,7 @@ func (self *LockCommandQueue) Pop() *LockCommand{
     return lock
 }
 
-func (self *LockCommandQueue) PopRight() *LockCommand{
+func (self *LockCommandQueue) PopRight() *protocol.LockCommand{
     if self.tail_queue_index <= self.head_queue_index && self.tail_node_index <= self.head_node_index {
         return nil
     }
@@ -328,7 +329,7 @@ func (self *LockCommandQueue) PopRight() *LockCommand{
     return lock
 }
 
-func (self *LockCommandQueue) Head() *LockCommand{
+func (self *LockCommandQueue) Head() *protocol.LockCommand{
     if self.tail_queue_index <= self.head_queue_index && self.tail_node_index <= self.head_node_index {
         return nil
     }
@@ -336,7 +337,7 @@ func (self *LockCommandQueue) Head() *LockCommand{
     return self.head_queue[self.head_queue_index]
 }
 
-func (self *LockCommandQueue) Tail() *LockCommand{
+func (self *LockCommandQueue) Tail() *protocol.LockCommand{
     if self.tail_queue_index <= self.head_queue_index && self.tail_node_index <= self.head_node_index {
         return nil
     }

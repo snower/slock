@@ -1,7 +1,8 @@
-package slock
+package server
 
 import (
     "sync"
+    "github.com/snower/slock/protocol"
 )
 
 type LockManager struct {
@@ -20,7 +21,7 @@ type LockManager struct {
     glock_index    int8
 }
 
-func NewLockManager(lock_db *LockDB, command *LockCommand, glock *sync.Mutex, glock_index int8, free_locks *LockQueue) *LockManager {
+func NewLockManager(lock_db *LockDB, command *protocol.LockCommand, glock *sync.Mutex, glock_index int8, free_locks *LockQueue) *LockManager {
     return &LockManager{lock_db, command.LockKey,
     nil, nil, nil, nil, glock, free_locks, 0, command.DbId, false, true, glock_index}
 }
@@ -98,7 +99,7 @@ func (self *LockManager) RemoveLock(lock *Lock) *Lock {
     return lock
 }
 
-func (self *LockManager) GetLockedLock(command *LockCommand) *Lock {
+func (self *LockManager) GetLockedLock(command *protocol.LockCommand) *Lock {
     if self.current_lock.command.LockId == command.LockId {
         return self.current_lock
     }
@@ -152,7 +153,7 @@ func (self *LockManager) FreeLock(lock *Lock) *Lock{
     return lock
 }
 
-func (self *LockManager) GetOrNewLock(protocol *ServerProtocol, command *LockCommand) *Lock {
+func (self *LockManager) GetOrNewLock(protocol *ServerProtocol, command *protocol.LockCommand) *Lock {
     lock := self.free_locks.PopRight()
     if lock == nil {
         locks := make([]Lock, 4096)
@@ -179,7 +180,7 @@ func (self *LockManager) GetOrNewLock(protocol *ServerProtocol, command *LockCom
 
 type Lock struct {
     manager             *LockManager
-    command             *LockCommand
+    command             *protocol.LockCommand
     protocol            *ServerProtocol
     start_time          int64
     expried_time        int64
@@ -192,7 +193,7 @@ type Lock struct {
     ref_count           uint8
 }
 
-func NewLock(manager *LockManager, protocol *ServerProtocol, command *LockCommand) *Lock {
+func NewLock(manager *LockManager, protocol *ServerProtocol, command *protocol.LockCommand) *Lock {
     now := manager.lock_db.current_time
     return &Lock{manager, command, protocol,now, 0, now + int64(command.Timeout), 0, 0,false, false, false, 0}
 }

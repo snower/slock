@@ -3,18 +3,19 @@ package main
 import "flag"
 import (
     "fmt"
-    "github.com/snower/slock/slock"
+    "github.com/snower/slock/server"
+    "github.com/snower/slock/client"
 )
 
 func ShowDBStateInfo(host string, port int, db_id uint8)  {
-    client := slock.NewClient(host, port)
-    err := client.Open()
+    slock_client := client.NewClient(host, port)
+    err := slock_client.Open()
     if err != nil {
         fmt.Printf("Connect Error: %v", err)
         return
     }
 
-    state := client.SelectDB(uint8(db_id)).State()
+    state := slock_client.SelectDB(uint8(db_id)).State()
     if state.DbState == 0 {
         fmt.Println("Slock DB not used")
     }else{
@@ -46,14 +47,14 @@ func main() {
         return
     }
 
-    lock := slock.NewSLock(*log, *log_level)
-    server := slock.NewServer(int(*port), *bind_host, lock)
-    err := server.Listen()
+    slock := server.NewSLock(*log, *log_level)
+    slock_server := server.NewServer(int(*port), *bind_host, slock)
+    err := slock_server.Listen()
     if err != nil {
-        lock.Log().Infof("start server listen error: %v", err)
-        lock.Log().Info("exited")
+        slock.Log().Infof("start server listen error: %v", err)
+        slock.Log().Info("exited")
         return
     }
-    server.Loop()
-    lock.Log().Info("exited")
+    slock_server.Loop()
+    slock.Log().Info("exited")
 }

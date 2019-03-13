@@ -1,7 +1,8 @@
-package slock
+package server
 
 import (
     "github.com/hhkbp2/go-logging"
+    "github.com/snower/slock/protocol"
     "sync"
     "errors"
 )
@@ -38,15 +39,15 @@ func (self *SLock) GetDB(db_id uint8) *LockDB {
     return self.dbs[db_id]
 }
 
-func (self *SLock) DoLockComamnd(db *LockDB, protocol *ServerProtocol, command *LockCommand) (err error) {
+func (self *SLock) DoLockComamnd(db *LockDB, protocol *ServerProtocol, command *protocol.LockCommand) (err error) {
     return db.Lock(protocol, command)
 }
 
-func (self *SLock) DoUnLockComamnd(db *LockDB, protocol *ServerProtocol, command *LockCommand) (err error) {
+func (self *SLock) DoUnLockComamnd(db *LockDB, protocol *ServerProtocol, command *protocol.LockCommand) (err error) {
     return db.UnLock(protocol, command)
 }
 
-func (self *SLock) GetState(protocol *ServerProtocol, command *StateCommand) (err error) {
+func (self *SLock) GetState(server_protocol *ServerProtocol, command *protocol.StateCommand) (err error) {
     db_state := uint8(0)
 
     db := self.dbs[command.DbId]
@@ -55,42 +56,42 @@ func (self *SLock) GetState(protocol *ServerProtocol, command *StateCommand) (er
     }
 
     if db == nil {
-        protocol.Write(NewStateResultCommand(command, RESULT_SUCCED, 0, db_state, nil), true)
+        server_protocol.Write(protocol.NewStateResultCommand(command, protocol.RESULT_SUCCED, 0, db_state, nil), true)
         return nil
     }
-    protocol.Write(NewStateResultCommand(command, RESULT_SUCCED, 0, db_state, db.GetState()), true)
+    server_protocol.Write(protocol.NewStateResultCommand(command, protocol.RESULT_SUCCED, 0, db_state, db.GetState()), true)
     return nil
 }
 
-func (self *SLock) Handle(protocol *ServerProtocol, command ICommand) (err error) {
+func (self *SLock) Handle(server_protocol *ServerProtocol, command protocol.ICommand) (err error) {
     switch command.GetCommandType() {
-    case COMMAND_LOCK:
-        lock_command := command.(*LockCommand)
+    case protocol.COMMAND_LOCK:
+        lock_command := command.(*protocol.LockCommand)
         db := self.dbs[lock_command.DbId]
         if db == nil {
             db = self.GetOrNewDB(lock_command.DbId)
         }
-        db.Lock(protocol, lock_command)
+        db.Lock(server_protocol, lock_command)
 
-    case COMMAND_UNLOCK:
-        lock_command := command.(*LockCommand)
+    case protocol.COMMAND_UNLOCK:
+        lock_command := command.(*protocol.LockCommand)
         db := self.dbs[lock_command.DbId]
         if db == nil {
-            self.Active(protocol, lock_command, RESULT_UNKNOWN_DB, true)
+            self.Active(server_protocol, lock_command, protocol.RESULT_UNKNOWN_DB, true)
             return nil
         }
-        db.UnLock(protocol, lock_command)
+        db.UnLock(server_protocol, lock_command)
 
-    case COMMAND_STATE:
-        self.GetState(protocol, command.(*StateCommand))
+    case protocol.COMMAND_STATE:
+        self.GetState(server_protocol, command.(*protocol.StateCommand))
 
     default:
-        protocol.Write(NewResultCommand(command, RESULT_UNKNOWN_COMMAND), true)
+        server_protocol.Write(protocol.NewResultCommand(command, protocol.RESULT_UNKNOWN_COMMAND), true)
     }
     return nil
 }
 
-func (self *SLock) Active(protocol *ServerProtocol, command *LockCommand, r uint8, use_cached_command bool) (err error) {
+func (self *SLock) Active(protocol *ServerProtocol, command *protocol.LockCommand, r uint8, use_cached_command bool) (err error) {
     if use_cached_command {
         buf := protocol.wbuf
         if len(buf) < 64 {
@@ -149,7 +150,7 @@ func (self *SLock) Log() logging.Logger {
     return self.logger
 }
 
-func (self *SLock) FreeLockCommand(command *LockCommand) *LockCommand{
+func (self *SLock) FreeLockCommand(command *protocol.LockCommand) *protocol.LockCommand{
     self.free_lock_command_lock.Lock()
     self.free_lock_commands.Push(command)
     self.free_lock_command_count++
@@ -157,7 +158,7 @@ func (self *SLock) FreeLockCommand(command *LockCommand) *LockCommand{
     return command
 }
 
-func (self *SLock) GetLockCommand() *LockCommand{
+func (self *SLock) GetLockCommand() *protocol.LockCommand{
     self.free_lock_command_lock.Lock()
     command := self.free_lock_commands.PopRight()
     if command != nil {
@@ -167,7 +168,7 @@ func (self *SLock) GetLockCommand() *LockCommand{
     return command
 }
 
-func (self *SLock) FreeLockCommands(commands []*LockCommand) error{
+func (self *SLock) FreeLockCommands(commands []*protocol.LockCommand) error{
     self.free_lock_command_lock.Lock()
     for _, command := range commands {
         self.free_lock_commands.Push(command)
@@ -177,12 +178,12 @@ func (self *SLock) FreeLockCommands(commands []*LockCommand) error{
     return nil
 }
 
-func (self *SLock) GetLockCommands(count int32) []*LockCommand{
+func (self *SLock) GetLockCommands(count int32) []*protocol.LockCommand{
     self.free_lock_command_lock.Lock()
     if count > self.free_lock_command_count {
         count = self.free_lock_command_count
     }
-    commands := make([]*LockCommand, count)
+    commands := make([]*protocol.LockCommand, count)
     for i := int32(0); i < count; i++ {
         command := self.free_lock_commands.PopRight()
         if command == nil {

@@ -1,4 +1,4 @@
-package slock
+package server
 
 import (
     "errors"
@@ -8,13 +8,12 @@ import (
 
 type Stream struct {
     server *Server
-    client *Client
     conn   net.Conn
     closed bool
 }
 
-func NewStream(server *Server, client *Client, conn net.Conn) *Stream {
-    stream := &Stream{server, client, conn, false}
+func NewStream(server *Server, conn net.Conn) *Stream {
+    stream := &Stream{server, conn, false}
     tcp_conn, ok := conn.(*net.TCPConn)
     if ok {
         tcp_conn.SetNoDelay(true)
@@ -64,10 +63,6 @@ func (self *Stream) Close() error {
     if self.server != nil {
         self.server.RemoveStream(self)
         self.server = nil
-    }
-
-    if self.client != nil {
-        self.client = nil
     }
     return self.conn.Close()
 }

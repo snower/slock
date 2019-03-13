@@ -1,17 +1,17 @@
 package main
 
 import (
-    "github.com/snower/slock/slock"
+    "github.com/snower/slock/client"
     "fmt"
     "time"
     "sync"
     "flag"
 )
 
-func run(client *slock.Client, count *int, max_count int, end_count *int, clock *sync.Mutex) {
+func run(slock_client *client.Client, count *int, max_count int, end_count *int, clock *sync.Mutex) {
     for ;; {
-        lock_key := client.SelectDB(0).GenLockId()
-        lock := client.Lock(lock_key, 5, 5)
+        lock_key := slock_client.SelectDB(0).GenLockId()
+        lock := slock_client.Lock(lock_key, 5, 5)
 
         err := lock.Lock()
         if err != nil {
@@ -40,7 +40,7 @@ func bench(client_count int, concurrentc int, max_count int, port int, host stri
 
     fmt.Printf("Run %d Client, %d concurrentc, %d Count Lock and Unlock\n", client_count, concurrentc, max_count)
 
-    clients := make([]*slock.Client, client_count)
+    clients := make([]*client.Client, client_count)
     defer func() {
         for _, c := range clients {
             c.Close()
@@ -48,13 +48,13 @@ func bench(client_count int, concurrentc int, max_count int, port int, host stri
     }()
 
     for c := 0; c < client_count; c++ {
-        client := slock.NewClient(host, port)
-        err := client.Open()
+        slock_client := client.NewClient(host, port)
+        err := slock_client.Open()
         if err != nil {
             fmt.Printf("Connect Error: %v", err)
             return
         }
-        clients[c] = client
+        clients[c] = slock_client
     }
     fmt.Printf("Client Opened %d\n", len(clients))
 

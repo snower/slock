@@ -1,17 +1,11 @@
-package slock
+package server
 
 import (
     "net"
     "errors"
     "sync"
+    "github.com/snower/slock/protocol"
 )
-
-type Protocol interface {
-    Read() (CommandDecode, error)
-    Write(CommandEncode) (error)
-    Close() (error)
-    RemoteAddr() net.Addr
-}
 
 type ServerProtocol struct {
     slock *SLock
@@ -25,14 +19,14 @@ type ServerProtocol struct {
 
 func NewServerProtocol(slock *SLock, stream *Stream) *ServerProtocol {
     wbuf := make([]byte, 64)
-    wbuf[0] = byte(MAGIC)
-    wbuf[1] = byte(VERSION)
+    wbuf[0] = byte(protocol.MAGIC)
+    wbuf[1] = byte(protocol.VERSION)
 
     owbuf := make([]byte, 64)
-    owbuf[0] = byte(MAGIC)
-    owbuf[1] = byte(VERSION)
+    owbuf[0] = byte(protocol.MAGIC)
+    owbuf[1] = byte(protocol.VERSION)
 
-    protocol := &ServerProtocol{slock, stream, NewLockCommandQueue(4, 16, 256),
+    server_protocol := &ServerProtocol{slock, stream, NewLockCommandQueue(4, 16, 256),
     &sync.Mutex{}, make([]byte, 64), wbuf, owbuf}
 
     if slock.free_lock_command_count > 64 {
@@ -44,26 +38,26 @@ func NewServerProtocol(slock *SLock, stream *Stream) *ServerProtocol {
                     break
                 }
                 slock.free_lock_command_count--
-                protocol.free_commands.Push(lock_command)
+                server_protocol.free_commands.Push(lock_command)
             }
             slock.free_lock_command_lock.Unlock()
         } else {
             slock.free_lock_command_lock.Unlock()
 
-            lock_commands := make([]LockCommand, 64)
+            lock_commands := make([]protocol.LockCommand, 64)
             for i := 0; i < 64; i++ {
-                protocol.free_commands.Push(&lock_commands[i])
+                server_protocol.free_commands.Push(&lock_commands[i])
             }
         }
     } else {
-        lock_commands := make([]LockCommand, 64)
+        lock_commands := make([]protocol.LockCommand, 64)
         for i := 0; i < 64; i++ {
-            protocol.free_commands.Push(&lock_commands[i])
+            server_protocol.free_commands.Push(&lock_commands[i])
         }
     }
 
-    slock.Log().Infof("connection open %s", protocol.RemoteAddr().String())
-    return protocol
+    slock.Log().Infof("connection open %s", server_protocol.RemoteAddr().String())
+    return server_protocol
 }
 
 func (self *ServerProtocol) Close() (err error) {
@@ -83,7 +77,7 @@ func (self *ServerProtocol) Close() (err error) {
     return nil
 }
 
-func (self *ServerProtocol) Read() (command CommandDecode, err error) {
+func (self *ServerProtocol) Read() (command protocol.CommandDecode, err error) {
     buf := self.rbuf
 
     _, err = self.stream.ReadBytes(buf)
@@ -97,22 +91,22 @@ func (self *ServerProtocol) Read() (command CommandDecode, err error) {
 
     mv := uint16(buf[0]) | uint16(buf[1])<<8
     if mv != 0x0156 {
-        if mv & 0xff != MAGIC {
-            command := NewCommand(buf)
-            self.Write(NewResultCommand(command, RESULT_UNKNOWN_MAGIC), true)
+        if mv & 0xff != protocol.MAGIC {
+            command := protocol.NewCommand(buf)
+            self.Write(protocol.NewResultCommand(command, protocol.RESULT_UNKNOWN_MAGIC), true)
             return nil, errors.New("unknown magic")
         }
 
-        if (mv>>8) & 0xff != VERSION {
-            command := NewCommand(buf)
-            self.Write(NewResultCommand(command, RESULT_UNKNOWN_VERSION), true)
+        if (mv>>8) & 0xff != protocol.VERSION {
+            command := protocol.NewCommand(buf)
+            self.Write(protocol.NewResultCommand(command, protocol.RESULT_UNKNOWN_VERSION), true)
             return nil, errors.New("unknown version")
         }
     }
 
     command_type := uint8(buf[2])
     switch command_type {
-    case COMMAND_LOCK:
+    case protocol.COMMAND_LOCK:
         lock_command := self.free_commands.PopRight()
         if lock_command == nil {
             if self.slock.free_lock_command_count > 64 {
@@ -130,13 +124,13 @@ func (self *ServerProtocol) Read() (command CommandDecode, err error) {
                 } else {
                     self.slock.free_lock_command_lock.Unlock()
 
-                    lock_commands := make([]LockCommand, 64)
+                    lock_commands := make([]protocol.LockCommand, 64)
                     for i := 0; i < 64; i++ {
                         self.free_commands.Push(&lock_commands[i])
                     }
                 }
             } else {
-                lock_commands := make([]LockCommand, 64)
+                lock_commands := make([]protocol.LockCommand, 64)
                 for i := 0; i < 64; i++ {
                     self.free_commands.Push(&lock_commands[i])
                 }
@@ -161,7 +155,7 @@ func (self *ServerProtocol) Read() (command CommandDecode, err error) {
         lock_command.Expried = uint32(buf[57]) | uint32(buf[58])<<8 | uint32(buf[59])<<16 | uint32(buf[60])<<24
         lock_command.Count = uint16(buf[61]) | uint16(buf[62])<<8
         return lock_command, nil
-    case COMMAND_UNLOCK:
+    case protocol.COMMAND_UNLOCK:
         lock_command := self.free_commands.PopRight()
         if lock_command == nil {
             if self.slock.free_lock_command_count > 64 {
@@ -179,13 +173,13 @@ func (self *ServerProtocol) Read() (command CommandDecode, err error) {
                 } else {
                     self.slock.free_lock_command_lock.Unlock()
 
-                    lock_commands := make([]LockCommand, 64)
+                    lock_commands := make([]protocol.LockCommand, 64)
                     for i := 0; i < 64; i++ {
                         self.free_commands.Push(&lock_commands[i])
                     }
                 }
             } else {
-                lock_commands := make([]LockCommand, 64)
+                lock_commands := make([]protocol.LockCommand, 64)
                 for i := 0; i < 64; i++ {
                     self.free_commands.Push(&lock_commands[i])
                 }
@@ -210,21 +204,21 @@ func (self *ServerProtocol) Read() (command CommandDecode, err error) {
         lock_command.Expried = uint32(buf[57]) | uint32(buf[58])<<8 | uint32(buf[59])<<16 | uint32(buf[60])<<24
         lock_command.Count = uint16(buf[61]) | uint16(buf[62])<<8
         return lock_command, nil
-    case COMMAND_STATE:
-        state_command := &StateCommand{}
+    case protocol.COMMAND_STATE:
+        state_command := &protocol.StateCommand{}
         err := state_command.Decode(buf)
         if err != nil {
             return nil, err
         }
         return state_command, nil
     default:
-        command := NewCommand(buf)
-        self.Write(NewResultCommand(command, RESULT_UNKNOWN_VERSION), true)
+        command := protocol.NewCommand(buf)
+        self.Write(protocol.NewResultCommand(command, protocol.RESULT_UNKNOWN_VERSION), true)
         return nil, errors.New("unknown command")
     }
 }
 
-func (self *ServerProtocol) Write(result CommandEncode, use_cached bool) (err error) {
+func (self *ServerProtocol) Write(result protocol.CommandEncode, use_cached bool) (err error) {
     if use_cached {
         err = result.Encode(self.wbuf)
         if err != nil {
@@ -244,78 +238,6 @@ func (self *ServerProtocol) RemoteAddr() net.Addr {
     return self.stream.RemoteAddr()
 }
 
-func (self *ServerProtocol) FreeLockCommand(command *LockCommand) error {
+func (self *ServerProtocol) FreeLockCommand(command *protocol.LockCommand) error {
     return self.free_commands.Push(command)
-}
-
-type ClientProtocol struct {
-    stream *Stream
-    rbuf []byte
-}
-
-func NewClientProtocol(stream *Stream) *ClientProtocol {
-    protocol := &ClientProtocol{stream, make([]byte, 64)}
-    return protocol
-}
-
-func (self *ClientProtocol) Close() (err error) {
-    return self.stream.Close()
-}
-
-func (self *ClientProtocol) Read() (command CommandDecode, err error) {
-    n, err := self.stream.ReadBytes(self.rbuf)
-    if err != nil {
-        return nil, err
-    }
-
-    if n != 64 {
-        return nil, errors.New("command data too short")
-    }
-
-    if uint8(self.rbuf[0]) != MAGIC {
-        return nil, errors.New("unknown magic")
-    }
-
-    if uint8(self.rbuf[1]) != VERSION {
-        return nil, errors.New("unknown version")
-    }
-
-    switch uint8(self.rbuf[2]) {
-    case COMMAND_LOCK:
-        command := LockResultCommand{}
-        err := command.Decode(self.rbuf)
-        if err != nil {
-            return nil, err
-        }
-        return &command, nil
-    case COMMAND_UNLOCK:
-        command := LockResultCommand{}
-        err := command.Decode(self.rbuf)
-        if err != nil {
-            return nil, err
-        }
-        return &command, nil
-    case COMMAND_STATE:
-        command := ResultStateCommand{}
-        err := command.Decode(self.rbuf)
-        if err != nil {
-            return nil, err
-        }
-        return &command, nil
-    default:
-        return nil, errors.New("unknown command")
-    }
-}
-
-func (self *ClientProtocol) Write(result CommandEncode) (err error) {
-    wbuf := make([]byte, 64)
-    err = result.Encode(wbuf)
-    if err != nil {
-        return err
-    }
-    return self.stream.WriteBytes(wbuf)
-}
-
-func (self *ClientProtocol) RemoteAddr() net.Addr {
-    return self.stream.RemoteAddr()
 }

@@ -1,7 +1,8 @@
-package slock
+package server
 
 import (
     "testing"
+    "github.com/snower/slock/protocol"
 )
 
 func TestLockQueuePushPop(t *testing.T) {
@@ -159,8 +160,8 @@ func TestLockQueueLen(t *testing.T) {
 }
 
 func TestLockCommandQueuePushPop(t *testing.T) {
-    head := &LockCommand{}
-    tail := &LockCommand{}
+    head := &protocol.LockCommand{}
+    tail := &protocol.LockCommand{}
 
     q := NewLockCommandQueue(1, 3, 4)
     q.Push(head)
@@ -179,8 +180,8 @@ func TestLockCommandQueuePushPop(t *testing.T) {
 }
 
 func TestLockCommandQueuePushPopRight(t *testing.T) {
-    head := &LockCommand{}
-    tail := &LockCommand{}
+    head := &protocol.LockCommand{}
+    tail := &protocol.LockCommand{}
 
     q := NewLockCommandQueue(1, 3, 4)
     q.Push(head)
@@ -199,8 +200,8 @@ func TestLockCommandQueuePushPopRight(t *testing.T) {
 }
 
 func TestLockCommandQueuePushLeftPop(t *testing.T) {
-    head := &LockCommand{}
-    tail := &LockCommand{}
+    head := &protocol.LockCommand{}
+    tail := &protocol.LockCommand{}
 
     q := NewLockCommandQueue(1, 3, 4)
     q.Push(head)
@@ -219,8 +220,8 @@ func TestLockCommandQueuePushLeftPop(t *testing.T) {
 }
 
 func TestLockCommandQueuePushLeftPopRight(t *testing.T) {
-    head := &LockCommand{}
-    tail := &LockCommand{}
+    head := &protocol.LockCommand{}
+    tail := &protocol.LockCommand{}
 
     q := NewLockCommandQueue(1, 3, 4)
     q.Push(head)
@@ -239,8 +240,8 @@ func TestLockCommandQueuePushLeftPopRight(t *testing.T) {
 }
 
 func TestLockCommandQueueHead(t *testing.T) {
-    head := &LockCommand{}
-    tail := &LockCommand{}
+    head := &protocol.LockCommand{}
+    tail := &protocol.LockCommand{}
 
     q := NewLockCommandQueue(1, 3, 4)
     q.Push(head)
@@ -260,8 +261,8 @@ func TestLockCommandQueueHead(t *testing.T) {
 }
 
 func TestLockCommandQueueTail(t *testing.T) {
-    head := &LockCommand{}
-    tail := &LockCommand{}
+    head := &protocol.LockCommand{}
+    tail := &protocol.LockCommand{}
 
     q := NewLockCommandQueue(1, 3, 4)
     q.Push(head)
@@ -281,8 +282,8 @@ func TestLockCommandQueueTail(t *testing.T) {
 }
 
 func TestLockCommandQueueLen(t *testing.T) {
-    head := &LockCommand{}
-    tail := &LockCommand{}
+    head := &protocol.LockCommand{}
+    tail := &protocol.LockCommand{}
 
     q := NewLockCommandQueue(1, 3, 4)
     q.Push(head)

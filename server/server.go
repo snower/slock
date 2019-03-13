@@ -1,10 +1,11 @@
-package slock
+package server
 
 import (
     "fmt"
     "net"
     "sync"
     "io"
+    "github.com/snower/slock/protocol"
 )
 
 type Server struct {
@@ -58,17 +59,17 @@ func (self *Server) Loop() {
         if err != nil {
             continue
         }
-        stream := NewStream(self, nil, conn)
+        stream := NewStream(self, conn)
         self.AddStream(stream)
         go self.Handle(stream)
     }
 }
 
 func (self *Server) Handle(stream *Stream) (err error) {
-    protocol := NewServerProtocol(self.slock, stream)
-    defer protocol.Close()
+    server_protocol := NewServerProtocol(self.slock, stream)
+    defer server_protocol.Close()
     for {
-        command, err := protocol.Read()
+        command, err := server_protocol.Read()
         if err != nil {
             if err != io.EOF {
                 self.slock.Log().Infof("read command error: %v", err)
@@ -79,7 +80,7 @@ func (self *Server) Handle(stream *Stream) (err error) {
             self.slock.Log().Infof("read command decode error", err)
             break
         }
-        self.slock.Handle(protocol, command.(ICommand))
+        self.slock.Handle(server_protocol, command.(protocol.ICommand))
     }
     return nil
 }

@@ -1,4 +1,4 @@
-package slock
+package client
 
 import (
     "net"
@@ -7,6 +7,7 @@ import (
     "errors"
     "time"
     "math/rand"
+    "github.com/snower/slock/protocol"
 )
 
 var LETTERS = []byte("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
@@ -31,20 +32,20 @@ func (self *Client) Open() error {
     if err != nil {
         return err
     }
-    self.stream = NewStream(nil, self, conn)
+    self.stream = NewStream(self, conn)
     self.protocol = NewClientProtocol(self.stream)
     go self.Handle(self.stream)
     return nil
 }
 
 func (self *Client) Handle(stream *Stream) (err error) {
-    protocol := self.protocol
+    client_protocol := self.protocol
 
     defer func() {
         defer self.glock.Unlock()
         self.glock.Lock()
 
-        protocol.Close()
+        client_protocol.Close()
 
         for _, db := range self.dbs {
             if db != nil {
@@ -54,7 +55,7 @@ func (self *Client) Handle(stream *Stream) (err error) {
     }()
 
     for {
-        command, err := protocol.Read()
+        command, err := client_protocol.Read()
         if err != nil {
             break
         }
@@ -62,7 +63,7 @@ func (self *Client) Handle(stream *Stream) (err error) {
             break
         }
 
-        go self.HandleCommand(command.(ICommand))
+        go self.HandleCommand(command.(protocol.ICommand))
     }
 
     return nil
@@ -86,26 +87,26 @@ func (self *Client) GetDb(db_id uint8) *ClientDB{
     return db
 }
 
-func (self *Client) HandleCommand(command ICommand) error{
+func (self *Client) HandleCommand(command protocol.ICommand) error{
     switch command.GetCommandType() {
-    case COMMAND_LOCK:
-        lock_command := command.(*LockResultCommand)
+    case protocol.COMMAND_LOCK:
+        lock_command := command.(*protocol.LockResultCommand)
         db := self.dbs[lock_command.DbId]
         if db == nil {
             db = self.GetDb(lock_command.DbId)
         }
         db.HandleLockCommandResult(lock_command)
 
-    case COMMAND_UNLOCK:
-        lock_command := command.(*LockResultCommand)
+    case protocol.COMMAND_UNLOCK:
+        lock_command := command.(*protocol.LockResultCommand)
         db := self.dbs[lock_command.DbId]
         if db == nil {
             db = self.GetDb(lock_command.DbId)
         }
         db.HandleUnLockCommandResult(lock_command)
 
-    case COMMAND_STATE:
-        state_command := command.(*ResultStateCommand)
+    case protocol.COMMAND_STATE:
+        state_command := command.(*protocol.ResultStateCommand)
         db := self.dbs[state_command.DbId]
         if db == nil {
             db = self.GetDb(state_command.DbId)
@@ -131,7 +132,7 @@ func (self *Client) Event(event_key [2]uint64, timeout uint32, expried uint32) *
     return self.SelectDB(0).Event(event_key, timeout, expried)
 }
 
-func (self *Client) State(db_id uint8) *ResultStateCommand {
+func (self *Client) State(db_id uint8) *protocol.ResultStateCommand {
     return self.SelectDB(db_id).State()
 }
 
@@ -139,12 +140,12 @@ type ClientDB struct {
     db_id uint8
     client *Client
     protocol *ClientProtocol
-    requests map[[2]uint64]chan ICommand
+    requests map[[2]uint64]chan protocol.ICommand
     glock sync.Mutex
 }
 
-func NewClientDB(db_id uint8, client *Client, protocol *ClientProtocol) *ClientDB {
-    return &ClientDB{db_id, client, protocol, make(map[[2]uint64]chan ICommand, 0), sync.Mutex{}}
+func NewClientDB(db_id uint8, client *Client, client_protocol *ClientProtocol) *ClientDB {
+    return &ClientDB{db_id, client, client_protocol, make(map[[2]uint64]chan protocol.ICommand, 0), sync.Mutex{}}
 }
 
 func (self *ClientDB) HandleClose() error {
@@ -155,11 +156,11 @@ func (self *ClientDB) HandleClose() error {
         self.requests[request_id] <- nil
     }
 
-    self.requests = make(map[[2]uint64]chan ICommand, 0)
+    self.requests = make(map[[2]uint64]chan protocol.ICommand, 0)
     return nil
 }
 
-func (self *ClientDB) HandleLockCommandResult (command *LockResultCommand) error {
+func (self *ClientDB) HandleLockCommandResult (command *protocol.LockResultCommand) error {
     self.glock.Lock()
 
     request, ok := self.requests[command.RequestId]
@@ -175,7 +176,7 @@ func (self *ClientDB) HandleLockCommandResult (command *LockResultCommand) error
     return nil
 }
 
-func (self *ClientDB) HandleUnLockCommandResult (command *LockResultCommand) error {
+func (self *ClientDB) HandleUnLockCommandResult (command *protocol.LockResultCommand) error {
     self.glock.Lock()
 
     request, ok := self.requests[command.RequestId]
@@ -191,7 +192,7 @@ func (self *ClientDB) HandleUnLockCommandResult (command *LockResultCommand) err
     return nil
 }
 
-func (self *ClientDB) HandleStateCommandResult (command *ResultStateCommand) error {
+func (self *ClientDB) HandleStateCommandResult (command *protocol.ResultStateCommand) error {
     self.glock.Lock()
 
     request, ok := self.requests[command.RequestId]
@@ -207,8 +208,8 @@ func (self *ClientDB) HandleStateCommandResult (command *ResultStateCommand) err
     return nil
 }
 
-func (self *ClientDB) SendLockCommand(command *LockCommand) (*LockResultCommand, error) {
-    waiter := make(chan ICommand)
+func (self *ClientDB) SendLockCommand(command *protocol.LockCommand) (*protocol.LockResultCommand, error) {
+    waiter := make(chan protocol.ICommand)
 
     self.glock.Lock()
     _, ok := self.requests[command.RequestId]
@@ -235,11 +236,11 @@ func (self *ClientDB) SendLockCommand(command *LockCommand) (*LockResultCommand,
     if result_command == nil {
         return nil, errors.New("wait timeout")
     }
-    return result_command.(*LockResultCommand), nil
+    return result_command.(*protocol.LockResultCommand), nil
 }
 
-func (self *ClientDB) SendUnLockCommand(command *LockCommand) (*LockResultCommand, error) {
-    waiter := make(chan ICommand)
+func (self *ClientDB) SendUnLockCommand(command *protocol.LockCommand) (*protocol.LockResultCommand, error) {
+    waiter := make(chan protocol.ICommand)
 
     self.glock.Lock()
     _, ok := self.requests[command.RequestId]
@@ -266,11 +267,11 @@ func (self *ClientDB) SendUnLockCommand(command *LockCommand) (*LockResultComman
     if result_command == nil {
         return nil, errors.New("wait timeout")
     }
-    return result_command.(*LockResultCommand), nil
+    return result_command.(*protocol.LockResultCommand), nil
 }
 
-func (self *ClientDB) SendStateCommand(command *StateCommand) (*ResultStateCommand, error) {
-    waiter := make(chan ICommand)
+func (self *ClientDB) SendStateCommand(command *protocol.StateCommand) (*protocol.ResultStateCommand, error) {
+    waiter := make(chan protocol.ICommand)
 
     self.glock.Lock()
     _, ok := self.requests[command.RequestId]
@@ -297,7 +298,7 @@ func (self *ClientDB) SendStateCommand(command *StateCommand) (*ResultStateComma
     if result_command == nil {
         return nil, errors.New("wait timeout")
     }
-    return result_command.(*ResultStateCommand), nil
+    return result_command.(*protocol.ResultStateCommand), nil
 }
 
 func (self *ClientDB) Lock(lock_key [2]uint64, timeout uint32, expried uint32) *ClientLock {
@@ -308,9 +309,10 @@ func (self *ClientDB) Event(event_key [2]uint64, timeout uint32, expried uint32)
     return NewClientEvent(self, event_key, timeout, expried)
 }
 
-func (self *ClientDB) State() *ResultStateCommand {
+func (self *ClientDB) State() *protocol.ResultStateCommand {
     request_id := self.GetRequestId()
-    command := &StateCommand{Command{MAGIC, VERSION, COMMAND_STATE, request_id}, 0, self.db_id, [43]byte{}}
+    command := &protocol.StateCommand{protocol.Command{protocol.MAGIC, protocol.VERSION, protocol.COMMAND_STATE, request_id},
+        0, self.db_id, [43]byte{}}
     result_command, err := self.SendStateCommand(command)
     if err != nil {
         return nil
@@ -372,12 +374,13 @@ func NewClientLock(db *ClientDB, lock_key [2]uint64, timeout uint32, expried uin
 
 func (self *ClientLock) Lock() *ClientLockError{
     request_id := self.db.GetRequestId()
-    command := &LockCommand{Command{MAGIC, VERSION, COMMAND_LOCK, request_id}, 0, self.db.db_id, self.lock_id, self.lock_key, self.timeout, self.expried, 0,[1]byte{}}
+    command := &protocol.LockCommand{protocol.Command{protocol.MAGIC, protocol.VERSION, protocol.COMMAND_LOCK, request_id},
+        0, self.db.db_id, self.lock_id, self.lock_key, self.timeout, self.expried, 0,[1]byte{}}
     result_command, err := self.db.SendLockCommand(command)
     if err != nil {
-        return &ClientLockError{RESULT_ERROR, err}
+        return &ClientLockError{protocol.RESULT_ERROR, err}
     }
-    if result_command.Result != RESULT_SUCCED {
+    if result_command.Result != protocol.RESULT_SUCCED {
         return &ClientLockError{result_command.Result, errors.New("lock error")}
     }
     return nil
@@ -385,12 +388,13 @@ func (self *ClientLock) Lock() *ClientLockError{
 
 func (self *ClientLock) Unlock() *ClientLockError{
     request_id := self.db.GetRequestId()
-    command := &LockCommand{Command{ MAGIC, VERSION, COMMAND_UNLOCK, request_id}, 0, self.db.db_id, self.lock_id, self.lock_key, self.timeout, self.expried, 0,[1]byte{}}
+    command := &protocol.LockCommand{protocol.Command{ protocol.MAGIC, protocol.VERSION, protocol.COMMAND_UNLOCK, request_id},
+        0, self.db.db_id, self.lock_id, self.lock_key, self.timeout, self.expried, 0,[1]byte{}}
     result_command, err := self.db.SendUnLockCommand(command)
     if err != nil {
-        return &ClientLockError{RESULT_ERROR, err}
+        return &ClientLockError{protocol.RESULT_ERROR, err}
     }
-    if result_command.Result != RESULT_SUCCED {
+    if result_command.Result != protocol.RESULT_SUCCED {
         return &ClientLockError{result_command.Result, errors.New("lock error")}
     }
     return nil
@@ -419,7 +423,7 @@ func (self *ClientEvent) Clear() error{
         self.event_lock = &ClientLock{self.db, self.db.GetRequestId(), self.event_key, self.event_key, self.timeout, self.expried}
     }
     err := self.event_lock.Lock()
-    if err != nil && err.Result != RESULT_LOCKED_ERROR {
+    if err != nil && err.Result != protocol.RESULT_LOCKED_ERROR {
         return err
     }
 
@@ -434,7 +438,7 @@ func (self *ClientEvent) Set() error{
         self.event_lock = &ClientLock{self.db, self.db.GetRequestId(), self.event_key, self.event_key, self.timeout, self.expried}
     }
     err := self.event_lock.Unlock()
-    if err != nil && err.Result != RESULT_UNLOCK_ERROR {
+    if err != nil && err.Result != protocol.RESULT_UNLOCK_ERROR {
         return err
     }
 
@@ -449,7 +453,7 @@ func (self *ClientEvent) IsSet() (bool, error){
 
     err := self.check_lock.Lock()
 
-    if err != nil && err.Result != RESULT_TIMEOUT {
+    if err != nil && err.Result != protocol.RESULT_TIMEOUT {
         return true, nil
     }
 

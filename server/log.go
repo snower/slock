@@ -1,4 +1,4 @@
-package slock
+package server
 
 import (
     "github.com/hhkbp2/go-logging"
