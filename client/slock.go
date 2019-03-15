@@ -131,6 +131,10 @@ func (self *Client) Event(event_key [2]uint64, timeout uint32, expried uint32) *
     return self.SelectDB(0).Event(event_key, timeout, expried)
 }
 
+func (self *Client) CycleEvent(event_key [2]uint64, timeout uint32, expried uint32) *CycleEvent {
+    return self.SelectDB(0).CycleEvent(event_key, timeout, expried)
+}
+
 func (self *Client) State(db_id uint8) *protocol.ResultStateCommand {
     return self.SelectDB(db_id).State()
 }

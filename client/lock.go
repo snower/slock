@@ -22,16 +22,17 @@ type Lock struct {
     lock_key [2]uint64
     timeout uint32
     expried uint32
+    count uint16
 }
 
-func NewLock(db *Database, lock_key [2]uint64, timeout uint32, expried uint32) *Lock {
-    return &Lock{db, db.GetRequestId(), db.GenLockId(), lock_key, timeout, expried}
+func NewLock(db *Database, lock_key [2]uint64, timeout uint32, expried uint32, count uint16) *Lock {
+    return &Lock{db, db.GetRequestId(), db.GenLockId(), lock_key, timeout, expried, count}
 }
 
-func (self *Lock) Lock() *LockError{
+func (self *Lock) DoLock(flag uint8) *LockError{
     request_id := self.db.GetRequestId()
     command := &protocol.LockCommand{protocol.Command{protocol.MAGIC, protocol.VERSION, protocol.COMMAND_LOCK, request_id},
-        0, self.db.db_id, self.lock_id, self.lock_key, self.timeout, self.expried, 0,[1]byte{}}
+        flag, self.db.db_id, self.lock_id, self.lock_key, self.timeout, self.expried, self.count,[1]byte{}}
     result_command, err := self.db.SendLockCommand(command)
     if err != nil {
         return &LockError{protocol.RESULT_ERROR, err}
@@ -42,10 +43,10 @@ func (self *Lock) Lock() *LockError{
     return nil
 }
 
-func (self *Lock) Unlock() *LockError{
+func (self *Lock) DoUnlock(flag uint8) *LockError{
     request_id := self.db.GetRequestId()
     command := &protocol.LockCommand{protocol.Command{ protocol.MAGIC, protocol.VERSION, protocol.COMMAND_UNLOCK, request_id},
-        0, self.db.db_id, self.lock_id, self.lock_key, self.timeout, self.expried, 0,[1]byte{}}
+        flag, self.db.db_id, self.lock_id, self.lock_key, self.timeout, self.expried, self.count,[1]byte{}}
     result_command, err := self.db.SendUnLockCommand(command)
     if err != nil {
         return &LockError{protocol.RESULT_ERROR, err}
@@ -54,4 +55,12 @@ func (self *Lock) Unlock() *LockError{
         return &LockError{result_command.Result, errors.New("lock error")}
     }
     return nil
+}
+
+func (self *Lock) Lock() *LockError{
+    return self.DoLock(0)
+}
+
+func (self *Lock) Unlock() *LockError{
+    return self.DoUnlock(0)
 }

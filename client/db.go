@@ -175,11 +175,15 @@ func (self *Database) SendStateCommand(command *protocol.StateCommand) (*protoco
 }
 
 func (self *Database) Lock(lock_key [2]uint64, timeout uint32, expried uint32) *Lock {
-    return NewLock(self, lock_key, timeout, expried)
+    return NewLock(self, lock_key, timeout, expried, 0)
 }
 
 func (self *Database) Event(event_key [2]uint64, timeout uint32, expried uint32) *Event {
     return NewEvent(self, event_key, timeout, expried)
+}
+
+func (self *Database) CycleEvent(event_key [2]uint64, timeout uint32, expried uint32) *CycleEvent {
+    return NewCycleEvent(self, event_key, timeout, expried)
 }
 
 func (self *Database) State() *protocol.ResultStateCommand {
