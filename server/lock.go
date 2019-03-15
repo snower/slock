@@ -148,7 +148,6 @@ func (self *LockManager) FreeLock(lock *Lock) *Lock{
     lock.manager = nil
     lock.protocol = nil
     lock.command = nil
-    lock.ref_count--
     self.free_locks.Push(lock)
     return lock
 }
