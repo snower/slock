@@ -13,11 +13,11 @@ type Event struct {
     event_lock *Lock
     check_lock *Lock
     wait_lock *Lock
-    glock sync.Mutex
+    glock *sync.Mutex
 }
 
 func NewEvent(db *Database, event_key [2]uint64, timeout uint32, expried uint32) *Event {
-    return &Event{db, event_key, timeout, expried, nil, nil, nil, sync.Mutex{}}
+    return &Event{db, event_key, timeout, expried, nil, nil, nil, &sync.Mutex{}}
 }
 
 func (self *Event) Clear() error{
@@ -85,7 +85,7 @@ type CycleEvent struct {
 }
 
 func NewCycleEvent(db *Database, event_key [2]uint64, timeout uint32, expried uint32) *CycleEvent {
-    return &CycleEvent{Event{db, event_key, timeout, expried, nil, nil, nil, sync.Mutex{}}}
+    return &CycleEvent{Event{db, event_key, timeout, expried, nil, nil, nil, &sync.Mutex{}}}
 }
 
 func (self *CycleEvent) Wait(timeout uint32) (bool, error) {

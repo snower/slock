@@ -186,6 +186,14 @@ func (self *Database) CycleEvent(event_key [2]uint64, timeout uint32, expried ui
     return NewCycleEvent(self, event_key, timeout, expried)
 }
 
+func (self *Database) Semaphore(semaphore_key [2]uint64, timeout uint32, expried uint32, count uint16) *Semaphore {
+    return NewSemaphore(self, semaphore_key, timeout, expried, count)
+}
+
+func (self *Database) RWLock(lock_key [2]uint64, timeout uint32, expried uint32) *RWLock {
+    return NewRWLock(self, lock_key, timeout, expried)
+}
+
 func (self *Database) State() *protocol.ResultStateCommand {
     request_id := self.GetRequestId()
     command := &protocol.StateCommand{protocol.Command{protocol.MAGIC, protocol.VERSION, protocol.COMMAND_STATE, request_id},

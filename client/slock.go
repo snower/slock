@@ -135,6 +135,14 @@ func (self *Client) CycleEvent(event_key [2]uint64, timeout uint32, expried uint
     return self.SelectDB(0).CycleEvent(event_key, timeout, expried)
 }
 
+func (self *Client) Semaphore(semaphore_key [2]uint64, timeout uint32, expried uint32, count uint16) *Semaphore {
+    return self.SelectDB(0).Semaphore(semaphore_key, timeout, expried, count)
+}
+
+func (self *Client) RWLock(lock_key [2]uint64, timeout uint32, expried uint32) *RWLock {
+    return self.SelectDB(0).RWLock(lock_key, timeout, expried)
+}
+
 func (self *Client) State(db_id uint8) *protocol.ResultStateCommand {
     return self.SelectDB(db_id).State()
 }
