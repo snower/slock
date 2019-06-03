@@ -104,16 +104,15 @@ func (self *LockDB) CheckTimeTimeOut(check_timeout_time int64, now int64) {
     for i := int8(0); i < self.manager_max_glocks; i++ {
         lock := timeout_locks[i].Pop()
         for ; lock != nil; {
-            lock.ref_count--
-            lock_manager := lock.manager
             if !lock.timeouted {
                 if lock.timeout_time > now {
                     lock.manager.glock.Lock()
-                    if(!lock.timeouted) {
+                    if !lock.timeouted {
                         lock.timeout_checked_count++
                         self.AddTimeOut(lock)
                         lock.manager.glock.Unlock()
 
+                        lock.ref_count--
                         lock = timeout_locks[i].Pop()
                         continue
                     }
@@ -123,6 +122,8 @@ func (self *LockDB) CheckTimeTimeOut(check_timeout_time int64, now int64) {
                 self.DoTimeOut(lock)
             }
 
+            lock.ref_count--
+            lock_manager := lock.manager
             if lock.ref_count == 0 {
                 lock_manager.glock.Lock()
                 if lock.ref_count == 0 {
@@ -167,16 +168,15 @@ func (self *LockDB) CheckTimeExpried(check_expried_time int64, now int64){
     for i := int8(0); i < self.manager_max_glocks; i++ {
         lock := expried_locks[i].Pop()
         for ; lock != nil; {
-            lock.ref_count--
-            lock_manager := lock.manager
             if !lock.expried {
                 if lock.expried_time > now {
                     lock.manager.glock.Lock()
-                    if(!lock.expried) {
+                    if !lock.expried {
                         lock.expried_checked_count++
                         self.AddExpried(lock)
                         lock.manager.glock.Unlock()
 
+                        lock.ref_count--
                         lock = expried_locks[i].Pop()
                         continue
                     }
@@ -186,6 +186,8 @@ func (self *LockDB) CheckTimeExpried(check_expried_time int64, now int64){
                 self.DoExpried(lock)
             }
 
+            lock.ref_count--
+            lock_manager := lock.manager
             if lock.ref_count == 0 {
                 lock_manager.glock.Lock()
                 if lock.ref_count == 0 {
