@@ -129,14 +129,12 @@ func (self *LockDB) CheckTimeTimeOut(check_timeout_time int64, now int64) {
             }
 
             lock_manager := lock.manager
+            lock_manager.glock.Lock()
             lock.ref_count--
             if lock.ref_count == 0 {
-                lock_manager.glock.Lock()
-                if lock.ref_count == 0 {
-                    lock_manager.FreeLock(lock)
-                }
-                lock_manager.glock.Unlock()
+                lock_manager.FreeLock(lock)
             }
+            lock_manager.glock.Unlock()
 
             if lock_manager.ref_count == 0 {
                 self.RemoveLockManager(lock_manager)
@@ -192,14 +190,12 @@ func (self *LockDB) CheckTimeExpried(check_expried_time int64, now int64){
             }
 
             lock_manager := lock.manager
+            lock_manager.glock.Lock()
             lock.ref_count--
             if lock.ref_count == 0 {
-                lock_manager.glock.Lock()
-                if lock.ref_count == 0 {
-                    lock_manager.FreeLock(lock)
-                }
-                lock_manager.glock.Unlock()
+                lock_manager.FreeLock(lock)
             }
+            lock_manager.glock.Unlock()
 
             if lock_manager.ref_count == 0 {
                 self.RemoveLockManager(lock_manager)
