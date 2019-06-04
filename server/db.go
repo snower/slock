@@ -220,7 +220,6 @@ func (self *LockDB) GetOrNewLockManager(command *protocol.LockCommand) *LockMana
 
     lock_manager, ok := self.locks[command.LockKey]
     if ok {
-        lock_manager.glock.Lock()
         self.glock.Unlock()
         return lock_manager
     }
@@ -230,7 +229,6 @@ func (self *LockDB) GetOrNewLockManager(command *protocol.LockCommand) *LockMana
         self.free_lock_manager_count--
         lock_manager.freed = false
         self.locks[command.LockKey] = lock_manager
-        lock_manager.glock.Lock()
         self.glock.Unlock()
 
         lock_manager.lock_key = command.LockKey
@@ -259,7 +257,6 @@ func (self *LockDB) GetOrNewLockManager(command *protocol.LockCommand) *LockMana
         self.free_lock_manager_count--
         lock_manager.freed = false
         self.locks[command.LockKey] = lock_manager
-        lock_manager.glock.Lock()
         self.glock.Unlock()
 
         lock_manager.lock_key = command.LockKey
@@ -283,49 +280,45 @@ func (self *LockDB) GetLockManager(command *protocol.LockCommand) *LockManager{
 }
 
 func (self *LockDB) RemoveLockManager(lock_manager *LockManager){
-    if lock_manager.ref_count == 0 {
-        self.glock.Lock()
-        if !lock_manager.freed {
-            delete(self.locks, lock_manager.lock_key)
-            lock_manager.freed = true
+    self.glock.Lock()
+    if !lock_manager.freed {
+        delete(self.locks, lock_manager.lock_key)
+        lock_manager.freed = true
 
-            if self.free_lock_manager_count < 4194303 {
-                self.free_lock_manager_count++
-                self.free_lock_managers[self.free_lock_manager_count] = lock_manager
-                self.glock.Unlock()
+        if self.free_lock_manager_count < 4194303 {
+            self.free_lock_manager_count++
+            self.free_lock_managers[self.free_lock_manager_count] = lock_manager
+            self.glock.Unlock()
 
-                if lock_manager.locks != nil {
-                    lock_manager.locks.Reset()
-                }
-                if lock_manager.wait_locks != nil {
-                    lock_manager.wait_locks.Reset()
-                }
-            } else {
-                self.glock.Unlock()
-
-                lock_manager.current_lock = nil
-                lock_manager.locks = nil
-                lock_manager.lock_maps = nil
-                lock_manager.wait_locks = nil
-                lock_manager.free_locks = nil
+            if lock_manager.locks != nil {
+                lock_manager.locks.Reset()
             }
-            atomic.AddUint32(&self.state.KeyCount, 0xffffffff)
-
-
-            if self.free_lock_manager_timeout && int32(self.state.KeyCount) * 4 < self.free_lock_manager_count {
-                go func(last_lock_count uint64) {
-                    time.Sleep(300 * 1e9)
-                    self.CheckFreeLockManagerTimeOut(lock_manager, last_lock_count)
-                }(self.state.LockCount)
-                self.free_lock_manager_timeout = false
+            if lock_manager.wait_locks != nil {
+                lock_manager.wait_locks.Reset()
             }
-            return
+        } else {
+            self.glock.Unlock()
+
+            lock_manager.current_lock = nil
+            lock_manager.locks = nil
+            lock_manager.lock_maps = nil
+            lock_manager.wait_locks = nil
+            lock_manager.free_locks = nil
         }
+        atomic.AddUint32(&self.state.KeyCount, 0xffffffff)
 
-        self.glock.Unlock()
+
+        if self.free_lock_manager_timeout && int32(self.state.KeyCount) * 4 < self.free_lock_manager_count {
+            go func(last_lock_count uint64) {
+                time.Sleep(300 * 1e9)
+                self.CheckFreeLockManagerTimeOut(lock_manager, last_lock_count)
+            }(self.state.LockCount)
+            self.free_lock_manager_timeout = false
+        }
+        return
     }
 
-    return
+    self.glock.Unlock()
 }
 
 func (self *LockDB) CheckFreeLockManagerTimeOut(lock_manager *LockManager, last_lock_count uint64){
@@ -538,6 +531,12 @@ func (self *LockDB) DoExpried(lock *Lock){
 
 func (self *LockDB) Lock(server_protocol *ServerProtocol, command *protocol.LockCommand) (err error) {
     lock_manager := self.GetOrNewLockManager(command)
+    lock_manager.glock.Lock()
+
+    if lock_manager.freed {
+        lock_manager.glock.Unlock()
+        return self.Lock(server_protocol, command)
+    }
 
     if lock_manager.locked > 0 {
         if command.Flag & 0x01 != 0 {
