@@ -15,6 +15,7 @@ type LockManager struct {
     glock          *sync.Mutex
     free_locks     *LockQueue
     locked         uint16
+    ref_count      uint16
     db_id          uint8
     waited         bool
     freed          bool
@@ -23,7 +24,8 @@ type LockManager struct {
 
 func NewLockManager(lock_db *LockDB, command *protocol.LockCommand, glock *sync.Mutex, glock_index int8, free_locks *LockQueue) *LockManager {
     return &LockManager{lock_db, command.LockKey,
-    nil, nil, nil, nil, glock, free_locks, 0, command.DbId, false, true, glock_index}
+    nil, nil, nil, nil, glock, free_locks, 0, 0,
+    command.DbId, false, true, glock_index}
 }
 
 func (self *LockManager) GetDB() *LockDB{
@@ -51,9 +53,6 @@ func (self *LockManager) RemoveLock(lock *Lock) *Lock {
     if self.current_lock == lock {
         self.current_lock = nil
         lock.ref_count--
-        if lock.ref_count == 0 {
-            self.FreeLock(lock)
-        }
 
         locked_lock := self.locks.Pop()
         for ; locked_lock != nil; {
@@ -145,6 +144,7 @@ func (self *LockManager) GetWaitLock() *Lock {
 }
 
 func (self *LockManager) FreeLock(lock *Lock) *Lock{
+    lock.manager.ref_count--
     lock.manager = nil
     lock.protocol = nil
     lock.command = nil
@@ -174,6 +174,7 @@ func (self *LockManager) GetOrNewLock(protocol *ServerProtocol, command *protoco
     lock.timeout_checked_count = 2
     lock.expried_checked_count = 2
     lock.ref_count = 0
+    self.ref_count++
     return lock
 }
 
