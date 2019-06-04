@@ -53,6 +53,13 @@ func NewLockDB(slock *SLock) *LockDB {
     return db
 }
 
+func (self *LockDB) ConvertUint642ToByte16(uint642 [2]uint64) [16]byte {
+    return [16]byte{byte(uint642[0]), byte(uint642[0] >> 8), byte(uint642[0] >> 16), byte(uint642[0] >> 24),
+        byte(uint642[0] >> 32), byte(uint642[0] >> 40), byte(uint642[0] >> 48), byte(uint642[0] >> 56),
+        byte(uint642[1]), byte(uint642[1] >> 8), byte(uint642[1] >> 16), byte(uint642[1] >> 24),
+        byte(uint642[1] >> 32), byte(uint642[1] >> 40), byte(uint642[1] >> 48), byte(uint642[1] >> 56)}
+}
+
 func (self *LockDB) ResizeTimeOut (){
     for i := int64(0); i < TIMEOUT_QUEUE_LENGTH; i++ {
         self.timeout_locks[i] = make([]*LockQueue, self.manager_max_glocks)
@@ -112,7 +119,6 @@ func (self *LockDB) CheckTimeTimeOut(check_timeout_time int64, now int64) {
                         self.AddTimeOut(lock)
                         lock.manager.glock.Unlock()
 
-                        lock.ref_count--
                         lock = timeout_locks[i].Pop()
                         continue
                     }
@@ -176,7 +182,6 @@ func (self *LockDB) CheckTimeExpried(check_expried_time int64, now int64){
                         self.AddExpried(lock)
                         lock.manager.glock.Unlock()
 
-                        lock.ref_count--
                         lock = expried_locks[i].Pop()
                         continue
                     }
@@ -384,7 +389,6 @@ func (self *LockDB) AddTimeOut(lock *Lock) (err error) {
         }
 
         self.timeout_locks[timeout_time % TIMEOUT_QUEUE_LENGTH][lock.manager.glock_index].Push(lock)
-        lock.ref_count++
     } else {
         timeout_time := self.check_timeout_time + lock.timeout_checked_count
         if lock.timeout_time < timeout_time {
@@ -395,7 +399,6 @@ func (self *LockDB) AddTimeOut(lock *Lock) (err error) {
         }
 
         self.timeout_locks[timeout_time % TIMEOUT_QUEUE_LENGTH][lock.manager.glock_index].Push(lock)
-        lock.ref_count++
     }
 
     return nil
@@ -429,22 +432,9 @@ func (self *LockDB) DoTimeOut(lock *Lock) (err error) {
     atomic.AddUint32(&self.state.WaitCount, 0xffffffff)
     atomic.AddUint32(&self.state.TimeoutedCount, 1)
 
-    lock_key := [16]byte{byte(lock_command.LockKey[0]), byte(lock_command.LockKey[0] >> 8), byte(lock_command.LockKey[0] >> 16), byte(lock_command.LockKey[0] >> 24),
-        byte(lock_command.LockKey[0] >> 32), byte(lock_command.LockKey[0] >> 40), byte(lock_command.LockKey[0] >> 48), byte(lock_command.LockKey[0] >> 56),
-        byte(lock_command.LockKey[1]), byte(lock_command.LockKey[1] >> 8), byte(lock_command.LockKey[1] >> 16), byte(lock_command.LockKey[1] >> 24),
-        byte(lock_command.LockKey[1] >> 32), byte(lock_command.LockKey[1] >> 40), byte(lock_command.LockKey[1] >> 48), byte(lock_command.LockKey[1] >> 56)}
-
-    lock_id := [16]byte{byte(lock_command.LockId[0]), byte(lock_command.LockId[0] >> 8), byte(lock_command.LockId[0] >> 16), byte(lock_command.LockId[0] >> 24),
-        byte(lock_command.LockId[0] >> 32), byte(lock_command.LockId[0] >> 40), byte(lock_command.LockId[0] >> 48), byte(lock_command.LockId[0] >> 56),
-        byte(lock_command.LockId[1]), byte(lock_command.LockId[1] >> 8), byte(lock_command.LockId[1] >> 16), byte(lock_command.LockId[1] >> 24),
-        byte(lock_command.LockId[1] >> 32), byte(lock_command.LockId[1] >> 40), byte(lock_command.LockId[1] >> 48), byte(lock_command.LockId[1] >> 56)}
-
-    request_id := [16]byte{byte(lock_command.RequestId[0]), byte(lock_command.RequestId[0] >> 8), byte(lock_command.RequestId[0] >> 16), byte(lock_command.RequestId[0] >> 24),
-        byte(lock_command.RequestId[0] >> 32), byte(lock_command.RequestId[0] >> 40), byte(lock_command.RequestId[0] >> 48), byte(lock_command.RequestId[0] >> 56),
-        byte(lock_command.RequestId[1]), byte(lock_command.RequestId[1] >> 8), byte(lock_command.RequestId[1] >> 16), byte(lock_command.RequestId[1] >> 24),
-        byte(lock_command.RequestId[1] >> 32), byte(lock_command.RequestId[1] >> 40), byte(lock_command.RequestId[1] >> 48), byte(lock_command.RequestId[1] >> 56)}
-
-    self.slock.Log().Infof("LockTimeout DbId:%d LockKey:%x LockId:%x RequestId:%x RemoteAddr:%s", lock_command.DbId, lock_key, lock_id, request_id, lock_protocol.RemoteAddr().String())
+    self.slock.Log().Infof("LockTimeout DbId:%d LockKey:%x LockId:%x RequestId:%x RemoteAddr:%s", lock_command.DbId,
+        self.ConvertUint642ToByte16(lock_command.LockKey), self.ConvertUint642ToByte16(lock_command.LockId),
+        self.ConvertUint642ToByte16(lock_command.RequestId), lock_protocol.RemoteAddr().String())
 
     return nil
 }
@@ -462,7 +452,6 @@ func (self *LockDB) AddExpried(lock *Lock) (err error) {
         }
 
         self.expried_locks[expried_time % EXPRIED_QUEUE_LENGTH][lock.manager.glock_index].Push(lock)
-        lock.ref_count++
     }else{
         expried_time := self.check_expried_time + lock.expried_checked_count
         if lock.expried_time < expried_time {
@@ -473,7 +462,6 @@ func (self *LockDB) AddExpried(lock *Lock) (err error) {
         }
 
         self.expried_locks[expried_time % EXPRIED_QUEUE_LENGTH][lock.manager.glock_index].Push(lock)
-        lock.ref_count++
     }
     return nil
 }
@@ -508,22 +496,9 @@ func (self *LockDB) DoExpried(lock *Lock) (err error) {
     atomic.AddUint32(&self.state.LockedCount, 0xffffffff)
     atomic.AddUint32(&self.state.ExpriedCount, 1)
 
-    lock_key := [16]byte{byte(lock_command.LockKey[0]), byte(lock_command.LockKey[0] >> 8), byte(lock_command.LockKey[0] >> 16), byte(lock_command.LockKey[0] >> 24),
-        byte(lock_command.LockKey[0] >> 32), byte(lock_command.LockKey[0] >> 40), byte(lock_command.LockKey[0] >> 48), byte(lock_command.LockKey[0] >> 56),
-        byte(lock_command.LockKey[1]), byte(lock_command.LockKey[1] >> 8), byte(lock_command.LockKey[1] >> 16), byte(lock_command.LockKey[1] >> 24),
-        byte(lock_command.LockKey[1] >> 32), byte(lock_command.LockKey[1] >> 40), byte(lock_command.LockKey[1] >> 48), byte(lock_command.LockKey[1] >> 56)}
-
-    lock_id := [16]byte{byte(lock_command.LockId[0]), byte(lock_command.LockId[0] >> 8), byte(lock_command.LockId[0] >> 16), byte(lock_command.LockId[0] >> 24),
-        byte(lock_command.LockId[0] >> 32), byte(lock_command.LockId[0] >> 40), byte(lock_command.LockId[0] >> 48), byte(lock_command.LockId[0] >> 56),
-        byte(lock_command.LockId[1]), byte(lock_command.LockId[1] >> 8), byte(lock_command.LockId[1] >> 16), byte(lock_command.LockId[1] >> 24),
-        byte(lock_command.LockId[1] >> 32), byte(lock_command.LockId[1] >> 40), byte(lock_command.LockId[1] >> 48), byte(lock_command.LockId[1] >> 56)}
-
-    request_id := [16]byte{byte(lock_command.RequestId[0]), byte(lock_command.RequestId[0] >> 8), byte(lock_command.RequestId[0] >> 16), byte(lock_command.RequestId[0] >> 24),
-        byte(lock_command.RequestId[0] >> 32), byte(lock_command.RequestId[0] >> 40), byte(lock_command.RequestId[0] >> 48), byte(lock_command.RequestId[0] >> 56),
-        byte(lock_command.RequestId[1]), byte(lock_command.RequestId[1] >> 8), byte(lock_command.RequestId[1] >> 16), byte(lock_command.RequestId[1] >> 24),
-        byte(lock_command.RequestId[1] >> 32), byte(lock_command.RequestId[1] >> 40), byte(lock_command.RequestId[1] >> 48), byte(lock_command.RequestId[1] >> 56)}
-
-    self.slock.Log().Infof("LockExpried DbId:%d LockKey:%x LockId:%x RequestId:%x RemoteAddr:%s", lock_command.DbId, lock_key, lock_id, request_id, lock_protocol.RemoteAddr().String())
+    self.slock.Log().Infof("LockExpried DbId:%d LockKey:%x LockId:%x RequestId:%x RemoteAddr:%s", lock_command.DbId,
+        self.ConvertUint642ToByte16(lock_command.LockKey), self.ConvertUint642ToByte16(lock_command.LockId),
+        self.ConvertUint642ToByte16(lock_command.RequestId), lock_protocol.RemoteAddr().String())
 
     if wait_lock != nil {
         lock_manager.glock.Lock()
@@ -589,6 +564,7 @@ func (self *LockDB) Lock(server_protocol *ServerProtocol, command *protocol.Lock
             lock_manager.AddLock(lock)
             lock_manager.locked++
             self.AddExpried(lock)
+            lock.ref_count++
             lock_manager.glock.Unlock()
 
             self.slock.Active(server_protocol, command, protocol.RESULT_SUCCED, true)
@@ -613,6 +589,7 @@ func (self *LockDB) Lock(server_protocol *ServerProtocol, command *protocol.Lock
     if command.Timeout > 0 {
         lock_manager.AddWaitLock(lock)
         self.AddTimeOut(lock)
+        lock.ref_count++
         lock_manager.glock.Unlock()
 
         atomic.AddUint32(&self.state.WaitCount, 1)
@@ -743,6 +720,7 @@ func (self *LockDB) WakeUpWaitLock(lock_manager *LockManager, wait_lock *Lock, s
         lock_manager.AddLock(wait_lock)
         lock_manager.locked++
         self.AddExpried(wait_lock)
+        wait_lock.ref_count++
         lock_manager.GetWaitLock()
         lock_manager.glock.Unlock()
 
