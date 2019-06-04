@@ -110,13 +110,12 @@ func (self *LockManager) GetLockedLock(command *protocol.LockCommand) *Lock {
     return nil
 }
 
-func (self *LockManager) UpdateLockedLock(lock *Lock, timeout uint32, expried uint32, count uint16) error {
+func (self *LockManager) UpdateLockedLock(lock *Lock, timeout uint32, expried uint32, count uint16) {
     lock.command.Timeout = timeout
     lock.command.Expried = expried
     lock.command.Count = count
     lock.timeout_time = self.lock_db.current_time + int64(timeout)
     lock.expried_time = self.lock_db.current_time + int64(expried)
-    return nil;
 }
 
 func (self *LockManager) AddWaitLock(lock *Lock) *Lock {
