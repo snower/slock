@@ -170,8 +170,8 @@ func (self *LockManager) GetOrNewLock(protocol *ServerProtocol, command *protoco
     lock.start_time = now
     lock.expried_time = 0
     lock.timeout_time = now + int64(command.Timeout)
-    lock.timeout_checked_count = 2
-    lock.expried_checked_count = 2
+    lock.timeout_checked_count = 1
+    lock.expried_checked_count = 1
     lock.ref_count = 0
     self.ref_count++
     return lock
