@@ -34,7 +34,7 @@ func (self *LockManager) GetDB() *LockDB{
 
 func (self *LockManager) AddLock(lock *Lock) *Lock {
     lock.expried_time = self.lock_db.current_time + int64(lock.command.Expried)
-    lock.locked = true
+    lock.locked = 1
     lock.ref_count++
 
     if self.current_lock == nil {
@@ -48,7 +48,7 @@ func (self *LockManager) AddLock(lock *Lock) *Lock {
 }
 
 func (self *LockManager) RemoveLock(lock *Lock) *Lock {
-    lock.locked = false
+    lock.locked = 0
 
     if self.current_lock == lock {
         self.current_lock = nil
@@ -56,7 +56,7 @@ func (self *LockManager) RemoveLock(lock *Lock) *Lock {
 
         locked_lock := self.locks.Pop()
         for ; locked_lock != nil; {
-            if locked_lock.locked {
+            if locked_lock.locked != 0 {
                 _, ok := self.lock_maps[locked_lock.command.LockId]
                 if ok {
                     delete(self.lock_maps, locked_lock.command.LockId)
@@ -83,7 +83,7 @@ func (self *LockManager) RemoveLock(lock *Lock) *Lock {
 
     locked_lock := self.locks.Head()
     for ; locked_lock != nil; {
-        if locked_lock.locked {
+        if locked_lock.locked != 0 {
             break
         }
 
@@ -110,10 +110,11 @@ func (self *LockManager) GetLockedLock(command *protocol.LockCommand) *Lock {
     return nil
 }
 
-func (self *LockManager) UpdateLockedLock(lock *Lock, timeout uint32, expried uint32, count uint16) {
+func (self *LockManager) UpdateLockedLock(lock *Lock, timeout uint32, expried uint32, count uint16, rcount uint8) {
     lock.command.Timeout = timeout
     lock.command.Expried = expried
     lock.command.Count = count
+    lock.command.Rcount = rcount
     lock.timeout_time = self.lock_db.current_time + int64(timeout)
     lock.expried_time = self.lock_db.current_time + int64(expried)
 }
@@ -172,7 +173,6 @@ func (self *LockManager) GetOrNewLock(protocol *ServerProtocol, command *protoco
     lock.timeout_time = now + int64(command.Timeout)
     lock.timeout_checked_count = 1
     lock.expried_checked_count = 1
-    lock.ref_count = 0
     self.ref_count++
     return lock
 }
@@ -186,15 +186,15 @@ type Lock struct {
     timeout_time        int64
     timeout_checked_count int64
     expried_checked_count int64
-    locked              bool
+    locked              uint8
+    ref_count           uint8
     timeouted           bool
     expried             bool
-    ref_count           uint8
 }
 
 func NewLock(manager *LockManager, protocol *ServerProtocol, command *protocol.LockCommand) *Lock {
     now := manager.lock_db.current_time
-    return &Lock{manager, command, protocol,now, 0, now + int64(command.Timeout), 0, 0,false, false, false, 0}
+    return &Lock{manager, command, protocol,now, 0, now + int64(command.Timeout), 0, 0,0, 0, false, false}
 }
 
 func (self *Lock) GetDB() *LockDB{

@@ -141,7 +141,7 @@ type LockCommand struct {
     Timeout   uint32
     Expried   uint32
     Count     uint16
-    Blank     [1]byte
+    Rcount    uint8
 }
 
 func NewLockCommand(buf []byte) *LockCommand {
@@ -173,6 +173,7 @@ func (self *LockCommand) Decode(buf []byte) error{
     self.Timeout = uint32(buf[53]) | uint32(buf[54])<<8 | uint32(buf[55])<<16 | uint32(buf[56])<<24
     self.Expried = uint32(buf[57]) | uint32(buf[58])<<8 | uint32(buf[59])<<16 | uint32(buf[60])<<24
     self.Count = uint16(buf[61]) | uint16(buf[62])<<8
+    self.Rcount = uint8(buf[63])
     return nil
 }
 
@@ -197,12 +198,12 @@ func (self *LockCommand) Encode(buf []byte) error {
 
     buf[53], buf[54], buf[55], buf[56], buf[57], buf[58], buf[59], buf[60] = byte(self.Timeout), byte(self.Timeout >> 8), byte(self.Timeout >> 16), byte(self.Timeout >> 24), byte(self.Expried), byte(self.Expried >> 8), byte(self.Expried >> 16), byte(self.Expried >> 24)
 
-    buf[61], buf[62], buf[63] = byte(self.Count), byte(self.Count >> 8), 0x00
+    buf[61], buf[62], buf[63] = byte(self.Count), byte(self.Count >> 8), byte(self.Rcount)
 
     return nil
 }
 
-var RESULT_LOCK_COMMAND_BLANK_BYTERS = [10]byte{}
+var RESULT_LOCK_COMMAND_BLANK_BYTERS = [5]byte{}
 
 type LockResultCommand struct {
     ResultCommand
@@ -210,12 +211,16 @@ type LockResultCommand struct {
     DbId      uint8
     LockId    [2]uint64
     LockKey   [2]uint64
-    Blank [10]byte
+    Lcount    uint16
+    Count     uint16
+    Rcount    uint8
+    Blank     [5]byte
 }
 
-func NewLockResultCommand(command *LockCommand, result uint8, flag uint8) *LockResultCommand {
+func NewLockResultCommand(command *LockCommand, result uint8, flag uint8, lcount uint16, count uint16, rcount uint8) *LockResultCommand {
     result_command := ResultCommand{ MAGIC, VERSION, command.CommandType, command.RequestId, result}
-    return &LockResultCommand{result_command, flag, command.DbId, command.LockId, command.LockKey, RESULT_LOCK_COMMAND_BLANK_BYTERS}
+    return &LockResultCommand{result_command, flag, command.DbId, command.LockId, command.LockKey,
+        lcount, count, rcount, RESULT_LOCK_COMMAND_BLANK_BYTERS}
 }
 
 func (self *LockResultCommand) Decode(buf []byte) error{
@@ -235,6 +240,9 @@ func (self *LockResultCommand) Decode(buf []byte) error{
 
     self.LockKey[0] = uint64(buf[38]) | uint64(buf[39])<<8 | uint64(buf[40])<<16 | uint64(buf[41])<<24 | uint64(buf[42])<<32 | uint64(buf[43])<<40 | uint64(buf[44])<<48 | uint64(buf[45])<<56
     self.LockKey[1] = uint64(buf[46]) | uint64(buf[47])<<8 | uint64(buf[48])<<16 | uint64(buf[49])<<24 | uint64(buf[50])<<32 | uint64(buf[51])<<40 | uint64(buf[52])<<48 | uint64(buf[53])<<56
+
+    self.Lcount, self.Count = uint16(buf[54]) | uint16(buf[55])<<8, uint16(buf[56]) | uint16(buf[57])<<8
+    self.Rcount = uint8(buf[58])
 
     return nil
 }
@@ -257,7 +265,7 @@ func (self *LockResultCommand) Encode(buf []byte) error {
     buf[38], buf[39], buf[40], buf[41], buf[42], buf[43], buf[44], buf[45] = byte(self.LockKey[0]), byte(self.LockKey[0] >> 8), byte(self.LockKey[0] >> 16), byte(self.LockKey[0] >> 24), byte(self.LockKey[0] >> 32), byte(self.LockKey[0] >> 40), byte(self.LockKey[0] >> 48), byte(self.LockKey[0] >> 56)
     buf[46], buf[47], buf[48], buf[49], buf[50], buf[51], buf[52], buf[53] = byte(self.LockKey[1]), byte(self.LockKey[1] >> 8), byte(self.LockKey[1] >> 16), byte(self.LockKey[1] >> 24), byte(self.LockKey[1] >> 32), byte(self.LockKey[1] >> 40), byte(self.LockKey[1] >> 48), byte(self.LockKey[1] >> 56)
 
-    buf[54], buf[55], buf[56], buf[57], buf[58], buf[59], buf[60], buf[61] = 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+    buf[54], buf[55], buf[56], buf[57], buf[58], buf[59], buf[60], buf[61] = byte(self.Lcount), byte(self.Lcount >> 8), byte(self.Count), byte(self.Count >> 8), byte(self.Rcount), 0x00, 0x00, 0x00
     buf[62], buf[63] = 0x00, 0x00
     return nil
 }

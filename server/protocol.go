@@ -157,6 +157,7 @@ func (self *ServerProtocol) Read() (command protocol.CommandDecode, err error) {
         lock_command.Timeout = uint32(buf[53]) | uint32(buf[54])<<8 | uint32(buf[55])<<16 | uint32(buf[56])<<24
         lock_command.Expried = uint32(buf[57]) | uint32(buf[58])<<8 | uint32(buf[59])<<16 | uint32(buf[60])<<24
         lock_command.Count = uint16(buf[61]) | uint16(buf[62])<<8
+        lock_command.Rcount = uint8(buf[63])
         return lock_command, nil
     case protocol.COMMAND_UNLOCK:
         lock_command := self.free_commands.PopRight()
@@ -206,6 +207,7 @@ func (self *ServerProtocol) Read() (command protocol.CommandDecode, err error) {
         lock_command.Timeout = uint32(buf[53]) | uint32(buf[54])<<8 | uint32(buf[55])<<16 | uint32(buf[56])<<24
         lock_command.Expried = uint32(buf[57]) | uint32(buf[58])<<8 | uint32(buf[59])<<16 | uint32(buf[60])<<24
         lock_command.Count = uint16(buf[61]) | uint16(buf[62])<<8
+        lock_command.Rcount = uint8(buf[63])
         return lock_command, nil
     case protocol.COMMAND_STATE:
         state_command := &protocol.StateCommand{}
