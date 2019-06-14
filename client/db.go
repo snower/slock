@@ -215,7 +215,7 @@ func (self *Database) GetRequestId() [2]uint64 {
     for i := 0; i < 8; i++{
         randstr[i] = LETTERS[rand.Intn(letters_count)]
     }
-    request_id[0] = uint64(randstr[0]) | uint64(randstr[1])<<8 | uint64(randstr[2])<<16 | uint64(randstr[3])<<24 | uint64(randstr[4])<<32 | uint64(randstr[5])<<40 | uint64(randstr[6])<<48 | uint64(randstr[7])<<56
+    request_id[1] = uint64(randstr[0]) | uint64(randstr[1])<<8 | uint64(randstr[2])<<16 | uint64(randstr[3])<<24 | uint64(randstr[4])<<32 | uint64(randstr[5])<<40 | uint64(randstr[6])<<48 | uint64(randstr[7])<<56
 
     return request_id
 }
@@ -230,7 +230,7 @@ func (self *Database) GenLockId() ([2]uint64) {
     for i := 0; i < 8; i++{
         randstr[i] = LETTERS[rand.Intn(letters_count)]
     }
-    lock_id[0] = uint64(randstr[0]) | uint64(randstr[1])<<8 | uint64(randstr[2])<<16 | uint64(randstr[3])<<24 | uint64(randstr[4])<<32 | uint64(randstr[5])<<40 | uint64(randstr[6])<<48 | uint64(randstr[7])<<56
+    lock_id[1] = uint64(randstr[0]) | uint64(randstr[1])<<8 | uint64(randstr[2])<<16 | uint64(randstr[3])<<24 | uint64(randstr[4])<<32 | uint64(randstr[5])<<40 | uint64(randstr[6])<<48 | uint64(randstr[7])<<56
 
     return lock_id
 }

@@ -357,22 +357,30 @@ func (self *LockDB) GetOrNewLockManager(command *protocol.LockCommand) *LockMana
             self.glock.Unlock()
             return fast_lock_manager
         }
+
+        lock_manager, ok := self.locks[command.LockKey]
+        if ok {
+            self.glock.Unlock()
+            return lock_manager
+        }
     } else if self.resizing_fast_lock_count != 0 {
         resizing_fast_lock_manager := self.fast_locks[(command.LockKey[1] & self.resizing_fast_lock_count_mask) >> 23][command.LockKey[1] & FAST_LOCK_SEG_LENGTH_MASK]
-        if resizing_fast_lock_manager != nil && !resizing_fast_lock_manager.conflict_maped {
-            self.glock.Unlock()
-            return resizing_fast_lock_manager
+        if resizing_fast_lock_manager != nil {
+            if !resizing_fast_lock_manager.conflict_maped {
+                self.glock.Unlock()
+                return resizing_fast_lock_manager
+            }
+
+            lock_manager, ok := self.locks[command.LockKey]
+            if ok {
+                self.glock.Unlock()
+                return lock_manager
+            }
         }
     }
 
-    lock_manager, ok := self.locks[command.LockKey]
-    if ok {
-        self.glock.Unlock()
-        return lock_manager
-    }
-
     if self.free_lock_manager_count >= 0{
-        lock_manager = self.free_lock_managers[self.free_lock_manager_count]
+        lock_manager := self.free_lock_managers[self.free_lock_manager_count]
         self.free_lock_manager_count--
         lock_manager.freed = false
         if fast_lock_manager == nil {
@@ -389,6 +397,7 @@ func (self *LockDB) GetOrNewLockManager(command *protocol.LockCommand) *LockMana
         self.glock.Unlock()
 
         lock_manager.lock_key = command.LockKey
+        return lock_manager
     }else{
         lock_managers := make([]LockManager, 4096)
 
@@ -411,7 +420,7 @@ func (self *LockDB) GetOrNewLockManager(command *protocol.LockCommand) *LockMana
             self.free_lock_managers[self.free_lock_manager_count] = &lock_managers[i]
         }
 
-        lock_manager = self.free_lock_managers[self.free_lock_manager_count]
+        lock_manager := self.free_lock_managers[self.free_lock_manager_count]
         self.free_lock_manager_count--
         lock_manager.freed = false
         if fast_lock_manager == nil {
@@ -428,8 +437,8 @@ func (self *LockDB) GetOrNewLockManager(command *protocol.LockCommand) *LockMana
         self.glock.Unlock()
 
         lock_manager.lock_key = command.LockKey
+        return lock_manager
     }
-    return lock_manager
 }
 
 func (self *LockDB) GetLockManager(command *protocol.LockCommand) *LockManager{
