@@ -121,7 +121,7 @@ func (self *LockDB) CheckTimeOut(){
 }
 
 func (self *LockDB) CheckTimeTimeOut(check_timeout_time int64, now int64) {
-    timeout_locks := self.timeout_locks[check_timeout_time % TIMEOUT_QUEUE_LENGTH]
+    timeout_locks := self.timeout_locks[check_timeout_time & TIMEOUT_QUEUE_LENGTH_MASK]
     do_timeout_locks := make([]*Lock, 0)
 
     for i := int8(0); i < self.manager_max_glocks; i++ {
@@ -186,7 +186,7 @@ func (self *LockDB) CheckExpried(){
 }
 
 func (self *LockDB) CheckTimeExpried(check_expried_time int64, now int64){
-    expried_locks := self.expried_locks[check_expried_time % EXPRIED_QUEUE_LENGTH]
+    expried_locks := self.expried_locks[check_expried_time & EXPRIED_QUEUE_LENGTH_MASK]
     do_expried_locks := make([]*Lock, 0)
 
     for i := int8(0); i < self.manager_max_glocks; i++ {
@@ -244,7 +244,7 @@ func (self *LockDB) CheckResizingFastLocks() {
                 fast_lock_count := self.fast_lock_count * 2
 
                 for self.fast_lock_count < fast_lock_count {
-                    self.fast_locks[fast_lock_index] = make([]*LockManager, EXPRIED_QUEUE_LENGTH)
+                    self.fast_locks[fast_lock_index] = make([]*LockManager, FAST_LOCK_SEG_LENGTH)
                     fast_lock_index++
                     self.fast_lock_count += FAST_LOCK_SEG_LENGTH
                 }
