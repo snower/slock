@@ -16,25 +16,27 @@ const FAST_LOCK_SEG_LENGTH_MASK uint64 = 0x7fffff
 const FAST_LOCK_RATE uint64 = 512
 
 type LockDB struct {
-    slock                       *SLock
-    fast_locks                  [][]*LockManager
-    locks                       map[[2]uint64]*LockManager
-    timeout_locks               [][]*LockQueue
-    expried_locks               [][]*LockQueue
-    fast_lock_count             uint64
-    resizing_fast_lock_count    uint64
-    current_time                int64
-    check_timeout_time          int64
-    check_expried_time          int64
-    glock                       sync.Mutex
-    manager_glocks              []*sync.Mutex
-    free_lock_managers          []*LockManager
-    free_locks                  []*LockQueue
-    free_lock_manager_count     int32
-    manager_glock_index         int8
-    manager_max_glocks          int8
-    is_stop                     bool
-    state                       protocol.LockDBState
+    slock                           *SLock
+    fast_locks                      [][]*LockManager
+    locks                           map[[2]uint64]*LockManager
+    timeout_locks                   [][]*LockQueue
+    expried_locks                   [][]*LockQueue
+    fast_lock_count                 uint64
+    resizing_fast_lock_count        uint64
+    fast_lock_count_mask            uint64
+    resizing_fast_lock_count_mask   uint64
+    current_time                    int64
+    check_timeout_time              int64
+    check_expried_time              int64
+    glock                           sync.Mutex
+    manager_glocks                  []*sync.Mutex
+    free_lock_managers              []*LockManager
+    free_locks                      []*LockQueue
+    free_lock_manager_count         int32
+    manager_glock_index             int8
+    manager_max_glocks              int8
+    is_stop                         bool
+    state                           protocol.LockDBState
 }
 
 func NewLockDB(slock *SLock) *LockDB {
@@ -51,7 +53,7 @@ func NewLockDB(slock *SLock) *LockDB {
 
     now := time.Now().Unix()
     db := &LockDB{slock, fast_locks, make(map[[2]uint64]*LockManager, 262144), make([][]*LockQueue, TIMEOUT_QUEUE_LENGTH),
-    make([][]*LockQueue, EXPRIED_QUEUE_LENGTH), FAST_LOCK_SEG_LENGTH, 0,
+    make([][]*LockQueue, EXPRIED_QUEUE_LENGTH), FAST_LOCK_SEG_LENGTH, 0, FAST_LOCK_SEG_LENGTH_MASK, 0,
     now, now, now, sync.Mutex{},
     manager_glocks, make([]*LockManager, 4194304), free_locks, -1,
     0, manager_max_glocks, false, protocol.LockDBState{}}
@@ -231,20 +233,25 @@ func (self *LockDB) CheckResizingFastLocks() {
     for !self.is_stop {
         last_lock_count = self.state.LockCount
         time.Sleep(1e9)
-        if (self.state.LockCount - last_lock_count) * FAST_LOCK_RATE > self.fast_lock_count {
+        require_fast_lock_count := (self.state.LockCount - last_lock_count) * FAST_LOCK_RATE
+        if require_fast_lock_count > self.fast_lock_count {
             conflict_lock_count := len(self.locks)
-
             self.resizing_fast_lock_count = self.fast_lock_count
-            fast_lock_count := self.fast_lock_count << 1
-            fast_lock_index := self.fast_lock_count / FAST_LOCK_SEG_LENGTH
+            self.resizing_fast_lock_count_mask = self.fast_lock_count_mask
 
-            for self.fast_lock_count < fast_lock_count {
-                self.fast_locks[fast_lock_index] = make([]*LockManager, EXPRIED_QUEUE_LENGTH)
-                fast_lock_index++
-                self.fast_lock_count += FAST_LOCK_SEG_LENGTH
+            for require_fast_lock_count > self.fast_lock_count {
+                fast_lock_index := self.fast_lock_count / FAST_LOCK_SEG_LENGTH
+                fast_lock_count := self.fast_lock_count * 2
+
+                for self.fast_lock_count < fast_lock_count {
+                    self.fast_locks[fast_lock_index] = make([]*LockManager, EXPRIED_QUEUE_LENGTH)
+                    fast_lock_index++
+                    self.fast_lock_count += FAST_LOCK_SEG_LENGTH
+                }
             }
+            self.fast_lock_count_mask = self.fast_lock_count - 1
 
-            fast_lock_base_count := self.fast_lock_count / FAST_LOCK_SEG_LENGTH
+            fast_lock_base_count := self.resizing_fast_lock_count / FAST_LOCK_SEG_LENGTH
             for i := uint64(0); i < fast_lock_base_count; i++ {
                 fast_locks := self.fast_locks[i]
                 for j, lock_manager := range fast_locks {
@@ -256,7 +263,7 @@ func (self *LockDB) CheckResizingFastLocks() {
                         continue
                     }
 
-                    fast_lock_base_index := (lock_manager.lock_key[1] & self.fast_lock_count) >> 23
+                    fast_lock_base_index := (lock_manager.lock_key[1] & self.fast_lock_count_mask) >> 23
                     if fast_lock_base_index != i{
                         self.glock.Lock()
                         if !lock_manager.conflict_maped && !lock_manager.freed {
@@ -274,7 +281,7 @@ func (self *LockDB) CheckResizingFastLocks() {
 
             for lock_key, lock_manager := range self.locks {
                 if !lock_manager.conflict_maped {
-                    self.fast_locks[(lock_key[1] & self.resizing_fast_lock_count) >> 23][lock_key[1] & FAST_LOCK_SEG_LENGTH_MASK].ref_count--
+                    self.fast_locks[(lock_key[1] & self.resizing_fast_lock_count_mask) >> 23][lock_key[1] & FAST_LOCK_SEG_LENGTH_MASK].ref_count--
                 }
                 conflict_locks[conflict_lock_index] = lock_manager
                 conflict_lock_index++
@@ -283,7 +290,7 @@ func (self *LockDB) CheckResizingFastLocks() {
 
             for _, lock_manager := range conflict_locks {
                 if lock_manager.conflict_maped {
-                    self.fast_locks[(lock_manager.lock_key[1] & self.resizing_fast_lock_count) >> 23][lock_manager.lock_key[1] & FAST_LOCK_SEG_LENGTH_MASK] = nil
+                    self.fast_locks[(lock_manager.lock_key[1] & self.resizing_fast_lock_count_mask) >> 23][lock_manager.lock_key[1] & FAST_LOCK_SEG_LENGTH_MASK] = nil
                     lock_manager.conflict_maped = false
                 }
             }
@@ -313,7 +320,7 @@ func (self *LockDB) CheckResizingFastLocks() {
                         lock_manager.free_locks = nil
                     }
                 } else {
-                    fast_lock_base_index := (lock_manager.lock_key[1] & self.fast_lock_count) >> 23
+                    fast_lock_base_index := (lock_manager.lock_key[1] & self.fast_lock_count_mask) >> 23
                     fast_lock_index := lock_manager.lock_key[1] & FAST_LOCK_SEG_LENGTH_MASK
                     fast_lock_manager := self.fast_locks[fast_lock_base_index][fast_lock_index]
                     if fast_lock_manager == nil {
@@ -330,6 +337,7 @@ func (self *LockDB) CheckResizingFastLocks() {
             }
 
             self.resizing_fast_lock_count = 0
+            self.resizing_fast_lock_count_mask = 0
             self.glock.Unlock()
             self.slock.Log().Infof("fast lock resizing %d %d %d", self.fast_lock_count, conflict_lock_count, len(self.locks))
         }
@@ -340,7 +348,7 @@ func (self *LockDB) CheckResizingFastLocks() {
 func (self *LockDB) GetOrNewLockManager(command *protocol.LockCommand) *LockManager{
     self.glock.Lock()
 
-    fast_lock_base_index := (command.LockKey[1] & self.fast_lock_count) >> 23
+    fast_lock_base_index := (command.LockKey[1] & self.fast_lock_count_mask) >> 23
     fast_lock_index := command.LockKey[1] & FAST_LOCK_SEG_LENGTH_MASK
 
     fast_lock_manager := self.fast_locks[fast_lock_base_index][fast_lock_index]
@@ -350,7 +358,7 @@ func (self *LockDB) GetOrNewLockManager(command *protocol.LockCommand) *LockMana
             return fast_lock_manager
         }
     } else if self.resizing_fast_lock_count != 0 {
-        resizing_fast_lock_manager := self.fast_locks[(command.LockKey[1] & self.resizing_fast_lock_count) >> 23][command.LockKey[1] & FAST_LOCK_SEG_LENGTH_MASK]
+        resizing_fast_lock_manager := self.fast_locks[(command.LockKey[1] & self.resizing_fast_lock_count_mask) >> 23][command.LockKey[1] & FAST_LOCK_SEG_LENGTH_MASK]
         if resizing_fast_lock_manager != nil && !resizing_fast_lock_manager.conflict_maped {
             self.glock.Unlock()
             return resizing_fast_lock_manager
@@ -427,14 +435,14 @@ func (self *LockDB) GetOrNewLockManager(command *protocol.LockCommand) *LockMana
 func (self *LockDB) GetLockManager(command *protocol.LockCommand) *LockManager{
     self.glock.Lock()
 
-    fast_lock_manager := self.fast_locks[(command.LockKey[1] & self.fast_lock_count) >> 23][command.LockKey[1] & FAST_LOCK_SEG_LENGTH_MASK]
+    fast_lock_manager := self.fast_locks[(command.LockKey[1] & self.fast_lock_count_mask) >> 23][command.LockKey[1] & FAST_LOCK_SEG_LENGTH_MASK]
     if fast_lock_manager != nil {
         if !fast_lock_manager.conflict_maped {
             self.glock.Unlock()
             return fast_lock_manager
         }
     } else if self.resizing_fast_lock_count != 0 {
-        resizing_fast_lock_manager := self.fast_locks[(command.LockKey[1] & self.resizing_fast_lock_count) >> 23][command.LockKey[1] & FAST_LOCK_SEG_LENGTH_MASK]
+        resizing_fast_lock_manager := self.fast_locks[(command.LockKey[1] & self.resizing_fast_lock_count_mask) >> 23][command.LockKey[1] & FAST_LOCK_SEG_LENGTH_MASK]
         if resizing_fast_lock_manager != nil && !resizing_fast_lock_manager.conflict_maped {
             self.glock.Unlock()
             return resizing_fast_lock_manager
@@ -490,7 +498,7 @@ func (self *LockDB) RemoveFastLockManager(lock_manager *LockManager, fast_lock_m
 func (self *LockDB) RemoveLockManager(lock_manager *LockManager){
     self.glock.Lock()
     if !lock_manager.freed {
-        fast_lock_base_index := (lock_manager.lock_key[1] & self.fast_lock_count) >> 23
+        fast_lock_base_index := (lock_manager.lock_key[1] & self.fast_lock_count_mask) >> 23
         fast_lock_index := lock_manager.lock_key[1] & FAST_LOCK_SEG_LENGTH_MASK
 
         fast_lock_manager := self.fast_locks[fast_lock_base_index][fast_lock_index]
@@ -501,9 +509,9 @@ func (self *LockDB) RemoveLockManager(lock_manager *LockManager){
                 self.RemoveFastLockManager(lock_manager, fast_lock_manager, fast_lock_base_index, fast_lock_index)
             }
         } else if self.resizing_fast_lock_count != 0 {
-            fast_lock_base_index = (lock_manager.lock_key[1] & self.resizing_fast_lock_count) >> 23
+            fast_lock_base_index = (lock_manager.lock_key[1] & self.resizing_fast_lock_count_mask) >> 23
 
-            fast_lock_manager = self.fast_locks[(lock_manager.lock_key[1] & self.resizing_fast_lock_count) >> 23][lock_manager.lock_key[1] & FAST_LOCK_SEG_LENGTH_MASK]
+            fast_lock_manager = self.fast_locks[(lock_manager.lock_key[1] & self.resizing_fast_lock_count_mask) >> 23][lock_manager.lock_key[1] & FAST_LOCK_SEG_LENGTH_MASK]
             if !fast_lock_manager.conflict_maped {
                 self.fast_locks[fast_lock_base_index][fast_lock_index] = nil
             } else {
@@ -698,7 +706,6 @@ func (self *LockDB) DoExpried(lock *Lock){
             lock_manager.waited = false
             return
         }
-
     }
 }
 
@@ -924,7 +931,6 @@ func (self *LockDB) UnLock(server_protocol *ServerProtocol, command *protocol.Lo
             lock_manager.waited = false
             return nil
         }
-
     }
     return nil
 }
