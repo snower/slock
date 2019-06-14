@@ -13,7 +13,7 @@ const TIMEOUT_QUEUE_LENGTH_MASK int64 = 0x0f
 const EXPRIED_QUEUE_LENGTH_MASK int64 = 0x0f
 const FAST_LOCK_SEG_LENGTH uint64 = 0x800000
 const FAST_LOCK_SEG_LENGTH_MASK uint64 = 0x7fffff
-const FAST_LOCK_RATE uint64 = 256
+const FAST_LOCK_RATE uint64 = 512
 
 type LockDB struct {
     slock                       *SLock
@@ -351,7 +351,7 @@ func (self *LockDB) GetOrNewLockManager(command *protocol.LockCommand) *LockMana
         }
     } else if self.resizing_fast_lock_count != 0 {
         resizing_fast_lock_manager := self.fast_locks[(command.LockKey[1] & self.resizing_fast_lock_count) >> 23][command.LockKey[1] & FAST_LOCK_SEG_LENGTH_MASK]
-        if !resizing_fast_lock_manager.conflict_maped {
+        if resizing_fast_lock_manager != nil && !resizing_fast_lock_manager.conflict_maped {
             self.glock.Unlock()
             return resizing_fast_lock_manager
         }
@@ -435,7 +435,7 @@ func (self *LockDB) GetLockManager(command *protocol.LockCommand) *LockManager{
         }
     } else if self.resizing_fast_lock_count != 0 {
         resizing_fast_lock_manager := self.fast_locks[(command.LockKey[1] & self.resizing_fast_lock_count) >> 23][command.LockKey[1] & FAST_LOCK_SEG_LENGTH_MASK]
-        if !resizing_fast_lock_manager.conflict_maped {
+        if resizing_fast_lock_manager != nil && !resizing_fast_lock_manager.conflict_maped {
             self.glock.Unlock()
             return resizing_fast_lock_manager
         }
@@ -822,7 +822,7 @@ func (self *LockDB) Lock(server_protocol *ServerProtocol, command *protocol.Lock
 func (self *LockDB) UnLock(server_protocol *ServerProtocol, command *protocol.LockCommand) (err error) {
     lock_manager := self.GetLockManager(command)
     if lock_manager == nil {
-        self.slock.Active(server_protocol, command, protocol.RESULT_UNLOCK_ERROR, lock_manager.locked, true)
+        self.slock.Active(server_protocol, command, protocol.RESULT_UNLOCK_ERROR, 0, true)
         server_protocol.FreeLockCommand(command)
         atomic.AddUint32(&self.state.UnlockErrorCount, 1)
         return nil
