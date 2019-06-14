@@ -693,13 +693,24 @@ func (self *LockDB) DoExpried(lock *Lock){
     if wait_lock != nil {
         lock_manager.glock.Lock()
         for ;; {
+            if wait_lock.manager == nil {
+                if !lock_manager.freed {
+                    wait_lock = lock_manager.GetWaitLock()
+                    if wait_lock == nil {
+                        lock_manager.waited = false
+                        return
+                    }
+                    continue
+                }
+            }
+
             if !self.DoLock(lock_manager, wait_lock) {
                 lock_manager.glock.Unlock()
                 return
             }
 
             wait_lock = self.WakeUpWaitLock(lock_manager, wait_lock, nil)
-            if wait_lock !=  nil {
+            if wait_lock != nil {
                 lock_manager.glock.Lock()
                 continue
             }
@@ -918,6 +929,17 @@ func (self *LockDB) UnLock(server_protocol *ServerProtocol, command *protocol.Lo
     if wait_lock != nil {
         lock_manager.glock.Lock()
         for ;; {
+            if wait_lock.manager == nil {
+                if !lock_manager.freed {
+                    wait_lock = lock_manager.GetWaitLock()
+                    if wait_lock == nil {
+                        lock_manager.waited = false
+                        return
+                    }
+                    continue
+                }
+            }
+
             if !self.DoLock(lock_manager, wait_lock) {
                 lock_manager.glock.Unlock()
                 return nil
