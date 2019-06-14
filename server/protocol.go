@@ -94,13 +94,13 @@ func (self *ServerProtocol) Read() (command protocol.CommandDecode, err error) {
 
     mv := uint16(buf[0]) | uint16(buf[1])<<8
     if mv != 0x0156 {
-        if mv & 0xff != protocol.MAGIC {
+        if mv & 0xff != uint16(protocol.MAGIC) {
             command := protocol.NewCommand(buf)
             self.Write(protocol.NewResultCommand(command, protocol.RESULT_UNKNOWN_MAGIC), true)
             return nil, errors.New("unknown magic")
         }
 
-        if (mv>>8) & 0xff != protocol.VERSION {
+        if (mv>>8) & 0xff != uint16(protocol.VERSION) {
             command := protocol.NewCommand(buf)
             self.Write(protocol.NewResultCommand(command, protocol.RESULT_UNKNOWN_VERSION), true)
             return nil, errors.New("unknown version")

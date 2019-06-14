@@ -32,7 +32,7 @@ func NewLock(db *Database, lock_key [2]uint64, timeout uint32, expried uint32, c
 func (self *Lock) DoLock(flag uint8) *LockError{
     request_id := self.db.GetRequestId()
     command := &protocol.LockCommand{protocol.Command{protocol.MAGIC, protocol.VERSION, protocol.COMMAND_LOCK, request_id},
-        flag, self.db.db_id, self.lock_id, self.lock_key, self.timeout, self.expried, self.count,[1]byte{}}
+        flag, self.db.db_id, self.lock_id, self.lock_key, self.timeout, self.expried, self.count,0}
     result_command, err := self.db.SendLockCommand(command)
     if err != nil {
         return &LockError{protocol.RESULT_ERROR, err}
@@ -46,7 +46,7 @@ func (self *Lock) DoLock(flag uint8) *LockError{
 func (self *Lock) DoUnlock(flag uint8) *LockError{
     request_id := self.db.GetRequestId()
     command := &protocol.LockCommand{protocol.Command{ protocol.MAGIC, protocol.VERSION, protocol.COMMAND_UNLOCK, request_id},
-        flag, self.db.db_id, self.lock_id, self.lock_key, self.timeout, self.expried, self.count,[1]byte{}}
+        flag, self.db.db_id, self.lock_id, self.lock_key, self.timeout, self.expried, self.count,0}
     result_command, err := self.db.SendUnLockCommand(command)
     if err != nil {
         return &LockError{protocol.RESULT_ERROR, err}

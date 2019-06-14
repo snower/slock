@@ -2,13 +2,13 @@ package protocol
 
 import "errors"
 
-const MAGIC = 0x56
-const VERSION = 0x01
+const MAGIC uint8 = 0x56
+const VERSION uint8 = 0x01
 
 const (
-    COMMAND_LOCK = 1
-    COMMAND_UNLOCK = 2
-    COMMAND_STATE = 3
+    COMMAND_LOCK uint8 = 1
+    COMMAND_UNLOCK uint8 = 2
+    COMMAND_STATE uint8 = 3
 )
 
 const (

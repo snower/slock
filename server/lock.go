@@ -14,18 +14,19 @@ type LockManager struct {
     wait_locks     *LockQueue
     glock          *sync.Mutex
     free_locks     *LockQueue
+    ref_count      uint32
     locked         uint16
-    ref_count      uint16
     db_id          uint8
     waited         bool
     freed          bool
     glock_index    int8
+    conflict_maped bool
 }
 
 func NewLockManager(lock_db *LockDB, command *protocol.LockCommand, glock *sync.Mutex, glock_index int8, free_locks *LockQueue) *LockManager {
     return &LockManager{lock_db, command.LockKey,
     nil, nil, nil, nil, glock, free_locks, 0, 0,
-    command.DbId, false, true, glock_index}
+    command.DbId, false, true, glock_index, false}
 }
 
 func (self *LockManager) GetDB() *LockDB{
