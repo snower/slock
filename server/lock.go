@@ -5,6 +5,25 @@ import (
     "github.com/snower/slock/protocol"
 )
 
+const LOCK_MANAGER_TYPE_LOCK_MANAGER = 0x01
+const LOCK_MANAGER_TYPE_LOCK_MANAGER_MAP = 0x02
+
+type ILockManager interface {
+    GetLockManagerType() uint8
+}
+
+type LockManagerMap struct {
+    maped_count uint32
+}
+
+func NewLockManagerMap() *LockManagerMap {
+    return &LockManagerMap{0}
+}
+
+func (self *LockManagerMap) GetLockManagerType() uint8{
+    return LOCK_MANAGER_TYPE_LOCK_MANAGER_MAP
+}
+
 type LockManager struct {
     lock_db        *LockDB
     lock_key       [2]uint64
@@ -14,19 +33,23 @@ type LockManager struct {
     wait_locks     *LockQueue
     glock          *sync.Mutex
     free_locks     *LockQueue
-    ref_count      uint32
     locked         uint16
+    ref_count      uint16
     db_id          uint8
     waited         bool
     freed          bool
     glock_index    int8
-    conflict_maped bool
+    maped          bool
 }
 
 func NewLockManager(lock_db *LockDB, command *protocol.LockCommand, glock *sync.Mutex, glock_index int8, free_locks *LockQueue) *LockManager {
     return &LockManager{lock_db, command.LockKey,
     nil, nil, nil, nil, glock, free_locks, 0, 0,
     command.DbId, false, true, glock_index, false}
+}
+
+func (self *LockManager) GetLockManagerType() uint8{
+    return LOCK_MANAGER_TYPE_LOCK_MANAGER
 }
 
 func (self *LockManager) GetDB() *LockDB{
