@@ -278,7 +278,7 @@ func (self *LockDB) CheckResizingFastLocks() {
                                     switch new_fast_lock_manager.(type) {
                                     case *LockManager:
                                         var lock_manager_map *LockManagerMap
-                                        if self.free_lock_manager_count >= 0 {
+                                        if self.free_lock_manager_map_count >= 0 {
                                             lock_manager_map = self.free_lock_manager_maps[self.free_lock_manager_map_count]
                                             self.free_lock_manager_map_count--
                                         } else {
@@ -300,7 +300,7 @@ func (self *LockDB) CheckResizingFastLocks() {
                                         lock_manager.maped = true
                                     }
                                 }
-                            }  
+                            }
                             self.glock.Unlock()
                         }
                     }
@@ -337,7 +337,7 @@ func (self *LockDB) CheckResizingFastLocks() {
                     switch new_fast_lock_manager.(type) {
                     case *LockManager:
                         var lock_manager_map *LockManagerMap
-                        if self.free_lock_manager_count >= 0 {
+                        if self.free_lock_manager_map_count >= 0 {
                             lock_manager_map = self.free_lock_manager_maps[self.free_lock_manager_map_count]
                             self.free_lock_manager_map_count--
                         } else {
@@ -446,7 +446,7 @@ func (self *LockDB) GetOrNewLockManager(command *protocol.LockCommand) *LockMana
         switch fast_lock_manager.(type) {
         case *LockManager:
             var lock_manager_map *LockManagerMap
-            if self.free_lock_manager_count >= 0 {
+            if self.free_lock_manager_map_count >= 0 {
                 lock_manager_map = self.free_lock_manager_maps[self.free_lock_manager_map_count]
                 self.free_lock_manager_map_count--
             } else {
