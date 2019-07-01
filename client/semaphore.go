@@ -21,7 +21,7 @@ func NewSemaphore(db *Database, semaphore_key [2]uint64, timeout uint32, expried
 }
 
 func (self *Semaphore) Acquire() error {
-    lock := &Lock{self.db, self.db.GetRequestId(), self.db.GenLockId(), self.semaphore_key, self.timeout, self.expried, self.count}
+    lock := &Lock{self.db, self.db.GetRequestId(), self.db.GenLockId(), self.semaphore_key, self.timeout, self.expried, self.count, 0}
     err := lock.Lock()
     if err == nil {
         self.glock.Lock()

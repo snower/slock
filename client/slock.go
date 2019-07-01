@@ -143,6 +143,11 @@ func (self *Client) RWLock(lock_key [2]uint64, timeout uint32, expried uint32) *
     return self.SelectDB(0).RWLock(lock_key, timeout, expried)
 }
 
+func (self *Client) RLock(lock_key [2]uint64, timeout uint32, expried uint32) *RLock {
+    return self.SelectDB(0).RLock(lock_key, timeout, expried)
+}
+
+
 func (self *Client) State(db_id uint8) *protocol.ResultStateCommand {
     return self.SelectDB(db_id).State()
 }

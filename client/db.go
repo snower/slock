@@ -175,7 +175,7 @@ func (self *Database) SendStateCommand(command *protocol.StateCommand) (*protoco
 }
 
 func (self *Database) Lock(lock_key [2]uint64, timeout uint32, expried uint32) *Lock {
-    return NewLock(self, lock_key, timeout, expried, 0)
+    return NewLock(self, lock_key, timeout, expried, 0, 0)
 }
 
 func (self *Database) Event(event_key [2]uint64, timeout uint32, expried uint32) *Event {
@@ -194,10 +194,14 @@ func (self *Database) RWLock(lock_key [2]uint64, timeout uint32, expried uint32)
     return NewRWLock(self, lock_key, timeout, expried)
 }
 
+func (self *Database) RLock(lock_key [2]uint64, timeout uint32, expried uint32) *RLock {
+    return NewRLock(self, lock_key, timeout, expried)
+}
+
 func (self *Database) State() *protocol.ResultStateCommand {
     request_id := self.GetRequestId()
-    command := &protocol.StateCommand{protocol.Command{protocol.MAGIC, protocol.VERSION, protocol.COMMAND_STATE, request_id},
-        0, self.db_id, [43]byte{}}
+    command := &protocol.StateCommand{Command: protocol.Command{Magic: protocol.MAGIC, Version: protocol.VERSION, CommandType: protocol.COMMAND_STATE, RequestId: request_id},
+        Flag: 0, DbId: self.db_id, Blank: [43]byte{}}
     result_command, err := self.SendStateCommand(command)
     if err != nil {
         return nil

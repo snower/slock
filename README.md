@@ -1,10 +1,11 @@
 # slock
 
-High-performance distributed shared lock service
+High-performance distributed sync lock service
 
 # About
 
-High-performance distributed shared lock service, Support sync Lock and Event.
+High-performance distributed sync lock service. Provides good multi-core support through lock queues, high-performance asynchronous binary network protocols.
+Can be used for spikes, synchronization, event notification, concurrency control, etc.
 
 # Installation
 
@@ -49,6 +50,15 @@ ExpriedCount:	0
 UnlockErrorCount:	0
 KeyCount:	0
 ```
+
+# Support Lock Type
+
+- Lock - regular lock, not reentrant
+- Event - distributed event
+- CycleEvent - loop wait event
+- RLock - reentrant lock,max reentrant 0xff
+- Semaphore - semaphore, max 0xffff
+- RWLock - read-write lock, max concurrent reading 0xffff
 
 # Benchmark
 

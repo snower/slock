@@ -21,7 +21,7 @@ func NewRWLock(db *Database, lock_key [2]uint64, timeout uint32, expried uint32)
 }
 
 func (self *RWLock) RLock() error {
-    rlock := &Lock{self.db, self.db.GetRequestId(), self.db.GenLockId(), self.lock_key, self.timeout, self.expried, 0xffff}
+    rlock := &Lock{self.db, self.db.GetRequestId(), self.db.GenLockId(), self.lock_key, self.timeout, self.expried, 0xffff, 0}
     err := rlock.Lock()
     if err == nil {
         self.glock.Lock()
@@ -48,7 +48,7 @@ func (self *RWLock) RUnlock() error {
 func (self *RWLock) Lock() error {
     self.glock.Lock()
     if self.wlock == nil {
-        self.wlock = &Lock{self.db, self.db.GetRequestId(), self.db.GenLockId(), self.lock_key, self.timeout, self.expried, 0}
+        self.wlock = &Lock{self.db, self.db.GetRequestId(), self.db.GenLockId(), self.lock_key, self.timeout, self.expried, 0, 0}
     }
     self.glock.Unlock()
 
