@@ -6,6 +6,7 @@ const MAGIC uint8 = 0x56
 const VERSION uint8 = 0x01
 
 const (
+    COMMAND_INIT uint8 = 0
     COMMAND_LOCK uint8 = 1
     COMMAND_UNLOCK uint8 = 2
     COMMAND_STATE uint8 = 3
@@ -130,6 +131,97 @@ func (self *ResultCommand) GetCommandType() uint8{
 
 func (self *ResultCommand) GetRequestId() [2]uint64{
     return self.RequestId
+}
+
+type InitCommand struct {
+    Command
+    ClientId    [2]uint64
+    Blank       [29]byte
+}
+
+func NewInitCommand(buf []byte) *InitCommand {
+    command := InitCommand{}
+    if command.Decode(buf) != nil {
+        return nil
+    }
+    return &command
+}
+
+func (self *InitCommand) Decode(buf []byte) error{
+    if len(buf) < 64 {
+        return errors.New("buf too short")
+    }
+
+    self.Magic, self.Version, self.CommandType = uint8(buf[0]), uint8(buf[1]), uint8(buf[2])
+
+    self.RequestId[0] = uint64(buf[3]) | uint64(buf[4])<<8 | uint64(buf[5])<<16 | uint64(buf[6])<<24 | uint64(buf[7])<<32 | uint64(buf[8])<<40 | uint64(buf[9])<<48 | uint64(buf[10])<<56
+    self.RequestId[1] = uint64(buf[11]) | uint64(buf[12])<<8 | uint64(buf[13])<<16 | uint64(buf[14])<<24 | uint64(buf[15])<<32 | uint64(buf[16])<<40 | uint64(buf[17])<<48 | uint64(buf[18])<<56
+
+    self.ClientId[0] = uint64(buf[19]) | uint64(buf[20])<<8 | uint64(buf[21])<<16 | uint64(buf[22])<<24 | uint64(buf[23])<<32 | uint64(buf[24])<<40 | uint64(buf[25])<<48 | uint64(buf[26])<<56
+    self.ClientId[1] = uint64(buf[27]) | uint64(buf[28])<<8 | uint64(buf[29])<<16 | uint64(buf[30])<<24 | uint64(buf[31])<<32 | uint64(buf[32])<<40 | uint64(buf[33])<<48 | uint64(buf[34])<<56
+    return nil
+}
+
+func (self *InitCommand) Encode(buf []byte) error {
+    if len(buf) < 64 {
+        return errors.New("buf too short")
+    }
+
+    buf[0], buf[1], buf[2] = byte(self.Magic), byte(self.Version), byte(self.CommandType)
+
+    buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10] = byte(self.RequestId[0]), byte(self.RequestId[0] >> 8), byte(self.RequestId[0] >> 16), byte(self.RequestId[0] >> 24), byte(self.RequestId[0] >> 32), byte(self.RequestId[0] >> 40), byte(self.RequestId[0] >> 48), byte(self.RequestId[0] >> 56)
+    buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18] = byte(self.RequestId[1]), byte(self.RequestId[1] >> 8), byte(self.RequestId[1] >> 16), byte(self.RequestId[1] >> 24), byte(self.RequestId[1] >> 32), byte(self.RequestId[1] >> 40), byte(self.RequestId[1] >> 48), byte(self.RequestId[1] >> 56)
+
+    buf[19], buf[20], buf[21], buf[22], buf[23], buf[24], buf[25], buf[26] = byte(self.ClientId[0]), byte(self.ClientId[0] >> 8), byte(self.ClientId[0] >> 16), byte(self.ClientId[0] >> 24), byte(self.ClientId[0] >> 32), byte(self.ClientId[0] >> 40), byte(self.ClientId[0] >> 48), byte(self.ClientId[0] >> 56)
+    buf[27], buf[28], buf[29], buf[30], buf[31], buf[32], buf[33], buf[34] = byte(self.ClientId[1]), byte(self.ClientId[1] >> 8), byte(self.ClientId[1] >> 16), byte(self.ClientId[1] >> 24), byte(self.ClientId[1] >> 32), byte(self.ClientId[1] >> 40), byte(self.ClientId[1] >> 48), byte(self.ClientId[1] >> 56)
+
+    for i :=0; i<29; i++ {
+        buf[35 + i] = 0x00
+    }
+
+    return nil
+}
+
+var INIT_COMMAND_BLANK_BYTERS = [44]byte{}
+
+type InitResultCommand struct {
+    ResultCommand
+    Blank     [44]byte
+}
+
+func NewInitResultCommand(command *InitCommand, result uint8) *InitResultCommand {
+    result_command := ResultCommand{ MAGIC, VERSION, command.CommandType, command.RequestId, result}
+    return &InitResultCommand{result_command,INIT_COMMAND_BLANK_BYTERS}
+}
+
+func (self *InitResultCommand) Decode(buf []byte) error{
+    if len(buf) < 64 {
+        return errors.New("buf too short")
+    }
+
+    self.Magic, self.Version, self.CommandType = uint8(buf[0]), uint8(buf[1]), uint8(buf[2])
+
+    self.RequestId[0] = uint64(buf[3]) | uint64(buf[4])<<8 | uint64(buf[5])<<16 | uint64(buf[6])<<24 | uint64(buf[7])<<32 | uint64(buf[8])<<40 | uint64(buf[9])<<48 | uint64(buf[10])<<56
+    self.RequestId[1] = uint64(buf[11]) | uint64(buf[12])<<8 | uint64(buf[13])<<16 | uint64(buf[14])<<24 | uint64(buf[15])<<32 | uint64(buf[16])<<40 | uint64(buf[17])<<48 | uint64(buf[18])<<56
+
+    return nil
+}
+
+func (self *InitResultCommand) Encode(buf []byte) error {
+    if len(buf) < 64 {
+        return errors.New("buf too short")
+    }
+
+    buf[0], buf[1], buf[2] = byte(self.Magic), byte(self.Version), byte(self.CommandType)
+
+    buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10] = byte(self.RequestId[0]), byte(self.RequestId[0] >> 8), byte(self.RequestId[0] >> 16), byte(self.RequestId[0] >> 24), byte(self.RequestId[0] >> 32), byte(self.RequestId[0] >> 40), byte(self.RequestId[0] >> 48), byte(self.RequestId[0] >> 56)
+    buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18] = byte(self.RequestId[1]), byte(self.RequestId[1] >> 8), byte(self.RequestId[1] >> 16), byte(self.RequestId[1] >> 24), byte(self.RequestId[1] >> 32), byte(self.RequestId[1] >> 40), byte(self.RequestId[1] >> 48), byte(self.RequestId[1] >> 56)
+
+    for i :=0; i<44; i++ {
+        buf[19 + i] = 0x00
+    }
+
+    return nil
 }
 
 type LockCommand struct {

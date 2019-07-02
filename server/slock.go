@@ -11,6 +11,7 @@ type SLock struct {
     dbs                     []*LockDB
     glock                   sync.Mutex
     logger                  logging.Logger
+    streams                 map[[2]uint64]*ServerProtocol
     free_lock_commands      *LockCommandQueue
     free_lock_command_lock  *sync.Mutex
     free_lock_command_count int32
@@ -18,8 +19,8 @@ type SLock struct {
 
 func NewSLock(log_file string, log_level string) *SLock {
     logger := InitLogger(log_file, log_level)
-    return &SLock{make([]*LockDB, 256), sync.Mutex{}, logger, NewLockCommandQueue(16, 64, 4096),
-        &sync.Mutex{}, 0}
+    return &SLock{make([]*LockDB, 256), sync.Mutex{}, logger, make(map[[2]uint64]*ServerProtocol, 65536),
+        NewLockCommandQueue(16, 64, 4096), &sync.Mutex{}, 0}
 }
 
 func (self *SLock) GetOrNewDB(db_id uint8) *LockDB {
@@ -63,6 +64,15 @@ func (self *SLock) GetState(server_protocol *ServerProtocol, command *protocol.S
 
 func (self *SLock) Handle(server_protocol *ServerProtocol, command protocol.ICommand) (err error) {
     switch command.GetCommandType() {
+    case protocol.COMMAND_INIT:
+        init_command := command.(*protocol.InitCommand)
+        server_protocol.client_id = init_command.ClientId
+        server_protocol.inited = true
+        self.glock.Lock()
+        self.streams[init_command.ClientId] = server_protocol
+        self.glock.Unlock()
+        return server_protocol.Write(protocol.NewInitResultCommand(init_command, protocol.RESULT_SUCCED), true)
+
     case protocol.COMMAND_LOCK:
         lock_command := command.(*protocol.LockCommand)
         db := self.dbs[lock_command.DbId]
@@ -88,6 +98,21 @@ func (self *SLock) Handle(server_protocol *ServerProtocol, command protocol.ICom
 }
 
 func (self *SLock) Active(server_protocol *ServerProtocol, command *protocol.LockCommand, result uint8, lcount uint16, use_cached_command bool) (err error) {
+    if server_protocol.closed {
+        if !server_protocol.inited {
+            return errors.New("server protocol closed")
+        }
+
+        self.glock.Lock()
+        if sp, ok := self.streams[server_protocol.client_id]; ok {
+            self.glock.Unlock()
+            server_protocol = sp
+        } else {
+            self.glock.Unlock()
+            return errors.New("server protocol closed")
+        }
+    }
+
     if use_cached_command {
         buf := server_protocol.wbuf
         if len(buf) < 64 {
