@@ -64,15 +64,6 @@ func (self *SLock) GetState(server_protocol *ServerProtocol, command *protocol.S
 
 func (self *SLock) Handle(server_protocol *ServerProtocol, command protocol.ICommand) (err error) {
     switch command.GetCommandType() {
-    case protocol.COMMAND_INIT:
-        init_command := command.(*protocol.InitCommand)
-        server_protocol.client_id = init_command.ClientId
-        server_protocol.inited = true
-        self.glock.Lock()
-        self.streams[init_command.ClientId] = server_protocol
-        self.glock.Unlock()
-        return server_protocol.Write(protocol.NewInitResultCommand(init_command, protocol.RESULT_SUCCED), true)
-
     case protocol.COMMAND_LOCK:
         lock_command := command.(*protocol.LockCommand)
         db := self.dbs[lock_command.DbId]
@@ -88,6 +79,15 @@ func (self *SLock) Handle(server_protocol *ServerProtocol, command protocol.ICom
             return self.Active(server_protocol, lock_command, protocol.RESULT_UNKNOWN_DB, 0, true)
         }
         return db.UnLock(server_protocol, lock_command)
+
+    case protocol.COMMAND_INIT:
+        init_command := command.(*protocol.InitCommand)
+        server_protocol.client_id = init_command.ClientId
+        server_protocol.inited = true
+        self.glock.Lock()
+        self.streams[init_command.ClientId] = server_protocol
+        self.glock.Unlock()
+        return server_protocol.Write(protocol.NewInitResultCommand(init_command, protocol.RESULT_SUCCED), true)
 
     case protocol.COMMAND_STATE:
         return self.GetState(server_protocol, command.(*protocol.StateCommand))

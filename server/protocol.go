@@ -125,18 +125,6 @@ func (self *ServerProtocol) Read() (command protocol.CommandDecode, err error) {
 
     command_type := uint8(buf[2])
     switch command_type {
-    case protocol.COMMAND_INIT:
-        init_command := &protocol.InitCommand{}
-
-        init_command.Magic, init_command.Version, init_command.CommandType = uint8(buf[0]), uint8(buf[1]), uint8(buf[2])
-
-        init_command.RequestId[0] = uint64(buf[3]) | uint64(buf[4])<<8 | uint64(buf[5])<<16 | uint64(buf[6])<<24 | uint64(buf[7])<<32 | uint64(buf[8])<<40 | uint64(buf[9])<<48 | uint64(buf[10])<<56
-        init_command.RequestId[1] = uint64(buf[11]) | uint64(buf[12])<<8 | uint64(buf[13])<<16 | uint64(buf[14])<<24 | uint64(buf[15])<<32 | uint64(buf[16])<<40 | uint64(buf[17])<<48 | uint64(buf[18])<<56
-
-        init_command.ClientId[0] = uint64(buf[19]) | uint64(buf[20])<<8 | uint64(buf[21])<<16 | uint64(buf[22])<<24 | uint64(buf[23])<<32 | uint64(buf[24])<<40 | uint64(buf[25])<<48 | uint64(buf[26])<<56
-        init_command.ClientId[1] = uint64(buf[27]) | uint64(buf[28])<<8 | uint64(buf[29])<<16 | uint64(buf[30])<<24 | uint64(buf[31])<<32 | uint64(buf[32])<<40 | uint64(buf[33])<<48 | uint64(buf[34])<<56
-        return init_command, nil
-
     case protocol.COMMAND_LOCK:
         lock_command := self.free_commands.PopRight()
         if lock_command == nil {
@@ -238,6 +226,18 @@ func (self *ServerProtocol) Read() (command protocol.CommandDecode, err error) {
         lock_command.Count = uint16(buf[61]) | uint16(buf[62])<<8
         lock_command.Rcount = uint8(buf[63])
         return lock_command, nil
+
+    case protocol.COMMAND_INIT:
+        init_command := &protocol.InitCommand{}
+
+        init_command.Magic, init_command.Version, init_command.CommandType = uint8(buf[0]), uint8(buf[1]), uint8(buf[2])
+
+        init_command.RequestId[0] = uint64(buf[3]) | uint64(buf[4])<<8 | uint64(buf[5])<<16 | uint64(buf[6])<<24 | uint64(buf[7])<<32 | uint64(buf[8])<<40 | uint64(buf[9])<<48 | uint64(buf[10])<<56
+        init_command.RequestId[1] = uint64(buf[11]) | uint64(buf[12])<<8 | uint64(buf[13])<<16 | uint64(buf[14])<<24 | uint64(buf[15])<<32 | uint64(buf[16])<<40 | uint64(buf[17])<<48 | uint64(buf[18])<<56
+
+        init_command.ClientId[0] = uint64(buf[19]) | uint64(buf[20])<<8 | uint64(buf[21])<<16 | uint64(buf[22])<<24 | uint64(buf[23])<<32 | uint64(buf[24])<<40 | uint64(buf[25])<<48 | uint64(buf[26])<<56
+        init_command.ClientId[1] = uint64(buf[27]) | uint64(buf[28])<<8 | uint64(buf[29])<<16 | uint64(buf[30])<<24 | uint64(buf[31])<<32 | uint64(buf[32])<<40 | uint64(buf[33])<<48 | uint64(buf[34])<<56
+        return init_command, nil
 
     case protocol.COMMAND_STATE:
         state_command := &protocol.StateCommand{}
