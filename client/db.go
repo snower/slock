@@ -12,13 +12,12 @@ import (
 type Database struct {
     db_id uint8
     client *Client
-    protocol *ClientProtocol
     requests map[[2]uint64]chan protocol.ICommand
     glock sync.Mutex
 }
 
-func NewDatabase(db_id uint8, client *Client, client_protocol *ClientProtocol) *Database {
-    return &Database{db_id, client, client_protocol, make(map[[2]uint64]chan protocol.ICommand, 0), sync.Mutex{}}
+func NewDatabase(db_id uint8, client *Client) *Database {
+    return &Database{db_id, client, make(map[[2]uint64]chan protocol.ICommand, 0), sync.Mutex{}}
 }
 
 func (self *Database) HandleClose() error {
@@ -82,6 +81,10 @@ func (self *Database) HandleStateCommandResult (command *protocol.ResultStateCom
 }
 
 func (self *Database) SendLockCommand(command *protocol.LockCommand) (*protocol.LockResultCommand, error) {
+    if self.client.protocol == nil {
+        return nil, errors.New("client not opened")
+    }
+
     waiter := make(chan protocol.ICommand)
 
     self.glock.Lock()
@@ -94,7 +97,7 @@ func (self *Database) SendLockCommand(command *protocol.LockCommand) (*protocol.
     self.requests[command.RequestId] = waiter
     self.glock.Unlock()
 
-    err := self.protocol.Write(command)
+    err := self.client.protocol.Write(command)
     if err != nil {
         self.glock.Lock()
         _, ok := self.requests[command.RequestId]
@@ -113,6 +116,10 @@ func (self *Database) SendLockCommand(command *protocol.LockCommand) (*protocol.
 }
 
 func (self *Database) SendUnLockCommand(command *protocol.LockCommand) (*protocol.LockResultCommand, error) {
+    if self.client.protocol == nil {
+        return nil, errors.New("client not opened")
+    }
+
     waiter := make(chan protocol.ICommand)
 
     self.glock.Lock()
@@ -125,7 +132,7 @@ func (self *Database) SendUnLockCommand(command *protocol.LockCommand) (*protoco
     self.requests[command.RequestId] = waiter
     self.glock.Unlock()
 
-    err := self.protocol.Write(command)
+    err := self.client.protocol.Write(command)
     if err != nil {
         self.glock.Lock()
         _, ok := self.requests[command.RequestId]
@@ -144,6 +151,10 @@ func (self *Database) SendUnLockCommand(command *protocol.LockCommand) (*protoco
 }
 
 func (self *Database) SendStateCommand(command *protocol.StateCommand) (*protocol.ResultStateCommand, error) {
+    if self.client.protocol == nil {
+        return nil, errors.New("client not opened")
+    }
+
     waiter := make(chan protocol.ICommand)
 
     self.glock.Lock()
@@ -156,7 +167,7 @@ func (self *Database) SendStateCommand(command *protocol.StateCommand) (*protoco
     self.requests[command.RequestId] = waiter
     self.glock.Unlock()
 
-    err := self.protocol.Write(command)
+    err := self.client.protocol.Write(command)
     if err != nil {
         self.glock.Lock()
         _, ok := self.requests[command.RequestId]

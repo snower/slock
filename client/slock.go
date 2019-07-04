@@ -1,10 +1,13 @@
 package client
 
 import (
-    "net"
+    "errors"
     "fmt"
-    "sync"
     "github.com/snower/slock/protocol"
+    "math/rand"
+    "net"
+    "sync"
+    "time"
 )
 
 var LETTERS = []byte("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
@@ -16,11 +19,14 @@ type Client struct {
     protocol *ClientProtocol
     dbs []*Database
     glock sync.Mutex
+    client_id [2]uint64
     is_stop bool
 }
 
 func NewClient(host string, port int) *Client{
-    return &Client{host, port, nil, nil,make([]*Database, 256), sync.Mutex{}, false}
+    client := &Client{host, port, nil, nil,make([]*Database, 256), sync.Mutex{}, [2]uint64{0, 0}, false}
+    client.InitClientId()
+    return client
 }
 
 func (self *Client) Open() error {
@@ -29,9 +35,66 @@ func (self *Client) Open() error {
     if err != nil {
         return err
     }
-    self.stream = NewStream(self, conn)
-    self.protocol = NewClientProtocol(self.stream)
+    stream := NewStream(self, conn)
+    client_protocol := NewClientProtocol(stream)
+    if err := self.InitProtocol(client_protocol); err != nil {
+        client_protocol.Close()
+        return err
+    }
+    self.stream = stream
+    self.protocol = client_protocol
     go self.Handle(self.stream)
+    return nil
+}
+
+func (self *Client) Reopen() {
+    for !self.is_stop {
+        time.Sleep(time.Second)
+        addr := fmt.Sprintf("%s:%d", self.host, self.port)
+        conn, err := net.Dial("tcp", addr)
+        if err != nil {
+            continue
+        }
+        stream := NewStream(self, conn)
+        client_protocol := NewClientProtocol(stream)
+        if err := self.InitProtocol(client_protocol); err != nil {
+            client_protocol.Close()
+            continue
+        }
+        self.stream = stream
+        self.protocol = client_protocol
+        go self.Handle(self.stream)
+        break
+    }
+}
+
+func (self *Client) InitClientId() {
+    now := fmt.Sprintf("%x", int32(time.Now().Unix()))
+    letters_count := len(LETTERS)
+    self.client_id[0] = uint64(now[0]) | uint64(now[1])<<8 | uint64(now[2])<<16 | uint64(now[3])<<24 | uint64(now[4])<<32 | uint64(now[5])<<40 | uint64(now[6])<<48 | uint64(now[7])<<56
+
+    randstr := [16]byte{}
+    for i := 0; i < 8; i++{
+        randstr[i] = LETTERS[rand.Intn(letters_count)]
+    }
+    self.client_id[1] = uint64(randstr[0]) | uint64(randstr[1])<<8 | uint64(randstr[2])<<16 | uint64(randstr[3])<<24 | uint64(randstr[4])<<32 | uint64(randstr[5])<<40 | uint64(randstr[6])<<48 | uint64(randstr[7])<<56
+}
+
+func (self *Client) InitProtocol(client_protocol *ClientProtocol) error {
+    init_command := &protocol.InitCommand{Command: protocol.Command{ Magic: protocol.MAGIC, Version: protocol.VERSION, CommandType: protocol.COMMAND_UNLOCK, RequestId: self.client_id}, ClientId: self.client_id}
+    if err := client_protocol.Write(init_command); err != nil {
+        return err
+    }
+
+    result, rerr := client_protocol.Read()
+    if rerr != nil {
+        return rerr
+    }
+
+    init_result_command := result.(*protocol.InitResultCommand)
+    if init_result_command.Result != protocol.RESULT_SUCCED {
+        return errors.New(fmt.Sprintf("init stream error: %d", init_result_command.Result))
+    }
     return nil
 }
 
@@ -41,14 +104,12 @@ func (self *Client) Handle(stream *Stream) {
     defer func() {
         defer self.glock.Unlock()
         self.glock.Lock()
-
-        for _, db := range self.dbs {
-            if db != nil {
-                db.HandleClose()
-            }
-        }
-
         client_protocol.Close()
+        self.stream = nil
+        self.protocol = nil
+        if !self.is_stop {
+            self.Reopen()
+        }
     }()
 
     for {
@@ -65,11 +126,17 @@ func (self *Client) Handle(stream *Stream) {
 }
 
 func (self *Client) Close() error {
+    if self.is_stop {
+        return nil
+    }
+
     err := self.protocol.Close()
     if err != nil {
         return err
     }
 
+    self.stream = nil
+    self.protocol = nil
     self.is_stop = true
     return nil
 }
@@ -80,7 +147,7 @@ func (self *Client) GetDb(db_id uint8) *Database{
 
     db := self.dbs[db_id]
     if db == nil {
-        db = NewDatabase(db_id, self, self.protocol)
+        db = NewDatabase(db_id, self)
         self.dbs[db_id] = db
     }
     return db
