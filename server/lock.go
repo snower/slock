@@ -144,7 +144,7 @@ func (self *LockManager) GetWaitLock() *Lock {
 }
 
 func (self *LockManager) FreeLock(lock *Lock) *Lock{
-    lock.manager.ref_count--
+    self.ref_count--
     lock.manager = nil
     lock.protocol = nil
     lock.command = nil
