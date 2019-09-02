@@ -97,10 +97,6 @@ func (self *LockDB) CheckTimeOut(){
 
         now := self.current_time
         self.check_timeout_time = now + 1
-        for _, manager_glock := range self.manager_glocks {
-            manager_glock.Lock()
-            manager_glock.Unlock()
-        }
 
         for ; check_timeout_time <= now; {
             go self.CheckTimeTimeOut(check_timeout_time, now)
@@ -161,10 +157,6 @@ func (self *LockDB) CheckExpried(){
 
         now := self.current_time
         self.check_expried_time = now + 1
-        for _, manager_glock := range self.manager_glocks {
-            manager_glock.Lock()
-            manager_glock.Unlock()
-        }
 
         for ; check_expried_time <= now; {
             go self.CheckTimeExpried(check_expried_time, now)
