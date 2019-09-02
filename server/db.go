@@ -11,6 +11,8 @@ const TIMEOUT_QUEUE_LENGTH int64 = 0x10
 const EXPRIED_QUEUE_LENGTH int64 = 0x10
 const TIMEOUT_QUEUE_LENGTH_MASK int64 = 0x0f
 const EXPRIED_QUEUE_LENGTH_MASK int64 = 0x0f
+const TIMEOUT_QUEUE_MAX_WAIT int64 = 0x08
+const EXPRIED_QUEUE_MAX_WAIT int64 = 0x08
 
 type LockDB struct {
     slock                       *SLock
@@ -142,8 +144,8 @@ func (self *LockDB) CheckTimeTimeOut(check_timeout_time int64, now int64) {
             lock = timeout_locks[i].Pop()
         }
 
-        self.manager_glocks[i].Unlock()
         timeout_locks[i].Reset()
+        self.manager_glocks[i].Unlock()
     }
 
     for _, lock := range do_timeout_locks {
@@ -206,8 +208,9 @@ func (self *LockDB) CheckTimeExpried(check_expried_time int64, now int64){
             }
             lock = expried_locks[i].Pop()
         }
-        self.manager_glocks[i].Unlock()
+
         expried_locks[i].Reset()
+        self.manager_glocks[i].Unlock()
     }
 
     for _, lock := range do_expried_locks {
@@ -281,7 +284,6 @@ func (self *LockDB) RemoveLockManager(lock_manager *LockManager){
             self.free_lock_manager_count++
             self.free_lock_managers[self.free_lock_manager_count] = lock_manager
             self.state.KeyCount--
-            self.glock.Unlock()
 
             if lock_manager.locks != nil {
                 lock_manager.locks.Reset()
@@ -289,6 +291,7 @@ func (self *LockDB) RemoveLockManager(lock_manager *LockManager){
             if lock_manager.wait_locks != nil {
                 lock_manager.wait_locks.Reset()
             }
+            self.glock.Unlock()
         } else {
             self.state.KeyCount--
             self.glock.Unlock()
@@ -308,8 +311,8 @@ func (self *LockDB) RemoveLockManager(lock_manager *LockManager){
 func (self *LockDB) AddTimeOut(lock *Lock){
     lock.timeouted = false
 
-    if lock.timeout_checked_count > 5 {
-        timeout_time := self.check_timeout_time + 5
+    if lock.timeout_checked_count > TIMEOUT_QUEUE_MAX_WAIT {
+        timeout_time := self.check_timeout_time + TIMEOUT_QUEUE_MAX_WAIT
         if lock.timeout_time < timeout_time {
             timeout_time = lock.timeout_time
             if timeout_time < self.check_timeout_time {
@@ -378,8 +381,8 @@ func (self *LockDB) DoTimeOut(lock *Lock){
 func (self *LockDB) AddExpried(lock *Lock){
     lock.expried = false
 
-    if lock.expried_checked_count > 5 {
-        expried_time := self.check_expried_time + 5
+    if lock.expried_checked_count > EXPRIED_QUEUE_MAX_WAIT {
+        expried_time := self.check_expried_time + EXPRIED_QUEUE_MAX_WAIT
         if lock.expried_time < expried_time {
             expried_time = lock.expried_time
             if expried_time < self.check_expried_time {
@@ -388,7 +391,7 @@ func (self *LockDB) AddExpried(lock *Lock){
         }
 
         self.expried_locks[expried_time & EXPRIED_QUEUE_LENGTH_MASK][lock.manager.glock_index].Push(lock)
-    }else{
+    } else {
         expried_time := self.check_expried_time + lock.expried_checked_count
         if lock.expried_time < expried_time {
             expried_time = lock.expried_time
