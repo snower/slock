@@ -368,14 +368,17 @@ func (self *LockDB) DoTimeOut(lock *Lock){
     }
     lock_manager.glock.Unlock()
 
+    command_expried := lock_command.Expried
     self.slock.Active(lock_protocol, lock_command, protocol.RESULT_TIMEOUT, lock_manager.locked, false)
     self.slock.FreeLockCommand(lock_command)
     atomic.AddUint32(&self.state.WaitCount, 0xffffffff)
     atomic.AddUint32(&self.state.TimeoutedCount, 1)
 
-    self.slock.Log().Infof("LockTimeout DbId:%d LockKey:%x LockId:%x RequestId:%x RemoteAddr:%s", lock_command.DbId,
-        self.ConvertUint642ToByte16(lock_command.LockKey), self.ConvertUint642ToByte16(lock_command.LockId),
-        self.ConvertUint642ToByte16(lock_command.RequestId), lock_protocol.RemoteAddr().String())
+    if command_expried > 0 {
+        self.slock.Log().Infof("LockTimeout DbId:%d LockKey:%x LockId:%x RequestId:%x RemoteAddr:%s", lock_command.DbId,
+            self.ConvertUint642ToByte16(lock_command.LockKey), self.ConvertUint642ToByte16(lock_command.LockId),
+            self.ConvertUint642ToByte16(lock_command.RequestId), lock_protocol.RemoteAddr().String())
+    }
 }
 
 func (self *LockDB) AddExpried(lock *Lock){
