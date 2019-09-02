@@ -60,6 +60,13 @@ func (self *ClientProtocol) Read() (command protocol.CommandDecode, err error) {
             return nil, err
         }
         return &command, nil
+    case protocol.COMMAND_INIT:
+        command := protocol.InitResultCommand{}
+        err := command.Decode(self.rbuf)
+        if err != nil {
+            return nil, err
+        }
+        return &command, nil
     default:
         return nil, errors.New("unknown command")
     }

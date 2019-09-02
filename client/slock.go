@@ -81,7 +81,7 @@ func (self *Client) InitClientId() {
 }
 
 func (self *Client) InitProtocol(client_protocol *ClientProtocol) error {
-    init_command := &protocol.InitCommand{Command: protocol.Command{ Magic: protocol.MAGIC, Version: protocol.VERSION, CommandType: protocol.COMMAND_UNLOCK, RequestId: self.client_id}, ClientId: self.client_id}
+    init_command := &protocol.InitCommand{Command: protocol.Command{ Magic: protocol.MAGIC, Version: protocol.VERSION, CommandType: protocol.COMMAND_INIT, RequestId: self.client_id}, ClientId: self.client_id}
     if err := client_protocol.Write(init_command); err != nil {
         return err
     }
