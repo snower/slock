@@ -1,5 +1,7 @@
 # slock
 
+[![Build Status](https://travis-ci.org/snower/slock.svg?branch=master)](https://travis-ci.org/snower/slock)
+
 High-performance distributed sync lock service
 
 # About
@@ -16,20 +18,20 @@ go get github.com/snower/slock
 # Start
 
 ```
-./bin/slock -h
-Usage of ./slock:
-  -bind string
-    	bind host (default "0.0.0.0")
-  -host string
-    	client host (default "127.0.0.1")
-  -info int
-    	show db state info (default -1)
-  -log string
-    	log filename (default "-")
-  -log_level string
-    	log_level (default "INFO")
-  -port int
-    	bind port (default 5658)    	
+Usage:
+  slock [info]
+	default start slock server
+	info command show db state
+
+Application Options:
+      --bind=                                bind address (default: 127.0.0.1)
+      --port=                                bind port (default: 5658)
+      --log=                                 log filename, default is output stdout (default: -)
+      --log_level=[DEBUG|INFO|Warning|ERROR] log level (default: INFO)
+      --db_concurrent_lock=                  db concurrent lock count (default: 64)
+
+Help Options:
+  -h, --help                                 Show this help message    	
 ```
 
 ```
@@ -39,7 +41,7 @@ Usage of ./slock:
 # Show State
 
 ```
-./bin/slock --host=127.0.01 --port=5658 --info=0
+./bin/slock info --host=127.0.01 --port=5658
 slock DB ID:	0
 LockCount:	2
 UnLockCount:	2

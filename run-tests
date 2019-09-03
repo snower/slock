@@ -1,0 +1,34 @@
+#!/bin/bash
+
+log_error() {
+  echo "$*" 1>&2
+}
+
+run_govet() {
+    GOVET_ERRORS=$(go vet "$*" 2>&1)
+    if [ -n "$GOVET_ERRORS" ]
+        then
+            log_error "go vet failed for the following reasons:
+            $GOVET_ERRORS
+please run 'go vet $*' on your changes before committing."
+        exit 1
+    fi
+}
+
+run_gotest() {
+    GOTEST_OUTPUTS=$(go test "$*" 2>&1)
+    GOTEST_ERRORS=$(echo "$GOTEST_OUTPUTS" | grep "FAIL")
+    if [ -n "$GOTEST_ERRORS" ]
+        then
+            log_error "go test failed for the following reasons:
+            $GOTEST_OUTPUTS
+please run 'go test $*' on your changes before committing."
+        exit 1
+    fi
+}
+
+run_govet "github.com/snower/slock/server"
+run_govet "github.com/snower/slock/client"
+
+run_gotest "github.com/snower/slock/server"
+run_gotest "github.com/snower/slock/client"
