@@ -34,7 +34,7 @@ type LockDB struct {
 }
 
 func NewLockDB(slock *SLock) *LockDB {
-    manager_max_glocks := int8(64)
+    manager_max_glocks := int8(Config.DBConcurrentLock)
     manager_glocks := make([]*sync.Mutex, manager_max_glocks)
     free_locks := make([]*LockQueue, manager_max_glocks)
     for i:=int8(0); i< manager_max_glocks; i++{
@@ -92,9 +92,7 @@ func (self *LockDB) CheckTimeOut(){
     for !self.is_stop {
         time.Sleep(1e9)
 
-
         check_timeout_time := self.check_timeout_time
-
         now := self.current_time
         self.check_timeout_time = now + 1
 
@@ -154,7 +152,6 @@ func (self *LockDB) CheckExpried(){
         time.Sleep(1e9)
 
         check_expried_time := self.check_expried_time
-
         now := self.current_time
         self.check_expried_time = now + 1
 
@@ -162,7 +159,6 @@ func (self *LockDB) CheckExpried(){
             go self.CheckTimeExpried(check_expried_time, now)
             check_expried_time++
         }
-
     }
 }
 
