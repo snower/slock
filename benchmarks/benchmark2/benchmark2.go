@@ -1,4 +1,4 @@
-package main
+package benchmark2
 
 import (
     "flag"

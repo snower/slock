@@ -1,4 +1,4 @@
-package main
+package benchmark
 
 import (
     "github.com/snower/slock/client"
