@@ -17,8 +17,10 @@ type SLock struct {
     free_lock_command_count int32
 }
 
-func NewSLock(log_file string, log_level string) *SLock {
-    logger := InitLogger(log_file, log_level)
+func NewSLock(config *ServerConfig) *SLock {
+    SetConfig(config)
+
+    logger := InitLogger(Config.Log, Config.LogLevel)
     return &SLock{make([]*LockDB, 256), sync.Mutex{}, logger, make(map[[2]uint64]*ServerProtocol, 65536),
         NewLockCommandQueue(16, 64, 4096), &sync.Mutex{}, 0}
 }

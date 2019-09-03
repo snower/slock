@@ -30,28 +30,28 @@ func InitLogger(log_file string, log_level string) logging.Logger {
     logger := logging.GetLogger("")
     formatter := GetFormatter()
 
+    logging_level := logging.LevelInfo
+    switch log_level {
+    case "DEBUG":
+        logging_level = logging.LevelDebug
+    case "WARNING":
+        logging_level = logging.LevelWarning
+    case "ERROR":
+        logging_level = logging.LevelError
+    default:
+        logging_level = logging.LevelInfo
+    }
+
     if log_file == "" || log_file == "-" {
         handler := InitConsoleLogger(formatter)
-        if log_level == "ERROR" {
-            handler.SetLevel(logging.LevelError)
-            logger.SetLevel(logging.LevelError)
-        } else {
-            handler.SetLevel(logging.LevelInfo)
-            logger.SetLevel(logging.LevelInfo)
-        }
-
+        handler.SetLevel(logging_level)
+        logger.SetLevel(logging_level)
         logger.AddHandler(handler)
         logger.Infof("start ConsoleLogger %s %s", log_level, log_file)
     } else {
         handler := InitFileLogger(log_file, formatter)
-        if log_level == "ERROR" {
-            handler.SetLevel(logging.LevelError)
-            logger.SetLevel(logging.LevelError)
-        } else {
-            handler.SetLevel(logging.LevelInfo)
-            logger.SetLevel(logging.LevelInfo)
-        }
-
+        handler.SetLevel(logging_level)
+        logger.SetLevel(logging_level)
         logger.AddHandler(handler)
         logger.Infof("start FileLogger %s %s", log_level, log_file)
     }

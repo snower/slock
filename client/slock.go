@@ -14,7 +14,7 @@ var LETTERS = []byte("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
 
 type Client struct {
     host string
-    port int
+    port uint
     stream *Stream
     protocol *ClientProtocol
     dbs []*Database
@@ -23,7 +23,7 @@ type Client struct {
     is_stop bool
 }
 
-func NewClient(host string, port int) *Client{
+func NewClient(host string, port uint) *Client{
     client := &Client{host, port, nil, nil,make([]*Database, 256), sync.Mutex{}, [2]uint64{0, 0}, false}
     client.InitClientId()
     return client

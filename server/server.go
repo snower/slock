@@ -9,20 +9,18 @@ import (
 )
 
 type Server struct {
-    host    string
-    port    int
     server  net.Listener
     streams []*Stream
     slock   *SLock
     glock   sync.Mutex
 }
 
-func NewServer(port int, host string, slock *SLock) *Server {
-    return &Server{host, port, nil, make([]*Stream, 0), slock, sync.Mutex{}}
+func NewServer(slock *SLock) *Server {
+    return &Server{nil, make([]*Stream, 0), slock, sync.Mutex{}}
 }
 
 func (self *Server) Listen() error {
-    addr := fmt.Sprintf("%s:%d", self.host, self.port)
+    addr := fmt.Sprintf("%s:%d", Config.Bind, Config.Port)
     server, err := net.Listen("tcp", addr)
     if err != nil {
         return err
@@ -52,7 +50,7 @@ func (self *Server) RemoveStream(stream *Stream) (err error) {
 }
 
 func (self *Server) Loop() {
-    addr := fmt.Sprintf("%s:%d", self.host, self.port)
+    addr := fmt.Sprintf("%s:%d", Config.Bind, Config.Port)
     self.slock.Log().Infof("start server %s", addr)
     for {
         conn, err := self.server.Accept()
