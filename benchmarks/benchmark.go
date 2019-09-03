@@ -48,7 +48,7 @@ func bench(client_count int, concurrentc int, max_count int, port int, host stri
     }()
 
     for c := 0; c < client_count; c++ {
-        slock_client := client.NewClient(host, port)
+        slock_client := client.NewClient(host, uint(port))
         err := slock_client.Open()
         if err != nil {
             fmt.Printf("Connect Error: %v", err)
