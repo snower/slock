@@ -50,7 +50,7 @@ please run 'slock' on your changes before committing."
     exit 1
 fi
 
-BENCH_OUTPUTS=$(go run benchmarks/benchmark/benchmark.go --client=16 --conc=64 --count=100000 2>&1)
+BENCH_OUTPUTS=$(timeout 120 go run benchmarks/benchmark/benchmark.go --client=16 --conc=64 --count=100000 2>&1)
 BENCH_SUCCEDS=$(echo $BENCH_OUTPUTS | grep "Succed")
 if [ -z "$SLOCK_PS" ]
     then
