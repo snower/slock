@@ -47,7 +47,7 @@ please run 'slock' on your changes before committing."
     exit 1
 fi
 
-BENCH_OUTPUTS=$(timeout 120 go run benchmarks/benchmark/benchmark.go --client=16 --conc=64 --count=1000000 2>&1)
+BENCH_OUTPUTS=$(go run benchmarks/benchmark/benchmark.go --client=16 --conc=64 --count=100000 2>&1)
 BENCH_SUCCEDS=$(echo $BENCH_OUTPUTS | grep "Succed")
 if [ -z "$SLOCK_PS" ]
     then
@@ -55,8 +55,8 @@ if [ -z "$SLOCK_PS" ]
                    $BENCH_OUTPUTS
 please run 'go run benchmarks/benchmark/benchmark.go' on your changes before committing."
 
-    pkill -9 -f slock > /dev/null 2>&1
-    pkill -9 -f benchmark > /dev/null 2>&1
+    ps -ef | grep slock | grep -v grep | awk '{print $2}' | xargs kill -9 > /dev/null 2>&1
+    ps -ef | grep benchmark | grep -v grep | awk '{print $2}' | xargs kill -9 > /dev/null 2>&1
     exit 1
 fi
 
@@ -64,5 +64,7 @@ echo "Benchmark Info:
 $BENCH_OUTPUTS
 "
 
-pkill -9 -f slock > /dev/null 2>&1
-pkill -9 -f benchmark > /dev/null 2>&1
+ps -ef | grep slock | grep -v grep | awk '{print $2}' | xargs kill -9 > /dev/null 2>&1
+ps -ef | grep benchmark | grep -v grep | awk '{print $2}' | xargs kill -9 > /dev/null 2>&1
+
+exit 0
