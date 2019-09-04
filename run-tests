@@ -32,3 +32,37 @@ run_govet "github.com/snower/slock/client"
 
 run_gotest "github.com/snower/slock/server"
 run_gotest "github.com/snower/slock/client"
+
+export PATH=$(pwd):$PATH
+
+slock > /dev/null 2>&1 &
+
+SLOCK_PS=$(ps aux | grep slock | grep -v grep)
+if [ -z "$SLOCK_PS" ]
+    then
+        $SLOCK_ERRORS = $(slock 2>&1)
+        log_error "slock start failed for the following reasons:
+                   $SLOCK_ERRORS
+please run 'slock' on your changes before committing."
+    exit 1
+fi
+
+BENCH_OUTPUTS=$(timeout 120 go run benchmarks/benchmark/benchmark.go --client=16 --conc=64 --count=1000000 2>&1)
+BENCH_SUCCEDS=$(echo $BENCH_OUTPUTS | grep "Succed")
+if [ -z "$SLOCK_PS" ]
+    then
+        log_error "slock benchmark failed for the following reasons:
+                   $BENCH_OUTPUTS
+please run 'go run benchmarks/benchmark/benchmark.go' on your changes before committing."
+
+    pkill -9 -f slock > /dev/null 2>&1
+    pkill -9 -f benchmark > /dev/null 2>&1
+    exit 1
+fi
+
+echo "Benchmark Info:
+$BENCH_OUTPUTS
+"
+
+pkill -9 -f slock > /dev/null 2>&1
+pkill -9 -f benchmark > /dev/null 2>&1

@@ -1,4 +1,4 @@
-package benchmark
+package main
 
 import (
     "github.com/snower/slock/client"
@@ -98,6 +98,7 @@ func main()  {
         }
 
         bench(*client, *conc, *count, *port, *host)
+        fmt.Println("Succed")
         return
     }
 
@@ -120,4 +121,6 @@ func main()  {
     bench(64, 4096, 500000, *port, *host)
 
     bench(4096, 4096, 500000, *port, *host)
+
+    fmt.Println("Succed")
 }

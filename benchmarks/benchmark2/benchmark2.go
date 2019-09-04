@@ -187,6 +187,7 @@ func main()  {
         }
 
         bench2(*client, *conc, *count, *port, *host)
+        fmt.Println("Succed")
         return
     }
 
@@ -203,4 +204,6 @@ func main()  {
     bench2(256, 256, 5000000, *port, *host)
 
     bench2(512, 512, 5000000, *port, *host)
+
+    fmt.Println("Succed")
 }
