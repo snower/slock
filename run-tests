@@ -27,12 +27,15 @@ please run 'go test $*' on your changes before committing."
     fi
 }
 
+echo "Run go vet"
 run_govet "github.com/snower/slock/server"
 run_govet "github.com/snower/slock/client"
 
+echo "Run go test"
 run_gotest "github.com/snower/slock/server"
 run_gotest "github.com/snower/slock/client"
 
+echo "Run Benchmark"
 export PATH=$(pwd):$PATH
 
 slock > /dev/null 2>&1 &
