@@ -1,6 +1,7 @@
 package main
 
 import (
+    "bytes"
     "fmt"
     "os"
     "github.com/jessevdk/go-flags"
@@ -20,6 +21,9 @@ func ShowDBStateInfo()  {
     parse.Usage = "[info]\n\tdefault start slock server\n\tinfo command show db state"
     _, err := parse.ParseArgs(os.Args)
     if err != nil {
+        var b bytes.Buffer
+        parse.WriteHelp(&b)
+        fmt.Println(b.String())
         return
     }
 
@@ -61,6 +65,9 @@ func main() {
     parse.Usage = "[info]\n\tdefault start slock server\n\tinfo command show db state"
     _, err := parse.ParseArgs(os.Args)
     if err != nil {
+        var b bytes.Buffer
+        parse.WriteHelp(&b)
+        fmt.Println(b.String())
         return
     }
 
