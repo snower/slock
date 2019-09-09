@@ -63,6 +63,8 @@ func NewLockDB(slock *SLock) *LockDB {
     go db.UpdateCurrentTime()
     go db.CheckTimeOut()
     go db.CheckExpried()
+    go db.RestructuringLongTimeOutQueue()
+    go db.RestructuringLongExpriedQueue()
     return db
 }
 
@@ -182,6 +184,73 @@ func (self *LockDB) CheckTimeTimeOut(check_timeout_time int64, now int64) {
     }
 }
 
+func (self *LockDB) RestructuringLongTimeOutQueue() {
+    for !self.is_stop {
+        time.Sleep(1.2e11)
+        for i := int8(0); i < self.manager_max_glocks; i++ {
+            self.manager_glocks[i].Lock()
+            for lock_time, long_locks := range self.long_timeout_locks[i] {
+                if lock_time < self.check_timeout_time + 5 {
+                    continue
+                }
+
+                if long_locks.locks.Len()*3/100 >= long_locks.free_count {
+                    continue
+                }
+
+                tail_node_index, tail_queue_index := long_locks.locks.tail_node_index, long_locks.locks.tail_queue_index
+                long_locks.locks.head_node_index = 0
+                long_locks.locks.head_queue_index = 0
+                long_locks.locks.head_queue = long_locks.locks.queues[0]
+                long_locks.locks.tail_queue = long_locks.locks.queues[0]
+                long_locks.locks.tail_node_index = 0
+                long_locks.locks.tail_queue_index = 0
+                long_locks.locks.head_queue_size = long_locks.locks.node_queue_sizes[0]
+                long_locks.locks.tail_queue_size = long_locks.locks.node_queue_sizes[0]
+
+                for j := int32(0); j < tail_node_index; j++ {
+                    for k := int32(0); k < long_locks.locks.node_queue_sizes[j]; k++ {
+                        lock := long_locks.locks.queues[j][k]
+                        if lock == nil {
+                            continue
+                        }
+
+                        if long_locks.locks.Push(lock) == nil {
+                            lock.long_wait_index = uint64(long_locks.locks.tail_node_index) << 32 & uint64(long_locks.locks.tail_queue_index)
+                        }
+                    }
+                }
+
+                for k := int32(0); k < tail_queue_index; k++ {
+                    lock := long_locks.locks.queues[tail_node_index][k]
+                    if lock == nil {
+                        continue
+                    }
+
+                    if long_locks.locks.Push(lock) == nil {
+                        lock.long_wait_index = uint64(long_locks.locks.tail_node_index) << 32 & uint64(long_locks.locks.tail_queue_index)
+                    }
+                }
+
+                for tail_node_index > long_locks.locks.tail_node_index + 1 {
+                    if long_locks.locks.queue_size > long_locks.locks.base_queue_size {
+                        long_locks.locks.queue_size = long_locks.locks.queue_size / 2
+                    }
+                    long_locks.locks.queues[tail_node_index] = nil
+                    long_locks.locks.node_queue_sizes[tail_node_index] = 0
+                    tail_node_index--
+                }
+
+                long_locks.free_count = 0
+                if long_locks.locks.Len() == 0 {
+                    delete(self.long_timeout_locks[i], lock_time)
+                }
+            }
+            self.manager_glocks[i].Unlock()
+        }
+    }
+}
+
 func (self *LockDB) CheckExpried(){
     for !self.is_stop {
         time.Sleep(1e9)
@@ -258,6 +327,72 @@ func (self *LockDB) CheckTimeExpried(check_expried_time int64, now int64){
     }
 }
 
+func (self *LockDB) RestructuringLongExpriedQueue() {
+    for !self.is_stop {
+        time.Sleep(1.2e11)
+        for i := int8(0); i < self.manager_max_glocks; i++ {
+            self.manager_glocks[i].Lock()
+            for lock_time, long_locks := range self.long_expried_locks[i] {
+                if lock_time < self.check_expried_time + 5 {
+                    continue
+                }
+
+                if long_locks.locks.Len()*3/100 >= long_locks.free_count {
+                    continue
+                }
+
+                tail_node_index, tail_queue_index := long_locks.locks.tail_node_index, long_locks.locks.tail_queue_index
+                long_locks.locks.head_node_index = 0
+                long_locks.locks.head_queue_index = 0
+                long_locks.locks.head_queue = long_locks.locks.queues[0]
+                long_locks.locks.tail_queue = long_locks.locks.queues[0]
+                long_locks.locks.tail_node_index = 0
+                long_locks.locks.tail_queue_index = 0
+                long_locks.locks.head_queue_size = long_locks.locks.node_queue_sizes[0]
+                long_locks.locks.tail_queue_size = long_locks.locks.node_queue_sizes[0]
+
+                for j := int32(0); j < tail_node_index; j++ {
+                    for k := int32(0); k < long_locks.locks.node_queue_sizes[j]; k++ {
+                        lock := long_locks.locks.queues[j][k]
+                        if lock == nil {
+                            continue
+                        }
+
+                        if long_locks.locks.Push(lock) == nil {
+                            lock.long_wait_index = uint64(long_locks.locks.tail_node_index) << 32 & uint64(long_locks.locks.tail_queue_index)
+                        }
+                    }
+                }
+
+                for k := int32(0); k < tail_queue_index; k++ {
+                    lock := long_locks.locks.queues[tail_node_index][k]
+                    if lock == nil {
+                        continue
+                    }
+
+                    if long_locks.locks.Push(lock) == nil {
+                        lock.long_wait_index = uint64(long_locks.locks.tail_node_index) << 32 & uint64(long_locks.locks.tail_queue_index)
+                    }
+                }
+
+                for tail_node_index > long_locks.locks.tail_node_index + 1 {
+                    if long_locks.locks.queue_size > long_locks.locks.base_queue_size {
+                        long_locks.locks.queue_size = long_locks.locks.queue_size / 2
+                    }
+                    long_locks.locks.queues[tail_node_index] = nil
+                    long_locks.locks.node_queue_sizes[tail_node_index] = 0
+                    tail_node_index--
+                }
+
+                long_locks.free_count = 0
+                if long_locks.locks.Len() == 0 {
+                    delete(self.long_expried_locks[i], lock_time)
+                }
+            }
+            self.manager_glocks[i].Unlock()
+        }
+    }
+}
 
 func (self *LockDB) GetOrNewLockManager(command *protocol.LockCommand) *LockManager{
     self.glock.Lock()
