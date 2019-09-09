@@ -194,7 +194,7 @@ func (self *LockDB) RestructuringLongTimeOutQueue() {
                     continue
                 }
 
-                if long_locks.locks.Len()*3/100 >= long_locks.free_count {
+                if long_locks.free_count * 3 < long_locks.locks.Len() {
                     continue
                 }
 
@@ -337,7 +337,7 @@ func (self *LockDB) RestructuringLongExpriedQueue() {
                     continue
                 }
 
-                if long_locks.locks.Len()*3/100 >= long_locks.free_count {
+                if long_locks.free_count * 3 < long_locks.locks.Len() {
                     continue
                 }
 
