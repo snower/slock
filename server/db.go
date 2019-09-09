@@ -190,7 +190,7 @@ func (self *LockDB) RestructuringLongTimeOutQueue() {
         for i := int8(0); i < self.manager_max_glocks; i++ {
             self.manager_glocks[i].Lock()
             for lock_time, long_locks := range self.long_timeout_locks[i] {
-                if lock_time < self.check_timeout_time + 5 {
+                if lock_time < self.check_timeout_time + int64(TIMEOUT_QUEUE_MAX_WAIT) {
                     continue
                 }
 
@@ -333,7 +333,7 @@ func (self *LockDB) RestructuringLongExpriedQueue() {
         for i := int8(0); i < self.manager_max_glocks; i++ {
             self.manager_glocks[i].Lock()
             for lock_time, long_locks := range self.long_expried_locks[i] {
-                if lock_time < self.check_expried_time + 5 {
+                if lock_time < self.check_expried_time + int64(EXPRIED_QUEUE_MAX_WAIT) {
                     continue
                 }
 
