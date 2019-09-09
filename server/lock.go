@@ -117,6 +117,8 @@ func (self *LockManager) UpdateLockedLock(lock *Lock, timeout uint32, expried ui
     lock.command.Rcount = rcount
     lock.timeout_time = self.lock_db.current_time + int64(timeout)
     lock.expried_time = self.lock_db.current_time + int64(expried)
+    lock.timeout_checked_count = 1
+    lock.expried_checked_count = 1
 }
 
 func (self *LockManager) AddWaitLock(lock *Lock) *Lock {
@@ -170,6 +172,7 @@ func (self *LockManager) GetOrNewLock(protocol *ServerProtocol, command *protoco
     lock.protocol = protocol
     lock.start_time = now
     lock.expried_time = 0
+    lock.long_wait_index = 0
     lock.timeout_time = now + int64(command.Timeout)
     lock.timeout_checked_count = 1
     lock.expried_checked_count = 1
@@ -178,23 +181,25 @@ func (self *LockManager) GetOrNewLock(protocol *ServerProtocol, command *protoco
 }
 
 type Lock struct {
-    manager             *LockManager
-    command             *protocol.LockCommand
-    protocol            *ServerProtocol
-    start_time          int64
-    expried_time        int64
-    timeout_time        int64
-    timeout_checked_count int64
-    expried_checked_count int64
-    locked              uint8
-    ref_count           uint8
-    timeouted           bool
-    expried             bool
+    manager                 *LockManager
+    command                 *protocol.LockCommand
+    protocol                *ServerProtocol
+    start_time              int64
+    expried_time            int64
+    timeout_time            int64
+    long_wait_index         uint64
+    timeout_checked_count   uint8
+    expried_checked_count   uint8
+    locked                  uint8
+    ref_count               uint8
+    timeouted               bool
+    expried                 bool
 }
 
 func NewLock(manager *LockManager, protocol *ServerProtocol, command *protocol.LockCommand) *Lock {
     now := manager.lock_db.current_time
-    return &Lock{manager, command, protocol,now, 0, now + int64(command.Timeout), 0, 0,0, 0, false, false}
+    return &Lock{manager, command, protocol,now, 0, now + int64(command.Timeout),
+        0, 0, 0,0, 0, false, false}
 }
 
 func (self *Lock) GetDB() *LockDB {
