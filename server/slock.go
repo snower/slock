@@ -25,6 +25,18 @@ func NewSLock(config *ServerConfig) *SLock {
         NewLockCommandQueue(16, 64, 4096), &sync.Mutex{}, 0}
 }
 
+func (self *SLock) Close()  {
+    defer self.glock.Unlock()
+    self.glock.Lock()
+
+    for db_id, db := range self.dbs {
+        if db != nil {
+            db.Close()
+            self.dbs[db_id] = nil
+        }
+    }
+}
+
 func (self *SLock) GetOrNewDB(db_id uint8) *LockDB {
     defer self.glock.Unlock()
     self.glock.Lock()

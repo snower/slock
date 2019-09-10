@@ -103,17 +103,32 @@ func (self *LockDB) ResizeExpried (){
     }
 }
 
+func (self *LockDB) Close()  {
+    self.glock.Lock()
+    if self.is_stop {
+        self.glock.Unlock()
+        return
+    }
+
+    self.is_stop = true
+    self.glock.Unlock()
+
+    for i := int8(0); i < self.manager_max_glocks; i++ {
+        self.manager_glocks[i].Lock()
+    }
+}
+
 func (self *LockDB) UpdateCurrentTime(){
     for !self.is_stop {
-        time.Sleep(5e8)
         self.current_time = time.Now().Unix()
+        time.Sleep(5e8)
     }
 }
 
 func (self *LockDB) CheckTimeOut(){
-    for !self.is_stop {
-        time.Sleep(1e9)
+    time.Sleep(1e9)
 
+    for !self.is_stop {
         check_timeout_time := self.check_timeout_time
         now := self.current_time
         self.check_timeout_time = now + 1
@@ -122,6 +137,8 @@ func (self *LockDB) CheckTimeOut(){
             go self.CheckTimeTimeOut(check_timeout_time, now)
             check_timeout_time++
         }
+
+        time.Sleep(1e9)
     }
 }
 
@@ -187,8 +204,9 @@ func (self *LockDB) CheckTimeTimeOut(check_timeout_time int64, now int64) {
 }
 
 func (self *LockDB) RestructuringLongTimeOutQueue() {
+    time.Sleep(1.2e11)
+
     for !self.is_stop {
-        time.Sleep(1.2e11)
         for i := int8(0); i < self.manager_max_glocks; i++ {
             self.manager_glocks[i].Lock()
             for lock_time, long_locks := range self.long_timeout_locks[i] {
@@ -250,13 +268,15 @@ func (self *LockDB) RestructuringLongTimeOutQueue() {
             }
             self.manager_glocks[i].Unlock()
         }
+
+        time.Sleep(1.2e11)
     }
 }
 
 func (self *LockDB) CheckExpried(){
-    for !self.is_stop {
-        time.Sleep(1e9)
+    time.Sleep(1e9)
 
+    for !self.is_stop {
         check_expried_time := self.check_expried_time
         now := self.current_time
         self.check_expried_time = now + 1
@@ -265,6 +285,8 @@ func (self *LockDB) CheckExpried(){
             go self.CheckTimeExpried(check_expried_time, now)
             check_expried_time++
         }
+
+        time.Sleep(1e9)
     }
 }
 
@@ -330,8 +352,9 @@ func (self *LockDB) CheckTimeExpried(check_expried_time int64, now int64){
 }
 
 func (self *LockDB) RestructuringLongExpriedQueue() {
+    time.Sleep(1.2e11)
+
     for !self.is_stop {
-        time.Sleep(1.2e11)
         for i := int8(0); i < self.manager_max_glocks; i++ {
             self.manager_glocks[i].Lock()
             for lock_time, long_locks := range self.long_expried_locks[i] {
@@ -393,6 +416,8 @@ func (self *LockDB) RestructuringLongExpriedQueue() {
             }
             self.manager_glocks[i].Unlock()
         }
+
+        time.Sleep(1.2e11)
     }
 }
 
@@ -561,17 +586,14 @@ func (self *LockDB) DoTimeOut(lock *Lock){
     }
     lock_manager.glock.Unlock()
 
-    command_expried := lock_command.Expried
     self.slock.Active(lock_protocol, lock_command, protocol.RESULT_TIMEOUT, lock_manager.locked, false)
     self.slock.FreeLockCommand(lock_command)
     atomic.AddUint32(&self.state.WaitCount, 0xffffffff)
     atomic.AddUint32(&self.state.TimeoutedCount, 1)
 
-    if command_expried > 0 {
-        self.slock.Log().Infof("LockTimeout DbId:%d LockKey:%x LockId:%x RequestId:%x RemoteAddr:%s", lock_command.DbId,
-            self.ConvertUint642ToByte16(lock_command.LockKey), self.ConvertUint642ToByte16(lock_command.LockId),
-            self.ConvertUint642ToByte16(lock_command.RequestId), lock_protocol.RemoteAddr().String())
-    }
+    self.slock.Log().Debugf("LockTimeout DbId:%d LockKey:%x LockId:%x RequestId:%x RemoteAddr:%s", lock_command.DbId,
+        self.ConvertUint642ToByte16(lock_command.LockKey), self.ConvertUint642ToByte16(lock_command.LockId),
+        self.ConvertUint642ToByte16(lock_command.RequestId), lock_protocol.RemoteAddr().String())
 }
 
 func (self *LockDB) AddExpried(lock *Lock){
@@ -656,7 +678,7 @@ func (self *LockDB) DoExpried(lock *Lock){
     atomic.AddUint32(&self.state.LockedCount, 0xffffffff - uint32(lock_locked) + 1)
     atomic.AddUint32(&self.state.ExpriedCount, uint32(lock_locked))
 
-    self.slock.Log().Infof("LockExpried DbId:%d LockKey:%x LockId:%x RequestId:%x RemoteAddr:%s", lock_command.DbId,
+    self.slock.Log().Debugf("LockExpried DbId:%d LockKey:%x LockId:%x RequestId:%x RemoteAddr:%s", lock_command.DbId,
         self.ConvertUint642ToByte16(lock_command.LockKey), self.ConvertUint642ToByte16(lock_command.LockId),
         self.ConvertUint642ToByte16(lock_command.RequestId), lock_protocol.RemoteAddr().String())
 

@@ -3,9 +3,12 @@ package server
 import (
     "fmt"
     "net"
+    "os"
+    "os/signal"
     "sync"
     "io"
     "github.com/snower/slock/protocol"
+    "syscall"
 )
 
 type Server struct {
@@ -13,10 +16,11 @@ type Server struct {
     streams []*Stream
     slock   *SLock
     glock   sync.Mutex
+    is_stop bool
 }
 
 func NewServer(slock *SLock) *Server {
-    return &Server{nil, make([]*Stream, 0), slock, sync.Mutex{}}
+    return &Server{nil, make([]*Stream, 0), slock, sync.Mutex{}, false}
 }
 
 func (self *Server) Listen() error {
@@ -27,6 +31,19 @@ func (self *Server) Listen() error {
     }
     self.server = server
     return nil
+}
+
+func (self *Server) Close() {
+    defer self.glock.Unlock()
+    self.glock.Lock()
+
+    self.is_stop = true
+    self.server.Close()
+
+    self.slock.Close()
+    for _, stream := range self.streams {
+        stream.Close()
+    }
 }
 
 func (self *Server) AddStream(stream *Stream) (err error) {
@@ -50,9 +67,17 @@ func (self *Server) RemoveStream(stream *Stream) (err error) {
 }
 
 func (self *Server) Loop() {
+    stop_signal := make(chan os.Signal, 1)
+    signal.Notify(stop_signal, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
+    go func() {
+        <-stop_signal
+        self.slock.Log().Infof("Server is stopping")
+        self.Close()
+    }()
+
     addr := fmt.Sprintf("%s:%d", Config.Bind, Config.Port)
     self.slock.Log().Infof("start server %s", addr)
-    for {
+    for ; !self.is_stop; {
         conn, err := self.server.Accept()
         if err != nil {
             continue
@@ -62,6 +87,7 @@ func (self *Server) Loop() {
             go self.Handle(stream)
         }
     }
+    self.slock.Log().Infof("Server has stopped")
 }
 
 func (self *Server) Handle(stream *Stream) {
@@ -73,7 +99,7 @@ func (self *Server) Handle(stream *Stream) {
         }
     }()
 
-    for {
+    for ; !self.is_stop; {
         command, err := server_protocol.Read()
         if err != nil {
             if err != io.EOF {
