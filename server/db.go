@@ -36,6 +36,7 @@ type LockDB struct {
     free_lock_managers          []*LockManager
     free_locks                  []*LockQueue
     free_lock_manager_count     int32
+    max_free_lock_manager_count int32
     manager_glock_index         int8
     manager_max_glocks          int8
     is_stop                     bool
@@ -44,6 +45,7 @@ type LockDB struct {
 
 func NewLockDB(slock *SLock) *LockDB {
     manager_max_glocks := int8(Config.DBConcurrentLock)
+    max_free_lock_manager_count := int32(manager_max_glocks) / 8 * 1024 * 1024
     manager_glocks := make([]*sync.Mutex, manager_max_glocks)
     free_locks := make([]*LockQueue, manager_max_glocks)
     for i:=int8(0); i< manager_max_glocks; i++{
@@ -52,11 +54,11 @@ func NewLockDB(slock *SLock) *LockDB {
     }
 
     now := time.Now().Unix()
-    db := &LockDB{slock, make(map[[2]uint64]*LockManager, 4194304), make([][]*LockQueue, TIMEOUT_QUEUE_LENGTH),
+    db := &LockDB{slock, make(map[[2]uint64]*LockManager, max_free_lock_manager_count), make([][]*LockQueue, TIMEOUT_QUEUE_LENGTH),
         make([][]*LockQueue, EXPRIED_QUEUE_LENGTH), make([]map[int64]*LongWaitLockQueue, manager_max_glocks),
         make([]map[int64]*LongWaitLockQueue, manager_max_glocks),now, now, now, sync.Mutex{},
-        manager_glocks, make([]*LockManager, 4194304), free_locks, -1,
-        0, manager_max_glocks, false, protocol.LockDBState{}}
+        manager_glocks, make([]*LockManager, max_free_lock_manager_count), free_locks, -1,
+        max_free_lock_manager_count - 1, 0, manager_max_glocks, false, protocol.LockDBState{}}
 
     db.ResizeTimeOut()
     db.ResizeExpried()
@@ -84,7 +86,7 @@ func (self *LockDB) ResizeTimeOut (){
     }
 
     for j := int8(0); j < self.manager_max_glocks; j++ {
-        self.long_timeout_locks[j] = make(map[int64]*LongWaitLockQueue, 7200)
+        self.long_timeout_locks[j] = make(map[int64]*LongWaitLockQueue, 16384)
     }
 }
 
@@ -97,7 +99,7 @@ func (self *LockDB) ResizeExpried (){
     }
 
     for j := int8(0); j < self.manager_max_glocks; j++ {
-        self.long_expried_locks[j] = make(map[int64]*LongWaitLockQueue, 7200)
+        self.long_expried_locks[j] = make(map[int64]*LongWaitLockQueue, 16384)
     }
 }
 
@@ -455,7 +457,7 @@ func (self *LockDB) RemoveLockManager(lock_manager *LockManager){
         delete(self.locks, lock_manager.lock_key)
         lock_manager.freed = true
 
-        if self.free_lock_manager_count < 4194303 {
+        if self.free_lock_manager_count < self.max_free_lock_manager_count {
             self.free_lock_manager_count++
             self.free_lock_managers[self.free_lock_manager_count] = lock_manager
             self.state.KeyCount--
@@ -492,7 +494,7 @@ func (self *LockDB) AddTimeOut(lock *Lock){
         }
 
         if long_locks, ok := self.long_timeout_locks[lock.manager.glock_index][lock.timeout_time]; !ok {
-            long_locks = &LongWaitLockQueue{NewLockQueue(2, 8, 256), lock.timeout_time, 0, lock.manager.glock_index}
+            long_locks = &LongWaitLockQueue{NewLockQueue(2, 64, 256), lock.timeout_time, 0, lock.manager.glock_index}
             self.long_timeout_locks[lock.manager.glock_index][lock.timeout_time] = long_locks
             if long_locks.locks.Push(lock) == nil {
                 lock.long_wait_index = uint64(long_locks.locks.tail_node_index) << 32 & uint64(long_locks.locks.tail_queue_index)
@@ -581,7 +583,7 @@ func (self *LockDB) AddExpried(lock *Lock){
         }
 
         if long_locks, ok := self.long_expried_locks[lock.manager.glock_index][lock.expried_time]; !ok {
-            long_locks = &LongWaitLockQueue{NewLockQueue(2, 8, 256), lock.expried_time, 0, lock.manager.glock_index}
+            long_locks = &LongWaitLockQueue{NewLockQueue(2, 64, 256), lock.expried_time, 0, lock.manager.glock_index}
             self.long_expried_locks[lock.manager.glock_index][lock.expried_time] = long_locks
             if long_locks.locks.Push(lock) == nil {
                 lock.long_wait_index = uint64(long_locks.locks.tail_node_index) << 32 & uint64(long_locks.locks.tail_queue_index)
