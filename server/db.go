@@ -31,14 +31,16 @@ type LockDB struct {
     current_time                int64
     check_timeout_time          int64
     check_expried_time          int64
-    glock                       sync.Mutex
+    glock                       *sync.Mutex
     manager_glocks              []*sync.Mutex
     free_lock_managers          []*LockManager
     free_locks                  []*LockQueue
+    aof_channels                []*AofChannel
     free_lock_manager_count     int32
     max_free_lock_manager_count int32
     manager_glock_index         int8
     manager_max_glocks          int8
+    aof_time                    uint8
     is_stop                     bool
     state                       protocol.LockDBState
 }
@@ -48,18 +50,21 @@ func NewLockDB(slock *SLock) *LockDB {
     max_free_lock_manager_count := int32(manager_max_glocks) / 8 * 1024 * 1024
     manager_glocks := make([]*sync.Mutex, manager_max_glocks)
     free_locks := make([]*LockQueue, manager_max_glocks)
+    aof_channels := make([]*AofChannel, manager_max_glocks)
     for i:=int8(0); i< manager_max_glocks; i++{
         manager_glocks[i] = &sync.Mutex{}
         free_locks[i] = NewLockQueue(2, 16, 4096)
     }
+    aof_time := uint8(Config.DBLockAofTime)
 
     now := time.Now().Unix()
     db := &LockDB{slock, make(map[[2]uint64]*LockManager, max_free_lock_manager_count), make([][]*LockQueue, TIMEOUT_QUEUE_LENGTH),
         make([][]*LockQueue, EXPRIED_QUEUE_LENGTH), make([]map[int64]*LongWaitLockQueue, manager_max_glocks),
-        make([]map[int64]*LongWaitLockQueue, manager_max_glocks),now, now, now, sync.Mutex{},
-        manager_glocks, make([]*LockManager, max_free_lock_manager_count), free_locks, -1,
-        max_free_lock_manager_count - 1, 0, manager_max_glocks, false, protocol.LockDBState{}}
+        make([]map[int64]*LongWaitLockQueue, manager_max_glocks),now, now, now, &sync.Mutex{},
+        manager_glocks, make([]*LockManager, max_free_lock_manager_count), free_locks, aof_channels, -1,
+        max_free_lock_manager_count - 1, 0, manager_max_glocks, aof_time,false, protocol.LockDBState{}}
 
+    db.ResizeAofChannels()
     db.ResizeTimeOut()
     db.ResizeExpried()
     go db.UpdateCurrentTime()
@@ -75,6 +80,12 @@ func (self *LockDB) ConvertUint642ToByte16(uint642 [2]uint64) [16]byte {
         byte(uint642[0] >> 32), byte(uint642[0] >> 40), byte(uint642[0] >> 48), byte(uint642[0] >> 56),
         byte(uint642[1]), byte(uint642[1] >> 8), byte(uint642[1] >> 16), byte(uint642[1] >> 24),
         byte(uint642[1] >> 32), byte(uint642[1] >> 40), byte(uint642[1] >> 48), byte(uint642[1] >> 56)}
+}
+
+func (self *LockDB) ResizeAofChannels (){
+    for i:=int8(0); i< self.manager_max_glocks; i++{
+        self.aof_channels[i] = self.slock.GetAof().NewAofChannel(self)
+    }
 }
 
 func (self *LockDB) ResizeTimeOut (){
@@ -625,6 +636,11 @@ func (self *LockDB) AddExpried(lock *Lock){
         }
 
         self.expried_locks[expried_time & EXPRIED_QUEUE_LENGTH_MASK][lock.manager.glock_index].Push(lock)
+        if lock.expried_checked_count > self.aof_time {
+            if self.aof_channels[lock.manager.glock_index].Push(lock, protocol.COMMAND_LOCK) == nil {
+                lock.is_aof = true
+            }
+        }
     }
 }
 

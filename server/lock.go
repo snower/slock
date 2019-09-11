@@ -49,6 +49,11 @@ func (self *LockManager) AddLock(lock *Lock) *Lock {
 
 func (self *LockManager) RemoveLock(lock *Lock) *Lock {
     lock.locked = 0
+    if lock.is_aof {
+        if self.lock_db.aof_channels[self.glock_index].Push(lock, protocol.COMMAND_UNLOCK) == nil {
+            lock.is_aof = false
+        }
+    }
 
     if self.current_lock == lock {
         self.current_lock = nil
@@ -172,7 +177,6 @@ func (self *LockManager) GetOrNewLock(protocol *ServerProtocol, command *protoco
     lock.protocol = protocol
     lock.start_time = now
     lock.expried_time = 0
-    lock.long_wait_index = 0
     lock.timeout_time = now + int64(command.Timeout)
     lock.timeout_checked_count = 1
     lock.expried_checked_count = 1
@@ -194,12 +198,13 @@ type Lock struct {
     ref_count               uint8
     timeouted               bool
     expried                 bool
+    is_aof                  bool
 }
 
 func NewLock(manager *LockManager, protocol *ServerProtocol, command *protocol.LockCommand) *Lock {
     now := manager.lock_db.current_time
     return &Lock{manager, command, protocol,now, 0, now + int64(command.Timeout),
-        0, 0, 0,0, 0, false, false}
+        0, 0, 0,0, 0, false, false, false}
 }
 
 func (self *Lock) GetDB() *LockDB {

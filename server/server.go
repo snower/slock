@@ -15,12 +15,12 @@ type Server struct {
     server  net.Listener
     streams []*Stream
     slock   *SLock
-    glock   sync.Mutex
+    glock   *sync.Mutex
     is_stop bool
 }
 
 func NewServer(slock *SLock) *Server {
-    return &Server{nil, make([]*Stream, 0), slock, sync.Mutex{}, false}
+    return &Server{nil, make([]*Stream, 0), slock, &sync.Mutex{}, false}
 }
 
 func (self *Server) Listen() error {

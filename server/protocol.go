@@ -75,10 +75,12 @@ func (self *ServerProtocol) Close() (err error) {
         self.slock.glock.Unlock()
     }
 
-    if self.stream.Close() != nil {
-        self.slock.Log().Infof("connection close error: %s", self.RemoteAddr().String())
-    } else {
-        self.slock.Log().Infof("connection close %s", self.RemoteAddr().String())
+    if self.stream != nil {
+        if self.stream.Close() != nil {
+            self.slock.Log().Infof("connection close error: %s", self.RemoteAddr().String())
+        } else {
+            self.slock.Log().Infof("connection close %s", self.RemoteAddr().String())
+        }
     }
 
     self.slock.free_lock_command_lock.Lock()
@@ -271,6 +273,9 @@ func (self *ServerProtocol) Write(result protocol.CommandEncode, use_cached bool
 }
 
 func (self *ServerProtocol) RemoteAddr() net.Addr {
+    if self.stream == nil {
+        return &net.TCPAddr{[]byte("0.0.0.0"), 0, ""}
+    }
     return self.stream.RemoteAddr()
 }
 

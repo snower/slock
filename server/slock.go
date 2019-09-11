@@ -9,7 +9,8 @@ import (
 
 type SLock struct {
     dbs                     []*LockDB
-    glock                   sync.Mutex
+    glock                   *sync.Mutex
+    aof                     *Aof
     logger                  logging.Logger
     streams                 map[[2]uint64]*ServerProtocol
     free_lock_commands      *LockCommandQueue
@@ -20,9 +21,12 @@ type SLock struct {
 func NewSLock(config *ServerConfig) *SLock {
     SetConfig(config)
 
+    aof := NewAof()
     logger := InitLogger(Config.Log, Config.LogLevel)
-    return &SLock{make([]*LockDB, 256), sync.Mutex{}, logger, make(map[[2]uint64]*ServerProtocol, 65536),
+    slock := &SLock{make([]*LockDB, 256), &sync.Mutex{}, aof,logger, make(map[[2]uint64]*ServerProtocol, 65536),
         NewLockCommandQueue(16, 64, 4096), &sync.Mutex{}, 0}
+    aof.slock = slock
+    return slock
 }
 
 func (self *SLock) Close()  {
@@ -35,6 +39,12 @@ func (self *SLock) Close()  {
             self.dbs[db_id] = nil
         }
     }
+
+    self.aof.Close()
+}
+
+func (self *SLock) GetAof() *Aof {
+    return self.aof
 }
 
 func (self *SLock) GetOrNewDB(db_id uint8) *LockDB {
