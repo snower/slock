@@ -1,6 +1,7 @@
 package server
 
 import (
+    "bufio"
     "bytes"
     "errors"
     "os"
@@ -27,21 +28,16 @@ type AofFile struct {
     filename    string
     file        *os.File
     mode        int
-    glock       *sync.Mutex
     buf         []byte
-    buf_size    int
-    buf_index   int
+    rbuf        *bufio.Reader
+    wbuf        *bufio.Writer
 }
 
 func NewAofFile(aof *Aof, filename string, mode int, buf_size int) *AofFile{
-    buf := make([]byte, buf_size)
-    return &AofFile{aof.slock, aof, filename, nil, mode, &sync.Mutex{}, buf, buf_size, 0}
+    return &AofFile{aof.slock, aof, filename, nil, mode, make([]byte, 64), nil, nil}
 }
 
 func (self *AofFile) Open() error {
-    defer self.glock.Unlock()
-    self.glock.Lock()
-
     mode := self.mode
     if mode == os.O_WRONLY {
         mode |= os.O_CREATE
@@ -53,12 +49,14 @@ func (self *AofFile) Open() error {
 
     self.file = file
     if self.mode == os.O_WRONLY {
+        self.wbuf = bufio.NewWriterSize(self.file, 4096)
         err = self.WriteHeader()
         if err != nil {
             self.file.Close()
             return err
         }
     } else {
+        self.rbuf = bufio.NewReaderSize(self.file, 4096)
         err = self.ReadHeader()
         if err != nil {
             self.file.Close()
@@ -70,14 +68,13 @@ func (self *AofFile) Open() error {
 }
 
 func (self *AofFile) ReadHeader() error {
-    n, err := self.file.Read(self.buf)
+    n, err := self.rbuf.Read(self.buf[:12])
     if err != nil {
         return err
     }
 
-    self.buf_size = n
-    if self.buf_size < 12 {
-        return errors.New("File is not AOF File")
+    if n != 12 {
+        return errors.New("File is not AOF FIle")
     }
 
     if bytes.Compare(self.buf[:8], []byte("SLOCKAOF")) != 0 {
@@ -94,69 +91,82 @@ func (self *AofFile) ReadHeader() error {
         return errors.New("AOF File Header Len Error")
     }
 
-    self.buf_index += int(12 + header_len)
     return nil
 }
 
 func (self *AofFile) WriteHeader() error {
     self.buf[0], self.buf[1], self.buf[2], self.buf[3], self.buf[4], self.buf[5], self.buf[6], self.buf[6] = 'S', 'L', 'O', 'C', 'K', 'A', 'O', 'F'
     self.buf[8], self.buf[9], self.buf[10], self.buf[11] = 0x01, 0x00, 0x00, 0x00
-    n, err := self.file.Write(self.buf[:12])
+    n, err := self.wbuf.Write(self.buf[:12])
     if n != 12 {
         return err
     }
-    return nil
+    return self.wbuf.Flush()
 }
 
 func (self *AofFile) ReadLock(lock *AofLock) error {
-    buf_index := self.buf_index
-    data_len := uint16(self.buf[buf_index]) | uint16(self.buf[buf_index + 1] << 8)
-    if int(data_len) < self.buf_size - self.buf_index {
-        return errors.New("Buffer Len Error")
+    n, err := self.rbuf.Read(self.buf[:2])
+    if err != nil {
+        return err
+    }
+    
+    if n != 2 {
+        return errors.New("Lock Len error")
+    }
+    
+    lock_len := uint16(self.buf[0]) | uint16(self.buf[1] << 8)
+    n, err = self.rbuf.Read(self.buf[:lock_len])
+    if err != nil {
+        return err
     }
 
-    lock.DbId, lock.CommandType, lock.Flag = self.buf[buf_index + 2], self.buf[buf_index + 3], self.buf[buf_index + 4]
+    if n != 2 {
+        return errors.New("Lock Len error")
+    }
 
-    lock.LockKey[0] = uint64(self.buf[buf_index+5]) | uint64(self.buf[buf_index+6])<<8 | uint64(self.buf[buf_index+7])<<16 | uint64(self.buf[buf_index+8])<<24 | uint64(self.buf[buf_index+9])<<32 | uint64(self.buf[buf_index+10])<<40 | uint64(self.buf[buf_index+11])<<48 | uint64(self.buf[buf_index+12])<<56
-    lock.LockKey[1] = uint64(self.buf[buf_index+13]) | uint64(self.buf[buf_index+14])<<8 | uint64(self.buf[buf_index+15])<<16 | uint64(self.buf[buf_index+16])<<24 | uint64(self.buf[buf_index+17])<<32 | uint64(self.buf[buf_index+18])<<40 | uint64(self.buf[buf_index+19])<<48 | uint64(self.buf[buf_index+20])<<56
+    lock.DbId, lock.CommandType, lock.Flag = self.buf[2], self.buf[3], self.buf[4]
 
-    lock.LockId[0] = uint64(self.buf[buf_index+21]) | uint64(self.buf[buf_index+22])<<8 | uint64(self.buf[buf_index+23])<<16 | uint64(self.buf[buf_index+24])<<24 | uint64(self.buf[buf_index+25])<<32 | uint64(self.buf[buf_index+26])<<40 | uint64(self.buf[buf_index+27])<<48 | uint64(self.buf[buf_index+28])<<56
-    lock.LockId[1] = uint64(self.buf[buf_index+29]) | uint64(self.buf[buf_index+30])<<8 | uint64(self.buf[buf_index+31])<<16 | uint64(self.buf[buf_index+32])<<24 | uint64(self.buf[buf_index+33])<<32 | uint64(self.buf[buf_index+34])<<40 | uint64(self.buf[buf_index+35])<<48 | uint64(self.buf[buf_index+36])<<56
+    lock.LockKey[0] = uint64(self.buf[5]) | uint64(self.buf[6])<<8 | uint64(self.buf[7])<<16 | uint64(self.buf[8])<<24 | uint64(self.buf[9])<<32 | uint64(self.buf[10])<<40 | uint64(self.buf[11])<<48 | uint64(self.buf[12])<<56
+    lock.LockKey[1] = uint64(self.buf[13]) | uint64(self.buf[14])<<8 | uint64(self.buf[15])<<16 | uint64(self.buf[16])<<24 | uint64(self.buf[17])<<32 | uint64(self.buf[18])<<40 | uint64(self.buf[19])<<48 | uint64(self.buf[20])<<56
 
-    lock.StartTime = uint64(self.buf[buf_index+37]) | uint64(self.buf[buf_index+38])<<8 | uint64(self.buf[buf_index+39])<<16 | uint64(self.buf[buf_index+40])<<24 | uint64(self.buf[buf_index+41])<<32 | uint64(self.buf[buf_index+42])<<40 | uint64(self.buf[buf_index+43])<<48 | uint64(self.buf[buf_index+44])<<56
-    lock.ExpriedTime = uint64(self.buf[buf_index+45]) | uint64(self.buf[buf_index+46])<<8 | uint64(self.buf[buf_index+47])<<16 | uint64(self.buf[buf_index+48])<<24 | uint64(self.buf[buf_index+49])<<32 | uint64(self.buf[buf_index+50])<<40 | uint64(self.buf[buf_index+51])<<48 | uint64(self.buf[buf_index+52])<<56
+    lock.LockId[0] = uint64(self.buf[21]) | uint64(self.buf[22])<<8 | uint64(self.buf[23])<<16 | uint64(self.buf[24])<<24 | uint64(self.buf[25])<<32 | uint64(self.buf[26])<<40 | uint64(self.buf[27])<<48 | uint64(self.buf[28])<<56
+    lock.LockId[1] = uint64(self.buf[29]) | uint64(self.buf[30])<<8 | uint64(self.buf[31])<<16 | uint64(self.buf[32])<<24 | uint64(self.buf[33])<<32 | uint64(self.buf[34])<<40 | uint64(self.buf[35])<<48 | uint64(self.buf[36])<<56
 
-    lock.Count = uint16(self.buf[buf_index+53]) | uint16(self.buf[buf_index+54])<<8
-    lock.Rcount = self.buf[buf_index + 55]
+    lock.StartTime = uint64(self.buf[37]) | uint64(self.buf[38])<<8 | uint64(self.buf[39])<<16 | uint64(self.buf[40])<<24 | uint64(self.buf[41])<<32 | uint64(self.buf[42])<<40 | uint64(self.buf[43])<<48 | uint64(self.buf[44])<<56
+    lock.ExpriedTime = uint64(self.buf[45]) | uint64(self.buf[46])<<8 | uint64(self.buf[47])<<16 | uint64(self.buf[48])<<24 | uint64(self.buf[49])<<32 | uint64(self.buf[50])<<40 | uint64(self.buf[51])<<48 | uint64(self.buf[52])<<56
 
-    self.buf_index += int(data_len) + 2
+    lock.Count = uint16(self.buf[53]) | uint16(self.buf[54])<<8
+    lock.Rcount = self.buf[55]
+
     return nil
 }
 
 func (self *AofFile) WriteLock(lock *AofLock) error {
-    buf_len := 56
-    if self.buf_size - self.buf_index < buf_len {
-        return errors.New("Buffer Len Error")
+    buf_len := 54
+
+    self.buf[0], self.buf[1] = byte(buf_len), byte(buf_len << 8)
+    self.buf[2], self.buf[3], self.buf[4] = lock.DbId, lock.CommandType, lock.Flag
+
+    self.buf[5], self.buf[6], self.buf[7], self.buf[8], self.buf[9], self.buf[10], self.buf[11], self.buf[12] = byte(lock.LockKey[0]), byte(lock.LockKey[0] >> 8), byte(lock.LockKey[0] >> 16), byte(lock.LockKey[0] >> 24), byte(lock.LockKey[0] >> 32), byte(lock.LockKey[0] >> 40), byte(lock.LockKey[0] >> 48), byte(lock.LockKey[0] >> 56)
+    self.buf[13], self.buf[14], self.buf[15], self.buf[16], self.buf[17], self.buf[18], self.buf[19], self.buf[20] = byte(lock.LockKey[1]), byte(lock.LockKey[1] >> 8), byte(lock.LockKey[1] >> 16), byte(lock.LockKey[1] >> 24), byte(lock.LockKey[1] >> 32), byte(lock.LockKey[1] >> 40), byte(lock.LockKey[1] >> 48), byte(lock.LockKey[1] >> 56)
+
+    self.buf[21], self.buf[22], self.buf[23], self.buf[24], self.buf[25], self.buf[26], self.buf[27], self.buf[28] = byte(lock.LockId[0]), byte(lock.LockId[0] >> 8), byte(lock.LockId[0] >> 16), byte(lock.LockId[0] >> 24), byte(lock.LockId[0] >> 32), byte(lock.LockId[0] >> 40), byte(lock.LockId[0] >> 48), byte(lock.LockId[0] >> 56)
+    self.buf[29], self.buf[30], self.buf[31], self.buf[32], self.buf[33], self.buf[34], self.buf[35], self.buf[36] = byte(lock.LockId[1]), byte(lock.LockId[1] >> 8), byte(lock.LockId[1] >> 16), byte(lock.LockId[1] >> 24), byte(lock.LockId[1] >> 32), byte(lock.LockId[1] >> 40), byte(lock.LockId[1] >> 48), byte(lock.LockId[1] >> 56)
+
+    self.buf[37], self.buf[38], self.buf[39], self.buf[40], self.buf[40], self.buf[42], self.buf[43], self.buf[44] = byte(lock.StartTime), byte(lock.StartTime >> 8), byte(lock.StartTime >> 16), byte(lock.StartTime >> 24), byte(lock.StartTime >> 32), byte(lock.StartTime >> 40), byte(lock.StartTime >> 48), byte(lock.StartTime >> 56)
+    self.buf[45], self.buf[46], self.buf[47], self.buf[48], self.buf[49], self.buf[50], self.buf[51], self.buf[52] = byte(lock.ExpriedTime), byte(lock.ExpriedTime >> 8), byte(lock.ExpriedTime >> 16), byte(lock.ExpriedTime >> 24), byte(lock.ExpriedTime >> 32), byte(lock.ExpriedTime >> 40), byte(lock.ExpriedTime >> 48), byte(lock.ExpriedTime >> 56)
+
+    self.buf[53], self.buf[54] = byte(lock.Count), byte(lock.Count << 8)
+    self.buf[55] = lock.Rcount
+
+    n, err := self.wbuf.Write(self.buf[:buf_len])
+    if err != nil {
+        return err
     }
 
-    buf_index := self.buf_index
-
-    self.buf[buf_index], self.buf[buf_index + 1] = byte(buf_len), byte(buf_len << 8)
-    self.buf[buf_index+2], self.buf[buf_index + 3], self.buf[buf_index + 4] = lock.DbId, lock.CommandType, lock.Flag
-
-    self.buf[buf_index+5], self.buf[buf_index+6], self.buf[buf_index+7], self.buf[buf_index+8], self.buf[buf_index+9], self.buf[buf_index+10], self.buf[buf_index+11], self.buf[buf_index+12] = byte(lock.LockKey[0]), byte(lock.LockKey[0] >> 8), byte(lock.LockKey[0] >> 16), byte(lock.LockKey[0] >> 24), byte(lock.LockKey[0] >> 32), byte(lock.LockKey[0] >> 40), byte(lock.LockKey[0] >> 48), byte(lock.LockKey[0] >> 56)
-    self.buf[buf_index+13], self.buf[buf_index+14], self.buf[buf_index+15], self.buf[buf_index+16], self.buf[buf_index+17], self.buf[buf_index+18], self.buf[buf_index+19], self.buf[buf_index+20] = byte(lock.LockKey[1]), byte(lock.LockKey[1] >> 8), byte(lock.LockKey[1] >> 16), byte(lock.LockKey[1] >> 24), byte(lock.LockKey[1] >> 32), byte(lock.LockKey[1] >> 40), byte(lock.LockKey[1] >> 48), byte(lock.LockKey[1] >> 56)
-
-    self.buf[buf_index+21], self.buf[buf_index+22], self.buf[buf_index+23], self.buf[buf_index+24], self.buf[buf_index+25], self.buf[buf_index+26], self.buf[buf_index+27], self.buf[buf_index+28] = byte(lock.LockId[0]), byte(lock.LockId[0] >> 8), byte(lock.LockId[0] >> 16), byte(lock.LockId[0] >> 24), byte(lock.LockId[0] >> 32), byte(lock.LockId[0] >> 40), byte(lock.LockId[0] >> 48), byte(lock.LockId[0] >> 56)
-    self.buf[buf_index+29], self.buf[buf_index+30], self.buf[buf_index+31], self.buf[buf_index+32], self.buf[buf_index+33], self.buf[buf_index+34], self.buf[buf_index+35], self.buf[buf_index+36] = byte(lock.LockId[1]), byte(lock.LockId[1] >> 8), byte(lock.LockId[1] >> 16), byte(lock.LockId[1] >> 24), byte(lock.LockId[1] >> 32), byte(lock.LockId[1] >> 40), byte(lock.LockId[1] >> 48), byte(lock.LockId[1] >> 56)
-
-    self.buf[buf_index+37], self.buf[buf_index+38], self.buf[buf_index+39], self.buf[buf_index+40], self.buf[buf_index+40], self.buf[buf_index+42], self.buf[buf_index+43], self.buf[buf_index+44] = byte(lock.StartTime), byte(lock.StartTime >> 8), byte(lock.StartTime >> 16), byte(lock.StartTime >> 24), byte(lock.StartTime >> 32), byte(lock.StartTime >> 40), byte(lock.StartTime >> 48), byte(lock.StartTime >> 56)
-    self.buf[buf_index+45], self.buf[buf_index+46], self.buf[buf_index+47], self.buf[buf_index+48], self.buf[buf_index+49], self.buf[buf_index+50], self.buf[buf_index+51], self.buf[buf_index+52] = byte(lock.ExpriedTime), byte(lock.ExpriedTime >> 8), byte(lock.ExpriedTime >> 16), byte(lock.ExpriedTime >> 24), byte(lock.ExpriedTime >> 32), byte(lock.ExpriedTime >> 40), byte(lock.ExpriedTime >> 48), byte(lock.ExpriedTime >> 56)
-
-    self.buf[buf_index+53], self.buf[buf_index+54] = byte(lock.Count), byte(lock.Count << 8)
-    self.buf[buf_index + 55] = lock.Rcount
-
-    self.buf_index += buf_len
+    if n != buf_len {
+        return errors.New("Write buf error")
+    }
     return nil
 }
 
@@ -187,15 +197,6 @@ func (self *AofFile) Close() error {
         self.file = nil
     }
     return err
-}
-
-
-func (self *AofFile) Lock() {
-    self.glock.Lock()
-}
-
-func (self *AofFile) Unlock() {
-    self.glock.Unlock()
 }
 
 type AofChannel struct {
@@ -251,7 +252,8 @@ type Aof struct {
     slock                   *SLock
     glock                   *sync.Mutex
     data_dir                string
-    current_file            *AofFile
+    aof_file                *AofFile
+    aof_file_glock          *sync.Mutex
     channels                []*AofChannel
     actived_channel_count   int
     is_stop                 bool
@@ -259,7 +261,7 @@ type Aof struct {
 }
 
 func NewAof() *Aof {
-    return &Aof{nil, &sync.Mutex{}, "",nil, make([]*AofChannel, 0), 0, false, nil}
+    return &Aof{nil, &sync.Mutex{}, "",nil, &sync.Mutex{}, make([]*AofChannel, 0), 0, false, nil}
 }
 
 func (self *Aof) LoadAndInit() error {
