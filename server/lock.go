@@ -124,6 +124,9 @@ func (self *LockManager) UpdateLockedLock(lock *Lock, timeout uint32, expried ui
     lock.expried_time = self.lock_db.current_time + int64(expried)
     lock.timeout_checked_count = 1
     lock.expried_checked_count = 1
+    if lock.is_aof {
+        self.lock_db.aof_channels[self.glock_index].Push(lock, protocol.COMMAND_LOCK)
+    }
 }
 
 func (self *LockManager) AddWaitLock(lock *Lock) *Lock {

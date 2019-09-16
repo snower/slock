@@ -40,7 +40,9 @@ run_gotest "github.com/snower/slock/client"
 echo "Run Benchmark"
 export PATH=$(pwd):$PATH
 
-slock > /dev/null 2>&1 &
+DATA_DIR="/tmp/$(date '+%Y%m%d%H%M%S')"
+mkdir $DATA_DIR
+slock --data_dir="$DATA_DIR" > /dev/null 2>&1 &
 
 SLOCK_PS=$(ps aux | grep slock | grep -v grep)
 if [ -z "$SLOCK_PS" ]

@@ -43,6 +43,9 @@ func bench(client_count int, concurrentc int, max_count int, port int, host stri
     clients := make([]*client.Client, client_count)
     defer func() {
         for _, c := range clients {
+            if c == nil {
+                continue
+            }
             c.Close()
         }
     }()

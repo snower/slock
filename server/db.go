@@ -636,7 +636,7 @@ func (self *LockDB) AddExpried(lock *Lock){
         }
 
         self.expried_locks[expried_time & EXPRIED_QUEUE_LENGTH_MASK][lock.manager.glock_index].Push(lock)
-        if lock.expried_checked_count > self.aof_time {
+        if !lock.is_aof && lock.expried_checked_count > self.aof_time{
             if self.aof_channels[lock.manager.glock_index].Push(lock, protocol.COMMAND_LOCK) == nil {
                 lock.is_aof = true
             }

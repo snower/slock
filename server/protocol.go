@@ -274,7 +274,7 @@ func (self *ServerProtocol) Write(result protocol.CommandEncode, use_cached bool
 
 func (self *ServerProtocol) RemoteAddr() net.Addr {
     if self.stream == nil {
-        return &net.TCPAddr{[]byte("0.0.0.0"), 0, ""}
+        return &net.TCPAddr{IP: []byte("0.0.0.0"), Port: 0, Zone: ""}
     }
     return self.stream.RemoteAddr()
 }

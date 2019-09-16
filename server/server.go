@@ -42,6 +42,9 @@ func (self *Server) Close() {
 
     self.slock.Close()
     for _, stream := range self.streams {
+        if stream == nil {
+            continue
+        }
         stream.Close()
     }
 }
