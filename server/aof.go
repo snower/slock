@@ -140,9 +140,15 @@ func (self *AofFile) ReadLock(lock *AofLock) error {
     }
     
     lock_len := uint16(buf[0]) | uint16(buf[1])<<8
-
     if n != int(lock_len) + 2 {
-        return errors.New("Lock Len error")
+        nn, nerr := self.rbuf.Read(buf[n:56])
+        if nerr != nil {
+            return err
+        }
+        n += nn
+        if n != int(lock_len) + 2 {
+            return errors.New("Lock Len error")
+        }
     }
 
     lock.DbId, lock.CommandType, lock.Flag = buf[2], buf[3], buf[4]
