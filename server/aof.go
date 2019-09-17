@@ -278,7 +278,7 @@ func (self *AofChannel) Handle() {
             self.aof.PushLock(aof_lock)
             free_lock_index := self.free_lock_index
             if self.free_lock_index < self.free_lock_max && atomic.CompareAndSwapInt32(&self.free_lock_index, free_lock_index, free_lock_index + 1) {
-                self.free_locks[self.free_lock_index] = aof_lock
+                self.free_locks[free_lock_index+1] = aof_lock
             }
         default:
             self.aof.UnActiveChannel(self)
@@ -290,7 +290,7 @@ func (self *AofChannel) Handle() {
             self.aof.PushLock(aof_lock)
             free_lock_index := self.free_lock_index
             if self.free_lock_index < self.free_lock_max && atomic.CompareAndSwapInt32(&self.free_lock_index, free_lock_index, free_lock_index + 1) {
-                self.free_locks[self.free_lock_index] = aof_lock
+                self.free_locks[free_lock_index+1] = aof_lock
             }
         }
     }
@@ -461,7 +461,7 @@ func (self *Aof) Close()  {
 }
 
 func (self *Aof) NewAofChannel(lock_db *LockDB) *AofChannel {
-    aof_channel := &AofChannel{self.slock, self, lock_db, make(chan *AofLock, 4096), make([]*AofLock, 64), 63,4095}
+    aof_channel := &AofChannel{self.slock, self, lock_db, make(chan *AofLock, 4096), make([]*AofLock, 4096), 63, 4095}
     for i :=0; i < 64; i++ {
         aof_channel.free_locks[i] = &AofLock{}
     }
