@@ -40,9 +40,10 @@ run_gotest "github.com/snower/slock/client"
 echo "Run Benchmark"
 export PATH=$(pwd):$PATH
 
-DATA_DIR="/tmp/$(date '+%Y%m%d%H%M%S')"
+DATA_DIR="/tmp/$(date '+%Y%m%d%H%M%S')/"
 mkdir $DATA_DIR
-slock --data_dir="$DATA_DIR" > /dev/null 2>&1 &
+LOG_FILENAME="${DATA_DIR}slock.log"
+slock --data_dir="$DATA_DIR" > $LOG_FILENAME 2>&1 &
 
 SLOCK_PS=$(ps aux | grep slock | grep -v grep)
 if [ -z "$SLOCK_PS" ]
@@ -94,7 +95,16 @@ echo "Slock Info:
 $SLOCK_INFOS
 "
 
+ps aux | grep slock | grep -v grep
+echo
+
 ps -ef | grep slock | grep -v grep | awk '{print $2}' | xargs kill -HUP > /dev/null 2>&1
 ps -ef | grep benchmark | grep -v grep | awk '{print $2}' | xargs kill -HUP > /dev/null 2>&1
+
+sleep 2
+
+echo "Slock Log:"
+cat $LOG_FILENAME | grep -v connection
+echo
 
 exit 0

@@ -392,12 +392,16 @@ func (self *Aof) FindAofFiles() ([]string, string, error) {
     rewrite_file := ""
 
     err := filepath.Walk(self.data_dir, func(path string, info os.FileInfo, err error) error {
+        if err != nil {
+            return err
+        }
+
         if info.IsDir() {
             return nil
         }
 
         file_name := info.Name()
-        if file_name[:10] == "append.aof" {
+        if len(file_name) >= 11 && file_name[:10] == "append.aof" {
             append_files = append(append_files, file_name)
         } else if file_name == "rewrite.aof" {
             rewrite_file = file_name
