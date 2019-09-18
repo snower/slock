@@ -47,7 +47,7 @@ type LockDB struct {
 
 func NewLockDB(slock *SLock) *LockDB {
     manager_max_glocks := int8(Config.DBConcurrentLock)
-    max_free_lock_manager_count := int32(manager_max_glocks) / 8 * 1024 * 1024
+    max_free_lock_manager_count := int32(manager_max_glocks) * 1024 * 1024 / 8
     manager_glocks := make([]*sync.Mutex, manager_max_glocks)
     free_locks := make([]*LockQueue, manager_max_glocks)
     aof_channels := make([]*AofChannel, manager_max_glocks)
