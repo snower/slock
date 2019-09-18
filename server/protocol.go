@@ -29,7 +29,7 @@ func NewServerProtocol(slock *SLock, stream *Stream) *ServerProtocol {
     owbuf[0] = byte(protocol.MAGIC)
     owbuf[1] = byte(protocol.VERSION)
 
-    server_protocol := &ServerProtocol{slock, stream, [2]uint64{0, 0}, NewLockCommandQueue(4, 16, 256),
+    server_protocol := &ServerProtocol{slock, stream, [2]uint64{0, 0}, NewLockCommandQueue(4, 16, FREE_COMMAND_QUEUE_INIT_SIZE),
     &sync.Mutex{}, false, false, make([]byte, 64), wbuf, owbuf}
 
     if slock.free_lock_command_count > 64 {

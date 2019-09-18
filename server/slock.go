@@ -23,8 +23,8 @@ func NewSLock(config *ServerConfig) *SLock {
 
     aof := NewAof()
     logger := InitLogger(Config.Log, Config.LogLevel)
-    slock := &SLock{make([]*LockDB, 256), &sync.Mutex{}, aof,logger, make(map[[2]uint64]*ServerProtocol, 65536),
-        NewLockCommandQueue(16, 64, 4096), &sync.Mutex{}, 0}
+    slock := &SLock{make([]*LockDB, 256), &sync.Mutex{}, aof,logger, make(map[[2]uint64]*ServerProtocol, STREAMS_INIT_COUNT),
+        NewLockCommandQueue(16, 64, FREE_COMMAND_QUEUE_INIT_SIZE * 16), &sync.Mutex{}, 0}
     aof.slock = slock
     return slock
 }

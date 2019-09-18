@@ -7,13 +7,6 @@ import (
     "github.com/snower/slock/protocol"
 )
 
-const TIMEOUT_QUEUE_LENGTH int64 = 0x10
-const EXPRIED_QUEUE_LENGTH int64 = 0x10
-const TIMEOUT_QUEUE_LENGTH_MASK int64 = 0x0f
-const EXPRIED_QUEUE_LENGTH_MASK int64 = 0x0f
-const TIMEOUT_QUEUE_MAX_WAIT uint8 = 0x08
-const EXPRIED_QUEUE_MAX_WAIT uint8 = 0x08
-
 type LongWaitLockQueue struct {
     locks           *LockQueue
     lock_time       int64
@@ -47,13 +40,13 @@ type LockDB struct {
 
 func NewLockDB(slock *SLock) *LockDB {
     manager_max_glocks := int8(Config.DBConcurrentLock)
-    max_free_lock_manager_count := int32(manager_max_glocks) * 1024 * 1024 / 8
+    max_free_lock_manager_count := int32(manager_max_glocks) * MANAGER_MAX_GLOCKS_INIT_SIZE
     manager_glocks := make([]*sync.Mutex, manager_max_glocks)
     free_locks := make([]*LockQueue, manager_max_glocks)
     aof_channels := make([]*AofChannel, manager_max_glocks)
     for i:=int8(0); i< manager_max_glocks; i++{
         manager_glocks[i] = &sync.Mutex{}
-        free_locks[i] = NewLockQueue(2, 16, 4096)
+        free_locks[i] = NewLockQueue(2, 16, FREE_LOCK_QUEUE_INIT_SIZE)
     }
     aof_time := uint8(Config.DBLockAofTime)
 
@@ -92,12 +85,12 @@ func (self *LockDB) ResizeTimeOut (){
     for i := int64(0); i < TIMEOUT_QUEUE_LENGTH; i++ {
         self.timeout_locks[i] = make([]*LockQueue, self.manager_max_glocks)
         for j := int8(0); j < self.manager_max_glocks; j++ {
-            self.timeout_locks[i][j] = NewLockQueue(4, 16, 4096)
+            self.timeout_locks[i][j] = NewLockQueue(4, 16, TIMEOUT_LOCKS_QUEUE_INIT_SIZE)
         }
     }
 
     for j := int8(0); j < self.manager_max_glocks; j++ {
-        self.long_timeout_locks[j] = make(map[int64]*LongWaitLockQueue, 16384)
+        self.long_timeout_locks[j] = make(map[int64]*LongWaitLockQueue, LONG_TIMEOUT_LOCKS_INIT_COUNT)
     }
 }
 
@@ -105,12 +98,12 @@ func (self *LockDB) ResizeExpried (){
     for i := int64(0); i < EXPRIED_QUEUE_LENGTH; i++ {
         self.expried_locks[i] = make([]*LockQueue, self.manager_max_glocks)
         for j := int8(0); j < self.manager_max_glocks; j++ {
-            self.expried_locks[i][j] = NewLockQueue(4, 16, 4096)
+            self.expried_locks[i][j] = NewLockQueue(4, 16, EXPRIED_LOCKS_QUEUE_INIT_SIZE)
         }
     }
 
     for j := int8(0); j < self.manager_max_glocks; j++ {
-        self.long_expried_locks[j] = make(map[int64]*LongWaitLockQueue, 16384)
+        self.long_expried_locks[j] = make(map[int64]*LongWaitLockQueue, LONG_EXPRIED_LOCKS_INIT_COUNT)
     }
 }
 
@@ -530,7 +523,7 @@ func (self *LockDB) AddTimeOut(lock *Lock){
         }
 
         if long_locks, ok := self.long_timeout_locks[lock.manager.glock_index][lock.timeout_time]; !ok {
-            long_locks = &LongWaitLockQueue{NewLockQueue(2, 64, 256), lock.timeout_time, 0, lock.manager.glock_index}
+            long_locks = &LongWaitLockQueue{NewLockQueue(2, 64, LONG_TIMEOUT_LOCKS_QUEUE_INIT_SIZE), lock.timeout_time, 0, lock.manager.glock_index}
             self.long_timeout_locks[lock.manager.glock_index][lock.timeout_time] = long_locks
             if long_locks.locks.Push(lock) == nil {
                 lock.long_wait_index = uint64(long_locks.locks.tail_node_index) << 32 & uint64(long_locks.locks.tail_queue_index)
@@ -616,7 +609,7 @@ func (self *LockDB) AddExpried(lock *Lock){
         }
 
         if long_locks, ok := self.long_expried_locks[lock.manager.glock_index][lock.expried_time]; !ok {
-            long_locks = &LongWaitLockQueue{NewLockQueue(2, 64, 256), lock.expried_time, 0, lock.manager.glock_index}
+            long_locks = &LongWaitLockQueue{NewLockQueue(2, 64, LONG_EXPRIED_LOCKS_QUEUE_INIT_SIZE), lock.expried_time, 0, lock.manager.glock_index}
             self.long_expried_locks[lock.manager.glock_index][lock.expried_time] = long_locks
             if long_locks.locks.Push(lock) == nil {
                 lock.long_wait_index = uint64(long_locks.locks.tail_node_index) << 32 & uint64(long_locks.locks.tail_queue_index)

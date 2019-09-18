@@ -340,7 +340,7 @@ func (self *Aof) LoadAndInit() error {
         self.aof_file_index = aof_file_index
     }
 
-    self.aof_file = NewAofFile(self, filepath.Join(self.data_dir, fmt.Sprintf("%s.%d", "append.aof", self.aof_file_index + 1)), os.O_WRONLY, 4096)
+    self.aof_file = NewAofFile(self, filepath.Join(self.data_dir, fmt.Sprintf("%s.%d", "append.aof", self.aof_file_index + 1)), os.O_WRONLY, int(Config.AofFileBufferSize))
     err = self.aof_file.Open()
     if err != nil {
         return err
@@ -461,7 +461,7 @@ func (self *Aof) Close()  {
 }
 
 func (self *Aof) NewAofChannel(lock_db *LockDB) *AofChannel {
-    aof_channel := &AofChannel{self.slock, self, lock_db, make(chan *AofLock, 4096), make([]*AofLock, 4096), 63, 4095}
+    aof_channel := &AofChannel{self.slock, self, lock_db, make(chan *AofLock, Config.AofQueueSize), make([]*AofLock, Config.AofQueueSize), 63, int32(Config.AofQueueSize - 1)}
     for i :=0; i < 64; i++ {
         aof_channel.free_locks[i] = &AofLock{}
     }
