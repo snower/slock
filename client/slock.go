@@ -11,6 +11,8 @@ import (
 )
 
 var LETTERS = []byte("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+var request_id_index uint64 = 0
+var lock_id_index uint64 = 0
 
 type Client struct {
     host string

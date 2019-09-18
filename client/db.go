@@ -2,11 +2,11 @@ package client
 
 import (
     "errors"
-    "fmt"
+    "github.com/snower/slock/protocol"
     "math/rand"
     "sync"
+    "sync/atomic"
     "time"
-    "github.com/snower/slock/protocol"
 )
 
 type Database struct {
@@ -222,30 +222,14 @@ func (self *Database) State() *protocol.ResultStateCommand {
 
 func (self *Database) GetRequestId() [2]uint64 {
     request_id := [2]uint64{}
-    now := fmt.Sprintf("%x", int32(time.Now().Unix()))
-    letters_count := len(LETTERS)
-    request_id[0] = uint64(now[0]) | uint64(now[1])<<8 | uint64(now[2])<<16 | uint64(now[3])<<24 | uint64(now[4])<<32 | uint64(now[5])<<40 | uint64(now[6])<<48 | uint64(now[7])<<56
-
-    randstr := [16]byte{}
-    for i := 0; i < 8; i++{
-        randstr[i] = LETTERS[rand.Intn(letters_count)]
-    }
-    request_id[1] = uint64(randstr[0]) | uint64(randstr[1])<<8 | uint64(randstr[2])<<16 | uint64(randstr[3])<<24 | uint64(randstr[4])<<32 | uint64(randstr[5])<<40 | uint64(randstr[6])<<48 | uint64(randstr[7])<<56
-
+    request_id[0] = (uint64(time.Now().Unix()) & 0xffffffff)<<32 | uint64(LETTERS[rand.Intn(52)])<<24 | uint64(LETTERS[rand.Intn(52)])<<16 | uint64(LETTERS[rand.Intn(52)])<<8 | uint64(LETTERS[rand.Intn(52)])
+    request_id[1] = atomic.AddUint64(&request_id_index, 1)
     return request_id
 }
 
 func (self *Database) GenLockId() ([2]uint64) {
     lock_id := [2]uint64{}
-    now := fmt.Sprintf("%x", int32(time.Now().Unix()))
-    letters_count := len(LETTERS)
-    lock_id[0] = uint64(now[0]) | uint64(now[1])<<8 | uint64(now[2])<<16 | uint64(now[3])<<24 | uint64(now[4])<<32 | uint64(now[5])<<40 | uint64(now[6])<<48 | uint64(now[7])<<56
-
-    randstr := [16]byte{}
-    for i := 0; i < 8; i++{
-        randstr[i] = LETTERS[rand.Intn(letters_count)]
-    }
-    lock_id[1] = uint64(randstr[0]) | uint64(randstr[1])<<8 | uint64(randstr[2])<<16 | uint64(randstr[3])<<24 | uint64(randstr[4])<<32 | uint64(randstr[5])<<40 | uint64(randstr[6])<<48 | uint64(randstr[7])<<56
-
+    lock_id[0] = (uint64(time.Now().Unix()) & 0xffffffff)<<32 | uint64(LETTERS[rand.Intn(52)])<<24 | uint64(LETTERS[rand.Intn(52)])<<16 | uint64(LETTERS[rand.Intn(52)])<<8 | uint64(LETTERS[rand.Intn(52)])
+    lock_id[1] = atomic.AddUint64(&lock_id_index, 1)
     return lock_id
 }
