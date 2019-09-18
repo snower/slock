@@ -47,7 +47,7 @@ slock --data_dir="$DATA_DIR" > /dev/null 2>&1 &
 SLOCK_PS=$(ps aux | grep slock | grep -v grep)
 if [ -z "$SLOCK_PS" ]
     then
-        $SLOCK_ERRORS = $(slock 2>&1)
+        SLOCK_ERRORS=$(slock 2>&1)
         log_error "slock start failed for the following reasons:
                    $SLOCK_ERRORS
 please run 'slock' on your changes before committing."
