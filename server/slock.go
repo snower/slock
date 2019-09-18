@@ -109,9 +109,13 @@ func (self *SLock) Handle(server_protocol *ServerProtocol, command protocol.ICom
         server_protocol.client_id = init_command.ClientId
         server_protocol.inited = true
         self.glock.Lock()
+        init_type := uint8(0)
+        if _, ok := self.streams[init_command.ClientId]; ok {
+            init_type = 1
+        }
         self.streams[init_command.ClientId] = server_protocol
         self.glock.Unlock()
-        return server_protocol.Write(protocol.NewInitResultCommand(init_command, protocol.RESULT_SUCCED), true)
+        return server_protocol.Write(protocol.NewInitResultCommand(init_command, protocol.RESULT_SUCCED, init_type), true)
 
     case protocol.COMMAND_STATE:
         return self.GetState(server_protocol, command.(*protocol.StateCommand))

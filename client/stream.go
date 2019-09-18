@@ -62,9 +62,7 @@ func (self *Stream) Close() error {
     }
 
     self.closed = true
-    if self.client != nil {
-        self.client = nil
-    }
+    self.client = nil
     return self.conn.Close()
 }
 

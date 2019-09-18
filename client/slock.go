@@ -20,18 +20,23 @@ type Client struct {
     stream *Stream
     protocol *ClientProtocol
     dbs []*Database
-    glock sync.Mutex
+    glock *sync.Mutex
     client_id [2]uint64
     is_stop bool
+    reconnect_count int
 }
 
 func NewClient(host string, port uint) *Client{
-    client := &Client{host, port, nil, nil,make([]*Database, 256), sync.Mutex{}, [2]uint64{0, 0}, false}
+    client := &Client{host, port, nil, nil,make([]*Database, 256), &sync.Mutex{}, [2]uint64{0, 0}, false, 0}
     client.InitClientId()
     return client
 }
 
 func (self *Client) Open() error {
+    if self.protocol != nil {
+        return errors.New("Client is Opened")
+    }
+
     addr := fmt.Sprintf("%s:%d", self.host, self.port)
     conn, err := net.Dial("tcp", addr)
     if err != nil {
@@ -50,23 +55,24 @@ func (self *Client) Open() error {
 }
 
 func (self *Client) Reopen() {
+    self.reconnect_count = 1
+    time.Sleep(time.Duration(self.reconnect_count) * time.Second)
+
     for !self.is_stop {
-        time.Sleep(time.Second)
-        addr := fmt.Sprintf("%s:%d", self.host, self.port)
-        conn, err := net.Dial("tcp", addr)
-        if err != nil {
-            continue
+        err := self.Open()
+        if err == nil {
+            break
         }
-        stream := NewStream(self, conn)
-        client_protocol := NewClientProtocol(stream)
-        if err := self.InitProtocol(client_protocol); err != nil {
-            client_protocol.Close()
-            continue
+
+        if self.reconnect_count >= 64 {
+            go func() {
+                self.Close()
+            }()
+            break
         }
-        self.stream = stream
-        self.protocol = client_protocol
-        go self.Handle(self.stream)
-        break
+
+        self.reconnect_count++
+        time.Sleep(time.Duration(self.reconnect_count) * time.Second)
     }
 }
 
@@ -97,6 +103,21 @@ func (self *Client) InitProtocol(client_protocol *ClientProtocol) error {
     if init_result_command.Result != protocol.RESULT_SUCCED {
         return errors.New(fmt.Sprintf("init stream error: %d", init_result_command.Result))
     }
+
+    if init_result_command.InitType == 0 {
+        for _, db := range self.dbs {
+            if db == nil {
+                continue
+            }
+
+            db.glock.Lock()
+            for request_id := range db.requests {
+                db.requests[request_id] <- nil
+                delete(db.requests, request_id)
+            }
+            db.glock.Unlock()
+        }
+    }
     return nil
 }
 
@@ -114,7 +135,7 @@ func (self *Client) Handle(stream *Stream) {
         }
     }()
 
-    for {
+    for ; !self.is_stop; {
         command, err := client_protocol.Read()
         if err != nil {
             break
@@ -123,18 +144,35 @@ func (self *Client) Handle(stream *Stream) {
             break
         }
 
-        go self.HandleCommand(command.(protocol.ICommand))
+        self.HandleCommand(command.(protocol.ICommand))
     }
 }
 
 func (self *Client) Close() error {
+    defer self.glock.Unlock()
+    self.glock.Lock()
+
     if self.is_stop {
         return nil
     }
 
-    err := self.protocol.Close()
-    if err != nil {
-        return err
+    for db_id, db := range self.dbs {
+        if db == nil {
+            continue
+        }
+
+        err := db.Close()
+        if err != nil {
+            return err
+        }
+        self.dbs[db_id] = nil
+    }
+
+    if self.protocol != nil {
+        err := self.protocol.Close()
+        if err != nil {
+            return err
+        }
     }
 
     self.stream = nil

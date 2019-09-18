@@ -182,16 +182,17 @@ func (self *InitCommand) Encode(buf []byte) error {
     return nil
 }
 
-var INIT_COMMAND_BLANK_BYTERS = [44]byte{}
+var INIT_COMMAND_BLANK_BYTERS = [43]byte{}
 
 type InitResultCommand struct {
     ResultCommand
-    Blank     [44]byte
+    InitType  uint8
+    Blank     [43]byte
 }
 
-func NewInitResultCommand(command *InitCommand, result uint8) *InitResultCommand {
+func NewInitResultCommand(command *InitCommand, result uint8, init_type uint8) *InitResultCommand {
     result_command := ResultCommand{ MAGIC, VERSION, command.CommandType, command.RequestId, result}
-    return &InitResultCommand{result_command,INIT_COMMAND_BLANK_BYTERS}
+    return &InitResultCommand{result_command,init_type, INIT_COMMAND_BLANK_BYTERS}
 }
 
 func (self *InitResultCommand) Decode(buf []byte) error{
@@ -203,6 +204,8 @@ func (self *InitResultCommand) Decode(buf []byte) error{
 
     self.RequestId[0] = uint64(buf[3]) | uint64(buf[4])<<8 | uint64(buf[5])<<16 | uint64(buf[6])<<24 | uint64(buf[7])<<32 | uint64(buf[8])<<40 | uint64(buf[9])<<48 | uint64(buf[10])<<56
     self.RequestId[1] = uint64(buf[11]) | uint64(buf[12])<<8 | uint64(buf[13])<<16 | uint64(buf[14])<<24 | uint64(buf[15])<<32 | uint64(buf[16])<<40 | uint64(buf[17])<<48 | uint64(buf[18])<<56
+
+    self.Result, self.InitType = uint8(buf[19]), uint8(buf[20])
 
     return nil
 }
@@ -217,8 +220,10 @@ func (self *InitResultCommand) Encode(buf []byte) error {
     buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10] = byte(self.RequestId[0]), byte(self.RequestId[0] >> 8), byte(self.RequestId[0] >> 16), byte(self.RequestId[0] >> 24), byte(self.RequestId[0] >> 32), byte(self.RequestId[0] >> 40), byte(self.RequestId[0] >> 48), byte(self.RequestId[0] >> 56)
     buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18] = byte(self.RequestId[1]), byte(self.RequestId[1] >> 8), byte(self.RequestId[1] >> 16), byte(self.RequestId[1] >> 24), byte(self.RequestId[1] >> 32), byte(self.RequestId[1] >> 40), byte(self.RequestId[1] >> 48), byte(self.RequestId[1] >> 56)
 
-    for i :=0; i<44; i++ {
-        buf[19 + i] = 0x00
+    buf[19], buf[20] = uint8(self.Result), byte(self.InitType)
+
+    for i :=0; i<43; i++ {
+        buf[21 + i] = 0x00
     }
 
     return nil

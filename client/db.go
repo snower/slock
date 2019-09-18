@@ -13,14 +13,14 @@ type Database struct {
     db_id uint8
     client *Client
     requests map[[2]uint64]chan protocol.ICommand
-    glock sync.Mutex
+    glock *sync.Mutex
 }
 
 func NewDatabase(db_id uint8, client *Client) *Database {
-    return &Database{db_id, client, make(map[[2]uint64]chan protocol.ICommand, 0), sync.Mutex{}}
+    return &Database{db_id, client, make(map[[2]uint64]chan protocol.ICommand, 4096), &sync.Mutex{}}
 }
 
-func (self *Database) HandleClose() error {
+func (self *Database) Close() error {
     defer self.glock.Unlock()
     self.glock.Lock()
 
@@ -29,14 +29,15 @@ func (self *Database) HandleClose() error {
     }
 
     self.requests = make(map[[2]uint64]chan protocol.ICommand, 0)
+
+    self.client = nil
     return nil
 }
 
 func (self *Database) HandleLockCommandResult (command *protocol.LockResultCommand) error {
     self.glock.Lock()
 
-    request, ok := self.requests[command.RequestId]
-    if ok {
+    if request, ok := self.requests[command.RequestId]; ok {
         delete(self.requests, command.RequestId)
         self.glock.Unlock()
 
@@ -51,8 +52,7 @@ func (self *Database) HandleLockCommandResult (command *protocol.LockResultComma
 func (self *Database) HandleUnLockCommandResult (command *protocol.LockResultCommand) error {
     self.glock.Lock()
 
-    request, ok := self.requests[command.RequestId]
-    if ok {
+    if request, ok := self.requests[command.RequestId]; ok {
         delete(self.requests, command.RequestId)
         self.glock.Unlock()
 
@@ -67,8 +67,7 @@ func (self *Database) HandleUnLockCommandResult (command *protocol.LockResultCom
 func (self *Database) HandleStateCommandResult (command *protocol.ResultStateCommand) error {
     self.glock.Lock()
 
-    request, ok := self.requests[command.RequestId]
-    if ok {
+    if request, ok := self.requests[command.RequestId]; ok {
         delete(self.requests, command.RequestId)
         self.glock.Unlock()
 
@@ -82,26 +81,23 @@ func (self *Database) HandleStateCommandResult (command *protocol.ResultStateCom
 
 func (self *Database) SendLockCommand(command *protocol.LockCommand) (*protocol.LockResultCommand, error) {
     if self.client.protocol == nil {
-        return nil, errors.New("client not opened")
+        return nil, errors.New("client is not opened")
     }
-
-    waiter := make(chan protocol.ICommand)
 
     self.glock.Lock()
-    _, ok := self.requests[command.RequestId]
-    if ok {
+    if _, ok := self.requests[command.RequestId]; ok {
         self.glock.Unlock()
-        return nil, errors.New("request used")
+        return nil, errors.New("request is used")
     }
 
+    waiter := make(chan protocol.ICommand, 1)
     self.requests[command.RequestId] = waiter
     self.glock.Unlock()
 
     err := self.client.protocol.Write(command)
     if err != nil {
         self.glock.Lock()
-        _, ok := self.requests[command.RequestId]
-        if ok {
+        if _, ok := self.requests[command.RequestId]; ok {
             delete(self.requests, command.RequestId)
         }
         self.glock.Unlock()
@@ -117,26 +113,23 @@ func (self *Database) SendLockCommand(command *protocol.LockCommand) (*protocol.
 
 func (self *Database) SendUnLockCommand(command *protocol.LockCommand) (*protocol.LockResultCommand, error) {
     if self.client.protocol == nil {
-        return nil, errors.New("client not opened")
+        return nil, errors.New("client is not opened")
     }
-
-    waiter := make(chan protocol.ICommand)
 
     self.glock.Lock()
-    _, ok := self.requests[command.RequestId]
-    if ok {
+    if _, ok := self.requests[command.RequestId]; ok {
         self.glock.Unlock()
-        return nil, errors.New("request used")
+        return nil, errors.New("request is used")
     }
 
+    waiter := make(chan protocol.ICommand, 1)
     self.requests[command.RequestId] = waiter
     self.glock.Unlock()
 
     err := self.client.protocol.Write(command)
     if err != nil {
         self.glock.Lock()
-        _, ok := self.requests[command.RequestId]
-        if ok {
+        if _, ok := self.requests[command.RequestId]; ok {
             delete(self.requests, command.RequestId)
         }
         self.glock.Unlock()
@@ -155,23 +148,20 @@ func (self *Database) SendStateCommand(command *protocol.StateCommand) (*protoco
         return nil, errors.New("client not opened")
     }
 
-    waiter := make(chan protocol.ICommand)
-
     self.glock.Lock()
-    _, ok := self.requests[command.RequestId]
-    if ok {
+    if _, ok := self.requests[command.RequestId]; ok {
         self.glock.Unlock()
         return nil, errors.New("request used")
     }
 
+    waiter := make(chan protocol.ICommand, 1)
     self.requests[command.RequestId] = waiter
     self.glock.Unlock()
 
     err := self.client.protocol.Write(command)
     if err != nil {
         self.glock.Lock()
-        _, ok := self.requests[command.RequestId]
-        if ok {
+        if _, ok := self.requests[command.RequestId]; ok {
             delete(self.requests, command.RequestId)
         }
         self.glock.Unlock()
