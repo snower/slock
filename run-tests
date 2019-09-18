@@ -63,8 +63,8 @@ if [ -z "$SLOCK_PS" ]
                    $BENCH_OUTPUTS
 please run 'go run benchmarks/benchmark/benchmark.go' on your changes before committing."
 
-    ps -ef | grep slock | grep -v grep | awk '{print $2}' | xargs kill -9 > /dev/null 2>&1
-    ps -ef | grep benchmark | grep -v grep | awk '{print $2}' | xargs kill -9 > /dev/null 2>&1
+    ps -ef | grep slock | grep -v grep | awk '{print $2}' | xargs kill -HUP > /dev/null 2>&1
+    ps -ef | grep benchmark | grep -v grep | awk '{print $2}' | xargs kill -HUP > /dev/null 2>&1
     exit 1
 fi
 
@@ -84,8 +84,8 @@ do
 $SLOCK_INFOS
 please run 'slock info' on your changes before committing."
 
-        ps -ef | grep slock | grep -v grep | awk '{print $2}' | xargs kill -9 > /dev/null 2>&1
-        ps -ef | grep benchmark | grep -v grep | awk '{print $2}' | xargs kill -9 > /dev/null 2>&1
+        ps -ef | grep slock | grep -v grep | awk '{print $2}' | xargs kill -HUP > /dev/null 2>&1
+        ps -ef | grep benchmark | grep -v grep | awk '{print $2}' | xargs kill -HUP > /dev/null 2>&1
         exit 1
     fi
 done
@@ -94,7 +94,7 @@ echo "Slock Info:
 $SLOCK_INFOS
 "
 
-ps -ef | grep slock | grep -v grep | awk '{print $2}' | xargs kill -9 > /dev/null 2>&1
-ps -ef | grep benchmark | grep -v grep | awk '{print $2}' | xargs kill -9 > /dev/null 2>&1
+ps -ef | grep slock | grep -v grep | awk '{print $2}' | xargs kill -HUP > /dev/null 2>&1
+ps -ef | grep benchmark | grep -v grep | awk '{print $2}' | xargs kill -HUP > /dev/null 2>&1
 
 exit 0
