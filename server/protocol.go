@@ -172,10 +172,8 @@ func (self *ServerProtocol) Read() (command protocol.CommandDecode, err error) {
         lock_command.LockKey[0] = uint64(buf[37]) | uint64(buf[38])<<8 | uint64(buf[39])<<16 | uint64(buf[40])<<24 | uint64(buf[41])<<32 | uint64(buf[42])<<40 | uint64(buf[43])<<48 | uint64(buf[44])<<56
         lock_command.LockKey[1] = uint64(buf[45]) | uint64(buf[46])<<8 | uint64(buf[47])<<16 | uint64(buf[48])<<24 | uint64(buf[49])<<32 | uint64(buf[50])<<40 | uint64(buf[51])<<48 | uint64(buf[52])<<56
 
-        lock_command.Timeout = uint32(buf[53]) | uint32(buf[54])<<8 | uint32(buf[55])<<16 | uint32(buf[56])<<24
-        lock_command.Expried = uint32(buf[57]) | uint32(buf[58])<<8 | uint32(buf[59])<<16 | uint32(buf[60])<<24
-        lock_command.Count = uint16(buf[61]) | uint16(buf[62])<<8
-        lock_command.Rcount = uint8(buf[63])
+        lock_command.Timeout, lock_command.TimeoutFlag, lock_command.Expried, lock_command.ExpriedFlag = uint16(buf[53]) | uint16(buf[54])<<8, uint16(buf[55]) | uint16(buf[56])<<8, uint16(buf[57]) | uint16(buf[58])<<8, uint16(buf[59]) | uint16(buf[60])<<8
+        lock_command.Count, lock_command.Rcount = uint16(buf[61]) | uint16(buf[62])<<8, uint8(buf[63])
         return lock_command, nil
 
     case protocol.COMMAND_UNLOCK:
@@ -223,10 +221,8 @@ func (self *ServerProtocol) Read() (command protocol.CommandDecode, err error) {
         lock_command.LockKey[0] = uint64(buf[37]) | uint64(buf[38])<<8 | uint64(buf[39])<<16 | uint64(buf[40])<<24 | uint64(buf[41])<<32 | uint64(buf[42])<<40 | uint64(buf[43])<<48 | uint64(buf[44])<<56
         lock_command.LockKey[1] = uint64(buf[45]) | uint64(buf[46])<<8 | uint64(buf[47])<<16 | uint64(buf[48])<<24 | uint64(buf[49])<<32 | uint64(buf[50])<<40 | uint64(buf[51])<<48 | uint64(buf[52])<<56
 
-        lock_command.Timeout = uint32(buf[53]) | uint32(buf[54])<<8 | uint32(buf[55])<<16 | uint32(buf[56])<<24
-        lock_command.Expried = uint32(buf[57]) | uint32(buf[58])<<8 | uint32(buf[59])<<16 | uint32(buf[60])<<24
-        lock_command.Count = uint16(buf[61]) | uint16(buf[62])<<8
-        lock_command.Rcount = uint8(buf[63])
+        lock_command.Timeout, lock_command.TimeoutFlag, lock_command.Expried, lock_command.ExpriedFlag = uint16(buf[53]) | uint16(buf[54])<<8, uint16(buf[55]) | uint16(buf[56])<<8, uint16(buf[57]) | uint16(buf[58])<<8, uint16(buf[59]) | uint16(buf[60])<<8
+        lock_command.Count, lock_command.Rcount = uint16(buf[61]) | uint16(buf[62])<<8, uint8(buf[63])
         return lock_command, nil
 
     case protocol.COMMAND_INIT:

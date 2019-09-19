@@ -231,14 +231,16 @@ func (self *InitResultCommand) Encode(buf []byte) error {
 
 type LockCommand struct {
     Command
-    Flag      uint8
-    DbId      uint8
-    LockId    [2]uint64
-    LockKey   [2]uint64
-    Timeout   uint32
-    Expried   uint32
-    Count     uint16
-    Rcount    uint8
+    Flag            uint8
+    DbId            uint8
+    LockId          [2]uint64
+    LockKey         [2]uint64
+    TimeoutFlag     uint16
+    Timeout         uint16
+    ExpriedFlag     uint16
+    Expried         uint16
+    Count           uint16
+    Rcount          uint8
 }
 
 func NewLockCommand(buf []byte) *LockCommand {
@@ -267,10 +269,8 @@ func (self *LockCommand) Decode(buf []byte) error{
     self.LockKey[0] = uint64(buf[37]) | uint64(buf[38])<<8 | uint64(buf[39])<<16 | uint64(buf[40])<<24 | uint64(buf[41])<<32 | uint64(buf[42])<<40 | uint64(buf[43])<<48 | uint64(buf[44])<<56
     self.LockKey[1] = uint64(buf[45]) | uint64(buf[46])<<8 | uint64(buf[47])<<16 | uint64(buf[48])<<24 | uint64(buf[49])<<32 | uint64(buf[50])<<40 | uint64(buf[51])<<48 | uint64(buf[52])<<56
 
-    self.Timeout = uint32(buf[53]) | uint32(buf[54])<<8 | uint32(buf[55])<<16 | uint32(buf[56])<<24
-    self.Expried = uint32(buf[57]) | uint32(buf[58])<<8 | uint32(buf[59])<<16 | uint32(buf[60])<<24
-    self.Count = uint16(buf[61]) | uint16(buf[62])<<8
-    self.Rcount = uint8(buf[63])
+    self.Timeout, self.TimeoutFlag, self.Expried, self.ExpriedFlag = uint16(buf[53]) | uint16(buf[54])<<8, uint16(buf[55]) | uint16(buf[56])<<8, uint16(buf[57]) | uint16(buf[58])<<8, uint16(buf[59]) | uint16(buf[60])<<8
+    self.Count, self.Rcount = uint16(buf[61]) | uint16(buf[62])<<8, uint8(buf[63])
     return nil
 }
 
@@ -293,7 +293,7 @@ func (self *LockCommand) Encode(buf []byte) error {
     buf[45], buf[46], buf[47], buf[48], buf[49], buf[50], buf[51], buf[52] = byte(self.LockKey[1]), byte(self.LockKey[1] >> 8), byte(self.LockKey[1] >> 16), byte(self.LockKey[1] >> 24), byte(self.LockKey[1] >> 32), byte(self.LockKey[1] >> 40), byte(self.LockKey[1] >> 48), byte(self.LockKey[1] >> 56)
 
 
-    buf[53], buf[54], buf[55], buf[56], buf[57], buf[58], buf[59], buf[60] = byte(self.Timeout), byte(self.Timeout >> 8), byte(self.Timeout >> 16), byte(self.Timeout >> 24), byte(self.Expried), byte(self.Expried >> 8), byte(self.Expried >> 16), byte(self.Expried >> 24)
+    buf[53], buf[54], buf[55], buf[56], buf[57], buf[58], buf[59], buf[60] = byte(self.Timeout), byte(self.Timeout >> 8), byte(self.TimeoutFlag), byte(self.TimeoutFlag >> 8), byte(self.Expried), byte(self.Expried >> 8), byte(self.ExpriedFlag), byte(self.ExpriedFlag >> 8)
 
     buf[61], buf[62], buf[63] = byte(self.Count), byte(self.Count >> 8), byte(self.Rcount)
 

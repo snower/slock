@@ -34,6 +34,14 @@ func (self *LockManager) GetDB() *LockDB{
 
 func (self *LockManager) AddLock(lock *Lock) *Lock {
     lock.expried_time = self.lock_db.current_time + int64(lock.command.Expried)
+    switch lock.command.ExpriedFlag & 0x0300 {
+    case 0x0100:
+        lock.aof_time = 0
+    case 0x0200:
+        lock.aof_time = 0xff
+    default:
+        lock.aof_time = self.lock_db.aof_time
+    }
     lock.locked = 1
     lock.ref_count++
 
@@ -115,15 +123,27 @@ func (self *LockManager) GetLockedLock(command *protocol.LockCommand) *Lock {
     return nil
 }
 
-func (self *LockManager) UpdateLockedLock(lock *Lock, timeout uint32, expried uint32, count uint16, rcount uint8) {
+func (self *LockManager) UpdateLockedLock(lock *Lock, timeout uint16, timeout_flag uint16, expried uint16, expried_flag uint16, count uint16, rcount uint8) {
     lock.command.Timeout = timeout
+    lock.command.TimeoutFlag = timeout_flag
     lock.command.Expried = expried
+    lock.command.ExpriedFlag = expried_flag
     lock.command.Count = count
     lock.command.Rcount = rcount
     lock.timeout_time = self.lock_db.current_time + int64(timeout)
     lock.expried_time = self.lock_db.current_time + int64(expried)
     lock.timeout_checked_count = 1
     lock.expried_checked_count = 1
+
+    switch lock.command.ExpriedFlag & 0x0300 {
+    case 0x0100:
+        lock.aof_time = 0
+    case 0x0200:
+        lock.aof_time = 0xff
+    default:
+        lock.aof_time = self.lock_db.aof_time
+    }
+
     if lock.is_aof {
         self.lock_db.aof_channels[self.glock_index].Push(lock, protocol.COMMAND_LOCK)
     }
@@ -201,13 +221,14 @@ type Lock struct {
     ref_count               uint8
     timeouted               bool
     expried                 bool
+    aof_time                uint8
     is_aof                  bool
 }
 
 func NewLock(manager *LockManager, protocol *ServerProtocol, command *protocol.LockCommand) *Lock {
     now := manager.lock_db.current_time
     return &Lock{manager, command, protocol,now, 0, now + int64(command.Timeout),
-        0, 0, 0,0, 0, false, false, false}
+        0, 0, 0,0, 0, false, false, 0, false}
 }
 
 func (self *Lock) GetDB() *LockDB {

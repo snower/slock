@@ -629,7 +629,7 @@ func (self *LockDB) AddExpried(lock *Lock){
         }
 
         self.expried_locks[expried_time & EXPRIED_QUEUE_LENGTH_MASK][lock.manager.glock_index].Push(lock)
-        if !lock.is_aof && lock.expried_checked_count > self.aof_time{
+        if !lock.is_aof && lock.expried_checked_count > lock.aof_time{
             if self.aof_channels[lock.manager.glock_index].Push(lock, protocol.COMMAND_LOCK) == nil {
                 lock.is_aof = true
             }
@@ -736,7 +736,7 @@ func (self *LockDB) Lock(server_protocol *ServerProtocol, command *protocol.Lock
 
             current_lock := lock_manager.current_lock
             command.LockId = current_lock.command.LockId
-            command.Expried = uint32(current_lock.expried_time - current_lock.start_time)
+            command.Expried = uint16(current_lock.expried_time - current_lock.start_time)
             command.Timeout = current_lock.command.Timeout
             command.Count = current_lock.command.Count
             command.Rcount = current_lock.command.Rcount
@@ -751,15 +751,15 @@ func (self *LockDB) Lock(server_protocol *ServerProtocol, command *protocol.Lock
             if command.Flag == 0x02 {
                 if current_lock.long_wait_index > 0 {
                     self.RemoveLongExpried(current_lock)
-                    lock_manager.UpdateLockedLock(current_lock, command.Timeout, command.Expried, command.Count, command.Rcount)
+                    lock_manager.UpdateLockedLock(current_lock, command.Timeout, command.TimeoutFlag, command.Expried, command.ExpriedFlag, command.Count, command.Rcount)
                     self.AddExpried(current_lock)
                     current_lock.ref_count++
                 } else {
-                    lock_manager.UpdateLockedLock(current_lock, command.Timeout, command.Expried, command.Count, command.Rcount)
+                    lock_manager.UpdateLockedLock(current_lock, command.TimeoutFlag, command.Timeout, command.Expried, command.ExpriedFlag, command.Count, command.Rcount)
                 }
                 lock_manager.glock.Unlock()
 
-                command.Expried = uint32(current_lock.expried_time - current_lock.start_time)
+                command.Expried = uint16(current_lock.expried_time - current_lock.start_time)
                 command.Timeout = current_lock.command.Timeout
                 command.Count = current_lock.command.Count
                 command.Rcount = current_lock.command.Rcount
@@ -767,7 +767,7 @@ func (self *LockDB) Lock(server_protocol *ServerProtocol, command *protocol.Lock
                 if(command.Expried == 0) {
                     lock_manager.glock.Unlock()
 
-                    command.Expried = uint32(current_lock.expried_time - current_lock.start_time)
+                    command.Expried = uint16(current_lock.expried_time - current_lock.start_time)
                     command.Timeout = current_lock.command.Timeout
                     command.Count = current_lock.command.Count
                     command.Rcount = current_lock.command.Rcount
@@ -781,11 +781,11 @@ func (self *LockDB) Lock(server_protocol *ServerProtocol, command *protocol.Lock
                 current_lock.locked++
                 if current_lock.long_wait_index > 0 {
                     self.RemoveLongExpried(current_lock)
-                    lock_manager.UpdateLockedLock(current_lock, command.Timeout, command.Expried, command.Count, command.Rcount)
+                    lock_manager.UpdateLockedLock(current_lock, command.Timeout,command.TimeoutFlag,  command.Expried, command.ExpriedFlag, command.Count, command.Rcount)
                     self.AddExpried(current_lock)
                     current_lock.ref_count++
                 } else {
-                    lock_manager.UpdateLockedLock(current_lock, command.Timeout, command.Expried, command.Count, command.Rcount)
+                    lock_manager.UpdateLockedLock(current_lock, command.Timeout, command.TimeoutFlag, command.Expried, command.ExpriedFlag, command.Count, command.Rcount)
                 }
                 lock_manager.glock.Unlock()
 

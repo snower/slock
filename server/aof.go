@@ -370,19 +370,7 @@ func (self *Aof) LoadAndInit() error {
     }
 
     if len(append_files) > 0 {
-        if rewrite_file != "" {
-            err := os.Remove(filepath.Join(self.data_dir, rewrite_file))
-            if err != nil {
-                self.slock.Log().Errorf("Aof Rewrite Remove File Error %s %v", filepath.Join(self.data_dir, rewrite_file), err)
-            }
-        }
-
-        for _, append_file := range append_files {
-            err = os.Remove(filepath.Join(self.data_dir, append_file))
-            if err != nil {
-                self.slock.Log().Errorf("Aof Rewrite Remove File Error %s %v", filepath.Join(self.data_dir, append_file), err)
-            }
-        }
+        go self.RewriteAofFile()
     }
     return nil
 }
@@ -440,7 +428,8 @@ func (self *Aof) LoadAofFile(filename string, server_protocol *ServerProtocol) e
         }
 
         command := &protocol.LockCommand{Command: protocol.Command{Magic: protocol.MAGIC, Version: protocol.VERSION, CommandType: lock.CommandType, RequestId: self.GetRequestId()},
-            Flag: lock.Flag, DbId: lock.DbId, LockId: lock.LockId, LockKey: lock.LockKey, Timeout: 5, Expried: uint32(int64(lock.ExpriedTime) - now), Count: lock.Count, Rcount: lock.Rcount}
+            Flag: lock.Flag, DbId: lock.DbId, LockId: lock.LockId, LockKey: lock.LockKey, TimeoutFlag: 0, Timeout: 5,
+            ExpriedFlag: 0x0200, Expried: uint16(int64(lock.ExpriedTime) - now), Count: lock.Count, Rcount: lock.Rcount}
         self.slock.Handle(server_protocol, command)
     }
 }
