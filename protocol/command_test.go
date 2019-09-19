@@ -8,7 +8,7 @@ import (
 func TestLockCommand_Encode(t *testing.T) {
     rid := [2]uint64{2, 3}
     command := Command{MAGIC, VERSION, COMMAND_LOCK, rid}
-    lock_command := LockCommand{command, 0, 0, rid, rid, 5, 5, 1, 0}
+    lock_command := LockCommand{command, 0, 0, rid, rid, 0, 5, 0,5, 1, 0}
     buf := make([]byte,  64)
     if lock_command.Encode(buf) != nil {
         t.Error("TestLockCommand_Encode Test Return Nil Fail")
