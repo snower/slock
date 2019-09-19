@@ -721,7 +721,7 @@ func (self *LockDB) DoExpried(lock *Lock){
     }
 }
 
-func (self *LockDB) Lock(server_protocol *ServerProtocol, command *protocol.LockCommand) (err error) {
+func (self *LockDB) Lock(server_protocol *ServerProtocol, command *protocol.LockCommand) error {
     lock_manager := self.GetOrNewLockManager(command)
     lock_manager.glock.Lock()
 
@@ -852,7 +852,7 @@ func (self *LockDB) Lock(server_protocol *ServerProtocol, command *protocol.Lock
     return nil
 }
 
-func (self *LockDB) UnLock(server_protocol *ServerProtocol, command *protocol.LockCommand) (err error) {
+func (self *LockDB) UnLock(server_protocol *ServerProtocol, command *protocol.LockCommand) error {
     lock_manager := self.GetLockManager(command)
     if lock_manager == nil {
         self.slock.Active(server_protocol, command, protocol.RESULT_UNLOCK_ERROR, 0, true)
@@ -957,7 +957,7 @@ func (self *LockDB) UnLock(server_protocol *ServerProtocol, command *protocol.Lo
                     wait_lock = lock_manager.GetWaitLock()
                     if wait_lock == nil {
                         lock_manager.waited = false
-                        return
+                        return nil
                     }
                     continue
                 }

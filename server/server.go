@@ -49,14 +49,14 @@ func (self *Server) Close() {
     }
 }
 
-func (self *Server) AddStream(stream *Stream) (err error) {
+func (self *Server) AddStream(stream *Stream) error {
     defer self.glock.Unlock()
     self.glock.Lock()
     self.streams = append(self.streams, stream)
     return nil
 }
 
-func (self *Server) RemoveStream(stream *Stream) (err error) {
+func (self *Server) RemoveStream(stream *Stream) error {
     defer self.glock.Unlock()
     self.glock.Lock()
     streams := self.streams
@@ -118,7 +118,9 @@ func (self *Server) Handle(stream *Stream) {
 
         err = self.slock.Handle(server_protocol, command.(protocol.ICommand))
         if err != nil {
-            self.slock.Log().Infof("slock handle command error", err)
+            if err != io.EOF {
+                self.slock.Log().Infof("slock handle command error", err)
+            }
             break
         }
     }

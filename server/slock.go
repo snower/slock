@@ -11,6 +11,7 @@ type SLock struct {
     dbs                     []*LockDB
     glock                   *sync.Mutex
     aof                     *Aof
+    admin                   *Admin
     logger                  logging.Logger
     streams                 map[[2]uint64]*ServerProtocol
     free_lock_commands      *LockCommandQueue
@@ -22,10 +23,12 @@ func NewSLock(config *ServerConfig) *SLock {
     SetConfig(config)
 
     aof := NewAof()
+    admin := NewAdmin()
     logger := InitLogger(Config.Log, Config.LogLevel)
-    slock := &SLock{make([]*LockDB, 256), &sync.Mutex{}, aof,logger, make(map[[2]uint64]*ServerProtocol, STREAMS_INIT_COUNT),
+    slock := &SLock{make([]*LockDB, 256), &sync.Mutex{}, aof,admin, logger, make(map[[2]uint64]*ServerProtocol, STREAMS_INIT_COUNT),
         NewLockCommandQueue(16, 64, FREE_COMMAND_QUEUE_INIT_SIZE * 16), &sync.Mutex{}, 0}
     aof.slock = slock
+    admin.slock = slock
     return slock
 }
 
@@ -41,10 +44,15 @@ func (self *SLock) Close()  {
     }
 
     self.aof.Close()
+    self.admin.Close()
 }
 
 func (self *SLock) GetAof() *Aof {
     return self.aof
+}
+
+func (self *SLock) GetAdmin() *Admin {
+    return self.admin
 }
 
 func (self *SLock) GetOrNewDB(db_id uint8) *LockDB {
@@ -64,15 +72,15 @@ func (self *SLock) GetDB(db_id uint8) *LockDB {
     return self.dbs[db_id]
 }
 
-func (self *SLock) DoLockComamnd(db *LockDB, server_protocol *ServerProtocol, command *protocol.LockCommand) (err error) {
+func (self *SLock) DoLockComamnd(db *LockDB, server_protocol *ServerProtocol, command *protocol.LockCommand) error {
     return db.Lock(server_protocol, command)
 }
 
-func (self *SLock) DoUnLockComamnd(db *LockDB, server_protocol *ServerProtocol, command *protocol.LockCommand) (err error) {
+func (self *SLock) DoUnLockComamnd(db *LockDB, server_protocol *ServerProtocol, command *protocol.LockCommand) error {
     return db.UnLock(server_protocol, command)
 }
 
-func (self *SLock) GetState(server_protocol *ServerProtocol, command *protocol.StateCommand) (err error) {
+func (self *SLock) GetState(server_protocol *ServerProtocol, command *protocol.StateCommand) error {
     db_state := uint8(0)
 
     db := self.dbs[command.DbId]
@@ -86,7 +94,7 @@ func (self *SLock) GetState(server_protocol *ServerProtocol, command *protocol.S
     return server_protocol.Write(protocol.NewStateResultCommand(command, protocol.RESULT_SUCCED, 0, db_state, db.GetState()), true)
 }
 
-func (self *SLock) Handle(server_protocol *ServerProtocol, command protocol.ICommand) (err error) {
+func (self *SLock) Handle(server_protocol *ServerProtocol, command protocol.ICommand) error {
     switch command.GetCommandType() {
     case protocol.COMMAND_LOCK:
         lock_command := command.(*protocol.LockCommand)
@@ -104,28 +112,43 @@ func (self *SLock) Handle(server_protocol *ServerProtocol, command protocol.ICom
         }
         return db.UnLock(server_protocol, lock_command)
 
-    case protocol.COMMAND_INIT:
-        init_command := command.(*protocol.InitCommand)
-        server_protocol.client_id = init_command.ClientId
-        server_protocol.inited = true
-        self.glock.Lock()
-        init_type := uint8(0)
-        if _, ok := self.streams[init_command.ClientId]; ok {
-            init_type = 1
-        }
-        self.streams[init_command.ClientId] = server_protocol
-        self.glock.Unlock()
-        return server_protocol.Write(protocol.NewInitResultCommand(init_command, protocol.RESULT_SUCCED, init_type), true)
-
-    case protocol.COMMAND_STATE:
-        return self.GetState(server_protocol, command.(*protocol.StateCommand))
-
     default:
-        return server_protocol.Write(protocol.NewResultCommand(command, protocol.RESULT_UNKNOWN_COMMAND), true)
+        switch command.GetCommandType() {
+        case protocol.COMMAND_INIT:
+            init_command := command.(*protocol.InitCommand)
+            server_protocol.client_id = init_command.ClientId
+            server_protocol.inited = true
+            self.glock.Lock()
+            init_type := uint8(0)
+            if _, ok := self.streams[init_command.ClientId]; ok {
+                init_type = 1
+            }
+            self.streams[init_command.ClientId] = server_protocol
+            self.glock.Unlock()
+            return server_protocol.Write(protocol.NewInitResultCommand(init_command, protocol.RESULT_SUCCED, init_type), true)
+
+        case protocol.COMMAND_STATE:
+            return self.GetState(server_protocol, command.(*protocol.StateCommand))
+
+        case protocol.COMMAND_ADMIN:
+            admin_command := command.(*protocol.AdminCommand)
+            err := server_protocol.Write(protocol.NewAdminResultCommand(admin_command, protocol.RESULT_SUCCED), true)
+            if err != nil {
+                return err
+            }
+            err = self.admin.Handle(server_protocol.stream)
+            if err != nil {
+                return err
+            }
+
+        default:
+            return server_protocol.Write(protocol.NewResultCommand(command, protocol.RESULT_UNKNOWN_COMMAND), true)
+        }
     }
+    return nil
 }
 
-func (self *SLock) Active(server_protocol *ServerProtocol, command *protocol.LockCommand, result uint8, lcount uint16, use_cached_command bool) (err error) {
+func (self *SLock) Active(server_protocol *ServerProtocol, command *protocol.LockCommand, result uint8, lcount uint16, use_cached_command bool) error {
     if server_protocol.closed {
         if !server_protocol.inited {
             return errors.New("server protocol closed")
@@ -190,7 +213,7 @@ func (self *SLock) Active(server_protocol *ServerProtocol, command *protocol.Loc
     buf[54], buf[55], buf[56], buf[57], buf[58], buf[59], buf[60], buf[61] = byte(lcount), byte(lcount >> 8), byte(command.Count), byte(command.Count >> 8), byte(command.Rcount), 0x00, 0x00, 0x00
     buf[62], buf[63] = 0x00, 0x00
 
-    err = server_protocol.stream.WriteBytes(buf)
+    err := server_protocol.stream.WriteBytes(buf)
     free_result_command_lock.Unlock()
     return err
 }
