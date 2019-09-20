@@ -50,11 +50,19 @@ func (self *LockQueue) Push(lock *Lock) error {
 
         if self.tail_node_index >= self.node_size {
             self.queue_size = self.queue_size * 2
+            if self.queue_size > 0x3fffff {
+                self.queue_size = 0x3fffff
+            }
+
             self.queues = append(self.queues, make([]*Lock, self.queue_size))
             self.node_queue_sizes = append(self.node_queue_sizes, self.queue_size)
             self.node_size++
         } else if self.queues[self.tail_node_index] == nil {
             self.queue_size = self.queue_size * 2
+            if self.queue_size > 0x3fffff {
+                self.queue_size = 0x3fffff
+            }
+
             self.queues[self.tail_node_index] = make([]*Lock, self.queue_size)
             self.node_queue_sizes[self.tail_node_index] = self.queue_size
         }
@@ -170,14 +178,12 @@ func (self *LockQueue) Shrink(size int32) int32{
 
 func (self *LockQueue) Reset() error{
     for ; self.tail_node_index >= self.base_node_size; {
-        if self.queue_size > self.base_queue_size {
-            self.queue_size = self.queue_size / 2
-        }
         self.queues[self.tail_node_index] = nil
         self.node_queue_sizes[self.tail_node_index] = 0
         self.tail_node_index--
     }
 
+    self.queue_size = self.base_queue_size * int32(uint32(1) << uint32(self.tail_node_index))
     self.head_node_index = 0
     self.head_queue_index = 0
     self.head_queue = self.queues[0]
@@ -186,6 +192,20 @@ func (self *LockQueue) Reset() error{
     self.tail_queue_index = 0
     self.head_queue_size = self.node_queue_sizes[0]
     self.tail_queue_size = self.node_queue_sizes[0]
+    return nil
+}
+
+func (self *LockQueue) Resize() error {
+    move_index := self.head_node_index - self.base_node_size
+
+    for i := self.head_node_index; i <= self.tail_node_index; i++ {
+        self.queues[i - move_index] = self.queues[i]
+        self.node_queue_sizes[i - move_index] = self.node_queue_sizes[i]
+        self.queues[i] = nil
+        self.node_queue_sizes[i] = 0
+    }
+    self.head_node_index -= move_index
+    self.tail_node_index -= move_index
     return nil
 }
 
@@ -217,12 +237,13 @@ func (self *LockQueue) Restructuring() error {
     }
 
     for tail_node_index > self.tail_node_index + 1 {
-        if self.queue_size > self.base_queue_size {
-            self.queue_size = self.queue_size / 2
-        }
         self.queues[tail_node_index] = nil
         self.node_queue_sizes[tail_node_index] = 0
         tail_node_index--
+    }
+    self.queue_size = self.base_queue_size * int32(uint32(1) << uint32(tail_node_index))
+    if self.queue_size > 0x3fffff {
+        self.queue_size = 0x3fffff
     }
 
     return nil
@@ -286,11 +307,17 @@ func (self *LockCommandQueue) Push(lock *protocol.LockCommand) error {
 
         if self.tail_node_index >= self.node_size {
             self.queue_size = self.queue_size * 2
+            if self.queue_size > 0x3fffff {
+                self.queue_size = 0x3fffff
+            }
             self.queues = append(self.queues, make([]*protocol.LockCommand, self.queue_size))
             self.node_queue_sizes = append(self.node_queue_sizes, self.queue_size)
             self.node_size++
         } else if self.queues[self.tail_node_index] == nil {
             self.queue_size = self.queue_size * 2
+            if self.queue_size > 0x3fffff {
+                self.queue_size = 0x3fffff
+            }
             self.queues[self.tail_node_index] = make([]*protocol.LockCommand, self.queue_size)
             self.node_queue_sizes[self.tail_node_index] = self.queue_size
         }
@@ -406,14 +433,12 @@ func (self *LockCommandQueue) Shrink(size int32) int32{
 
 func (self *LockCommandQueue) Reset() error{
     for ; self.tail_node_index >= self.base_node_size; {
-        if self.queue_size > self.base_queue_size {
-            self.queue_size = self.queue_size / 2
-        }
         self.queues[self.tail_node_index] = nil
         self.node_queue_sizes[self.tail_node_index] = 0
         self.tail_node_index--
     }
 
+    self.queue_size = self.base_queue_size * int32(uint32(1) << uint32(self.tail_node_index))
     self.head_node_index = 0
     self.head_queue_index = 0
     self.head_queue = self.queues[0]
@@ -422,6 +447,20 @@ func (self *LockCommandQueue) Reset() error{
     self.tail_queue_index = 0
     self.head_queue_size = self.node_queue_sizes[0]
     self.tail_queue_size = self.node_queue_sizes[0]
+    return nil
+}
+
+func (self *LockCommandQueue) Resize() error {
+    move_index := self.head_node_index - self.base_node_size
+
+    for i := self.head_node_index; i <= self.tail_node_index; i++ {
+        self.queues[i - move_index] = self.queues[i]
+        self.node_queue_sizes[i - move_index] = self.node_queue_sizes[i]
+        self.queues[i] = nil
+        self.node_queue_sizes[i] = 0
+    }
+    self.head_node_index -= move_index
+    self.tail_node_index -= move_index
     return nil
 }
 
@@ -453,12 +492,13 @@ func (self *LockCommandQueue) Restructuring() error {
     }
 
     for tail_node_index > self.tail_node_index + 1 {
-        if self.queue_size > self.base_queue_size {
-            self.queue_size = self.queue_size / 2
-        }
         self.queues[tail_node_index] = nil
         self.node_queue_sizes[tail_node_index] = 0
         tail_node_index--
+    }
+    self.queue_size = self.base_queue_size * int32(uint32(1) << uint32(tail_node_index))
+    if self.queue_size > 0x3fffff {
+        self.queue_size = 0x3fffff
     }
 
     return nil

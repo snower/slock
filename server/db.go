@@ -14,6 +14,12 @@ type LongWaitLockQueue struct {
     glock_index     int8
 }
 
+type LongWaitLockFreeQueue struct {
+    queues          []*LongWaitLockQueue
+    free_index      int
+    max_free_count  int
+}
+
 type LockDB struct {
     slock                       *SLock
     locks                       map[[2]uint64]*LockManager
@@ -28,6 +34,7 @@ type LockDB struct {
     manager_glocks              []*sync.Mutex
     free_lock_managers          []*LockManager
     free_locks                  []*LockQueue
+    free_long_wait_queues       []*LongWaitLockFreeQueue
     aof_channels                []*AofChannel
     free_lock_manager_count     int32
     max_free_lock_manager_count int32
@@ -43,10 +50,12 @@ func NewLockDB(slock *SLock) *LockDB {
     max_free_lock_manager_count := int32(manager_max_glocks) * MANAGER_MAX_GLOCKS_INIT_SIZE
     manager_glocks := make([]*sync.Mutex, manager_max_glocks)
     free_locks := make([]*LockQueue, manager_max_glocks)
+    free_long_wait_queues := make([]*LongWaitLockFreeQueue, manager_max_glocks)
     aof_channels := make([]*AofChannel, manager_max_glocks)
     for i:=int8(0); i< manager_max_glocks; i++{
         manager_glocks[i] = &sync.Mutex{}
         free_locks[i] = NewLockQueue(2, 16, FREE_LOCK_QUEUE_INIT_SIZE)
+        free_long_wait_queues[i] = &LongWaitLockFreeQueue{make([]*LongWaitLockQueue, FREE_LONG_WAIT_QUEUE_INIT_SIZE), -1, FREE_LONG_WAIT_QUEUE_INIT_SIZE - 1}
     }
     aof_time := uint8(Config.DBLockAofTime)
 
@@ -54,8 +63,8 @@ func NewLockDB(slock *SLock) *LockDB {
     db := &LockDB{slock, make(map[[2]uint64]*LockManager, max_free_lock_manager_count), make([][]*LockQueue, TIMEOUT_QUEUE_LENGTH),
         make([][]*LockQueue, EXPRIED_QUEUE_LENGTH), make([]map[int64]*LongWaitLockQueue, manager_max_glocks),
         make([]map[int64]*LongWaitLockQueue, manager_max_glocks),now, now, now, &sync.Mutex{},
-        manager_glocks, make([]*LockManager, max_free_lock_manager_count), free_locks, aof_channels, -1,
-        max_free_lock_manager_count - 1, 0, manager_max_glocks, aof_time,false, protocol.LockDBState{}}
+        manager_glocks, make([]*LockManager, max_free_lock_manager_count), free_locks, free_long_wait_queues, aof_channels,
+        -1, max_free_lock_manager_count - 1, 0, manager_max_glocks, aof_time,false, protocol.LockDBState{}}
 
     db.ResizeAofChannels()
     db.ResizeTimeOut()
@@ -202,6 +211,12 @@ func (self *LockDB) CheckTimeTimeOut(check_timeout_time int64, now int64) {
             }
             self.manager_glocks[i].Lock()
             delete(self.long_timeout_locks[i], check_timeout_time)
+            if self.free_long_wait_queues[i].free_index < self.free_long_wait_queues[i].max_free_count {
+                long_locks.locks.Reset()
+                long_locks.free_count = 0
+                self.free_long_wait_queues[i].free_index++
+                self.free_long_wait_queues[i].queues[self.free_long_wait_queues[i].free_index] = long_locks
+            }
             self.manager_glocks[i].Unlock()
         }
     }
@@ -268,6 +283,12 @@ func (self *LockDB) RestructuringLongTimeOutQueue() {
                 long_locks.free_count = 0
                 if long_locks.locks.Len() == 0 {
                     delete(self.long_timeout_locks[i], lock_time)
+                    if self.free_long_wait_queues[i].free_index < self.free_long_wait_queues[i].max_free_count {
+                        long_locks.locks.Reset()
+                        long_locks.free_count = 0
+                        self.free_long_wait_queues[i].free_index++
+                        self.free_long_wait_queues[i].queues[self.free_long_wait_queues[i].free_index] = long_locks
+                    }
                 }
             }
             self.manager_glocks[i].Unlock()
@@ -350,6 +371,12 @@ func (self *LockDB) CheckTimeExpried(check_expried_time int64, now int64){
             }
             self.manager_glocks[i].Lock()
             delete(self.long_expried_locks[i], check_expried_time)
+            if self.free_long_wait_queues[i].free_index < self.free_long_wait_queues[i].max_free_count {
+                long_locks.locks.Reset()
+                long_locks.free_count = 0
+                self.free_long_wait_queues[i].free_index++
+                self.free_long_wait_queues[i].queues[self.free_long_wait_queues[i].free_index] = long_locks
+            }
             self.manager_glocks[i].Unlock()
         }
     }
@@ -416,6 +443,12 @@ func (self *LockDB) RestructuringLongExpriedQueue() {
                 long_locks.free_count = 0
                 if long_locks.locks.Len() == 0 {
                     delete(self.long_expried_locks[i], lock_time)
+                    if self.free_long_wait_queues[i].free_index < self.free_long_wait_queues[i].max_free_count {
+                        long_locks.locks.Reset()
+                        long_locks.free_count = 0
+                        self.free_long_wait_queues[i].free_index++
+                        self.free_long_wait_queues[i].queues[self.free_long_wait_queues[i].free_index] = long_locks
+                    }
                 }
             }
             self.manager_glocks[i].Unlock()
@@ -442,7 +475,7 @@ func (self *LockDB) GetOrNewLockManager(command *protocol.LockCommand) *LockMana
             lock_managers[i].db_id = command.DbId
             lock_managers[i].locks = NewLockQueue(4, 16, 4)
             lock_managers[i].lock_maps = make(map[[2]uint64]*Lock, 8)
-            lock_managers[i].wait_locks = NewLockQueue(4, 16, 4)
+            lock_managers[i].wait_locks = NewLockQueue(4, 32, 4)
             lock_managers[i].glock = self.manager_glocks[self.manager_glock_index]
             lock_managers[i].glock_index = self.manager_glock_index
             lock_managers[i].free_locks = self.free_locks[self.manager_glock_index]
@@ -523,7 +556,13 @@ func (self *LockDB) AddTimeOut(lock *Lock){
         }
 
         if long_locks, ok := self.long_timeout_locks[lock.manager.glock_index][lock.timeout_time]; !ok {
-            long_locks = &LongWaitLockQueue{NewLockQueue(2, 64, LONG_TIMEOUT_LOCKS_QUEUE_INIT_SIZE), lock.timeout_time, 0, lock.manager.glock_index}
+            if self.free_long_wait_queues[lock.manager.glock_index].free_index < 0 {
+                long_locks = &LongWaitLockQueue{NewLockQueue(2, 64, LONG_LOCKS_QUEUE_INIT_SIZE), lock.timeout_time, 0, lock.manager.glock_index}
+            } else {
+                long_locks = self.free_long_wait_queues[lock.manager.glock_index].queues[self.free_long_wait_queues[lock.manager.glock_index].free_index]
+                self.free_long_wait_queues[lock.manager.glock_index].free_index--
+                long_locks.lock_time = lock.timeout_time
+            }
             self.long_timeout_locks[lock.manager.glock_index][lock.timeout_time] = long_locks
             if long_locks.locks.Push(lock) == nil {
                 lock.long_wait_index = uint64(long_locks.locks.tail_node_index) << 32 & uint64(long_locks.locks.tail_queue_index)
@@ -609,7 +648,13 @@ func (self *LockDB) AddExpried(lock *Lock){
         }
 
         if long_locks, ok := self.long_expried_locks[lock.manager.glock_index][lock.expried_time]; !ok {
-            long_locks = &LongWaitLockQueue{NewLockQueue(2, 64, LONG_EXPRIED_LOCKS_QUEUE_INIT_SIZE), lock.expried_time, 0, lock.manager.glock_index}
+            if self.free_long_wait_queues[lock.manager.glock_index].free_index < 0 {
+                long_locks = &LongWaitLockQueue{NewLockQueue(2, 64, LONG_LOCKS_QUEUE_INIT_SIZE), lock.expried_time, 0, lock.manager.glock_index}
+            } else {
+                long_locks = self.free_long_wait_queues[lock.manager.glock_index].queues[self.free_long_wait_queues[lock.manager.glock_index].free_index]
+                self.free_long_wait_queues[lock.manager.glock_index].free_index--
+                long_locks.lock_time = lock.expried_time
+            }
             self.long_expried_locks[lock.manager.glock_index][lock.expried_time] = long_locks
             if long_locks.locks.Push(lock) == nil {
                 lock.long_wait_index = uint64(long_locks.locks.tail_node_index) << 32 & uint64(long_locks.locks.tail_queue_index)

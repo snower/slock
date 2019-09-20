@@ -200,6 +200,69 @@ func TestLockQueueReset(t *testing.T) {
     }
 }
 
+func TestLockQueueResize(t *testing.T) {
+    l := &Lock{}
+    q := NewLockQueue(2, 6, 4)
+    qlen := 0
+
+    for i := 0; i < 1000; i++  {
+        if rand.Intn(100) < 60 {
+            if q.Push(l) == nil {
+                qlen++
+            }
+        } else {
+            if q.Pop() != nil {
+                qlen--
+            }
+        }
+    }
+
+    if q.Len() != int32(qlen) {
+        t.Error("LockQueue Len Fail")
+        return
+    }
+    ht := q.tail_node_index - q.head_node_index
+
+    q.Resize()
+    if q.Len() != int32(qlen) {
+        t.Error("LockQueue Len Fail")
+        return
+    }
+
+    if q.head_node_index != q.base_node_size || q.tail_node_index - q.head_node_index != ht {
+        t.Error("LockQueue Node Index Fail")
+        return
+    }
+
+    for ; q.Pop() != nil; {
+        qlen--
+    }
+
+    q.Resize()
+    if q.Len() != int32(qlen) {
+        t.Error("LockQueue Len Fail")
+        return
+    }
+
+    if q.head_node_index != q.base_node_size || q.tail_node_index - q.head_node_index != 0 {
+        t.Error("LockQueue Empty Node Index Fail")
+        return
+    }
+
+    q.Reset()
+    node_size := 0
+    for _, node_queue := range q.queues {
+        if node_queue == nil {
+            break
+        }
+        node_size++
+    }
+    if q.queue_size != q.base_queue_size * int32(uint32(1) << uint32(node_size - 1)) {
+        t.Error("LockQueue Resize queue_size Fail")
+        return
+    }
+}
+
 func TestLockQueueRestructuring(t *testing.T) {
     l := &Lock{}
     q := NewLockQueue(2, 6, 4)
@@ -251,7 +314,7 @@ func TestLockQueueRestructuring(t *testing.T) {
         node_size++
     }
     if q.queue_size != q.base_queue_size * int32(uint32(1) << uint32(node_size - 1)) {
-        t.Error("LockQueue Restructuring queue_size Fail")
+        t.Errorf("LockQueue Restructuring queue_size Fail %d %d", q.queue_size, q.base_queue_size * int32(uint32(1) << uint32(node_size - 1)))
         return
     }
 
@@ -459,6 +522,69 @@ func TestLockCommandQueueReset(t *testing.T) {
     }
 }
 
+func TestLockCommandQueueResize(t *testing.T) {
+    l := &protocol.LockCommand{}
+    q := NewLockCommandQueue(2, 3, 4)
+    qlen := 0
+
+    for i := 0; i < 1000; i++  {
+        if rand.Intn(100) < 60 {
+            if q.Push(l) == nil {
+                qlen++
+            }
+        } else {
+            if q.Pop() != nil {
+                qlen--
+            }
+        }
+    }
+
+    if q.Len() != int32(qlen) {
+        t.Error("LockQueue Len Fail")
+        return
+    }
+    ht := q.tail_node_index - q.head_node_index
+
+    q.Resize()
+    if q.Len() != int32(qlen) {
+        t.Error("LockQueue Len Fail")
+        return
+    }
+
+    if q.head_node_index != q.base_node_size || q.tail_node_index - q.head_node_index != ht {
+        t.Error("LockQueue Node Index Fail")
+        return
+    }
+
+    for ; q.Pop() != nil; {
+        qlen--
+    }
+
+    q.Resize()
+    if q.Len() != int32(qlen) {
+        t.Error("LockQueue Len Fail")
+        return
+    }
+
+    if q.head_node_index != q.base_node_size || q.tail_node_index - q.head_node_index != 0 {
+        t.Error("LockQueue Empty Node Index Fail")
+        return
+    }
+
+    q.Reset()
+    node_size := 0
+    for _, node_queue := range q.queues {
+        if node_queue == nil {
+            break
+        }
+        node_size++
+    }
+    if q.queue_size != q.base_queue_size * int32(uint32(1) << uint32(node_size - 1)) {
+        t.Error("LockQueue Resize queue_size Fail")
+        return
+    }
+}
+
 func TestLockCommandQueueRestructuring(t *testing.T) {
     l := &Lock{}
     q := NewLockQueue(2, 6, 4)
@@ -510,7 +636,7 @@ func TestLockCommandQueueRestructuring(t *testing.T) {
         node_size++
     }
     if q.queue_size != q.base_queue_size * int32(uint32(1) << uint32(node_size - 1)) {
-        t.Error("LockQueue Restructuring queue_size Fail")
+        t.Errorf("LockQueue Restructuring queue_size Fail %d %d", q.queue_size, q.base_queue_size * int32(uint32(1) << uint32(node_size - 1)))
         return
     }
 

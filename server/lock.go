@@ -84,6 +84,9 @@ func (self *LockManager) RemoveLock(lock *Lock) *Lock {
             }
 
             locked_lock = self.locks.Pop()
+            if self.locks.head_node_index >= 8 {
+                self.locks.Resize()
+            }
         }
 
         return lock
@@ -107,6 +110,9 @@ func (self *LockManager) RemoveLock(lock *Lock) *Lock {
         }
 
         locked_lock = self.locks.Head()
+        if self.locks.head_node_index >= 8 {
+            self.locks.Resize()
+        }
     }
     return lock
 }
@@ -167,6 +173,9 @@ func (self *LockManager) GetWaitLock() *Lock {
             }
 
             lock = self.wait_locks.Head()
+            if self.wait_locks.head_node_index >= 8 {
+                self.wait_locks.Resize()
+            }
         }
         return lock
     }
