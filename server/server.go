@@ -106,20 +106,20 @@ func (self *Server) Handle(stream *Stream) {
         command, err := server_protocol.Read()
         if err != nil {
             if err != io.EOF {
-                self.slock.Log().Infof("read command error: %v", err)
+                self.slock.Log().Errorf("read command error: %v", err)
             }
             break
         }
 
         if command == nil {
-            self.slock.Log().Infof("read command decode error", err)
+            self.slock.Log().Errorf("read command decode error", err)
             break
         }
 
         err = self.slock.Handle(server_protocol, command.(protocol.ICommand))
         if err != nil {
             if err != io.EOF {
-                self.slock.Log().Infof("slock handle command error", err)
+                self.slock.Log().Errorf("slock handle command error", err)
             }
             break
         }

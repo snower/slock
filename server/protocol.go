@@ -77,7 +77,7 @@ func (self *ServerProtocol) Close() error {
 
     if self.stream != nil {
         if self.stream.Close() != nil {
-            self.slock.Log().Infof("connection close error: %s", self.RemoteAddr().String())
+            self.slock.Log().Errorf("connection close error: %s", self.RemoteAddr().String())
         } else {
             self.slock.Log().Infof("connection close %s", self.RemoteAddr().String())
         }
