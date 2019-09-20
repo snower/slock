@@ -957,6 +957,12 @@ func (self *LockDB) AddMillisecondExpried(lock *Lock) {
         go self.CheckMillisecondExpried(ms, lock.manager.glock_index)
     }
     lock_queue.Push(lock)
+
+    if !lock.is_aof && lock.aof_time == 0 {
+        if self.aof_channels[lock.manager.glock_index].Push(lock, protocol.COMMAND_LOCK) == nil {
+            lock.is_aof = true
+        }
+    }
 }
 
 func (self *LockDB) Lock(server_protocol *ServerProtocol, command *protocol.LockCommand) error {
