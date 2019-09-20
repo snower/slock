@@ -734,7 +734,7 @@ func (self *LockDB) RemoveTimeOut(lock *Lock){
 func (self *LockDB) RemoveLongTimeOut(lock *Lock){
     // lock.timeouted = true
     long_locks := self.long_timeout_locks[lock.manager.glock_index][lock.timeout_time]
-    long_locks.locks.queues[int32(lock.long_wait_index >> 32)][int32(lock.long_wait_index & 0xffffffff)] = nil
+    long_locks.locks.queues[int32(lock.long_wait_index >> 32)][int32(lock.long_wait_index & 0xffffffff) - 1] = nil
     long_locks.free_count++
     lock.long_wait_index = 0
     lock.ref_count--
@@ -848,7 +848,7 @@ func (self *LockDB) RemoveExpried(lock *Lock){
 
 func (self *LockDB) RemoveLongExpried(lock *Lock){
     long_locks := self.long_expried_locks[lock.manager.glock_index][lock.expried_time]
-    long_locks.locks.queues[int32(lock.long_wait_index >> 32)][int32(lock.long_wait_index & 0xffffffff)] = nil
+    long_locks.locks.queues[int32(lock.long_wait_index >> 32)][int32(lock.long_wait_index & 0xffffffff) - 1] = nil
     long_locks.free_count++
     lock.long_wait_index = 0
     lock.ref_count--
