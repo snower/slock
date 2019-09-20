@@ -196,8 +196,11 @@ func (self *LockQueue) Reset() error{
 }
 
 func (self *LockQueue) Resize() error {
-    move_index := self.head_node_index - self.base_node_size
+    if self.head_node_index <= self.base_node_size {
+        return nil
+    }
 
+    move_index := self.head_node_index - self.base_node_size
     for i := self.head_node_index; i <= self.tail_node_index; i++ {
         self.queues[i - move_index] = self.queues[i]
         self.node_queue_sizes[i - move_index] = self.node_queue_sizes[i]
@@ -451,8 +454,11 @@ func (self *LockCommandQueue) Reset() error{
 }
 
 func (self *LockCommandQueue) Resize() error {
-    move_index := self.head_node_index - self.base_node_size
+    if self.head_node_index <= self.base_node_size {
+        return nil
+    }
 
+    move_index := self.head_node_index - self.base_node_size
     for i := self.head_node_index; i <= self.tail_node_index; i++ {
         self.queues[i - move_index] = self.queues[i]
         self.node_queue_sizes[i - move_index] = self.node_queue_sizes[i]

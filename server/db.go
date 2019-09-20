@@ -197,19 +197,21 @@ func (self *LockDB) CheckTimeTimeOut(check_timeout_time int64, now int64) {
     for _, lock := range do_timeout_locks {
         self.DoTimeOut(lock)
     }
+    do_timeout_locks = do_timeout_locks[:0]
 
     for i := int8(0); i < self.manager_max_glocks; i++ {
+        self.manager_glocks[i].Lock()
         if long_locks, ok := self.long_timeout_locks[i][check_timeout_time]; ok {
             long_lock_count := long_locks.locks.Len()
             for ; long_lock_count > 0; {
                 lock := long_locks.locks.Pop()
                 if lock != nil {
                     lock.long_wait_index = 0
-                    self.DoTimeOut(lock)
+                    do_timeout_locks = append(do_timeout_locks, lock)
                 }
                 long_lock_count--
             }
-            self.manager_glocks[i].Lock()
+
             delete(self.long_timeout_locks[i], check_timeout_time)
             if self.free_long_wait_queues[i].free_index < self.free_long_wait_queues[i].max_free_count {
                 long_locks.locks.Reset()
@@ -217,8 +219,12 @@ func (self *LockDB) CheckTimeTimeOut(check_timeout_time int64, now int64) {
                 self.free_long_wait_queues[i].free_index++
                 self.free_long_wait_queues[i].queues[self.free_long_wait_queues[i].free_index] = long_locks
             }
-            self.manager_glocks[i].Unlock()
         }
+        self.manager_glocks[i].Unlock()
+    }
+
+    for _, lock := range do_timeout_locks {
+        self.DoTimeOut(lock)
     }
 }
 
@@ -358,19 +364,21 @@ func (self *LockDB) CheckTimeExpried(check_expried_time int64, now int64){
     for _, lock := range do_expried_locks {
         self.DoExpried(lock)
     }
+    do_expried_locks = do_expried_locks[:0]
 
     for i := int8(0); i < self.manager_max_glocks; i++ {
+        self.manager_glocks[i].Lock()
         if long_locks, ok := self.long_expried_locks[i][check_expried_time]; ok {
             long_lock_count := long_locks.locks.Len()
             for ; long_lock_count > 0; {
                 lock := long_locks.locks.Pop()
                 if lock != nil {
                     lock.long_wait_index = 0
-                    self.DoExpried(lock)
+                    do_expried_locks = append(do_expried_locks, lock)
                 }
                 long_lock_count--
             }
-            self.manager_glocks[i].Lock()
+
             delete(self.long_expried_locks[i], check_expried_time)
             if self.free_long_wait_queues[i].free_index < self.free_long_wait_queues[i].max_free_count {
                 long_locks.locks.Reset()
@@ -378,8 +386,12 @@ func (self *LockDB) CheckTimeExpried(check_expried_time int64, now int64){
                 self.free_long_wait_queues[i].free_index++
                 self.free_long_wait_queues[i].queues[self.free_long_wait_queues[i].free_index] = long_locks
             }
-            self.manager_glocks[i].Unlock()
         }
+        self.manager_glocks[i].Unlock()
+    }
+
+    for _, lock := range do_expried_locks {
+        self.DoExpried(lock)
     }
 }
 
