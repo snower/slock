@@ -216,10 +216,9 @@ func (self *LockDB) CheckTimeTimeOut(check_timeout_time int64, now int64) {
             lock.ref_count--
             if lock.ref_count == 0 {
                 lock_manager.FreeLock(lock)
-            }
-
-            if lock_manager.ref_count == 0 {
-                self.RemoveLockManager(lock_manager)
+                if lock_manager.ref_count == 0 {
+                    self.RemoveLockManager(lock_manager)
+                }
             }
 
             lock = timeout_locks[i].Pop()
@@ -288,10 +287,9 @@ func (self *LockDB) CheckMillisecondTimeOut(ms int64, glock_index int8){
             lock.ref_count--
             if lock.ref_count == 0 {
                 lock_manager.FreeLock(lock)
-            }
-
-            if lock_manager.ref_count == 0 {
-                self.RemoveLockManager(lock_manager)
+                if lock_manager.ref_count == 0 {
+                    self.RemoveLockManager(lock_manager)
+                }
             }
 
             lock = lock_queue.Pop()
@@ -432,10 +430,9 @@ func (self *LockDB) CheckTimeExpried(check_expried_time int64, now int64){
             lock.ref_count--
             if lock.ref_count == 0 {
                 lock_manager.FreeLock(lock)
-            }
-
-            if lock_manager.ref_count == 0 {
-                self.RemoveLockManager(lock_manager)
+                if lock_manager.ref_count == 0 {
+                    self.RemoveLockManager(lock_manager)
+                }
             }
             lock = expried_locks[i].Pop()
         }
@@ -503,10 +500,9 @@ func (self *LockDB) CheckMillisecondExpried(ms int64, glock_index int8){
             lock.ref_count--
             if lock.ref_count == 0 {
                 lock_manager.FreeLock(lock)
-            }
-
-            if lock_manager.ref_count == 0 {
-                self.RemoveLockManager(lock_manager)
+                if lock_manager.ref_count == 0 {
+                    self.RemoveLockManager(lock_manager)
+                }
             }
 
             lock = lock_queue.Pop()
@@ -752,11 +748,11 @@ func (self *LockDB) DoTimeOut(lock *Lock){
         lock.ref_count--
         if lock.ref_count == 0 {
             lock_manager.FreeLock(lock)
+            if lock_manager.ref_count == 0 {
+                self.RemoveLockManager(lock_manager)
+            }
         }
 
-        if lock_manager.ref_count == 0 {
-            self.RemoveLockManager(lock_manager)
-        }
         lock_manager.glock.Unlock()
         return
     }
@@ -767,11 +763,11 @@ func (self *LockDB) DoTimeOut(lock *Lock){
     lock.ref_count--
     if lock.ref_count == 0 {
         lock_manager.FreeLock(lock)
+        if lock_manager.ref_count == 0 {
+            self.RemoveLockManager(lock_manager)
+        }
     }
 
-    if lock_manager.ref_count == 0 {
-        self.RemoveLockManager(lock_manager)
-    }
     lock_manager.glock.Unlock()
 
     self.slock.Active(lock_protocol, lock_command, protocol.RESULT_TIMEOUT, lock_manager.locked, false)
@@ -865,11 +861,11 @@ func (self *LockDB) DoExpried(lock *Lock){
         lock.ref_count--
         if lock.ref_count == 0 {
             lock_manager.FreeLock(lock)
+            if lock_manager.ref_count == 0 {
+                self.RemoveLockManager(lock_manager)
+            }
         }
 
-        if lock_manager.ref_count == 0 {
-            self.RemoveLockManager(lock_manager)
-        }
         lock_manager.glock.Unlock()
         return
     }
@@ -884,11 +880,11 @@ func (self *LockDB) DoExpried(lock *Lock){
     lock.ref_count--
     if lock.ref_count == 0 {
         lock_manager.FreeLock(lock)
+        if lock_manager.ref_count == 0 {
+            self.RemoveLockManager(lock_manager)
+        }
     }
 
-    if lock_manager.ref_count == 0 {
-        self.RemoveLockManager(lock_manager)
-    }
     lock_manager.glock.Unlock()
 
     self.slock.Active(lock_protocol, lock_command, protocol.RESULT_EXPRIED, lock_manager.locked, false)
@@ -1153,13 +1149,22 @@ func (self *LockDB) UnLock(server_protocol *ServerProtocol, command *protocol.Lo
         if command.Rcount == 0 {
             //self.RemoveExpried(current_lock)
             lock_locked := current_lock.locked
+            current_lock_command := current_lock.command
             current_lock.expried = true
             if current_lock.long_wait_index > 0 {
                 self.RemoveLongExpried(current_lock)
+                lock_manager.RemoveLock(current_lock)
+
+                if current_lock.ref_count == 0 {
+                    lock_manager.FreeLock(current_lock)
+                    if lock_manager.ref_count == 0 {
+                        self.RemoveLockManager(lock_manager)
+                    }
+                }
+            } else {
+                lock_manager.RemoveLock(current_lock)
             }
 
-            current_lock_command := current_lock.command
-            lock_manager.RemoveLock(current_lock)
             lock_manager.locked-=uint16(lock_locked)
             lock_manager.glock.Unlock()
 
@@ -1181,14 +1186,23 @@ func (self *LockDB) UnLock(server_protocol *ServerProtocol, command *protocol.Lo
             atomic.AddUint32(&self.state.LockedCount, 0xffffffff)
         }
     } else {
+        current_lock_command := current_lock.command
         //self.RemoveExpried(current_lock)
         current_lock.expried = true
         if current_lock.long_wait_index > 0 {
             self.RemoveLongExpried(current_lock)
+            lock_manager.RemoveLock(current_lock)
+
+            if current_lock.ref_count == 0 {
+                lock_manager.FreeLock(current_lock)
+                if lock_manager.ref_count == 0 {
+                    self.RemoveLockManager(lock_manager)
+                }
+            }
+        } else {
+            lock_manager.RemoveLock(current_lock)
         }
 
-        current_lock_command := current_lock.command
-        lock_manager.RemoveLock(current_lock)
         lock_manager.locked--
         lock_manager.glock.Unlock()
 
@@ -1252,6 +1266,9 @@ func (self *LockDB) DoLock(lock_manager *LockManager, lock *Lock) bool{
 func (self *LockDB) WakeUpWaitLock(lock_manager *LockManager, wait_lock *Lock, server_protocol *ServerProtocol) *Lock {
     if wait_lock.timeouted {
         wait_lock = lock_manager.GetWaitLock()
+        if lock_manager.ref_count == 0 {
+            self.RemoveLockManager(lock_manager)
+        }
         lock_manager.glock.Unlock()
         return wait_lock
     }
