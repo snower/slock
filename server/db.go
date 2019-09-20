@@ -229,11 +229,6 @@ func (self *LockDB) CheckTimeTimeOut(check_timeout_time int64, now int64) {
         self.manager_glocks[i].Unlock()
     }
 
-    for _, lock := range do_timeout_locks {
-        self.DoTimeOut(lock)
-    }
-    do_timeout_locks = do_timeout_locks[:0]
-
     for i := int8(0); i < self.manager_max_glocks; i++ {
         self.manager_glocks[i].Lock()
         if long_locks, ok := self.long_timeout_locks[i][check_timeout_time]; ok {
@@ -448,11 +443,6 @@ func (self *LockDB) CheckTimeExpried(check_expried_time int64, now int64){
         expried_locks[i].Reset()
         self.manager_glocks[i].Unlock()
     }
-
-    for _, lock := range do_expried_locks {
-        self.DoExpried(lock)
-    }
-    do_expried_locks = do_expried_locks[:0]
 
     for i := int8(0); i < self.manager_max_glocks; i++ {
         self.manager_glocks[i].Lock()
