@@ -1,5 +1,7 @@
 package server
 
+const QUEUE_MAX_MALLOC_SIZE = 0x3fffff
+
 const TIMEOUT_QUEUE_LENGTH int64 = 0x10
 const EXPRIED_QUEUE_LENGTH int64 = 0x10
 const TIMEOUT_QUEUE_LENGTH_MASK int64 = 0x0f

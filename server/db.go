@@ -272,12 +272,13 @@ func (self *LockDB) RestructuringLongTimeOutQueue() {
                 }
 
                 for tail_node_index > long_locks.locks.tail_node_index + 1 {
-                    if long_locks.locks.queue_size > long_locks.locks.base_queue_size {
-                        long_locks.locks.queue_size = long_locks.locks.queue_size / 2
-                    }
                     long_locks.locks.queues[tail_node_index] = nil
                     long_locks.locks.node_queue_sizes[tail_node_index] = 0
                     tail_node_index--
+                }
+                long_locks.locks.queue_size = long_locks.locks.base_queue_size * int32(uint32(1) << uint32(tail_node_index))
+                if long_locks.locks.queue_size > QUEUE_MAX_MALLOC_SIZE {
+                    long_locks.locks.queue_size = QUEUE_MAX_MALLOC_SIZE
                 }
 
                 long_locks.free_count = 0
@@ -432,12 +433,13 @@ func (self *LockDB) RestructuringLongExpriedQueue() {
                 }
 
                 for tail_node_index > long_locks.locks.tail_node_index + 1 {
-                    if long_locks.locks.queue_size > long_locks.locks.base_queue_size {
-                        long_locks.locks.queue_size = long_locks.locks.queue_size / 2
-                    }
                     long_locks.locks.queues[tail_node_index] = nil
                     long_locks.locks.node_queue_sizes[tail_node_index] = 0
                     tail_node_index--
+                }
+                long_locks.locks.queue_size = long_locks.locks.base_queue_size * int32(uint32(1) << uint32(tail_node_index))
+                if long_locks.locks.queue_size > QUEUE_MAX_MALLOC_SIZE {
+                    long_locks.locks.queue_size = QUEUE_MAX_MALLOC_SIZE
                 }
 
                 long_locks.free_count = 0
