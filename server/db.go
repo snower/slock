@@ -662,9 +662,9 @@ func (self *LockDB) GetOrNewLockManager(command *protocol.LockCommand) *LockMana
     self.free_lock_manager_count--
     lock_manager.freed = false
     self.locks[command.LockKey] = lock_manager
-    self.state.KeyCount++
     self.glock.Unlock()
 
+    atomic.AddUint32(&self.state.KeyCount, 1)
     lock_manager.lock_key = command.LockKey
     return lock_manager
 }
@@ -691,7 +691,7 @@ func (self *LockDB) RemoveLockManager(lock_manager *LockManager){
         if self.free_lock_manager_count < self.max_free_lock_manager_count {
             self.free_lock_manager_count++
             self.free_lock_managers[self.free_lock_manager_count] = lock_manager
-            self.state.KeyCount--
+            self.glock.Unlock()
 
             if lock_manager.locks != nil {
                 lock_manager.locks.Reset()
@@ -699,9 +699,7 @@ func (self *LockDB) RemoveLockManager(lock_manager *LockManager){
             if lock_manager.wait_locks != nil {
                 lock_manager.wait_locks.Reset()
             }
-            self.glock.Unlock()
         } else {
-            self.state.KeyCount--
             self.glock.Unlock()
 
             lock_manager.current_lock = nil
@@ -710,6 +708,7 @@ func (self *LockDB) RemoveLockManager(lock_manager *LockManager){
             lock_manager.wait_locks = nil
             lock_manager.free_locks = nil
         }
+        atomic.AddUint32(&self.state.KeyCount, 0xffffffff)
         return
     }
 
