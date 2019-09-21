@@ -69,7 +69,7 @@ func (self *LockManager) RemoveLock(lock *Lock) *Lock {
 
         locked_lock := self.locks.Pop()
         for ; locked_lock != nil; {
-            if locked_lock.locked != 0 {
+            if locked_lock.locked > 0 {
                 _, ok := self.lock_maps[locked_lock.command.LockId]
                 if ok {
                     delete(self.lock_maps, locked_lock.command.LockId)
@@ -88,7 +88,6 @@ func (self *LockManager) RemoveLock(lock *Lock) *Lock {
                 self.locks.Resize()
             }
         }
-
         return lock
     }
 
@@ -99,7 +98,7 @@ func (self *LockManager) RemoveLock(lock *Lock) *Lock {
 
     locked_lock := self.locks.Head()
     for ; locked_lock != nil; {
-        if locked_lock.locked != 0 {
+        if locked_lock.locked > 0 {
             break
         }
 
@@ -176,6 +175,7 @@ func (self *LockManager) GetWaitLock() *Lock {
             if self.wait_locks.head_node_index >= 8 {
                 self.wait_locks.Resize()
             }
+            continue
         }
         return lock
     }

@@ -235,8 +235,19 @@ func (self *LockDB) CheckTimeTimeOut(check_timeout_time int64, now int64) {
             for ; long_lock_count > 0; {
                 lock := long_locks.locks.Pop()
                 if lock != nil {
-                    lock.long_wait_index = 0
-                    do_timeout_locks = append(do_timeout_locks, lock)
+                    if !lock.timeouted {
+                        lock.long_wait_index = 0
+                        do_timeout_locks = append(do_timeout_locks, lock)
+                    } else {
+                        lock_manager := lock.manager
+                        lock.ref_count--
+                        if lock.ref_count == 0 {
+                            lock_manager.FreeLock(lock)
+                            if lock_manager.ref_count == 0 {
+                                self.RemoveLockManager(lock_manager)
+                            }
+                        }
+                    }
                 }
                 long_lock_count--
             }
@@ -451,8 +462,19 @@ func (self *LockDB) CheckTimeExpried(check_expried_time int64, now int64){
             for ; long_lock_count > 0; {
                 lock := long_locks.locks.Pop()
                 if lock != nil {
-                    lock.long_wait_index = 0
-                    do_expried_locks = append(do_expried_locks, lock)
+                    if !lock.expried {
+                        lock.long_wait_index = 0
+                        do_expried_locks = append(do_expried_locks, lock)
+                    } else {
+                        lock_manager := lock.manager
+                        lock.ref_count--
+                        if lock.ref_count == 0 {
+                            lock_manager.FreeLock(lock)
+                            if lock_manager.ref_count == 0 {
+                                self.RemoveLockManager(lock_manager)
+                            }
+                        }
+                    }
                 }
                 long_lock_count--
             }
@@ -745,7 +767,6 @@ func (self *LockDB) RemoveLongTimeOut(lock *Lock){
     long_locks.free_count++
     lock.long_wait_index = 0
     lock.ref_count--
-    // atomic.AddUint32(&self.state.WaitCount, 0xffffffff)
 }
 
 func (self *LockDB) DoTimeOut(lock *Lock){
@@ -776,7 +797,6 @@ func (self *LockDB) DoTimeOut(lock *Lock){
             self.RemoveLockManager(lock_manager)
         }
     }
-
     lock_manager.glock.Unlock()
 
     self.slock.Active(lock_protocol, lock_command, protocol.RESULT_TIMEOUT, lock_manager.locked, false)
@@ -894,7 +914,6 @@ func (self *LockDB) DoExpried(lock *Lock){
             self.RemoveLockManager(lock_manager)
         }
     }
-
     lock_manager.glock.Unlock()
 
     self.slock.Active(lock_protocol, lock_command, protocol.RESULT_EXPRIED, lock_manager.locked, false)
