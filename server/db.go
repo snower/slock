@@ -242,11 +242,12 @@ func (self *LockDB) CheckTimeTimeOut(check_timeout_time int64, now int64) {
             }
 
             delete(self.long_timeout_locks[i], check_timeout_time)
-            if self.free_long_wait_queues[i].free_index < self.free_long_wait_queues[i].max_free_count {
+            free_long_wait_queue := self.free_long_wait_queues[i]
+            if free_long_wait_queue.free_index < free_long_wait_queue.max_free_count {
                 long_locks.locks.Reset()
                 long_locks.free_count = 0
-                self.free_long_wait_queues[i].free_index++
-                self.free_long_wait_queues[i].queues[self.free_long_wait_queues[i].free_index] = long_locks
+                free_long_wait_queue.free_index++
+                free_long_wait_queue.queues[free_long_wait_queue.free_index] = long_locks
             }
         }
         self.manager_glocks[i].Unlock()
@@ -295,10 +296,11 @@ func (self *LockDB) CheckMillisecondTimeOut(ms int64, glock_index int8){
             lock = lock_queue.Pop()
         }
 
-        if self.free_millisecond_wait_queues[glock_index].free_index < self.free_millisecond_wait_queues[glock_index].max_free_count {
+        free_millisecond_wait_queue := self.free_millisecond_wait_queues[glock_index]
+        if free_millisecond_wait_queue.free_index < free_millisecond_wait_queue.max_free_count {
             lock_queue.Reset()
-            self.free_millisecond_wait_queues[glock_index].free_index++
-            self.free_millisecond_wait_queues[glock_index].queues[self.free_millisecond_wait_queues[glock_index].free_index] = lock_queue
+            free_millisecond_wait_queue.free_index++
+            free_millisecond_wait_queue.queues[free_millisecond_wait_queue.free_index] = lock_queue
         }
         self.millisecond_timeout_locks[glock_index][ms % 1000] = nil
     }
@@ -371,11 +373,12 @@ func (self *LockDB) RestructuringLongTimeOutQueue() {
                 long_locks.free_count = 0
                 if long_locks.locks.Len() == 0 {
                     delete(self.long_timeout_locks[i], lock_time)
-                    if self.free_long_wait_queues[i].free_index < self.free_long_wait_queues[i].max_free_count {
+                    free_long_wait_queue := self.free_long_wait_queues[i]
+                    if free_long_wait_queue.free_index < free_long_wait_queue.max_free_count {
                         long_locks.locks.Reset()
                         long_locks.free_count = 0
-                        self.free_long_wait_queues[i].free_index++
-                        self.free_long_wait_queues[i].queues[self.free_long_wait_queues[i].free_index] = long_locks
+                        free_long_wait_queue.free_index++
+                        free_long_wait_queue.queues[free_long_wait_queue.free_index] = long_locks
                     }
                 }
             }
@@ -455,11 +458,12 @@ func (self *LockDB) CheckTimeExpried(check_expried_time int64, now int64){
             }
 
             delete(self.long_expried_locks[i], check_expried_time)
-            if self.free_long_wait_queues[i].free_index < self.free_long_wait_queues[i].max_free_count {
+            free_long_wait_queue := self.free_long_wait_queues[i]
+            if free_long_wait_queue.free_index < free_long_wait_queue.max_free_count {
                 long_locks.locks.Reset()
                 long_locks.free_count = 0
-                self.free_long_wait_queues[i].free_index++
-                self.free_long_wait_queues[i].queues[self.free_long_wait_queues[i].free_index] = long_locks
+                free_long_wait_queue.free_index++
+                free_long_wait_queue.queues[free_long_wait_queue.free_index] = long_locks
             }
         }
         self.manager_glocks[i].Unlock()
@@ -508,10 +512,11 @@ func (self *LockDB) CheckMillisecondExpried(ms int64, glock_index int8){
             lock = lock_queue.Pop()
         }
 
-        if self.free_millisecond_wait_queues[glock_index].free_index < self.free_millisecond_wait_queues[glock_index].max_free_count {
+        free_millisecond_wait_queue := self.free_millisecond_wait_queues[glock_index]
+        if free_millisecond_wait_queue.free_index < free_millisecond_wait_queue.max_free_count {
             lock_queue.Reset()
-            self.free_millisecond_wait_queues[glock_index].free_index++
-            self.free_millisecond_wait_queues[glock_index].queues[self.free_millisecond_wait_queues[glock_index].free_index] = lock_queue
+            free_millisecond_wait_queue.free_index++
+            free_millisecond_wait_queue.queues[free_millisecond_wait_queue.free_index] = lock_queue
         }
         self.millisecond_expried_locks[glock_index][ms % 1000] = nil
     }
@@ -584,11 +589,12 @@ func (self *LockDB) RestructuringLongExpriedQueue() {
                 long_locks.free_count = 0
                 if long_locks.locks.Len() == 0 {
                     delete(self.long_expried_locks[i], lock_time)
-                    if self.free_long_wait_queues[i].free_index < self.free_long_wait_queues[i].max_free_count {
+                    free_long_wait_queue := self.free_long_wait_queues[i]
+                    if free_long_wait_queue.free_index < free_long_wait_queue.max_free_count {
                         long_locks.locks.Reset()
                         long_locks.free_count = 0
-                        self.free_long_wait_queues[i].free_index++
-                        self.free_long_wait_queues[i].queues[self.free_long_wait_queues[i].free_index] = long_locks
+                        free_long_wait_queue.free_index++
+                        free_long_wait_queue.queues[free_long_wait_queue.free_index] = long_locks
                     }
                 }
             }
@@ -697,11 +703,12 @@ func (self *LockDB) AddTimeOut(lock *Lock){
         }
 
         if long_locks, ok := self.long_timeout_locks[lock.manager.glock_index][lock.timeout_time]; !ok {
-            if self.free_long_wait_queues[lock.manager.glock_index].free_index < 0 {
+            free_long_wait_queue := self.free_long_wait_queues[lock.manager.glock_index]
+            if free_long_wait_queue.free_index < 0 {
                 long_locks = &LongWaitLockQueue{NewLockQueue(2, 64, LONG_LOCKS_QUEUE_INIT_SIZE), lock.timeout_time, 0, lock.manager.glock_index}
             } else {
-                long_locks = self.free_long_wait_queues[lock.manager.glock_index].queues[self.free_long_wait_queues[lock.manager.glock_index].free_index]
-                self.free_long_wait_queues[lock.manager.glock_index].free_index--
+                long_locks = free_long_wait_queue.queues[free_long_wait_queue.free_index]
+                free_long_wait_queue.free_index--
                 long_locks.lock_time = lock.timeout_time
             }
             self.long_timeout_locks[lock.manager.glock_index][lock.timeout_time] = long_locks
@@ -759,7 +766,9 @@ func (self *LockDB) DoTimeOut(lock *Lock){
 
     lock.timeouted = true
     lock_protocol, lock_command := lock.protocol, lock.command
-    lock_manager.GetWaitLock()
+    if lock_manager.GetWaitLock() == nil {
+        lock_manager.waited = false
+    }
     lock.ref_count--
     if lock.ref_count == 0 {
         lock_manager.FreeLock(lock)
@@ -786,11 +795,12 @@ func (self *LockDB) AddMillisecondTimeOut(lock *Lock) {
 
     lock_queue := self.millisecond_timeout_locks[lock.manager.glock_index][ms % 1000]
     if lock_queue == nil {
-        if self.free_millisecond_wait_queues[lock.manager.glock_index].free_index < 0 {
+        free_millisecond_wait_queue := self.free_millisecond_wait_queues[lock.manager.glock_index]
+        if free_millisecond_wait_queue.free_index < 0 {
             lock_queue = NewLockQueue(2, 64, MILLISECOND_LOCKS_QUEUE_INIT_SIZE)
         } else {
-            lock_queue = self.free_millisecond_wait_queues[lock.manager.glock_index].queues[self.free_millisecond_wait_queues[lock.manager.glock_index].free_index]
-            self.free_millisecond_wait_queues[lock.manager.glock_index].free_index--
+            lock_queue = free_millisecond_wait_queue.queues[free_millisecond_wait_queue.free_index]
+            free_millisecond_wait_queue.free_index--
         }
 
         self.millisecond_timeout_locks[lock.manager.glock_index][ms % 1000] = lock_queue
@@ -808,11 +818,12 @@ func (self *LockDB) AddExpried(lock *Lock){
         }
 
         if long_locks, ok := self.long_expried_locks[lock.manager.glock_index][lock.expried_time]; !ok {
-            if self.free_long_wait_queues[lock.manager.glock_index].free_index < 0 {
+            free_long_wait_queue := self.free_long_wait_queues[lock.manager.glock_index]
+            if free_long_wait_queue.free_index < 0 {
                 long_locks = &LongWaitLockQueue{NewLockQueue(2, 64, LONG_LOCKS_QUEUE_INIT_SIZE), lock.expried_time, 0, lock.manager.glock_index}
             } else {
-                long_locks = self.free_long_wait_queues[lock.manager.glock_index].queues[self.free_long_wait_queues[lock.manager.glock_index].free_index]
-                self.free_long_wait_queues[lock.manager.glock_index].free_index--
+                long_locks = free_long_wait_queue.queues[free_long_wait_queue.free_index]
+                free_long_wait_queue.free_index--
                 long_locks.lock_time = lock.expried_time
             }
             self.long_expried_locks[lock.manager.glock_index][lock.expried_time] = long_locks
@@ -876,7 +887,6 @@ func (self *LockDB) DoExpried(lock *Lock){
     lock_protocol, lock_command := lock.protocol, lock.command
     lock_manager.RemoveLock(lock)
 
-    wait_lock := lock_manager.GetWaitLock()
     lock.ref_count--
     if lock.ref_count == 0 {
         lock_manager.FreeLock(lock)
@@ -896,34 +906,7 @@ func (self *LockDB) DoExpried(lock *Lock){
         self.ConvertUint642ToByte16(lock_command.LockKey), self.ConvertUint642ToByte16(lock_command.LockId),
         self.ConvertUint642ToByte16(lock_command.RequestId), lock_protocol.RemoteAddr().String())
 
-    if wait_lock != nil {
-        lock_manager.glock.Lock()
-        for ;; {
-            if wait_lock.manager == nil {
-                if !lock_manager.freed {
-                    wait_lock = lock_manager.GetWaitLock()
-                    if wait_lock == nil {
-                        lock_manager.waited = false
-                        return
-                    }
-                    continue
-                }
-            }
-
-            if !self.DoLock(lock_manager, wait_lock) {
-                lock_manager.glock.Unlock()
-                return
-            }
-
-            wait_lock = self.WakeUpWaitLock(lock_manager, wait_lock, nil)
-            if wait_lock != nil {
-                lock_manager.glock.Lock()
-                continue
-            }
-            lock_manager.waited = false
-            return
-        }
-    }
+    self.WakeUpWaitLocks(lock_manager, nil)
 }
 
 func (self *LockDB) AddMillisecondExpried(lock *Lock) {
@@ -932,11 +915,12 @@ func (self *LockDB) AddMillisecondExpried(lock *Lock) {
 
     lock_queue := self.millisecond_expried_locks[lock.manager.glock_index][ms % 1000]
     if lock_queue == nil {
-        if self.free_millisecond_wait_queues[lock.manager.glock_index].free_index < 0 {
+        free_millisecond_wait_queue := self.free_millisecond_wait_queues[lock.manager.glock_index]
+        if free_millisecond_wait_queue.free_index < 0 {
             lock_queue = NewLockQueue(2, 64, MILLISECOND_LOCKS_QUEUE_INIT_SIZE)
         } else {
-            lock_queue = self.free_millisecond_wait_queues[lock.manager.glock_index].queues[self.free_millisecond_wait_queues[lock.manager.glock_index].free_index]
-            self.free_millisecond_wait_queues[lock.manager.glock_index].free_index--
+            lock_queue = free_millisecond_wait_queue.queues[free_millisecond_wait_queue.free_index]
+            free_millisecond_wait_queue.free_index--
         }
 
         self.millisecond_expried_locks[lock.manager.glock_index][ms % 1000] = lock_queue
@@ -1144,7 +1128,6 @@ func (self *LockDB) UnLock(server_protocol *ServerProtocol, command *protocol.Lo
         }
     }
 
-    wait_lock := lock_manager.GetWaitLock()
     if current_lock.locked > 1 {
         if command.Rcount == 0 {
             //self.RemoveExpried(current_lock)
@@ -1154,6 +1137,7 @@ func (self *LockDB) UnLock(server_protocol *ServerProtocol, command *protocol.Lo
             if current_lock.long_wait_index > 0 {
                 self.RemoveLongExpried(current_lock)
                 lock_manager.RemoveLock(current_lock)
+                lock_manager.locked-=uint16(lock_locked)
 
                 if current_lock.ref_count == 0 {
                     lock_manager.FreeLock(current_lock)
@@ -1163,9 +1147,8 @@ func (self *LockDB) UnLock(server_protocol *ServerProtocol, command *protocol.Lo
                 }
             } else {
                 lock_manager.RemoveLock(current_lock)
+                lock_manager.locked-=uint16(lock_locked)
             }
-
-            lock_manager.locked-=uint16(lock_locked)
             lock_manager.glock.Unlock()
 
             self.slock.Active(server_protocol, command, protocol.RESULT_SUCCED, lock_manager.locked, true)
@@ -1192,6 +1175,7 @@ func (self *LockDB) UnLock(server_protocol *ServerProtocol, command *protocol.Lo
         if current_lock.long_wait_index > 0 {
             self.RemoveLongExpried(current_lock)
             lock_manager.RemoveLock(current_lock)
+            lock_manager.locked--
 
             if current_lock.ref_count == 0 {
                 lock_manager.FreeLock(current_lock)
@@ -1201,9 +1185,8 @@ func (self *LockDB) UnLock(server_protocol *ServerProtocol, command *protocol.Lo
             }
         } else {
             lock_manager.RemoveLock(current_lock)
+            lock_manager.locked--
         }
-
-        lock_manager.locked--
         lock_manager.glock.Unlock()
 
         self.slock.Active(server_protocol, command, protocol.RESULT_SUCCED, lock_manager.locked, true)
@@ -1214,34 +1197,7 @@ func (self *LockDB) UnLock(server_protocol *ServerProtocol, command *protocol.Lo
         atomic.AddUint32(&self.state.LockedCount, 0xffffffff)
     }
 
-    if wait_lock != nil {
-        lock_manager.glock.Lock()
-        for ;; {
-            if wait_lock.manager == nil {
-                if !lock_manager.freed {
-                    wait_lock = lock_manager.GetWaitLock()
-                    if wait_lock == nil {
-                        lock_manager.waited = false
-                        return nil
-                    }
-                    continue
-                }
-            }
-
-            if !self.DoLock(lock_manager, wait_lock) {
-                lock_manager.glock.Unlock()
-                return nil
-            }
-
-            wait_lock = self.WakeUpWaitLock(lock_manager, wait_lock, server_protocol)
-            if wait_lock != nil {
-                lock_manager.glock.Lock()
-                continue
-            }
-            lock_manager.waited = false
-            return nil
-        }
-    }
+    self.WakeUpWaitLocks(lock_manager, server_protocol)
     return nil
 }
 
@@ -1263,16 +1219,32 @@ func (self *LockDB) DoLock(lock_manager *LockManager, lock *Lock) bool{
     return false
 }
 
-func (self *LockDB) WakeUpWaitLock(lock_manager *LockManager, wait_lock *Lock, server_protocol *ServerProtocol) *Lock {
-    if wait_lock.timeouted {
-        wait_lock = lock_manager.GetWaitLock()
-        if lock_manager.ref_count == 0 {
-            self.RemoveLockManager(lock_manager)
+func (self *LockDB) WakeUpWaitLocks(lock_manager *LockManager, server_protocol *ServerProtocol) {
+    if lock_manager.waited {
+        lock_manager.glock.Lock()
+        wait_lock := lock_manager.GetWaitLock()
+        for ; wait_lock != nil; {
+            if !self.DoLock(lock_manager, wait_lock) {
+                lock_manager.glock.Unlock()
+                return
+            }
+
+            self.WakeUpWaitLock(lock_manager, wait_lock, server_protocol)
+            lock_manager.glock.Lock()
+            wait_lock = lock_manager.GetWaitLock()
+        }
+
+        if lock_manager.waited {
+            lock_manager.waited = false
+            if lock_manager.ref_count == 0 {
+                self.RemoveLockManager(lock_manager)
+            }
         }
         lock_manager.glock.Unlock()
-        return wait_lock
     }
+}
 
+func (self *LockDB) WakeUpWaitLock(lock_manager *LockManager, wait_lock *Lock, server_protocol *ServerProtocol) {
     //self.RemoveTimeOut(wait_lock)
     wait_lock.timeouted = true
     if wait_lock.long_wait_index > 0 {
@@ -1288,21 +1260,16 @@ func (self *LockDB) WakeUpWaitLock(lock_manager *LockManager, wait_lock *Lock, s
             self.AddMillisecondExpried(wait_lock)
         }
         wait_lock.ref_count++
-        lock_manager.GetWaitLock()
         lock_manager.glock.Unlock()
 
         self.slock.Active(wait_lock.protocol, wait_lock.command, protocol.RESULT_SUCCED, lock_manager.locked, wait_lock.protocol == server_protocol)
         atomic.AddUint64(&self.state.LockCount, 1)
         atomic.AddUint32(&self.state.LockedCount, 1)
         atomic.AddUint32(&self.state.WaitCount, 0xffffffff)
-        return nil
+        return
     }
 
     wait_lock_protocol, wait_lock_command := wait_lock.protocol, wait_lock.command
-    wait_lock = lock_manager.GetWaitLock()
-    if lock_manager.ref_count == 0 {
-        self.RemoveLockManager(lock_manager)
-    }
     lock_manager.glock.Unlock()
 
     if wait_lock_protocol == server_protocol {
@@ -1315,7 +1282,6 @@ func (self *LockDB) WakeUpWaitLock(lock_manager *LockManager, wait_lock *Lock, s
 
     atomic.AddUint64(&self.state.LockCount, 1)
     atomic.AddUint32(&self.state.WaitCount, 0xffffffff)
-    return wait_lock
 }
 
 func (self *LockDB) GetState() *protocol.LockDBState {
