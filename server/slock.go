@@ -4,7 +4,6 @@ import (
     "github.com/hhkbp2/go-logging"
     "github.com/snower/slock/protocol"
     "sync"
-    "errors"
 )
 
 type SLock struct {
@@ -13,7 +12,7 @@ type SLock struct {
     aof                     *Aof
     admin                   *Admin
     logger                  logging.Logger
-    streams                 map[[2]uint64]*ServerProtocol
+    streams                 map[[2]uint64]ServerProtocol
     free_lock_commands      *LockCommandQueue
     free_lock_command_lock  *sync.Mutex
     free_lock_command_count int32
@@ -25,7 +24,7 @@ func NewSLock(config *ServerConfig) *SLock {
     aof := NewAof()
     admin := NewAdmin()
     logger := InitLogger(Config.Log, Config.LogLevel)
-    slock := &SLock{make([]*LockDB, 256), &sync.Mutex{}, aof,admin, logger, make(map[[2]uint64]*ServerProtocol, STREAMS_INIT_COUNT),
+    slock := &SLock{make([]*LockDB, 256), &sync.Mutex{}, aof,admin, logger, make(map[[2]uint64]ServerProtocol, STREAMS_INIT_COUNT),
         NewLockCommandQueue(16, 64, FREE_COMMAND_QUEUE_INIT_SIZE * 16), &sync.Mutex{}, 0}
     aof.slock = slock
     admin.slock = slock
@@ -72,15 +71,15 @@ func (self *SLock) GetDB(db_id uint8) *LockDB {
     return self.dbs[db_id]
 }
 
-func (self *SLock) DoLockComamnd(db *LockDB, server_protocol *ServerProtocol, command *protocol.LockCommand) error {
+func (self *SLock) DoLockComamnd(db *LockDB, server_protocol ServerProtocol, command *protocol.LockCommand) error {
     return db.Lock(server_protocol, command)
 }
 
-func (self *SLock) DoUnLockComamnd(db *LockDB, server_protocol *ServerProtocol, command *protocol.LockCommand) error {
+func (self *SLock) DoUnLockComamnd(db *LockDB, server_protocol ServerProtocol, command *protocol.LockCommand) error {
     return db.UnLock(server_protocol, command)
 }
 
-func (self *SLock) GetState(server_protocol *ServerProtocol, command *protocol.StateCommand) error {
+func (self *SLock) GetState(server_protocol ServerProtocol, command *protocol.StateCommand) error {
     db_state := uint8(0)
 
     db := self.dbs[command.DbId]
@@ -89,133 +88,9 @@ func (self *SLock) GetState(server_protocol *ServerProtocol, command *protocol.S
     }
 
     if db == nil {
-        return server_protocol.Write(protocol.NewStateResultCommand(command, protocol.RESULT_SUCCED, 0, db_state, nil), true)
+        return server_protocol.Write(protocol.NewStateResultCommand(command, protocol.RESULT_SUCCED, 0, db_state, nil))
     }
-    return server_protocol.Write(protocol.NewStateResultCommand(command, protocol.RESULT_SUCCED, 0, db_state, db.GetState()), true)
-}
-
-func (self *SLock) Handle(server_protocol *ServerProtocol, command protocol.ICommand) error {
-    switch command.GetCommandType() {
-    case protocol.COMMAND_LOCK:
-        lock_command := command.(*protocol.LockCommand)
-        db := self.dbs[lock_command.DbId]
-        if db == nil {
-            db = self.GetOrNewDB(lock_command.DbId)
-        }
-        return db.Lock(server_protocol, lock_command)
-
-    case protocol.COMMAND_UNLOCK:
-        lock_command := command.(*protocol.LockCommand)
-        db := self.dbs[lock_command.DbId]
-        if db == nil {
-            return self.Active(server_protocol, lock_command, protocol.RESULT_UNKNOWN_DB, 0, true)
-        }
-        return db.UnLock(server_protocol, lock_command)
-
-    default:
-        switch command.GetCommandType() {
-        case protocol.COMMAND_INIT:
-            init_command := command.(*protocol.InitCommand)
-            server_protocol.client_id = init_command.ClientId
-            server_protocol.inited = true
-            self.glock.Lock()
-            init_type := uint8(0)
-            if _, ok := self.streams[init_command.ClientId]; ok {
-                init_type = 1
-            }
-            self.streams[init_command.ClientId] = server_protocol
-            self.glock.Unlock()
-            return server_protocol.Write(protocol.NewInitResultCommand(init_command, protocol.RESULT_SUCCED, init_type), true)
-
-        case protocol.COMMAND_STATE:
-            return self.GetState(server_protocol, command.(*protocol.StateCommand))
-
-        case protocol.COMMAND_ADMIN:
-            admin_command := command.(*protocol.AdminCommand)
-            err := server_protocol.Write(protocol.NewAdminResultCommand(admin_command, protocol.RESULT_SUCCED), true)
-            if err != nil {
-                return err
-            }
-            err = self.admin.Handle(server_protocol.stream)
-            if err != nil {
-                return err
-            }
-
-        default:
-            return server_protocol.Write(protocol.NewResultCommand(command, protocol.RESULT_UNKNOWN_COMMAND), true)
-        }
-    }
-    return nil
-}
-
-func (self *SLock) Active(server_protocol *ServerProtocol, command *protocol.LockCommand, result uint8, lcount uint16, use_cached_command bool) error {
-    if server_protocol.closed {
-        if !server_protocol.inited {
-            return errors.New("server protocol closed")
-        }
-
-        self.glock.Lock()
-        if sp, ok := self.streams[server_protocol.client_id]; ok {
-            self.glock.Unlock()
-            server_protocol = sp
-        } else {
-            self.glock.Unlock()
-            return errors.New("server protocol closed")
-        }
-    }
-
-    if use_cached_command {
-        buf := server_protocol.wbuf
-        if len(buf) < 64 {
-            return errors.New("buf too short")
-        }
-
-        buf[2] = byte(command.CommandType)
-
-        buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10] = byte(command.RequestId[0]), byte(command.RequestId[0] >> 8), byte(command.RequestId[0] >> 16), byte(command.RequestId[0] >> 24), byte(command.RequestId[0] >> 32), byte(command.RequestId[0] >> 40), byte(command.RequestId[0] >> 48), byte(command.RequestId[0] >> 56)
-        buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18] = byte(command.RequestId[1]), byte(command.RequestId[1] >> 8), byte(command.RequestId[1] >> 16), byte(command.RequestId[1] >> 24), byte(command.RequestId[1] >> 32), byte(command.RequestId[1] >> 40), byte(command.RequestId[1] >> 48), byte(command.RequestId[1] >> 56)
-
-        buf[19], buf[20], buf[21] = result, 0x00, byte(command.DbId)
-
-        buf[22], buf[23], buf[24], buf[25], buf[26], buf[27], buf[28], buf[29] = byte(command.LockId[0]), byte(command.LockId[0] >> 8), byte(command.LockId[0] >> 16), byte(command.LockId[0] >> 24), byte(command.LockId[0] >> 32), byte(command.LockId[0] >> 40), byte(command.LockId[0] >> 48), byte(command.LockId[0] >> 56)
-        buf[30], buf[31], buf[32], buf[33], buf[34], buf[35], buf[36], buf[37] = byte(command.LockId[1]), byte(command.LockId[1] >> 8), byte(command.LockId[1] >> 16), byte(command.LockId[1] >> 24), byte(command.LockId[1] >> 32), byte(command.LockId[1] >> 40), byte(command.LockId[1] >> 48), byte(command.LockId[1] >> 56)
-
-        buf[38], buf[39], buf[40], buf[41], buf[42], buf[43], buf[44], buf[45] = byte(command.LockKey[0]), byte(command.LockKey[0] >> 8), byte(command.LockKey[0] >> 16), byte(command.LockKey[0] >> 24), byte(command.LockKey[0] >> 32), byte(command.LockKey[0] >> 40), byte(command.LockKey[0] >> 48), byte(command.LockKey[0] >> 56)
-        buf[46], buf[47], buf[48], buf[49], buf[50], buf[51], buf[52], buf[53] = byte(command.LockKey[1]), byte(command.LockKey[1] >> 8), byte(command.LockKey[1] >> 16), byte(command.LockKey[1] >> 24), byte(command.LockKey[1] >> 32), byte(command.LockKey[1] >> 40), byte(command.LockKey[1] >> 48), byte(command.LockKey[1] >> 56)
-
-        buf[54], buf[55], buf[56], buf[57], buf[58], buf[59], buf[60], buf[61] = byte(lcount), byte(lcount >> 8), byte(command.Count), byte(command.Count >> 8), byte(command.Rcount), 0x00, 0x00, 0x00
-        buf[62], buf[63] = 0x00, 0x00
-        
-        return server_protocol.stream.WriteBytes(buf)
-    }
-
-    free_result_command_lock := server_protocol.free_result_command_lock
-    free_result_command_lock.Lock()
-    buf := server_protocol.owbuf
-
-    if len(buf) < 64 {
-        return errors.New("buf too short")
-    }
-
-    buf[2] = byte(command.CommandType)
-
-    buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10] = byte(command.RequestId[0]), byte(command.RequestId[0] >> 8), byte(command.RequestId[0] >> 16), byte(command.RequestId[0] >> 24), byte(command.RequestId[0] >> 32), byte(command.RequestId[0] >> 40), byte(command.RequestId[0] >> 48), byte(command.RequestId[0] >> 56)
-    buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18] = byte(command.RequestId[1]), byte(command.RequestId[1] >> 8), byte(command.RequestId[1] >> 16), byte(command.RequestId[1] >> 24), byte(command.RequestId[1] >> 32), byte(command.RequestId[1] >> 40), byte(command.RequestId[1] >> 48), byte(command.RequestId[1] >> 56)
-
-    buf[19], buf[20], buf[21] = result, 0x00, byte(command.DbId)
-
-    buf[22], buf[23], buf[24], buf[25], buf[26], buf[27], buf[28], buf[29] = byte(command.LockId[0]), byte(command.LockId[0] >> 8), byte(command.LockId[0] >> 16), byte(command.LockId[0] >> 24), byte(command.LockId[0] >> 32), byte(command.LockId[0] >> 40), byte(command.LockId[0] >> 48), byte(command.LockId[0] >> 56)
-    buf[30], buf[31], buf[32], buf[33], buf[34], buf[35], buf[36], buf[37] = byte(command.LockId[1]), byte(command.LockId[1] >> 8), byte(command.LockId[1] >> 16), byte(command.LockId[1] >> 24), byte(command.LockId[1] >> 32), byte(command.LockId[1] >> 40), byte(command.LockId[1] >> 48), byte(command.LockId[1] >> 56)
-
-    buf[38], buf[39], buf[40], buf[41], buf[42], buf[43], buf[44], buf[45] = byte(command.LockKey[0]), byte(command.LockKey[0] >> 8), byte(command.LockKey[0] >> 16), byte(command.LockKey[0] >> 24), byte(command.LockKey[0] >> 32), byte(command.LockKey[0] >> 40), byte(command.LockKey[0] >> 48), byte(command.LockKey[0] >> 56)
-    buf[46], buf[47], buf[48], buf[49], buf[50], buf[51], buf[52], buf[53] = byte(command.LockKey[1]), byte(command.LockKey[1] >> 8), byte(command.LockKey[1] >> 16), byte(command.LockKey[1] >> 24), byte(command.LockKey[1] >> 32), byte(command.LockKey[1] >> 40), byte(command.LockKey[1] >> 48), byte(command.LockKey[1] >> 56)
-
-    buf[54], buf[55], buf[56], buf[57], buf[58], buf[59], buf[60], buf[61] = byte(lcount), byte(lcount >> 8), byte(command.Count), byte(command.Count >> 8), byte(command.Rcount), 0x00, 0x00, 0x00
-    buf[62], buf[63] = 0x00, 0x00
-
-    err := server_protocol.stream.WriteBytes(buf)
-    free_result_command_lock.Unlock()
-    return err
+    return server_protocol.Write(protocol.NewStateResultCommand(command, protocol.RESULT_SUCCED, 0, db_state, db.GetState()))
 }
 
 func (self *SLock) Log() logging.Logger {

@@ -191,7 +191,7 @@ func (self *LockManager) FreeLock(lock *Lock) *Lock{
     return lock
 }
 
-func (self *LockManager) GetOrNewLock(protocol *ServerProtocol, command *protocol.LockCommand) *Lock {
+func (self *LockManager) GetOrNewLock(protocol ServerProtocol, command *protocol.LockCommand) *Lock {
     lock := self.free_locks.PopRight()
     if lock == nil {
         locks := make([]Lock, 4096)
@@ -219,7 +219,7 @@ func (self *LockManager) GetOrNewLock(protocol *ServerProtocol, command *protoco
 type Lock struct {
     manager                 *LockManager
     command                 *protocol.LockCommand
-    protocol                *ServerProtocol
+    protocol                ServerProtocol
     start_time              int64
     expried_time            int64
     timeout_time            int64
@@ -234,7 +234,7 @@ type Lock struct {
     is_aof                  bool
 }
 
-func NewLock(manager *LockManager, protocol *ServerProtocol, command *protocol.LockCommand) *Lock {
+func NewLock(manager *LockManager, protocol ServerProtocol, command *protocol.LockCommand) *Lock {
     now := manager.lock_db.current_time
     return &Lock{manager, command, protocol,now, 0, now + int64(command.Timeout),
         0, 0, 0,0, 0, false, false, 0, false}

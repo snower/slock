@@ -30,6 +30,8 @@ const (
 type ICommand interface {
     GetCommandType() uint8
     GetRequestId() [2]uint64
+    Encode(buf []byte) error
+    Decode(buf []byte) error
 }
 
 type CommandDecode interface {

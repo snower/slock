@@ -349,7 +349,7 @@ func (self *Aof) LoadAndInit() error {
     self.aof_file_index++
     self.slock.Log().Infof("Aof File Create %s", self.aof_file.filename)
 
-    server_protocol := &ServerProtocol{self.slock, nil, [2]uint64{0, 0}, NewLockCommandQueue(4, 16, 256),
+    server_protocol := &BinaryServerProtocol{self.slock, nil, [2]uint64{0, 0}, NewLockCommandQueue(4, 16, 256),
         &sync.Mutex{}, false, true, make([]byte, 64), make([]byte, 64), make([]byte, 64)}
     server_protocol.closed = true
 
@@ -404,7 +404,7 @@ func (self *Aof) FindAofFiles() ([]string, string, error) {
     return append_files, rewrite_file, nil
 }
 
-func (self *Aof) LoadAofFile(filename string, server_protocol *ServerProtocol) error {
+func (self *Aof) LoadAofFile(filename string, server_protocol *BinaryServerProtocol) error {
     aof_file := NewAofFile(self, filepath.Join(self.data_dir, filename), os.O_RDONLY, int(Config.AofFileBufferSize))
     err := aof_file.Open()
     if err != nil {
@@ -430,7 +430,10 @@ func (self *Aof) LoadAofFile(filename string, server_protocol *ServerProtocol) e
         command := &protocol.LockCommand{Command: protocol.Command{Magic: protocol.MAGIC, Version: protocol.VERSION, CommandType: lock.CommandType, RequestId: self.GetRequestId()},
             Flag: lock.Flag, DbId: lock.DbId, LockId: lock.LockId, LockKey: lock.LockKey, TimeoutFlag: 0, Timeout: 5,
             ExpriedFlag: 0x0200, Expried: uint16(int64(lock.ExpriedTime) - now), Count: lock.Count, Rcount: lock.Rcount}
-        self.slock.Handle(server_protocol, command)
+        err = server_protocol.ProcessLockCommand(command)
+        if err != nil {
+            return err
+        }
     }
 }
 

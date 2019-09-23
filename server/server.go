@@ -2,12 +2,11 @@ package server
 
 import (
     "fmt"
+    "io"
     "net"
     "os"
     "os/signal"
     "sync"
-    "io"
-    "github.com/snower/slock/protocol"
     "syscall"
 )
 
@@ -20,7 +19,10 @@ type Server struct {
 }
 
 func NewServer(slock *SLock) *Server {
-    return &Server{nil, make([]*Stream, 0), slock, &sync.Mutex{}, false}
+    server := &Server{nil, make([]*Stream, 0), slock, &sync.Mutex{}, false}
+    admin := slock.GetAdmin()
+    admin.server = server
+    return server
 }
 
 func (self *Server) Listen() error {
@@ -93,35 +95,65 @@ func (self *Server) Loop() {
     self.slock.Log().Infof("Server has stopped")
 }
 
+func (self *Server) CheckProtocol(stream *Stream) (ServerProtocol, error) {
+    buf := make([]byte, 64)
+    n, err := stream.ReadBytes(buf)
+    if err != nil {
+        return nil, err
+    }
+
+    mv := uint16(buf[0]) | uint16(buf[1])<<8
+    if n == 64 && mv == 0x0156 {
+        server_protocol := NewBinaryServerProtocol(self.slock, stream)
+        err := server_protocol.ProcessParse(buf)
+        if err != nil {
+            cerr := server_protocol.Close()
+            if cerr != nil {
+                self.slock.Log().Errorf("Protocol Close error: %v", cerr)
+            }
+            return nil, err
+        }
+        self.slock.Log().Infof("New Binary Protocol Connection %s", server_protocol.RemoteAddr().String())
+        return server_protocol, nil
+    }
+
+    server_protocol := NewTextServerProtocol(self.slock, stream)
+    err = server_protocol.ProcessParse(buf[:n])
+    if err != nil {
+        cerr := server_protocol.Close()
+        if cerr != nil {
+            self.slock.Log().Errorf("Protocol Close error: %v", err)
+        }
+        return nil, err
+    }
+    self.slock.Log().Infof("New Text Protocol Connection %s", server_protocol.RemoteAddr().String())
+    return server_protocol, nil
+}
+
 func (self *Server) Handle(stream *Stream) {
-    server_protocol := NewServerProtocol(self.slock, stream)
-    defer func() {
-        err := server_protocol.Close()
-        if err != nil {
-            self.slock.Log().Infof("server protocol close error: %v", err)
-        }
-    }()
-
-    for ; !self.is_stop; {
-        command, err := server_protocol.Read()
-        if err != nil {
-            if err != io.EOF {
-                self.slock.Log().Errorf("read command error: %v", err)
-            }
-            break
+    server_protocol, err := self.CheckProtocol(stream)
+    if err != nil {
+        cerr := stream.Close()
+        if cerr != nil {
+            self.slock.Log().Errorf("Stream Error: %v", cerr)
         }
 
-        if command == nil {
-            self.slock.Log().Errorf("read command decode error", err)
-            break
+        if err != io.EOF {
+            self.slock.Log().Errorf("Protocol Error: %v", err)
         }
+        return
+    }
 
-        err = self.slock.Handle(server_protocol, command.(protocol.ICommand))
-        if err != nil {
-            if err != io.EOF {
-                self.slock.Log().Errorf("slock handle command error", err)
-            }
-            break
+    err = server_protocol.Process()
+    if err != nil {
+        if err != io.EOF {
+            self.slock.Log().Errorf("Protocol Process Error: %v", err)
         }
     }
+
+    err = server_protocol.Close()
+    if err != nil {
+        self.slock.Log().Errorf("Protocol Close error: %v", err)
+    }
+    self.slock.Log().Infof("Protocol Close %s", server_protocol.RemoteAddr().String())
 }
