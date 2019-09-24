@@ -111,10 +111,12 @@ func NewLockDB(slock *SLock) *LockDB {
 }
 
 func (self *LockDB) ConvertUint642ToByte16(uint642 [2]uint64) [16]byte {
-    return [16]byte{byte(uint642[0]), byte(uint642[0] >> 8), byte(uint642[0] >> 16), byte(uint642[0] >> 24),
+    return [16]byte{
+        byte(uint642[0]), byte(uint642[0] >> 8), byte(uint642[0] >> 16), byte(uint642[0] >> 24),
         byte(uint642[0] >> 32), byte(uint642[0] >> 40), byte(uint642[0] >> 48), byte(uint642[0] >> 56),
         byte(uint642[1]), byte(uint642[1] >> 8), byte(uint642[1] >> 16), byte(uint642[1] >> 24),
-        byte(uint642[1] >> 32), byte(uint642[1] >> 40), byte(uint642[1] >> 48), byte(uint642[1] >> 56)}
+        byte(uint642[1] >> 32), byte(uint642[1] >> 40), byte(uint642[1] >> 48), byte(uint642[1] >> 56),
+    }
 }
 
 func (self *LockDB) ResizeAofChannels (){

@@ -35,6 +35,7 @@ var ERROR_MSG []string = []string{
     "UNKNOWN_COMMAND",
     "LOCKED_ERROR",
     "UNLOCK_ERROR",
+    "UNOWN_ERROR",
     "TIMEOUT",
     "EXPRIED",
     "UNKNOWN_ERROR",

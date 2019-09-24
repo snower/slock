@@ -627,27 +627,35 @@ func (self *TextServerProtocolParser) Parse() error {
                 return nil
             }
         case 4:
-            for ; self.buf_index < self.buf_len; self.buf_index++ {
-                if len(self.carg) < self.carg_len {
-                    self.carg = append(self.carg, self.buf[self.buf_index])
-                } else {
-                    if self.buf[self.buf_index] == '\n' {
-                        if self.buf_index > 0 && self.buf[self.buf_index-1] != '\r' {
-                            return errors.New("Command parse arg error")
-                        }
+            carg_len := self.carg_len - len(self.carg)
+            if carg_len > 0 {
+                if self.buf_len - self.buf_index < carg_len {
+                    self.carg = append(self.carg, self.buf[self.buf_index:]...)
+                    self.buf_index = self.buf_len
+                    return nil
+                }
 
-                        self.args = append(self.args, string(self.carg))
-                        self.carg = self.carg[:0]
-                        self.carg_len = 0
-                        self.buf_index++
-                        if len(self.args) < self.args_count {
-                            self.stage = 2
-                        } else {
-                            self.stage = 0
-                            return nil
-                        }
-                        break
+                self.carg = append(self.carg, self.buf[self.buf_index: self.buf_index + carg_len]...)
+                self.buf_index += carg_len
+            }
+
+            for ; self.buf_index < self.buf_len; self.buf_index++ {
+                if self.buf[self.buf_index] == '\n' {
+                    if self.buf_index > 0 && self.buf[self.buf_index-1] != '\r' {
+                        return errors.New("Command parse arg error")
                     }
+
+                    self.args = append(self.args, string(self.carg))
+                    self.carg = self.carg[:0]
+                    self.carg_len = 0
+                    self.buf_index++
+                    if len(self.args) < self.args_count {
+                        self.stage = 2
+                    } else {
+                        self.stage = 0
+                        return nil
+                    }
+                    break
                 }
             }
 
@@ -696,13 +704,14 @@ type TextServerProtocol struct {
     lock_id                     [2]uint64
     db_id                       uint8
     closed                      bool
+    buf                         []byte
 }
 
 func NewTextServerProtocol(slock *SLock, stream *Stream) *TextServerProtocol {
     parser := &TextServerProtocolParser{make([]byte, 4096), 0, 0, 0,make([]string, 0), 0, make([]byte, 0), 0}
     server_protocol := &TextServerProtocol{slock, stream, NewLockCommandQueue(4, 16, FREE_COMMAND_QUEUE_INIT_SIZE),
         nil, &sync.Mutex{}, parser, make(map[string]TextServerProtocolCommandHandler, 64),
-        make(chan *protocol.LockResultCommand, 1),  [2]uint64{0, 0}, [2]uint64{0, 0}, 0, false}
+        make(chan *protocol.LockResultCommand, 1),  [2]uint64{0, 0}, [2]uint64{0, 0}, 0, false, make([]byte, 64)}
     server_protocol.InitLockCommand()
 
     server_protocol.handlers["SELECT"] = server_protocol.CommandHandlerSelectDB
@@ -1057,38 +1066,40 @@ func (self *TextServerProtocol) FreeLockCommand(command *protocol.LockCommand) e
 }
 
 func (self *TextServerProtocol) ArgsToLockComandParseId(arg_id string, lock_id *[2]uint64) {
-    arg_len := len(arg_id)
-    block_id := []byte(arg_id)
+    buf := self.buf
+    if len(buf) < 64 {
+        buf = make([]byte, 64)
+    }
 
-    if arg_len > 16 {
+    arg_len := len(arg_id)
+    if arg_len == 16 {
+        buf = []byte(arg_id)
+    } else if arg_len > 16 {
         if arg_len == 32 {
             v, err := hex.DecodeString(arg_id)
             if err == nil {
-                block_id = v
+                buf = v
             } else {
-                block_id = make([]byte, 0)
-                for _, v := range md5.Sum(block_id) {
-                    block_id = append(block_id, v)
+                for i, v := range md5.Sum([]byte(arg_id)) {
+                    buf[i] = v
                 }
             }
         } else {
-            block_id = make([]byte, 0)
-            for _, v := range md5.Sum(block_id) {
-                block_id = append(block_id, v)
+            for i, v := range md5.Sum([]byte(arg_id)) {
+                buf[i] = v
             }
         }
-    } else if arg_len < 16 {
-        block_id = make([]byte, 0)
+    } else {
         for i := 0; i < 16 - arg_len; i++ {
-            block_id = append(block_id, 0)
+            buf[i] = 0
         }
-        for _, v := range arg_id {
-            block_id = append(block_id, byte(v))
+        for i, v := range arg_id {
+            buf[16 - arg_len + i] = byte(v)
         }
     }
 
-    lock_id[1] = uint64(block_id[7]) | uint64(block_id[6])<<8 | uint64(block_id[5])<<16 | uint64(block_id[4])<<24 | uint64(block_id[3])<<32 | uint64(block_id[2])<<40 | uint64(block_id[1])<<48 | uint64(block_id[0])<<56
-    lock_id[0] = uint64(block_id[15]) | uint64(block_id[14])<<8 | uint64(block_id[13])<<16 | uint64(block_id[12])<<24 | uint64(block_id[11])<<32 | uint64(block_id[10])<<40 | uint64(block_id[9])<<48 | uint64(block_id[8])<<56
+    lock_id[0] = uint64(buf[0]) | uint64(buf[1])<<8 | uint64(buf[2])<<16 | uint64(buf[3])<<24 | uint64(buf[4])<<32 | uint64(buf[5])<<40 | uint64(buf[6])<<48 | uint64(buf[7])<<56
+    lock_id[1] = uint64(buf[8]) | uint64(buf[9])<<8 | uint64(buf[10])<<16 | uint64(buf[11])<<24 | uint64(buf[12])<<32 | uint64(buf[13])<<40 | uint64(buf[14])<<48 | uint64(buf[15])<<56
 }
 
 func (self *TextServerProtocol) ArgsToLockComand(args []string) (*protocol.LockCommand, error) {
@@ -1106,64 +1117,56 @@ func (self *TextServerProtocol) ArgsToLockComand(args []string) (*protocol.LockC
         command.CommandType = protocol.COMMAND_UNLOCK
     }
     command.RequestId = self.GetRequestId()
+    command.DbId = self.db_id
     self.ArgsToLockComandParseId(args[1], &command.LockKey)
 
-    kv_args := make(map[string]string, 8)
+    has_lock_id := false
     for i := 2; i < len(args); i+= 2 {
-        kv_args[strings.ToUpper(args[i])] = args[i + 1]
+        switch strings.ToUpper(args[i]) {
+        case "LOCK_ID":
+            self.ArgsToLockComandParseId(args[i + 1], &command.LockId)
+            has_lock_id = true
+        case "FLAG":
+            flag, err := strconv.Atoi(args[i + 1])
+            if err != nil {
+                return nil, errors.New("Command Parse FLAG Error")
+            }
+            command.Flag = uint8(flag)
+        case "TIMEOUT":
+            timeout, err := strconv.Atoi(args[i + 1])
+            if err != nil {
+                return nil, errors.New("Command Parse TIMEOUT Error")
+            }
+            command.Timeout = uint16(timeout & 0xffff)
+            command.TimeoutFlag = uint16(timeout >> 23)
+        case "EXPRIED":
+            expried, err := strconv.Atoi(args[i + 1])
+            if err != nil {
+                return nil, errors.New("Command Parse EXPRIED Error")
+            }
+            command.Expried = uint16(expried & 0xffff)
+            command.ExpriedFlag = uint16(expried >> 23)
+        case "COUNT":
+            count, err := strconv.Atoi(args[i + 1])
+            if err != nil {
+                return nil, errors.New("Command Parse COUNT Error")
+            }
+            command.Count = uint16(count)
+        case "RCOUNT":
+            rcount, err := strconv.Atoi(args[i + 1])
+            if err != nil {
+                return nil, errors.New("Command Parse RCOUNT Error")
+            }
+            command.Rcount = uint8(rcount)
+        }
     }
 
-    if v, ok := kv_args["LOCK_ID"]; ok {
-        self.ArgsToLockComandParseId(v, &command.LockId)
-    } else {
+    if !has_lock_id {
         if command_name == "LOCK" {
             command.LockId = command.RequestId
         } else {
             command.LockId = self.lock_id
         }
-    }
-
-    if v, ok := kv_args["FLAG"]; ok {
-        flag, err := strconv.Atoi(v)
-        if err != nil {
-            return nil, errors.New("Command Parse FLAG Error")
-        }
-        command.Flag = uint8(flag)
-    }
-    command.DbId = self.db_id
-
-    if v, ok := kv_args["TIMEOUT"]; ok {
-        timeout, err := strconv.Atoi(v)
-        if err != nil {
-            return nil, errors.New("Command Parse TIMEOUT Error")
-        }
-        command.Timeout = uint16(timeout & 0xffff)
-        command.TimeoutFlag = uint16(timeout >> 23)
-    }
-
-    if v, ok := kv_args["EXPRIED"]; ok {
-        expried, err := strconv.Atoi(v)
-        if err != nil {
-            return nil, errors.New("Command Parse EXPRIED Error")
-        }
-        command.Expried = uint16(expried & 0xffff)
-        command.ExpriedFlag = uint16(expried >> 23)
-    }
-
-    if v, ok := kv_args["COUNT"]; ok {
-        count, err := strconv.Atoi(v)
-        if err != nil {
-            return nil, errors.New("Command Parse COUNT Error")
-        }
-        command.Count = uint16(count)
-    }
-
-    if v, ok := kv_args["RCOUNT"]; ok {
-        rcount, err := strconv.Atoi(v)
-        if err != nil {
-            return nil, errors.New("Command Parse RCOUNT Error")
-        }
-        command.Rcount = uint8(rcount)
     }
     return command, nil
 }
@@ -1257,16 +1260,16 @@ func (self *TextServerProtocol) CommandHandlerUnlock(server_protocol *TextServer
 
 func (self *TextServerProtocol) GetRequestId() [2]uint64 {
     request_id := [2]uint64{}
-    request_id[0] = (uint64(time.Now().Unix()) & 0xffffffff)<<32 | uint64(LETTERS[rand.Intn(52)])<<24 | uint64(LETTERS[rand.Intn(52)])<<16 | uint64(LETTERS[rand.Intn(52)])<<8 | uint64(LETTERS[rand.Intn(52)])
-    request_id[1] = atomic.AddUint64(&request_id_index, 1)
+    request_id[0] = atomic.AddUint64(&request_id_index, 1)
+    request_id[1] = (uint64(time.Now().Unix()) & 0xffffffff)<<32 | uint64(LETTERS[rand.Intn(52)])<<24 | uint64(LETTERS[rand.Intn(52)])<<16 | uint64(LETTERS[rand.Intn(52)])<<8 | uint64(LETTERS[rand.Intn(52)])
     return request_id
 }
 
 func (self *TextServerProtocol) ConvertUint642ToByte16(uint642 [2]uint64) [16]byte {
     return [16]byte{
-        byte(uint642[1] >> 56), byte(uint642[1] >> 48), byte(uint642[1] >> 40), byte(uint642[1] >> 32),
-        byte(uint642[1] >> 24), byte(uint642[1] >> 16), byte(uint642[1] >> 8), byte(uint642[1]),
-        byte(uint642[0] >> 56), byte(uint642[0] >> 48), byte(uint642[0] >> 40), byte(uint642[0] >> 32),
-        byte(uint642[0] >> 24), byte(uint642[0] >> 16), byte(uint642[0] >> 8), byte(uint642[0]),
+        byte(uint642[0]), byte(uint642[0] >> 8), byte(uint642[0] >> 16), byte(uint642[0] >> 24),
+        byte(uint642[0] >> 32), byte(uint642[0] >> 40), byte(uint642[0] >> 48), byte(uint642[0] >> 56),
+        byte(uint642[1]), byte(uint642[1] >> 8), byte(uint642[1] >> 16), byte(uint642[1] >> 24),
+        byte(uint642[1] >> 32), byte(uint642[1] >> 40), byte(uint642[1] >> 48), byte(uint642[1] >> 56),
     }
 }
