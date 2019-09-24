@@ -104,7 +104,7 @@ ps -ef | grep benchmark | grep -v grep | awk '{print $2}' | xargs kill -HUP > /d
 sleep 2
 
 echo "Slock Log:"
-cat $LOG_FILENAME | grep -v connection
+cat $LOG_FILENAME | grep -v Protocol | grep -v Connection
 echo
 
 exit 0

@@ -11,23 +11,24 @@ import (
 )
 
 type Server struct {
-    server  net.Listener
-    streams []*Stream
-    slock   *SLock
-    glock   *sync.Mutex
-    is_stop bool
+    slock                   *SLock
+    server                  net.Listener
+    streams                 []*Stream
+    glock                   *sync.Mutex
+    connected_count         uint32
+    connecting_count        uint32
+    is_stop                 bool
 }
 
 func NewServer(slock *SLock) *Server {
-    server := &Server{nil, make([]*Stream, 0), slock, &sync.Mutex{}, false}
+    server := &Server{slock, nil, make([]*Stream, 0), &sync.Mutex{}, 0, 0,false}
     admin := slock.GetAdmin()
     admin.server = server
     return server
 }
 
 func (self *Server) Listen() error {
-    addr := fmt.Sprintf("%s:%d", Config.Bind, Config.Port)
-    server, err := net.Listen("tcp", addr)
+    server, err := net.Listen("tcp", fmt.Sprintf("%s:%d", Config.Bind, Config.Port))
     if err != nil {
         return err
     }
@@ -40,14 +41,20 @@ func (self *Server) Close() {
     self.glock.Lock()
 
     self.is_stop = true
-    self.server.Close()
+    err := self.server.Close()
+    if err != nil {
+        self.slock.Log().Errorf("Server Close Error: %v", err)
+    }
 
     self.slock.Close()
     for _, stream := range self.streams {
         if stream == nil {
             continue
         }
-        stream.Close()
+        err := stream.Close()
+        if err != nil {
+            self.slock.Log().Errorf("Stream Close Error: %v", err)
+        }
     }
 }
 
@@ -55,6 +62,8 @@ func (self *Server) AddStream(stream *Stream) error {
     defer self.glock.Unlock()
     self.glock.Lock()
     self.streams = append(self.streams, stream)
+    self.connecting_count++
+    self.connected_count++
     return nil
 }
 
@@ -66,6 +75,8 @@ func (self *Server) RemoveStream(stream *Stream) error {
     for i, v := range streams {
         if stream != v {
             self.streams[i] = v
+        } else {
+            self.connecting_count--
         }
     }
     return nil
@@ -80,17 +91,21 @@ func (self *Server) Loop() {
         self.Close()
     }()
 
-    addr := fmt.Sprintf("%s:%d", Config.Bind, Config.Port)
-    self.slock.Log().Infof("start server %s", addr)
+    self.slock.Log().Infof("Start Server %s", fmt.Sprintf("%s:%d", Config.Bind, Config.Port))
     for ; !self.is_stop; {
         conn, err := self.server.Accept()
         if err != nil {
             continue
         }
         stream := NewStream(self, conn)
-        if self.AddStream(stream) == nil {
-            go self.Handle(stream)
+        if self.AddStream(stream) != nil {
+            err := stream.Close()
+            if err != nil {
+                self.slock.Log().Errorf("Stream Close Error: %v", err)
+            }
+            continue
         }
+        go self.Handle(stream)
     }
     self.slock.Log().Infof("Server has stopped")
 }

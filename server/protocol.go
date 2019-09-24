@@ -80,10 +80,9 @@ func (self *BinaryServerProtocol) Close() error {
     }
 
     if self.stream != nil {
-        if self.stream.Close() != nil {
-            self.slock.Log().Errorf("connection close error: %s", self.RemoteAddr().String())
-        } else {
-            self.slock.Log().Infof("connection close %s", self.RemoteAddr().String())
+        err := self.stream.Close()
+        if err != nil {
+            self.slock.Log().Errorf("Connection Close Error: %s %v", self.RemoteAddr().String(), err)
         }
     }
 
@@ -223,33 +222,22 @@ func (self *BinaryServerProtocol) ProcessParse(buf []byte) error {
     case protocol.COMMAND_LOCK:
         lock_command := self.free_commands.PopRight()
         if lock_command == nil {
-            if self.slock.free_lock_command_count > 64 {
-                self.slock.free_lock_command_lock.Lock()
-                if self.slock.free_lock_command_count > 64 {
-                    for i := 0; i < 64; i++ {
-                        lock_command = self.slock.free_lock_commands.PopRight()
-                        if lock_command == nil {
-                            break
-                        }
-                        self.slock.free_lock_command_count--
-                        self.free_commands.Push(lock_command)
+            self.slock.free_lock_command_lock.Lock()
+            lock_command = self.slock.free_lock_commands.PopRight()
+            if lock_command != nil {
+                self.slock.free_lock_command_count--
+                for i := 0; i < 8; i++ {
+                    flock_command := self.slock.free_lock_commands.PopRight()
+                    if flock_command == nil {
+                        break
                     }
-                    self.slock.free_lock_command_lock.Unlock()
-                } else {
-                    self.slock.free_lock_command_lock.Unlock()
-
-                    lock_commands := make([]protocol.LockCommand, 64)
-                    for i := 0; i < 64; i++ {
-                        self.free_commands.Push(&lock_commands[i])
-                    }
+                    self.slock.free_lock_command_count--
+                    self.free_commands.Push(flock_command)
                 }
             } else {
-                lock_commands := make([]protocol.LockCommand, 64)
-                for i := 0; i < 64; i++ {
-                    self.free_commands.Push(&lock_commands[i])
-                }
+                lock_command = &protocol.LockCommand{}
             }
-            lock_command = self.free_commands.PopRight()
+            self.slock.free_lock_command_lock.Unlock()
         }
 
         lock_command.CommandType = command_type
@@ -280,33 +268,22 @@ func (self *BinaryServerProtocol) ProcessParse(buf []byte) error {
     case protocol.COMMAND_UNLOCK:
         lock_command := self.free_commands.PopRight()
         if lock_command == nil {
-            if self.slock.free_lock_command_count > 64 {
-                self.slock.free_lock_command_lock.Lock()
-                if self.slock.free_lock_command_count > 64 {
-                    for i := 0; i < 64; i++ {
-                        lock_command = self.slock.free_lock_commands.PopRight()
-                        if lock_command == nil {
-                            break
-                        }
-                        self.slock.free_lock_command_count--
-                        self.free_commands.Push(lock_command)
+            self.slock.free_lock_command_lock.Lock()
+            lock_command = self.slock.free_lock_commands.PopRight()
+            if lock_command != nil {
+                self.slock.free_lock_command_count--
+                for i := 0; i < 8; i++ {
+                    flock_command := self.slock.free_lock_commands.PopRight()
+                    if flock_command == nil {
+                        break
                     }
-                    self.slock.free_lock_command_lock.Unlock()
-                } else {
-                    self.slock.free_lock_command_lock.Unlock()
-
-                    lock_commands := make([]protocol.LockCommand, 64)
-                    for i := 0; i < 64; i++ {
-                        self.free_commands.Push(&lock_commands[i])
-                    }
+                    self.slock.free_lock_command_count--
+                    self.free_commands.Push(flock_command)
                 }
             } else {
-                lock_commands := make([]protocol.LockCommand, 64)
-                for i := 0; i < 64; i++ {
-                    self.free_commands.Push(&lock_commands[i])
-                }
+                lock_command = &protocol.LockCommand{}
             }
-            lock_command = self.free_commands.PopRight()
+            self.slock.free_lock_command_lock.Unlock()
         }
 
         lock_command.CommandType = command_type
@@ -343,7 +320,7 @@ func (self *BinaryServerProtocol) ProcessParse(buf []byte) error {
         case protocol.COMMAND_ADMIN:
             command = &protocol.AdminCommand{}
         default:
-            command = protocol.NewCommand(buf)
+            command = &protocol.Command{}
         }
         err := command.Decode(buf)
         if err != nil {
@@ -430,7 +407,6 @@ func (self *BinaryServerProtocol) ProcessLockCommand(lock_command *protocol.Lock
             db = self.slock.GetOrNewDB(lock_command.DbId)
         }
         return db.Lock(self, lock_command)
-
     }
 
     if db == nil {
@@ -483,8 +459,8 @@ func (self *BinaryServerProtocol) ProcessLockResultCommand(command *protocol.Loc
 
     free_result_command_lock := server_protocol.free_result_command_lock
     free_result_command_lock.Lock()
-    buf := server_protocol.owbuf
 
+    buf := server_protocol.owbuf
     if len(buf) < 64 {
         return errors.New("buf too short")
     }
@@ -523,32 +499,17 @@ func (self *BinaryServerProtocol) RemoteAddr() net.Addr {
 }
 
 func (self *BinaryServerProtocol) InitLockCommand() {
-    if self.slock.free_lock_command_count > 64 {
-        self.slock.free_lock_command_lock.Lock()
-        if self.slock.free_lock_command_count > 64 {
-            for i := 0; i < 64; i++ {
-                lock_command := self.slock.free_lock_commands.PopRight()
-                if lock_command == nil {
-                    break
-                }
-                self.slock.free_lock_command_count--
-                self.free_commands.Push(lock_command)
-            }
-            self.slock.free_lock_command_lock.Unlock()
-        } else {
-            self.slock.free_lock_command_lock.Unlock()
-
-            lock_commands := make([]protocol.LockCommand, 64)
-            for i := 0; i < 64; i++ {
-                self.free_commands.Push(&lock_commands[i])
-            }
+    self.slock.free_lock_command_lock.Lock()
+    for i := 0; i < 4; i++ {
+        lock_command := self.slock.free_lock_commands.PopRight()
+        if lock_command != nil {
+            self.slock.free_lock_command_count--
+            self.free_commands.Push(lock_command)
+            continue
         }
-    } else {
-        lock_commands := make([]protocol.LockCommand, 64)
-        for i := 0; i < 64; i++ {
-            self.free_commands.Push(&lock_commands[i])
-        }
+        self.free_commands.Push(&protocol.LockCommand{})
     }
+    self.slock.free_lock_command_lock.Unlock()
 }
 
 func (self *BinaryServerProtocol) UnInitLockCommand() {
@@ -567,33 +528,22 @@ func (self *BinaryServerProtocol) UnInitLockCommand() {
 func (self *BinaryServerProtocol) GetLockCommand() *protocol.LockCommand {
     lock_command := self.free_commands.PopRight()
     if lock_command == nil {
-        if self.slock.free_lock_command_count > 64 {
-            self.slock.free_lock_command_lock.Lock()
-            if self.slock.free_lock_command_count > 64 {
-                for i := 0; i < 64; i++ {
-                    lock_command = self.slock.free_lock_commands.PopRight()
-                    if lock_command == nil {
-                        break
-                    }
-                    self.slock.free_lock_command_count--
-                    self.free_commands.Push(lock_command)
+        self.slock.free_lock_command_lock.Lock()
+        lock_command = self.slock.free_lock_commands.PopRight()
+        if lock_command != nil {
+            self.slock.free_lock_command_count--
+            for i := 0; i < 8; i++ {
+                flock_command := self.slock.free_lock_commands.PopRight()
+                if flock_command == nil {
+                    break
                 }
-                self.slock.free_lock_command_lock.Unlock()
-            } else {
-                self.slock.free_lock_command_lock.Unlock()
-
-                lock_commands := make([]protocol.LockCommand, 64)
-                for i := 0; i < 64; i++ {
-                    self.free_commands.Push(&lock_commands[i])
-                }
+                self.slock.free_lock_command_count--
+                self.free_commands.Push(flock_command)
             }
         } else {
-            lock_commands := make([]protocol.LockCommand, 64)
-            for i := 0; i < 64; i++ {
-                self.free_commands.Push(&lock_commands[i])
-            }
+            lock_command = &protocol.LockCommand{}
         }
-        lock_command = self.free_commands.PopRight()
+        self.slock.free_lock_command_lock.Unlock()
     }
     return lock_command
 }
@@ -770,10 +720,9 @@ func (self *TextServerProtocol) Init(client_id [2]uint64) error{
 
 func (self *TextServerProtocol) Close() (error) {
     if self.stream != nil {
-        if self.stream.Close() != nil {
-            self.slock.Log().Errorf("connection close error: %s", self.RemoteAddr().String())
-        } else {
-            self.slock.Log().Infof("connection close %s", self.RemoteAddr().String())
+        err := self.stream.Close()
+        if err != nil {
+            self.slock.Log().Errorf("Connection Close Error: %s %v", self.RemoteAddr().String(), err)
         }
     }
 
@@ -860,17 +809,17 @@ func (self *TextServerProtocol) Process() error {
         }
 
         if self.parser.args_count > 0 && self.parser.args_count == len(self.parser.args) {
-            var err error
-
             command_name := strings.ToUpper(self.parser.args[0])
             if command_handler, ok := self.handlers[command_name]; ok {
-                err = command_handler(self, self.parser.args)
+                err := command_handler(self, self.parser.args)
+                if err != nil {
+                    return err
+                }
             } else {
-                err = self.CommandHandlerUnknownCommand(self, self.parser.args)
-            }
-
-            if err != nil {
-                return err
+                err := self.CommandHandlerUnknownCommand(self, self.parser.args)
+                if err != nil {
+                    return err
+                }
             }
 
             self.parser.args = self.parser.args[:0]
@@ -889,17 +838,17 @@ func (self *TextServerProtocol) ProcessParse(buf []byte) error {
     }
 
     if self.parser.args_count > 0 && self.parser.args_count == len(self.parser.args) {
-        var err error
-
         command_name := strings.ToUpper(self.parser.args[0])
         if command_handler, ok := self.handlers[command_name]; ok {
-            err = command_handler(self, self.parser.args)
+            err := command_handler(self, self.parser.args)
+            if err != nil {
+                return err
+            }
         } else {
-            err = self.CommandHandlerUnknownCommand(self, self.parser.args)
-        }
-
-        if err != nil {
-            return err
+            err := self.CommandHandlerUnknownCommand(self, self.parser.args)
+            if err != nil {
+                return err
+            }
         }
 
         self.parser.args = self.parser.args[:0]
@@ -1011,7 +960,6 @@ func (self *TextServerProtocol) ProcessLockCommand(lock_command *protocol.LockCo
             db = self.slock.GetOrNewDB(lock_command.DbId)
         }
         return db.Lock(self, lock_command)
-
     }
 
     if db == nil {
@@ -1061,19 +1009,15 @@ func (self *TextServerProtocol) RemoteAddr() net.Addr {
 }
 
 func (self *TextServerProtocol) InitLockCommand() {
-    if self.slock.free_lock_command_count > 1 {
-        self.slock.free_lock_command_lock.Lock()
-        if self.slock.free_lock_command_count > 1 {
-            lock_command := self.slock.free_lock_commands.PopRight()
-            if lock_command != nil {
-                self.slock.free_lock_command_count--
-                self.slock.free_lock_command_lock.Unlock()
-                return
-            }
-        }
-        self.slock.free_lock_command_lock.Lock()
+    self.slock.free_lock_command_lock.Lock()
+    lock_command := self.slock.free_lock_commands.PopRight()
+    if lock_command != nil {
+        self.slock.free_lock_command_count--
+        self.free_commands.Push(lock_command)
+    } else {
+        self.free_commands.Push(&protocol.LockCommand{})
     }
-    self.free_commands.Push(&protocol.LockCommand{})
+    self.slock.free_lock_command_lock.Unlock()
 }
 
 func (self *TextServerProtocol) UnInitLockCommand() {
@@ -1093,13 +1037,11 @@ func (self *TextServerProtocol) GetLockCommand() *protocol.LockCommand {
     lock_command := self.free_commands.PopRight()
     if lock_command == nil {
         self.slock.free_lock_command_lock.Lock()
-        if self.slock.free_lock_command_count > 1 {
-            lock_command := self.slock.free_lock_commands.PopRight()
-            if lock_command != nil {
-                self.slock.free_lock_command_count--
-                self.slock.free_lock_command_lock.Unlock()
-                return lock_command
-            }
+        lock_command := self.slock.free_lock_commands.PopRight()
+        if lock_command != nil {
+            self.slock.free_lock_command_count--
+            self.slock.free_lock_command_lock.Unlock()
+            return lock_command
         }
         self.slock.free_lock_command_lock.Unlock()
         return &protocol.LockCommand{}
@@ -1111,24 +1053,30 @@ func (self *TextServerProtocol) FreeLockCommand(command *protocol.LockCommand) e
     return self.free_commands.Push(command)
 }
 
-func (self *TextServerProtocol) ArgsToLockComandParseId(arg_id string, lock_id *[2]uint64) error {
+func (self *TextServerProtocol) ArgsToLockComandParseId(arg_id string, lock_id *[2]uint64) {
+    arg_len := len(arg_id)
     block_id := []byte(arg_id)
-    arg_len := len(block_id)
 
-    if arg_len == 32 {
-        v, err := hex.DecodeString(arg_id)
-        if err != nil {
-            return errors.New("Command Parse DecodeHex Error")
+    if arg_len > 16 {
+        if arg_len == 32 {
+            v, err := hex.DecodeString(arg_id)
+            if err == nil {
+                block_id = v
+            } else {
+                block_id = make([]byte, 0)
+                for _, v := range md5.Sum(block_id) {
+                    block_id = append(block_id, v)
+                }
+            }
+        } else {
+            block_id = make([]byte, 0)
+            for _, v := range md5.Sum(block_id) {
+                block_id = append(block_id, v)
+            }
         }
-        block_id = v
-    } else if arg_len > 16 {
+    } else if arg_len < 16 {
         block_id = make([]byte, 0)
-        for _, v := range md5.Sum(block_id) {
-            block_id = append(block_id, v)
-        }
-    } else if len(block_id) < 16 {
-        block_id = make([]byte, 0)
-        for i := 0; i < 16 - len(arg_id); i++ {
+        for i := 0; i < 16 - arg_len; i++ {
             block_id = append(block_id, 0)
         }
         for _, v := range arg_id {
@@ -1138,11 +1086,10 @@ func (self *TextServerProtocol) ArgsToLockComandParseId(arg_id string, lock_id *
 
     lock_id[1] = uint64(block_id[7]) | uint64(block_id[6])<<8 | uint64(block_id[5])<<16 | uint64(block_id[4])<<24 | uint64(block_id[3])<<32 | uint64(block_id[2])<<40 | uint64(block_id[1])<<48 | uint64(block_id[0])<<56
     lock_id[0] = uint64(block_id[15]) | uint64(block_id[14])<<8 | uint64(block_id[13])<<16 | uint64(block_id[12])<<24 | uint64(block_id[11])<<32 | uint64(block_id[10])<<40 | uint64(block_id[9])<<48 | uint64(block_id[8])<<56
-    return nil
 }
 
 func (self *TextServerProtocol) ArgsToLockComand(args []string) (*protocol.LockCommand, error) {
-    if len(args) < 2 {
+    if len(args) < 2 || len(args) % 2 != 0 {
         return nil, errors.New("Command Parse Len Error")
     }
 
@@ -1156,15 +1103,7 @@ func (self *TextServerProtocol) ArgsToLockComand(args []string) (*protocol.LockC
         command.CommandType = protocol.COMMAND_UNLOCK
     }
     command.RequestId = self.GetRequestId()
-
-    err := self.ArgsToLockComandParseId(args[1], &command.LockKey)
-    if err != nil {
-        return nil, err
-    }
-
-    if len(args) % 2 != 0 {
-        return nil, errors.New("Command Parse Len Error")
-    }
+    self.ArgsToLockComandParseId(args[1], &command.LockKey)
 
     kv_args := make(map[string]string, 8)
     for i := 2; i < len(args); i+= 2 {
@@ -1172,10 +1111,7 @@ func (self *TextServerProtocol) ArgsToLockComand(args []string) (*protocol.LockC
     }
 
     if v, ok := kv_args["LOCK_ID"]; ok {
-        err := self.ArgsToLockComandParseId(v, &command.LockId)
-        if err != nil {
-            return nil, err
-        }
+        self.ArgsToLockComandParseId(v, &command.LockId)
     } else {
         if command_name == "LOCK" {
             command.LockId = command.RequestId
@@ -1240,7 +1176,7 @@ func (self *TextServerProtocol) CommandHandlerSelectDB(server_protocol *TextServ
 
     db_id, err := strconv.Atoi(args[1])
     if err != nil {
-        return self.stream.WriteAllBytes(self.parser.Build(false, "Command Parse Error", nil))
+        return self.stream.WriteAllBytes(self.parser.Build(false, "Command Parse DB_ID Error", nil))
     }
     self.db_id = uint8(db_id)
     return self.stream.WriteAllBytes(self.parser.Build(true, "OK", nil))

@@ -81,8 +81,7 @@ func (self *Stream) Close() error {
     if self.server != nil {
         err := self.server.RemoveStream(self)
         if err != nil {
-            self.closed = false
-            return err
+            self.server.slock.Log().Errorf("Stream Close Remove Stream Error %v", err)
         }
         self.server = nil
     }

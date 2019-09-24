@@ -4,6 +4,7 @@ import (
     "github.com/hhkbp2/go-logging"
     "github.com/snower/slock/protocol"
     "sync"
+    "time"
 )
 
 type SLock struct {
@@ -13,6 +14,7 @@ type SLock struct {
     admin                   *Admin
     logger                  logging.Logger
     streams                 map[[2]uint64]ServerProtocol
+    uptime                  *time.Time
     free_lock_commands      *LockCommandQueue
     free_lock_command_lock  *sync.Mutex
     free_lock_command_count int32
@@ -23,9 +25,10 @@ func NewSLock(config *ServerConfig) *SLock {
 
     aof := NewAof()
     admin := NewAdmin()
+    now := time.Now()
     logger := InitLogger(Config.Log, Config.LogLevel)
     slock := &SLock{make([]*LockDB, 256), &sync.Mutex{}, aof,admin, logger, make(map[[2]uint64]ServerProtocol, STREAMS_INIT_COUNT),
-        NewLockCommandQueue(16, 64, FREE_COMMAND_QUEUE_INIT_SIZE * 16), &sync.Mutex{}, 0}
+        &now,NewLockCommandQueue(16, 64, FREE_COMMAND_QUEUE_INIT_SIZE * 16), &sync.Mutex{}, 0}
     aof.slock = slock
     admin.slock = slock
     return slock
