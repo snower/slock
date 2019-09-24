@@ -777,6 +777,7 @@ func (self *TextServerProtocol) Write(result protocol.CommandEncode) error {
         lock_result_command := result.(*protocol.LockResultCommand)
         lock_results := []string{
             fmt.Sprintf("%d", lock_result_command.Result),
+            protocol.ERROR_MSG[lock_result_command.Result],
             "LOCK_ID",
             fmt.Sprintf("%x", self.ConvertUint642ToByte16(lock_result_command.LockId)),
             "LCOUNT",
@@ -863,6 +864,7 @@ func (self *TextServerProtocol) ProcessBuild(command protocol.ICommand) error {
         lock_result_command := command.(*protocol.LockResultCommand)
         lock_results := []string{
             fmt.Sprintf("%d", lock_result_command.Result),
+            protocol.ERROR_MSG[lock_result_command.Result],
             "LOCK_ID",
             fmt.Sprintf("%x", self.ConvertUint642ToByte16(lock_result_command.LockId)),
             "LCOUNT",
@@ -877,6 +879,7 @@ func (self *TextServerProtocol) ProcessBuild(command protocol.ICommand) error {
         lock_result_command := command.(*protocol.LockResultCommand)
         lock_results := []string{
             fmt.Sprintf("%d", lock_result_command.Result),
+            protocol.ERROR_MSG[lock_result_command.Result],
             "LOCK_ID",
             fmt.Sprintf("%x", self.ConvertUint642ToByte16(lock_result_command.LockId)),
             "LCOUNT",
@@ -1203,6 +1206,7 @@ func (self *TextServerProtocol) CommandHandlerLock(server_protocol *TextServerPr
     }
     lock_results := []string{
         fmt.Sprintf("%d", lock_command_result.Result),
+        protocol.ERROR_MSG[lock_command_result.Result],
         "LOCK_ID",
         fmt.Sprintf("%x", self.ConvertUint642ToByte16(lock_command_result.LockId)),
         "LCOUNT",
@@ -1237,6 +1241,7 @@ func (self *TextServerProtocol) CommandHandlerUnlock(server_protocol *TextServer
     }
     lock_results := []string{
         fmt.Sprintf("%d", lock_command_result.Result),
+        protocol.ERROR_MSG[lock_command_result.Result],
         "LOCK_ID",
         fmt.Sprintf("%x", self.ConvertUint642ToByte16(lock_command_result.LockId)),
         "LCOUNT",

@@ -27,6 +27,19 @@ const (
     RESULT_ERROR
 )
 
+var ERROR_MSG []string = []string{
+    "OK",
+    "UNKNOWN_MAGIC",
+    "UNKNOWN_VERSION",
+    "UNKNOWN_DB",
+    "UNKNOWN_COMMAND",
+    "LOCKED_ERROR",
+    "UNLOCK_ERROR",
+    "TIMEOUT",
+    "EXPRIED",
+    "UNKNOWN_ERROR",
+}
+
 type ICommand interface {
     GetCommandType() uint8
     GetRequestId() [2]uint64
