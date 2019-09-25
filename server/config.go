@@ -1,5 +1,7 @@
 package server
 
+const VERSION  = "1.0.1"
+
 const QUEUE_MAX_MALLOC_SIZE = 0x3fffff
 
 const TIMEOUT_QUEUE_LENGTH int64 = 0x10

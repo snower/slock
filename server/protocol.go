@@ -55,7 +55,7 @@ func NewBinaryServerProtocol(slock *SLock, stream *Stream) *BinaryServerProtocol
     owbuf[0] = byte(protocol.MAGIC)
     owbuf[1] = byte(protocol.VERSION)
 
-    server_protocol := &BinaryServerProtocol{slock, stream, [2]uint64{0, 0}, NewLockCommandQueue(4, 16, FREE_COMMAND_QUEUE_INIT_SIZE),
+    server_protocol := &BinaryServerProtocol{slock, stream, [2]uint64{0, 0}, NewLockCommandQueue(4, 64, FREE_COMMAND_QUEUE_INIT_SIZE),
     &sync.Mutex{}, false, false, make([]byte, 64), wbuf, owbuf}
     server_protocol.InitLockCommand()
     return server_protocol
@@ -630,7 +630,7 @@ func (self *TextServerProtocolParser) Parse() error {
             carg_len := self.carg_len - len(self.carg)
             if carg_len > 0 {
                 if self.buf_len - self.buf_index < carg_len {
-                    self.carg = append(self.carg, self.buf[self.buf_index:]...)
+                    self.carg = append(self.carg, self.buf[self.buf_index: self.buf_len]...)
                     self.buf_index = self.buf_len
                     return nil
                 }
@@ -1118,6 +1118,8 @@ func (self *TextServerProtocol) ArgsToLockComand(args []string) (*protocol.LockC
     }
     command.RequestId = self.GetRequestId()
     command.DbId = self.db_id
+    command.Timeout = 3
+    command.Expried = 60
     self.ArgsToLockComandParseId(args[1], &command.LockKey)
 
     has_lock_id := false
