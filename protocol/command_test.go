@@ -6,7 +6,7 @@ import (
 )
 
 func TestLockCommand_Encode(t *testing.T) {
-    rid := [2]uint64{2, 3}
+    rid := [16]byte{0, 0, 0, 0, 0, 0, 0, 2, 3, 0, 0, 0, 0, 0, 0, 0}
     command := Command{MAGIC, VERSION, COMMAND_LOCK, rid}
     lock_command := LockCommand{command, 0, 0, rid, rid, 0, 5, 0,5, 1, 0}
     buf := make([]byte,  64)
@@ -16,10 +16,10 @@ func TestLockCommand_Encode(t *testing.T) {
     }
 
     rbuf := []byte{MAGIC, VERSION, COMMAND_LOCK,
-        2, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 2, 3, 0, 0, 0, 0, 0, 0, 0,
         0, 0,
-        2, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0,
-        2, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 2, 3, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 2, 3, 0, 0, 0, 0, 0, 0, 0,
         5, 0, 0, 0,
         5, 0, 0, 0,
         1, 0, 0,
@@ -32,12 +32,12 @@ func TestLockCommand_Encode(t *testing.T) {
 }
 
 func TestLockCommand_Decode(t *testing.T) {
-    rid := [2]uint64{2, 3}
+    rid := [16]byte{0, 0, 0, 0, 0, 0, 0, 2, 3, 0, 0, 0, 0, 0, 0, 0}
     buf := []byte{MAGIC, VERSION, COMMAND_LOCK,
-        2, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 2, 3, 0, 0, 0, 0, 0, 0, 0,
         0, 0,
-        2, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0,
-        2, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 2, 3, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 2, 3, 0, 0, 0, 0, 0, 0, 0,
         5, 0, 0, 0,
         5, 0, 0, 0,
         1, 0, 0,
@@ -106,7 +106,7 @@ func TestLockCommand_Decode(t *testing.T) {
 }
 
 func TestLockResultCommand_Encode(t *testing.T) {
-    rid := [2]uint64{2, 3}
+    rid := [16]byte{0, 0, 0, 0, 0, 0, 0, 2, 3, 0, 0, 0, 0, 0, 0, 0}
     command := ResultCommand{MAGIC, VERSION, COMMAND_LOCK, rid, 0}
     lock_command := LockResultCommand{command, 0, 0, rid, rid, 0, 0,0, [5]byte{0, 0, 0, 0, 0}}
     buf := make([]byte,  64)
@@ -116,10 +116,10 @@ func TestLockResultCommand_Encode(t *testing.T) {
     }
 
     rbuf := []byte{MAGIC, VERSION, COMMAND_LOCK,
-        2, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 2, 3, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0,
-        2, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0,
-        2, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 2, 3, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 2, 3, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     }
 
@@ -130,12 +130,12 @@ func TestLockResultCommand_Encode(t *testing.T) {
 }
 
 func TestLockResultCommand_Decode(t *testing.T) {
-    rid := [2]uint64{2, 3}
+    rid := [16]byte{0, 0, 0, 0, 0, 0, 0, 2, 3, 0, 0, 0, 0, 0, 0, 0}
     buf := []byte{MAGIC, VERSION, COMMAND_LOCK,
-        2, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 2, 3, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0,
-        2, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0,
-        2, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 2, 3, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 2, 3, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     }
 

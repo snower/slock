@@ -23,8 +23,8 @@ type AofLock struct {
     DbId            uint8
     CommandType     uint8
     Flag            uint8
-    LockKey         [2]uint64
-    LockId          [2]uint64
+    LockKey         [16]byte
+    LockId          [16]byte
     StartTime       uint64
     ExpriedTime     uint64
     Count           uint16
@@ -154,11 +154,15 @@ func (self *AofFile) ReadLock(lock *AofLock) error {
 
     lock.DbId, lock.CommandType, lock.Flag = buf[2], buf[3], buf[4]
 
-    lock.LockKey[0] = uint64(buf[5]) | uint64(buf[6])<<8 | uint64(buf[7])<<16 | uint64(buf[8])<<24 | uint64(buf[9])<<32 | uint64(buf[10])<<40 | uint64(buf[11])<<48 | uint64(buf[12])<<56
-    lock.LockKey[1] = uint64(buf[13]) | uint64(buf[14])<<8 | uint64(buf[15])<<16 | uint64(buf[16])<<24 | uint64(buf[17])<<32 | uint64(buf[18])<<40 | uint64(buf[19])<<48 | uint64(buf[20])<<56
+    lock.LockKey[0], lock.LockKey[1], lock.LockKey[2], lock.LockKey[3], lock.LockKey[4], lock.LockKey[5], lock.LockKey[6], lock.LockKey[7],
+        lock.LockKey[8], lock.LockKey[9], lock.LockKey[10], lock.LockKey[11], lock.LockKey[12], lock.LockKey[13], lock.LockKey[14], lock.LockKey[15] =
+        buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11], buf[12],
+        buf[13], buf[14], buf[15], buf[16], buf[17], buf[18], buf[19], buf[20]
 
-    lock.LockId[0] = uint64(buf[21]) | uint64(buf[22])<<8 | uint64(buf[23])<<16 | uint64(buf[24])<<24 | uint64(buf[25])<<32 | uint64(buf[26])<<40 | uint64(buf[27])<<48 | uint64(buf[28])<<56
-    lock.LockId[1] = uint64(buf[29]) | uint64(buf[30])<<8 | uint64(buf[31])<<16 | uint64(buf[32])<<24 | uint64(buf[33])<<32 | uint64(buf[34])<<40 | uint64(buf[35])<<48 | uint64(buf[36])<<56
+    lock.LockId[0], lock.LockId[1], lock.LockId[2], lock.LockId[3], lock.LockId[4], lock.LockId[5], lock.LockId[6], lock.LockId[7],
+        lock.LockId[8], lock.LockId[9], lock.LockId[10], lock.LockId[11], lock.LockId[12], lock.LockId[13], lock.LockId[14], lock.LockId[15] =
+        buf[21], buf[22], buf[23], buf[24], buf[25], buf[26], buf[27], buf[28],
+        buf[29], buf[30], buf[31], buf[32], buf[33], buf[34], buf[35], buf[36]
 
     lock.StartTime = uint64(buf[37]) | uint64(buf[38])<<8 | uint64(buf[39])<<16 | uint64(buf[40])<<24 | uint64(buf[41])<<32 | uint64(buf[42])<<40 | uint64(buf[43])<<48 | uint64(buf[44])<<56
     lock.ExpriedTime = uint64(buf[45]) | uint64(buf[46])<<8 | uint64(buf[47])<<16 | uint64(buf[48])<<24 | uint64(buf[49])<<32 | uint64(buf[50])<<40 | uint64(buf[51])<<48 | uint64(buf[52])<<56
@@ -181,11 +185,15 @@ func (self *AofFile) WriteLock(lock *AofLock) error {
     buf[0], buf[1] = byte(buf_len), byte(buf_len << 8)
     buf[2], buf[3], buf[4] = lock.DbId, lock.CommandType, lock.Flag
 
-    buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11], buf[12] = byte(lock.LockKey[0]), byte(lock.LockKey[0] >> 8), byte(lock.LockKey[0] >> 16), byte(lock.LockKey[0] >> 24), byte(lock.LockKey[0] >> 32), byte(lock.LockKey[0] >> 40), byte(lock.LockKey[0] >> 48), byte(lock.LockKey[0] >> 56)
-    buf[13], buf[14], buf[15], buf[16], buf[17], buf[18], buf[19], buf[20] = byte(lock.LockKey[1]), byte(lock.LockKey[1] >> 8), byte(lock.LockKey[1] >> 16), byte(lock.LockKey[1] >> 24), byte(lock.LockKey[1] >> 32), byte(lock.LockKey[1] >> 40), byte(lock.LockKey[1] >> 48), byte(lock.LockKey[1] >> 56)
+    buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11], buf[12],
+        buf[13], buf[14], buf[15], buf[16], buf[17], buf[18], buf[19], buf[20] =
+        lock.LockKey[0], lock.LockKey[1], lock.LockKey[2], lock.LockKey[3], lock.LockKey[4], lock.LockKey[5], lock.LockKey[6], lock.LockKey[7],
+        lock.LockKey[8], lock.LockKey[9], lock.LockKey[10], lock.LockKey[11], lock.LockKey[12], lock.LockKey[13], lock.LockKey[14], lock.LockKey[15]
 
-    buf[21], buf[22], buf[23], buf[24], buf[25], buf[26], buf[27], buf[28] = byte(lock.LockId[0]), byte(lock.LockId[0] >> 8), byte(lock.LockId[0] >> 16), byte(lock.LockId[0] >> 24), byte(lock.LockId[0] >> 32), byte(lock.LockId[0] >> 40), byte(lock.LockId[0] >> 48), byte(lock.LockId[0] >> 56)
-    buf[29], buf[30], buf[31], buf[32], buf[33], buf[34], buf[35], buf[36] = byte(lock.LockId[1]), byte(lock.LockId[1] >> 8), byte(lock.LockId[1] >> 16), byte(lock.LockId[1] >> 24), byte(lock.LockId[1] >> 32), byte(lock.LockId[1] >> 40), byte(lock.LockId[1] >> 48), byte(lock.LockId[1] >> 56)
+    buf[21], buf[22], buf[23], buf[24], buf[25], buf[26], buf[27], buf[28],
+        buf[29], buf[30], buf[31], buf[32], buf[33], buf[34], buf[35], buf[36] =
+        lock.LockId[0], lock.LockId[1], lock.LockId[2], lock.LockId[3], lock.LockId[4], lock.LockId[5], lock.LockId[6], lock.LockId[7],
+        lock.LockId[8], lock.LockId[9], lock.LockId[10], lock.LockId[11], lock.LockId[12], lock.LockId[13], lock.LockId[14], lock.LockId[15]
 
     buf[37], buf[38], buf[39], buf[40], buf[40], buf[42], buf[43], buf[44] = byte(lock.StartTime), byte(lock.StartTime >> 8), byte(lock.StartTime >> 16), byte(lock.StartTime >> 24), byte(lock.StartTime >> 32), byte(lock.StartTime >> 40), byte(lock.StartTime >> 48), byte(lock.StartTime >> 56)
     buf[45], buf[46], buf[47], buf[48], buf[49], buf[50], buf[51], buf[52] = byte(lock.ExpriedTime), byte(lock.ExpriedTime >> 8), byte(lock.ExpriedTime >> 16), byte(lock.ExpriedTime >> 24), byte(lock.ExpriedTime >> 32), byte(lock.ExpriedTime >> 40), byte(lock.ExpriedTime >> 48), byte(lock.ExpriedTime >> 56)
@@ -349,7 +357,7 @@ func (self *Aof) LoadAndInit() error {
     self.aof_file_index++
     self.slock.Log().Infof("Aof File Create %s", self.aof_file.filename)
 
-    server_protocol := &BinaryServerProtocol{self.slock, nil, [2]uint64{0, 0}, NewLockCommandQueue(4, 16, 256),
+    server_protocol := &BinaryServerProtocol{self.slock, nil, [16]byte{}, NewLockCommandQueue(4, 16, 256),
         &sync.Mutex{}, false, true, make([]byte, 64), make([]byte, 64), make([]byte, 64)}
     server_protocol.closed = true
 
@@ -671,9 +679,11 @@ func (self *Aof) LoadRewriteAofFile(filename string, rewrite_aof_file *AofFile) 
     }
 }
 
-func (self *Aof) GetRequestId() [2]uint64 {
-    request_id := [2]uint64{}
-    request_id[0] = (uint64(time.Now().Unix()) & 0xffffffff)<<32 | uint64(LETTERS[rand.Intn(52)])<<24 | uint64(LETTERS[rand.Intn(52)])<<16 | uint64(LETTERS[rand.Intn(52)])<<8 | uint64(LETTERS[rand.Intn(52)])
-    request_id[1] = atomic.AddUint64(&request_id_index, 1)
-    return request_id
+func (self *Aof) GetRequestId() [16]byte {
+    now := uint32(time.Now().Unix())
+    request_id_index := atomic.AddUint64(&request_id_index, 1)
+    return [16]byte{
+        byte(now >> 24), byte(now >> 16), byte(now >> 8), byte(now), LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)],
+        LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], byte(request_id_index >> 40), byte(request_id_index >> 32), byte(request_id_index >> 24), byte(request_id_index >> 16), byte(request_id_index >> 8), byte(request_id_index),
+    }
 }

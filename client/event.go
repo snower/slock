@@ -7,7 +7,7 @@ import (
 
 type Event struct {
     db *Database
-    event_key [2]uint64
+    event_key [16]byte
     timeout uint32
     expried uint32
     event_lock *Lock
@@ -16,7 +16,7 @@ type Event struct {
     glock *sync.Mutex
 }
 
-func NewEvent(db *Database, event_key [2]uint64, timeout uint32, expried uint32) *Event {
+func NewEvent(db *Database, event_key [16]byte, timeout uint32, expried uint32) *Event {
     return &Event{db, event_key, timeout, expried, nil, nil, nil, &sync.Mutex{}}
 }
 
@@ -84,7 +84,7 @@ type CycleEvent struct {
     Event
 }
 
-func NewCycleEvent(db *Database, event_key [2]uint64, timeout uint32, expried uint32) *CycleEvent {
+func NewCycleEvent(db *Database, event_key [16]byte, timeout uint32, expried uint32) *CycleEvent {
     return &CycleEvent{Event{db, event_key, timeout, expried, nil, nil, nil, &sync.Mutex{}}}
 }
 

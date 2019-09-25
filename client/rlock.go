@@ -7,15 +7,15 @@ import (
 
 type RLock struct {
     db *Database
-    lock_key [2]uint64
+    lock_key [16]byte
     timeout uint32
     expried uint32
     lock *Lock
     locked_count uint8
 }
 
-func NewRLock(db *Database, lock_key [2]uint64, timeout uint32, expried uint32) *RLock {
-    lock := &Lock{db, [2]uint64{0, 0}, db.GenLockId(), lock_key, timeout, expried, 0, 0xff}
+func NewRLock(db *Database, lock_key [16]byte, timeout uint32, expried uint32) *RLock {
+    lock := &Lock{db, [16]byte{}, db.GenLockId(), lock_key, timeout, expried, 0, 0xff}
     return &RLock{db, lock_key, timeout, expried, lock, 0}
 }
 

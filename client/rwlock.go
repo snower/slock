@@ -8,7 +8,7 @@ import (
 
 type RWLock struct {
     db *Database
-    lock_key [2]uint64
+    lock_key [16]byte
     timeout uint32
     expried uint32
     rlocks []*Lock
@@ -16,7 +16,7 @@ type RWLock struct {
     glock *sync.Mutex
 }
 
-func NewRWLock(db *Database, lock_key [2]uint64, timeout uint32, expried uint32) *RWLock {
+func NewRWLock(db *Database, lock_key [16]byte, timeout uint32, expried uint32) *RWLock {
     return &RWLock{db, lock_key, timeout, expried, make([]*Lock, 0), nil, &sync.Mutex{}}
 }
 

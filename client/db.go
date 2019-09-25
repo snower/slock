@@ -12,12 +12,12 @@ import (
 type Database struct {
     db_id uint8
     client *Client
-    requests map[[2]uint64]chan protocol.ICommand
+    requests map[[16]byte]chan protocol.ICommand
     glock *sync.Mutex
 }
 
 func NewDatabase(db_id uint8, client *Client) *Database {
-    return &Database{db_id, client, make(map[[2]uint64]chan protocol.ICommand, 4096), &sync.Mutex{}}
+    return &Database{db_id, client, make(map[[16]byte]chan protocol.ICommand, 4096), &sync.Mutex{}}
 }
 
 func (self *Database) Close() error {
@@ -28,7 +28,7 @@ func (self *Database) Close() error {
         self.requests[request_id] <- nil
     }
 
-    self.requests = make(map[[2]uint64]chan protocol.ICommand, 0)
+    self.requests = make(map[[16]byte]chan protocol.ICommand, 0)
 
     self.client = nil
     return nil
@@ -175,27 +175,27 @@ func (self *Database) SendStateCommand(command *protocol.StateCommand) (*protoco
     return result_command.(*protocol.ResultStateCommand), nil
 }
 
-func (self *Database) Lock(lock_key [2]uint64, timeout uint32, expried uint32) *Lock {
+func (self *Database) Lock(lock_key [16]byte, timeout uint32, expried uint32) *Lock {
     return NewLock(self, lock_key, timeout, expried, 0, 0)
 }
 
-func (self *Database) Event(event_key [2]uint64, timeout uint32, expried uint32) *Event {
+func (self *Database) Event(event_key [16]byte, timeout uint32, expried uint32) *Event {
     return NewEvent(self, event_key, timeout, expried)
 }
 
-func (self *Database) CycleEvent(event_key [2]uint64, timeout uint32, expried uint32) *CycleEvent {
+func (self *Database) CycleEvent(event_key [16]byte, timeout uint32, expried uint32) *CycleEvent {
     return NewCycleEvent(self, event_key, timeout, expried)
 }
 
-func (self *Database) Semaphore(semaphore_key [2]uint64, timeout uint32, expried uint32, count uint16) *Semaphore {
+func (self *Database) Semaphore(semaphore_key [16]byte, timeout uint32, expried uint32, count uint16) *Semaphore {
     return NewSemaphore(self, semaphore_key, timeout, expried, count)
 }
 
-func (self *Database) RWLock(lock_key [2]uint64, timeout uint32, expried uint32) *RWLock {
+func (self *Database) RWLock(lock_key [16]byte, timeout uint32, expried uint32) *RWLock {
     return NewRWLock(self, lock_key, timeout, expried)
 }
 
-func (self *Database) RLock(lock_key [2]uint64, timeout uint32, expried uint32) *RLock {
+func (self *Database) RLock(lock_key [16]byte, timeout uint32, expried uint32) *RLock {
     return NewRLock(self, lock_key, timeout, expried)
 }
 
@@ -210,16 +210,20 @@ func (self *Database) State() *protocol.ResultStateCommand {
     return result_command
 }
 
-func (self *Database) GetRequestId() [2]uint64 {
-    request_id := [2]uint64{}
-    request_id[0] = (uint64(time.Now().Unix()) & 0xffffffff)<<32 | uint64(LETTERS[rand.Intn(52)])<<24 | uint64(LETTERS[rand.Intn(52)])<<16 | uint64(LETTERS[rand.Intn(52)])<<8 | uint64(LETTERS[rand.Intn(52)])
-    request_id[1] = atomic.AddUint64(&request_id_index, 1)
-    return request_id
+func (self *Database) GetRequestId() [16]byte {
+    now := uint32(time.Now().Unix())
+    request_id_index := atomic.AddUint64(&request_id_index, 1)
+    return [16]byte{
+        byte(now >> 24), byte(now >> 16), byte(now >> 8), byte(now), LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)],
+        LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], byte(request_id_index >> 40), byte(request_id_index >> 32), byte(request_id_index >> 24), byte(request_id_index >> 16), byte(request_id_index >> 8), byte(request_id_index),
+    }
 }
 
-func (self *Database) GenLockId() ([2]uint64) {
-    lock_id := [2]uint64{}
-    lock_id[0] = (uint64(time.Now().Unix()) & 0xffffffff)<<32 | uint64(LETTERS[rand.Intn(52)])<<24 | uint64(LETTERS[rand.Intn(52)])<<16 | uint64(LETTERS[rand.Intn(52)])<<8 | uint64(LETTERS[rand.Intn(52)])
-    lock_id[1] = atomic.AddUint64(&lock_id_index, 1)
-    return lock_id
+func (self *Database) GenLockId() ([16]byte) {
+    now := uint32(time.Now().Unix())
+    request_id_index := atomic.AddUint64(&request_id_index, 1)
+    return [16]byte{
+        byte(now >> 24), byte(now >> 16), byte(now >> 8), byte(now), LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)],
+        LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], byte(request_id_index >> 40), byte(request_id_index >> 32), byte(request_id_index >> 24), byte(request_id_index >> 16), byte(request_id_index >> 8), byte(request_id_index),
+    }
 }

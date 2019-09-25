@@ -21,13 +21,13 @@ type Client struct {
     protocol *ClientProtocol
     dbs []*Database
     glock *sync.Mutex
-    client_id [2]uint64
+    client_id [16]byte
     is_stop bool
     reconnect_count int
 }
 
 func NewClient(host string, port uint) *Client{
-    client := &Client{host, port, nil, nil,make([]*Database, 256), &sync.Mutex{}, [2]uint64{0, 0}, false, 0}
+    client := &Client{host, port, nil, nil,make([]*Database, 256), &sync.Mutex{}, [16]byte{0, 0}, false, 0}
     client.InitClientId()
     return client
 }
@@ -77,15 +77,11 @@ func (self *Client) Reopen() {
 }
 
 func (self *Client) InitClientId() {
-    now := fmt.Sprintf("%x", int32(time.Now().Unix()))
-    letters_count := len(LETTERS)
-    self.client_id[0] = uint64(now[0]) | uint64(now[1])<<8 | uint64(now[2])<<16 | uint64(now[3])<<24 | uint64(now[4])<<32 | uint64(now[5])<<40 | uint64(now[6])<<48 | uint64(now[7])<<56
-
-    randstr := [16]byte{}
-    for i := 0; i < 8; i++{
-        randstr[i] = LETTERS[rand.Intn(letters_count)]
+    now := uint32(time.Now().Unix())
+    self.client_id = [16]byte{
+        byte(now >> 24), byte(now >> 16), byte(now >> 8), byte(now), LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)],
+        LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)],
     }
-    self.client_id[1] = uint64(randstr[0]) | uint64(randstr[1])<<8 | uint64(randstr[2])<<16 | uint64(randstr[3])<<24 | uint64(randstr[4])<<32 | uint64(randstr[5])<<40 | uint64(randstr[6])<<48 | uint64(randstr[7])<<56
 }
 
 func (self *Client) InitProtocol(client_protocol *ClientProtocol) error {
@@ -230,27 +226,27 @@ func (self *Client) SelectDB(db_id uint8) *Database {
     return db
 }
 
-func (self *Client) Lock(lock_key [2]uint64, timeout uint32, expried uint32) *Lock {
+func (self *Client) Lock(lock_key [16]byte, timeout uint32, expried uint32) *Lock {
     return self.SelectDB(0).Lock(lock_key, timeout, expried)
 }
 
-func (self *Client) Event(event_key [2]uint64, timeout uint32, expried uint32) *Event {
+func (self *Client) Event(event_key [16]byte, timeout uint32, expried uint32) *Event {
     return self.SelectDB(0).Event(event_key, timeout, expried)
 }
 
-func (self *Client) CycleEvent(event_key [2]uint64, timeout uint32, expried uint32) *CycleEvent {
+func (self *Client) CycleEvent(event_key [16]byte, timeout uint32, expried uint32) *CycleEvent {
     return self.SelectDB(0).CycleEvent(event_key, timeout, expried)
 }
 
-func (self *Client) Semaphore(semaphore_key [2]uint64, timeout uint32, expried uint32, count uint16) *Semaphore {
+func (self *Client) Semaphore(semaphore_key [16]byte, timeout uint32, expried uint32, count uint16) *Semaphore {
     return self.SelectDB(0).Semaphore(semaphore_key, timeout, expried, count)
 }
 
-func (self *Client) RWLock(lock_key [2]uint64, timeout uint32, expried uint32) *RWLock {
+func (self *Client) RWLock(lock_key [16]byte, timeout uint32, expried uint32) *RWLock {
     return self.SelectDB(0).RWLock(lock_key, timeout, expried)
 }
 
-func (self *Client) RLock(lock_key [2]uint64, timeout uint32, expried uint32) *RLock {
+func (self *Client) RLock(lock_key [16]byte, timeout uint32, expried uint32) *RLock {
     return self.SelectDB(0).RLock(lock_key, timeout, expried)
 }
 

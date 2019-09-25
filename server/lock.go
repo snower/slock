@@ -7,10 +7,10 @@ import (
 
 type LockManager struct {
     lock_db        *LockDB
-    lock_key       [2]uint64
+    lock_key       [16]byte
     current_lock   *Lock
     locks          *LockQueue
-    lock_maps      map[[2]uint64]*Lock
+    lock_maps      map[[16]byte]*Lock
     wait_locks     *LockQueue
     glock          *sync.Mutex
     free_locks     *LockQueue

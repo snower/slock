@@ -3,21 +3,21 @@ package server
 import (
     "crypto/md5"
     "encoding/hex"
+    "errors"
     "fmt"
+    "github.com/snower/slock/protocol"
     "io"
     "math/rand"
     "net"
-    "errors"
     "strconv"
     "strings"
     "sync"
-    "github.com/snower/slock/protocol"
     "sync/atomic"
     "time"
 )
 
 type ServerProtocol interface {
-    Init(client_id [2]uint64) error
+    Init(client_id [16]byte) error
     Read() (protocol.CommandDecode, error)
     Write(protocol.CommandEncode) (error)
     Process() error
@@ -36,7 +36,7 @@ type ServerProtocol interface {
 type BinaryServerProtocol struct {
     slock                       *SLock
     stream                      *Stream
-    client_id                   [2]uint64
+    client_id                   [16]byte
     free_commands               *LockCommandQueue
     free_result_command_lock    *sync.Mutex
     inited                      bool
@@ -55,13 +55,13 @@ func NewBinaryServerProtocol(slock *SLock, stream *Stream) *BinaryServerProtocol
     owbuf[0] = byte(protocol.MAGIC)
     owbuf[1] = byte(protocol.VERSION)
 
-    server_protocol := &BinaryServerProtocol{slock, stream, [2]uint64{0, 0}, NewLockCommandQueue(4, 64, FREE_COMMAND_QUEUE_INIT_SIZE),
+    server_protocol := &BinaryServerProtocol{slock, stream, [16]byte{0, 0}, NewLockCommandQueue(4, 64, FREE_COMMAND_QUEUE_INIT_SIZE),
     &sync.Mutex{}, false, false, make([]byte, 64), wbuf, owbuf}
     server_protocol.InitLockCommand()
     return server_protocol
 }
 
-func (self *BinaryServerProtocol) Init(client_id [2]uint64) error {
+func (self *BinaryServerProtocol) Init(client_id [16]byte) error {
     self.client_id = client_id
     self.inited = true
     return nil
@@ -242,17 +242,23 @@ func (self *BinaryServerProtocol) ProcessParse(buf []byte) error {
 
         lock_command.CommandType = command_type
 
-        lock_command.RequestId[0] = uint64(buf[3]) | uint64(buf[4])<<8 | uint64(buf[5])<<16 | uint64(buf[6])<<24 | uint64(buf[7])<<32 | uint64(buf[8])<<40 | uint64(buf[9])<<48 | uint64(buf[10])<<56
-        lock_command.RequestId[1] = uint64(buf[11]) | uint64(buf[12])<<8 | uint64(buf[13])<<16 | uint64(buf[14])<<24 | uint64(buf[15])<<32 | uint64(buf[16])<<40 | uint64(buf[17])<<48 | uint64(buf[18])<<56
+        lock_command.RequestId[0], lock_command.RequestId[1], lock_command.RequestId[2], lock_command.RequestId[3], lock_command.RequestId[4], lock_command.RequestId[5], lock_command.RequestId[6], lock_command.RequestId[7],
+            lock_command.RequestId[8], lock_command.RequestId[9], lock_command.RequestId[10], lock_command.RequestId[11], lock_command.RequestId[12], lock_command.RequestId[13], lock_command.RequestId[14], lock_command.RequestId[15] =
+            buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
+            buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18]
 
         lock_command.Flag, lock_command.DbId = uint8(buf[19]), uint8(buf[20])
 
-        lock_command.LockId[0] = uint64(buf[21]) | uint64(buf[22])<<8 | uint64(buf[23])<<16 | uint64(buf[24])<<24 | uint64(buf[25])<<32 | uint64(buf[26])<<40 | uint64(buf[27])<<48 | uint64(buf[28])<<56
-        lock_command.LockId[1] = uint64(buf[29]) | uint64(buf[30])<<8 | uint64(buf[31])<<16 | uint64(buf[32])<<24 | uint64(buf[33])<<32 | uint64(buf[34])<<40 | uint64(buf[35])<<48 | uint64(buf[36])<<56
+        lock_command.LockId[0], lock_command.LockId[1], lock_command.LockId[2], lock_command.LockId[3], lock_command.LockId[4], lock_command.LockId[5], lock_command.LockId[6], lock_command.LockId[7],
+            lock_command.LockId[8], lock_command.LockId[9], lock_command.LockId[10], lock_command.LockId[11], lock_command.LockId[12], lock_command.LockId[13], lock_command.LockId[14], lock_command.LockId[15] =
+            buf[21], buf[22], buf[23], buf[24], buf[25], buf[26], buf[27], buf[28],
+            buf[29], buf[30], buf[31], buf[32], buf[33], buf[34], buf[35], buf[36]
 
-        lock_command.LockKey[0] = uint64(buf[37]) | uint64(buf[38])<<8 | uint64(buf[39])<<16 | uint64(buf[40])<<24 | uint64(buf[41])<<32 | uint64(buf[42])<<40 | uint64(buf[43])<<48 | uint64(buf[44])<<56
-        lock_command.LockKey[1] = uint64(buf[45]) | uint64(buf[46])<<8 | uint64(buf[47])<<16 | uint64(buf[48])<<24 | uint64(buf[49])<<32 | uint64(buf[50])<<40 | uint64(buf[51])<<48 | uint64(buf[52])<<56
-
+        lock_command.LockKey[0], lock_command.LockKey[1], lock_command.LockKey[2], lock_command.LockKey[3], lock_command.LockKey[4], lock_command.LockKey[5], lock_command.LockKey[6], lock_command.LockKey[7],
+            lock_command.LockKey[8], lock_command.LockKey[9], lock_command.LockKey[10], lock_command.LockKey[11], lock_command.LockKey[12], lock_command.LockKey[13], lock_command.LockKey[14], lock_command.LockKey[15] =
+            buf[37], buf[38], buf[39], buf[40], buf[41], buf[42], buf[43], buf[44],
+            buf[45], buf[46], buf[47], buf[48], buf[49], buf[50], buf[51], buf[52]
+            
         lock_command.Timeout, lock_command.TimeoutFlag, lock_command.Expried, lock_command.ExpriedFlag = uint16(buf[53])|uint16(buf[54])<<8, uint16(buf[55])|uint16(buf[56])<<8, uint16(buf[57])|uint16(buf[58])<<8, uint16(buf[59])|uint16(buf[60])<<8
         lock_command.Count, lock_command.Rcount = uint16(buf[61])|uint16(buf[62])<<8, uint8(buf[63])
 
@@ -288,16 +294,22 @@ func (self *BinaryServerProtocol) ProcessParse(buf []byte) error {
 
         lock_command.CommandType = command_type
 
-        lock_command.RequestId[0] = uint64(buf[3]) | uint64(buf[4])<<8 | uint64(buf[5])<<16 | uint64(buf[6])<<24 | uint64(buf[7])<<32 | uint64(buf[8])<<40 | uint64(buf[9])<<48 | uint64(buf[10])<<56
-        lock_command.RequestId[1] = uint64(buf[11]) | uint64(buf[12])<<8 | uint64(buf[13])<<16 | uint64(buf[14])<<24 | uint64(buf[15])<<32 | uint64(buf[16])<<40 | uint64(buf[17])<<48 | uint64(buf[18])<<56
+        lock_command.RequestId[0], lock_command.RequestId[1], lock_command.RequestId[2], lock_command.RequestId[3], lock_command.RequestId[4], lock_command.RequestId[5], lock_command.RequestId[6], lock_command.RequestId[7],
+            lock_command.RequestId[8], lock_command.RequestId[9], lock_command.RequestId[10], lock_command.RequestId[11], lock_command.RequestId[12], lock_command.RequestId[13], lock_command.RequestId[14], lock_command.RequestId[15] =
+            buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
+            buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18]
 
         lock_command.Flag, lock_command.DbId = uint8(buf[19]), uint8(buf[20])
 
-        lock_command.LockId[0] = uint64(buf[21]) | uint64(buf[22])<<8 | uint64(buf[23])<<16 | uint64(buf[24])<<24 | uint64(buf[25])<<32 | uint64(buf[26])<<40 | uint64(buf[27])<<48 | uint64(buf[28])<<56
-        lock_command.LockId[1] = uint64(buf[29]) | uint64(buf[30])<<8 | uint64(buf[31])<<16 | uint64(buf[32])<<24 | uint64(buf[33])<<32 | uint64(buf[34])<<40 | uint64(buf[35])<<48 | uint64(buf[36])<<56
+        lock_command.LockId[0], lock_command.LockId[1], lock_command.LockId[2], lock_command.LockId[3], lock_command.LockId[4], lock_command.LockId[5], lock_command.LockId[6], lock_command.LockId[7],
+            lock_command.LockId[8], lock_command.LockId[9], lock_command.LockId[10], lock_command.LockId[11], lock_command.LockId[12], lock_command.LockId[13], lock_command.LockId[14], lock_command.LockId[15] =
+            buf[21], buf[22], buf[23], buf[24], buf[25], buf[26], buf[27], buf[28],
+            buf[29], buf[30], buf[31], buf[32], buf[33], buf[34], buf[35], buf[36]
 
-        lock_command.LockKey[0] = uint64(buf[37]) | uint64(buf[38])<<8 | uint64(buf[39])<<16 | uint64(buf[40])<<24 | uint64(buf[41])<<32 | uint64(buf[42])<<40 | uint64(buf[43])<<48 | uint64(buf[44])<<56
-        lock_command.LockKey[1] = uint64(buf[45]) | uint64(buf[46])<<8 | uint64(buf[47])<<16 | uint64(buf[48])<<24 | uint64(buf[49])<<32 | uint64(buf[50])<<40 | uint64(buf[51])<<48 | uint64(buf[52])<<56
+        lock_command.LockKey[0], lock_command.LockKey[1], lock_command.LockKey[2], lock_command.LockKey[3], lock_command.LockKey[4], lock_command.LockKey[5], lock_command.LockKey[6], lock_command.LockKey[7],
+            lock_command.LockKey[8], lock_command.LockKey[9], lock_command.LockKey[10], lock_command.LockKey[11], lock_command.LockKey[12], lock_command.LockKey[13], lock_command.LockKey[14], lock_command.LockKey[15] =
+            buf[37], buf[38], buf[39], buf[40], buf[41], buf[42], buf[43], buf[44],
+            buf[45], buf[46], buf[47], buf[48], buf[49], buf[50], buf[51], buf[52]
 
         lock_command.Timeout, lock_command.TimeoutFlag, lock_command.Expried, lock_command.ExpriedFlag = uint16(buf[53])|uint16(buf[54])<<8, uint16(buf[55])|uint16(buf[56])<<8, uint16(buf[57])|uint16(buf[58])<<8, uint16(buf[59])|uint16(buf[60])<<8
         lock_command.Count, lock_command.Rcount = uint16(buf[61])|uint16(buf[62])<<8, uint8(buf[63])
@@ -440,16 +452,22 @@ func (self *BinaryServerProtocol) ProcessLockResultCommand(command *protocol.Loc
 
         buf[2] = byte(command.CommandType)
 
-        buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10] = byte(command.RequestId[0]), byte(command.RequestId[0] >> 8), byte(command.RequestId[0] >> 16), byte(command.RequestId[0] >> 24), byte(command.RequestId[0] >> 32), byte(command.RequestId[0] >> 40), byte(command.RequestId[0] >> 48), byte(command.RequestId[0] >> 56)
-        buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18] = byte(command.RequestId[1]), byte(command.RequestId[1] >> 8), byte(command.RequestId[1] >> 16), byte(command.RequestId[1] >> 24), byte(command.RequestId[1] >> 32), byte(command.RequestId[1] >> 40), byte(command.RequestId[1] >> 48), byte(command.RequestId[1] >> 56)
+        buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
+            buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18] =
+            command.RequestId[0], command.RequestId[1], command.RequestId[2], command.RequestId[3], command.RequestId[4], command.RequestId[5], command.RequestId[6], command.RequestId[7],
+            command.RequestId[8], command.RequestId[9], command.RequestId[10], command.RequestId[11], command.RequestId[12], command.RequestId[13], command.RequestId[14], command.RequestId[15]
 
         buf[19], buf[20], buf[21] = result, 0x00, byte(command.DbId)
 
-        buf[22], buf[23], buf[24], buf[25], buf[26], buf[27], buf[28], buf[29] = byte(command.LockId[0]), byte(command.LockId[0] >> 8), byte(command.LockId[0] >> 16), byte(command.LockId[0] >> 24), byte(command.LockId[0] >> 32), byte(command.LockId[0] >> 40), byte(command.LockId[0] >> 48), byte(command.LockId[0] >> 56)
-        buf[30], buf[31], buf[32], buf[33], buf[34], buf[35], buf[36], buf[37] = byte(command.LockId[1]), byte(command.LockId[1] >> 8), byte(command.LockId[1] >> 16), byte(command.LockId[1] >> 24), byte(command.LockId[1] >> 32), byte(command.LockId[1] >> 40), byte(command.LockId[1] >> 48), byte(command.LockId[1] >> 56)
+        buf[22], buf[23], buf[24], buf[25], buf[26], buf[27], buf[28], buf[29],
+            buf[30], buf[31], buf[32], buf[33], buf[34], buf[35], buf[36], buf[37] =
+            command.LockId[0], command.LockId[1], command.LockId[2], command.LockId[3], command.LockId[4], command.LockId[5], command.LockId[6], command.LockId[7],
+            command.LockId[8], command.LockId[9], command.LockId[10], command.LockId[11], command.LockId[12], command.LockId[13], command.LockId[14], command.LockId[15]
 
-        buf[38], buf[39], buf[40], buf[41], buf[42], buf[43], buf[44], buf[45] = byte(command.LockKey[0]), byte(command.LockKey[0] >> 8), byte(command.LockKey[0] >> 16), byte(command.LockKey[0] >> 24), byte(command.LockKey[0] >> 32), byte(command.LockKey[0] >> 40), byte(command.LockKey[0] >> 48), byte(command.LockKey[0] >> 56)
-        buf[46], buf[47], buf[48], buf[49], buf[50], buf[51], buf[52], buf[53] = byte(command.LockKey[1]), byte(command.LockKey[1] >> 8), byte(command.LockKey[1] >> 16), byte(command.LockKey[1] >> 24), byte(command.LockKey[1] >> 32), byte(command.LockKey[1] >> 40), byte(command.LockKey[1] >> 48), byte(command.LockKey[1] >> 56)
+        buf[38], buf[39], buf[40], buf[41], buf[42], buf[43], buf[44], buf[45],
+            buf[46], buf[47], buf[48], buf[49], buf[50], buf[51], buf[52], buf[53] =
+            command.LockKey[0], command.LockKey[1], command.LockKey[2], command.LockKey[3], command.LockKey[4], command.LockKey[5], command.LockKey[6], command.LockKey[7],
+            command.LockKey[8], command.LockKey[9], command.LockKey[10], command.LockKey[11], command.LockKey[12], command.LockKey[13], command.LockKey[14], command.LockKey[15]
 
         buf[54], buf[55], buf[56], buf[57], buf[58], buf[59], buf[60], buf[61] = byte(lcount), byte(lcount >> 8), byte(command.Count), byte(command.Count >> 8), byte(command.Rcount), 0x00, 0x00, 0x00
         buf[62], buf[63] = 0x00, 0x00
@@ -467,16 +485,22 @@ func (self *BinaryServerProtocol) ProcessLockResultCommand(command *protocol.Loc
 
     buf[2] = byte(command.CommandType)
 
-    buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10] = byte(command.RequestId[0]), byte(command.RequestId[0] >> 8), byte(command.RequestId[0] >> 16), byte(command.RequestId[0] >> 24), byte(command.RequestId[0] >> 32), byte(command.RequestId[0] >> 40), byte(command.RequestId[0] >> 48), byte(command.RequestId[0] >> 56)
-    buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18] = byte(command.RequestId[1]), byte(command.RequestId[1] >> 8), byte(command.RequestId[1] >> 16), byte(command.RequestId[1] >> 24), byte(command.RequestId[1] >> 32), byte(command.RequestId[1] >> 40), byte(command.RequestId[1] >> 48), byte(command.RequestId[1] >> 56)
+    buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
+        buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18] =
+        command.RequestId[0], command.RequestId[1], command.RequestId[2], command.RequestId[3], command.RequestId[4], command.RequestId[5], command.RequestId[6], command.RequestId[7],
+        command.RequestId[8], command.RequestId[9], command.RequestId[10], command.RequestId[11], command.RequestId[12], command.RequestId[13], command.RequestId[14], command.RequestId[15]
 
     buf[19], buf[20], buf[21] = result, 0x00, byte(command.DbId)
 
-    buf[22], buf[23], buf[24], buf[25], buf[26], buf[27], buf[28], buf[29] = byte(command.LockId[0]), byte(command.LockId[0] >> 8), byte(command.LockId[0] >> 16), byte(command.LockId[0] >> 24), byte(command.LockId[0] >> 32), byte(command.LockId[0] >> 40), byte(command.LockId[0] >> 48), byte(command.LockId[0] >> 56)
-    buf[30], buf[31], buf[32], buf[33], buf[34], buf[35], buf[36], buf[37] = byte(command.LockId[1]), byte(command.LockId[1] >> 8), byte(command.LockId[1] >> 16), byte(command.LockId[1] >> 24), byte(command.LockId[1] >> 32), byte(command.LockId[1] >> 40), byte(command.LockId[1] >> 48), byte(command.LockId[1] >> 56)
+    buf[22], buf[23], buf[24], buf[25], buf[26], buf[27], buf[28], buf[29],
+        buf[30], buf[31], buf[32], buf[33], buf[34], buf[35], buf[36], buf[37] =
+        command.LockId[0], command.LockId[1], command.LockId[2], command.LockId[3], command.LockId[4], command.LockId[5], command.LockId[6], command.LockId[7],
+        command.LockId[8], command.LockId[9], command.LockId[10], command.LockId[11], command.LockId[12], command.LockId[13], command.LockId[14], command.LockId[15]
 
-    buf[38], buf[39], buf[40], buf[41], buf[42], buf[43], buf[44], buf[45] = byte(command.LockKey[0]), byte(command.LockKey[0] >> 8), byte(command.LockKey[0] >> 16), byte(command.LockKey[0] >> 24), byte(command.LockKey[0] >> 32), byte(command.LockKey[0] >> 40), byte(command.LockKey[0] >> 48), byte(command.LockKey[0] >> 56)
-    buf[46], buf[47], buf[48], buf[49], buf[50], buf[51], buf[52], buf[53] = byte(command.LockKey[1]), byte(command.LockKey[1] >> 8), byte(command.LockKey[1] >> 16), byte(command.LockKey[1] >> 24), byte(command.LockKey[1] >> 32), byte(command.LockKey[1] >> 40), byte(command.LockKey[1] >> 48), byte(command.LockKey[1] >> 56)
+    buf[38], buf[39], buf[40], buf[41], buf[42], buf[43], buf[44], buf[45],
+        buf[46], buf[47], buf[48], buf[49], buf[50], buf[51], buf[52], buf[53] =
+        command.LockKey[0], command.LockKey[1], command.LockKey[2], command.LockKey[3], command.LockKey[4], command.LockKey[5], command.LockKey[6], command.LockKey[7],
+        command.LockKey[8], command.LockKey[9], command.LockKey[10], command.LockKey[11], command.LockKey[12], command.LockKey[13], command.LockKey[14], command.LockKey[15]
 
     buf[54], buf[55], buf[56], buf[57], buf[58], buf[59], buf[60], buf[61] = byte(lcount), byte(lcount >> 8), byte(command.Count), byte(command.Count >> 8), byte(command.Rcount), 0x00, 0x00, 0x00
     buf[62], buf[63] = 0x00, 0x00
@@ -700,18 +724,17 @@ type TextServerProtocol struct {
     parser                      *TextServerProtocolParser
     handlers                    map[string]TextServerProtocolCommandHandler
     lock_waiter                 chan *protocol.LockResultCommand
-    lock_request_id             [2]uint64
-    lock_id                     [2]uint64
+    lock_request_id             [16]byte
+    lock_id                     [16]byte
     db_id                       uint8
     closed                      bool
-    buf                         []byte
 }
 
 func NewTextServerProtocol(slock *SLock, stream *Stream) *TextServerProtocol {
     parser := &TextServerProtocolParser{make([]byte, 4096), 0, 0, 0,make([]string, 0), 0, make([]byte, 0), 0}
     server_protocol := &TextServerProtocol{slock, stream, NewLockCommandQueue(4, 16, FREE_COMMAND_QUEUE_INIT_SIZE),
         nil, &sync.Mutex{}, parser, make(map[string]TextServerProtocolCommandHandler, 64),
-        make(chan *protocol.LockResultCommand, 1),  [2]uint64{0, 0}, [2]uint64{0, 0}, 0, false, make([]byte, 64)}
+        make(chan *protocol.LockResultCommand, 1),  [16]byte{0, 0}, [16]byte{0, 0}, 0, false}
     server_protocol.InitLockCommand()
 
     server_protocol.handlers["SELECT"] = server_protocol.CommandHandlerSelectDB
@@ -723,7 +746,7 @@ func NewTextServerProtocol(slock *SLock, stream *Stream) *TextServerProtocol {
     return server_protocol
 }
 
-func (self *TextServerProtocol) Init(client_id [2]uint64) error{
+func (self *TextServerProtocol) Init(client_id [16]byte) error{
     return nil
 }
 
@@ -788,7 +811,7 @@ func (self *TextServerProtocol) Write(result protocol.CommandEncode) error {
             fmt.Sprintf("%d", lock_result_command.Result),
             protocol.ERROR_MSG[lock_result_command.Result],
             "LOCK_ID",
-            fmt.Sprintf("%x", self.ConvertUint642ToByte16(lock_result_command.LockId)),
+            fmt.Sprintf("%x", lock_result_command.LockId),
             "LCOUNT",
             fmt.Sprintf("%d", lock_result_command.Lcount),
             "COUNT",
@@ -875,7 +898,7 @@ func (self *TextServerProtocol) ProcessBuild(command protocol.ICommand) error {
             fmt.Sprintf("%d", lock_result_command.Result),
             protocol.ERROR_MSG[lock_result_command.Result],
             "LOCK_ID",
-            fmt.Sprintf("%x", self.ConvertUint642ToByte16(lock_result_command.LockId)),
+            fmt.Sprintf("%x", lock_result_command.LockId),
             "LCOUNT",
             fmt.Sprintf("%d", lock_result_command.Lcount),
             "COUNT",
@@ -890,7 +913,7 @@ func (self *TextServerProtocol) ProcessBuild(command protocol.ICommand) error {
             fmt.Sprintf("%d", lock_result_command.Result),
             protocol.ERROR_MSG[lock_result_command.Result],
             "LOCK_ID",
-            fmt.Sprintf("%x", self.ConvertUint642ToByte16(lock_result_command.LockId)),
+            fmt.Sprintf("%x", lock_result_command.LockId),
             "LCOUNT",
             fmt.Sprintf("%d", lock_result_command.Lcount),
             "COUNT",
@@ -1065,41 +1088,43 @@ func (self *TextServerProtocol) FreeLockCommand(command *protocol.LockCommand) e
     return self.free_commands.Push(command)
 }
 
-func (self *TextServerProtocol) ArgsToLockComandParseId(arg_id string, lock_id *[2]uint64) {
-    buf := self.buf
-    if len(buf) < 64 {
-        buf = make([]byte, 64)
-    }
-
+func (self *TextServerProtocol) ArgsToLockComandParseId(arg_id string, lock_id *[16]byte) {
     arg_len := len(arg_id)
     if arg_len == 16 {
-        buf = []byte(arg_id)
+        lock_id[0], lock_id[1], lock_id[2], lock_id[3], lock_id[4], lock_id[5], lock_id[6], lock_id[7], 
+            lock_id[8], lock_id[9], lock_id[10], lock_id[11], lock_id[12], lock_id[13], lock_id[14], lock_id[15] = 
+            byte(arg_id[0]), byte(arg_id[1]), byte(arg_id[2]), byte(arg_id[3]), byte(arg_id[4]), byte(arg_id[5]), byte(arg_id[6]), 
+            byte(arg_id[7]), byte(arg_id[8]), byte(arg_id[9]), byte(arg_id[10]), byte(arg_id[11]), byte(arg_id[12]), byte(arg_id[13]), byte(arg_id[14]), byte(arg_id[15])
     } else if arg_len > 16 {
         if arg_len == 32 {
             v, err := hex.DecodeString(arg_id)
             if err == nil {
-                buf = v
+                lock_id[0], lock_id[1], lock_id[2], lock_id[3], lock_id[4], lock_id[5], lock_id[6], lock_id[7],
+                    lock_id[8], lock_id[9], lock_id[10], lock_id[11], lock_id[12], lock_id[13], lock_id[14], lock_id[15] =
+                    v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7],
+                    v[8], v[9], v[10], v[11], v[12], v[13], v[14], v[15]
             } else {
-                for i, v := range md5.Sum([]byte(arg_id)) {
-                    buf[i] = v
-                }
+                v := md5.Sum([]byte(arg_id))
+                lock_id[0], lock_id[1], lock_id[2], lock_id[3], lock_id[4], lock_id[5], lock_id[6], lock_id[7],
+                    lock_id[8], lock_id[9], lock_id[10], lock_id[11], lock_id[12], lock_id[13], lock_id[14], lock_id[15] =
+                    v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7],
+                    v[8], v[9], v[10], v[11], v[12], v[13], v[14], v[15]
             }
         } else {
-            for i, v := range md5.Sum([]byte(arg_id)) {
-                buf[i] = v
-            }
+            v := md5.Sum([]byte(arg_id))
+            lock_id[0], lock_id[1], lock_id[2], lock_id[3], lock_id[4], lock_id[5], lock_id[6], lock_id[7],
+                lock_id[8], lock_id[9], lock_id[10], lock_id[11], lock_id[12], lock_id[13], lock_id[14], lock_id[15] =
+                v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7],
+                v[8], v[9], v[10], v[11], v[12], v[13], v[14], v[15]
         }
     } else {
         for i := 0; i < 16 - arg_len; i++ {
-            buf[i] = 0
+            lock_id[i] = 0
         }
         for i, v := range arg_id {
-            buf[16 - arg_len + i] = byte(v)
+            lock_id[16 - arg_len + i] = byte(v)
         }
     }
-
-    lock_id[0] = uint64(buf[0]) | uint64(buf[1])<<8 | uint64(buf[2])<<16 | uint64(buf[3])<<24 | uint64(buf[4])<<32 | uint64(buf[5])<<40 | uint64(buf[6])<<48 | uint64(buf[7])<<56
-    lock_id[1] = uint64(buf[8]) | uint64(buf[9])<<8 | uint64(buf[10])<<16 | uint64(buf[11])<<24 | uint64(buf[12])<<32 | uint64(buf[13])<<40 | uint64(buf[14])<<48 | uint64(buf[15])<<56
 }
 
 func (self *TextServerProtocol) ArgsToLockComand(args []string) (*protocol.LockCommand, error) {
@@ -1213,7 +1238,7 @@ func (self *TextServerProtocol) CommandHandlerLock(server_protocol *TextServerPr
         fmt.Sprintf("%d", lock_command_result.Result),
         protocol.ERROR_MSG[lock_command_result.Result],
         "LOCK_ID",
-        fmt.Sprintf("%x", self.ConvertUint642ToByte16(lock_command_result.LockId)),
+        fmt.Sprintf("%x", lock_command_result.LockId),
         "LCOUNT",
         fmt.Sprintf("%d", lock_command_result.Lcount),
         "COUNT",
@@ -1248,7 +1273,7 @@ func (self *TextServerProtocol) CommandHandlerUnlock(server_protocol *TextServer
         fmt.Sprintf("%d", lock_command_result.Result),
         protocol.ERROR_MSG[lock_command_result.Result],
         "LOCK_ID",
-        fmt.Sprintf("%x", self.ConvertUint642ToByte16(lock_command_result.LockId)),
+        fmt.Sprintf("%x", lock_command_result.LockId),
         "LCOUNT",
         fmt.Sprintf("%d", lock_command_result.Lcount),
         "COUNT",
@@ -1260,18 +1285,11 @@ func (self *TextServerProtocol) CommandHandlerUnlock(server_protocol *TextServer
     return self.stream.WriteAllBytes(self.parser.Build(true, "", lock_results))
 }
 
-func (self *TextServerProtocol) GetRequestId() [2]uint64 {
-    request_id := [2]uint64{}
-    request_id[0] = atomic.AddUint64(&request_id_index, 1)
-    request_id[1] = (uint64(time.Now().Unix()) & 0xffffffff)<<32 | uint64(LETTERS[rand.Intn(52)])<<24 | uint64(LETTERS[rand.Intn(52)])<<16 | uint64(LETTERS[rand.Intn(52)])<<8 | uint64(LETTERS[rand.Intn(52)])
-    return request_id
-}
-
-func (self *TextServerProtocol) ConvertUint642ToByte16(uint642 [2]uint64) [16]byte {
+func (self *TextServerProtocol) GetRequestId() [16]byte {
+    now := uint32(time.Now().Unix())
+    request_id_index := atomic.AddUint64(&request_id_index, 1)
     return [16]byte{
-        byte(uint642[0]), byte(uint642[0] >> 8), byte(uint642[0] >> 16), byte(uint642[0] >> 24),
-        byte(uint642[0] >> 32), byte(uint642[0] >> 40), byte(uint642[0] >> 48), byte(uint642[0] >> 56),
-        byte(uint642[1]), byte(uint642[1] >> 8), byte(uint642[1] >> 16), byte(uint642[1] >> 24),
-        byte(uint642[1] >> 32), byte(uint642[1] >> 40), byte(uint642[1] >> 48), byte(uint642[1] >> 56),
+        byte(now >> 24), byte(now >> 16), byte(now >> 8), byte(now), LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)],
+        LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], byte(request_id_index >> 40), byte(request_id_index >> 32), byte(request_id_index >> 24), byte(request_id_index >> 16), byte(request_id_index >> 8), byte(request_id_index),
     }
 }

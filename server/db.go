@@ -28,7 +28,7 @@ type MillisecondWaitLockFreeQueue struct {
 
 type LockDB struct {
     slock                           *SLock
-    locks                           map[[2]uint64]*LockManager
+    locks                           map[[16]byte]*LockManager
     timeout_locks                   [][]*LockQueue
     expried_locks                   [][]*LockQueue
     long_timeout_locks              []map[int64]*LongWaitLockQueue
@@ -73,7 +73,7 @@ func NewLockDB(slock *SLock) *LockDB {
     now := time.Now().Unix()
     db := &LockDB{
         slock: slock,
-        locks: make(map[[2]uint64]*LockManager, max_free_lock_manager_count),
+        locks: make(map[[16]byte]*LockManager, max_free_lock_manager_count),
         timeout_locks: make([][]*LockQueue, TIMEOUT_QUEUE_LENGTH),
         expried_locks: make([][]*LockQueue, EXPRIED_QUEUE_LENGTH),
         long_timeout_locks: make([]map[int64]*LongWaitLockQueue, manager_max_glocks),
@@ -108,15 +108,6 @@ func NewLockDB(slock *SLock) *LockDB {
     go db.RestructuringLongTimeOutQueue()
     go db.RestructuringLongExpriedQueue()
     return db
-}
-
-func (self *LockDB) ConvertUint642ToByte16(uint642 [2]uint64) [16]byte {
-    return [16]byte{
-        byte(uint642[0]), byte(uint642[0] >> 8), byte(uint642[0] >> 16), byte(uint642[0] >> 24),
-        byte(uint642[0] >> 32), byte(uint642[0] >> 40), byte(uint642[0] >> 48), byte(uint642[0] >> 56),
-        byte(uint642[1]), byte(uint642[1] >> 8), byte(uint642[1] >> 16), byte(uint642[1] >> 24),
-        byte(uint642[1] >> 32), byte(uint642[1] >> 40), byte(uint642[1] >> 48), byte(uint642[1] >> 56),
-    }
 }
 
 func (self *LockDB) ResizeAofChannels (){
@@ -645,7 +636,7 @@ func (self *LockDB) GetOrNewLockManager(command *protocol.LockCommand) *LockMana
             lock_managers[i].lock_db = self
             lock_managers[i].db_id = command.DbId
             lock_managers[i].locks = NewLockQueue(4, 16, 4)
-            lock_managers[i].lock_maps = make(map[[2]uint64]*Lock, 8)
+            lock_managers[i].lock_maps = make(map[[16]byte]*Lock, 8)
             lock_managers[i].wait_locks = NewLockQueue(4, 32, 4)
             lock_managers[i].glock = self.manager_glocks[self.manager_glock_index]
             lock_managers[i].glock_index = self.manager_glock_index
@@ -806,8 +797,7 @@ func (self *LockDB) DoTimeOut(lock *Lock){
     atomic.AddUint32(&self.state.TimeoutedCount, 1)
 
     self.slock.Log().Debugf("LockTimeout DbId:%d LockKey:%x LockId:%x RequestId:%x RemoteAddr:%s", lock_command.DbId,
-        self.ConvertUint642ToByte16(lock_command.LockKey), self.ConvertUint642ToByte16(lock_command.LockId),
-        self.ConvertUint642ToByte16(lock_command.RequestId), lock_protocol.RemoteAddr().String())
+        lock_command.LockKey, lock_command.LockId, lock_command.RequestId, lock_protocol.RemoteAddr().String())
 }
 
 func (self *LockDB) AddMillisecondTimeOut(lock *Lock) {
@@ -923,8 +913,7 @@ func (self *LockDB) DoExpried(lock *Lock){
     atomic.AddUint32(&self.state.ExpriedCount, uint32(lock_locked))
 
     self.slock.Log().Debugf("LockExpried DbId:%d LockKey:%x LockId:%x RequestId:%x RemoteAddr:%s", lock_command.DbId,
-        self.ConvertUint642ToByte16(lock_command.LockKey), self.ConvertUint642ToByte16(lock_command.LockId),
-        self.ConvertUint642ToByte16(lock_command.RequestId), lock_protocol.RemoteAddr().String())
+        lock_command.LockKey, lock_command.LockId, lock_command.RequestId, lock_protocol.RemoteAddr().String())
 
     self.WakeUpWaitLocks(lock_manager, nil)
 }

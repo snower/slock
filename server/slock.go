@@ -13,7 +13,7 @@ type SLock struct {
     aof                     *Aof
     admin                   *Admin
     logger                  logging.Logger
-    streams                 map[[2]uint64]ServerProtocol
+    streams                 map[[16]byte]ServerProtocol
     uptime                  *time.Time
     free_lock_commands      *LockCommandQueue
     free_lock_command_lock  *sync.Mutex
@@ -27,7 +27,7 @@ func NewSLock(config *ServerConfig) *SLock {
     admin := NewAdmin()
     now := time.Now()
     logger := InitLogger(Config.Log, Config.LogLevel)
-    slock := &SLock{make([]*LockDB, 256), &sync.Mutex{}, aof,admin, logger, make(map[[2]uint64]ServerProtocol, STREAMS_INIT_COUNT),
+    slock := &SLock{make([]*LockDB, 256), &sync.Mutex{}, aof,admin, logger, make(map[[16]byte]ServerProtocol, STREAMS_INIT_COUNT),
         &now,NewLockCommandQueue(16, 64, FREE_COMMAND_QUEUE_INIT_SIZE * 16), &sync.Mutex{}, 0}
     aof.slock = slock
     admin.slock = slock

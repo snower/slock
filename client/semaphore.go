@@ -8,7 +8,7 @@ import (
 
 type Semaphore struct {
     db *Database
-    semaphore_key [2]uint64
+    semaphore_key [16]byte
     timeout uint32
     expried uint32
     count uint16
@@ -16,7 +16,7 @@ type Semaphore struct {
     glock *sync.Mutex
 }
 
-func NewSemaphore(db *Database, semaphore_key [2]uint64, timeout uint32, expried uint32, count uint16) *Semaphore {
+func NewSemaphore(db *Database, semaphore_key [16]byte, timeout uint32, expried uint32, count uint16) *Semaphore {
     return &Semaphore{db, semaphore_key, timeout, expried, count, make([]*Lock, 0), &sync.Mutex{}}
 }
 

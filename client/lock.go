@@ -17,17 +17,17 @@ func (self LockError) Error() string {
 
 type Lock struct {
     db *Database
-    request_id [2]uint64
-    lock_id [2]uint64
-    lock_key [2]uint64
+    request_id [16]byte
+    lock_id [16]byte
+    lock_key [16]byte
     timeout uint32
     expried uint32
     count uint16
     rcount uint8
 }
 
-func NewLock(db *Database, lock_key [2]uint64, timeout uint32, expried uint32, count uint16, rcount uint8) *Lock {
-    return &Lock{db, [2]uint64{0, 0}, db.GenLockId(), lock_key, timeout, expried, count, rcount}
+func NewLock(db *Database, lock_key [16]byte, timeout uint32, expried uint32, count uint16, rcount uint8) *Lock {
+    return &Lock{db, [16]byte{}, db.GenLockId(), lock_key, timeout, expried, count, rcount}
 }
 
 func (self *Lock) DoLock(flag uint8) *LockError{
