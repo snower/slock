@@ -791,13 +791,19 @@ func (self *LockDB) DoTimeOut(lock *Lock){
     }
     lock_manager.glock.Unlock()
 
+    timeout_flag := lock_command.TimeoutFlag
     lock_protocol.ProcessLockResultCommand(lock_command, protocol.RESULT_TIMEOUT, lock_manager.locked, false)
     self.slock.FreeLockCommand(lock_command)
     atomic.AddUint32(&self.state.WaitCount, 0xffffffff)
     atomic.AddUint32(&self.state.TimeoutedCount, 1)
 
-    self.slock.Log().Debugf("LockTimeout DbId:%d LockKey:%x LockId:%x RequestId:%x RemoteAddr:%s", lock_command.DbId,
-        lock_command.LockKey, lock_command.LockId, lock_command.RequestId, lock_protocol.RemoteAddr().String())
+    if timeout_flag & 0x8000 != 0 {
+        self.slock.Log().Errorf("LockTimeout DbId:%d LockKey:%x LockId:%x RequestId:%x RemoteAddr:%s", lock_command.DbId,
+            lock_command.LockKey, lock_command.LockId, lock_command.RequestId, lock_protocol.RemoteAddr().String())
+    } else {
+        self.slock.Log().Debugf("LockTimeout DbId:%d LockKey:%x LockId:%x RequestId:%x RemoteAddr:%s", lock_command.DbId,
+            lock_command.LockKey, lock_command.LockId, lock_command.RequestId, lock_protocol.RemoteAddr().String())
+    }
 }
 
 func (self *LockDB) AddMillisecondTimeOut(lock *Lock) {
@@ -907,13 +913,19 @@ func (self *LockDB) DoExpried(lock *Lock){
     }
     lock_manager.glock.Unlock()
 
+    expried_flag := lock_command.ExpriedFlag
     lock_protocol.ProcessLockResultCommand(lock_command, protocol.RESULT_EXPRIED, lock_manager.locked, false)
     self.slock.FreeLockCommand(lock_command)
     atomic.AddUint32(&self.state.LockedCount, 0xffffffff - uint32(lock_locked) + 1)
     atomic.AddUint32(&self.state.ExpriedCount, uint32(lock_locked))
 
-    self.slock.Log().Debugf("LockExpried DbId:%d LockKey:%x LockId:%x RequestId:%x RemoteAddr:%s", lock_command.DbId,
-        lock_command.LockKey, lock_command.LockId, lock_command.RequestId, lock_protocol.RemoteAddr().String())
+    if expried_flag & 0x8000 != 0 {
+        self.slock.Log().Errorf("LockExpried DbId:%d LockKey:%x LockId:%x RequestId:%x RemoteAddr:%s", lock_command.DbId,
+            lock_command.LockKey, lock_command.LockId, lock_command.RequestId, lock_protocol.RemoteAddr().String())
+    }else{
+        self.slock.Log().Debugf("LockExpried DbId:%d LockKey:%x LockId:%x RequestId:%x RemoteAddr:%s", lock_command.DbId,
+            lock_command.LockKey, lock_command.LockId, lock_command.RequestId, lock_protocol.RemoteAddr().String())
+    }
 
     self.WakeUpWaitLocks(lock_manager, nil)
 }
