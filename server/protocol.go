@@ -588,11 +588,20 @@ func (self *BinaryServerProtocol) GetLockCommand() *protocol.LockCommand {
 }
 
 func (self *BinaryServerProtocol) FreeLockCommand(command *protocol.LockCommand) error {
+    if self.closed {
+        self.slock.FreeLockCommand(command)
+        return nil
+    }
     return self.free_commands.Push(command)
 }
 
 func (self *BinaryServerProtocol) FreeLockCommandLocked(command *protocol.LockCommand) error {
     self.free_result_command_lock.Lock()
+    if self.closed {
+        self.free_result_command_lock.Unlock()
+        self.slock.FreeLockCommand(command)
+        return nil
+    }
     err := self.free_commands.Push(command)
     self.free_result_command_lock.Unlock()
     return err
@@ -1118,11 +1127,20 @@ func (self *TextServerProtocol) GetLockCommand() *protocol.LockCommand {
 }
 
 func (self *TextServerProtocol) FreeLockCommand(command *protocol.LockCommand) error {
+    if self.closed {
+        self.slock.FreeLockCommand(command)
+        return nil
+    }
     return self.free_commands.Push(command)
 }
 
 func (self *TextServerProtocol) FreeLockCommandLocked(command *protocol.LockCommand) error {
     self.free_result_command_lock.Lock()
+    if self.closed {
+        self.free_result_command_lock.Unlock()
+        self.slock.FreeLockCommand(command)
+        return nil
+    }
     err := self.free_commands.Push(command)
     self.free_result_command_lock.Unlock()
     return err
