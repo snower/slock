@@ -357,7 +357,7 @@ func (self *Aof) LoadAndInit() error {
     self.aof_file_index++
     self.slock.Log().Infof("Aof File Create %s", self.aof_file.filename)
 
-    server_protocol := &BinaryServerProtocol{self.slock, nil, [16]byte{}, NewLockCommandQueue(4, 16, 256),
+    server_protocol := &BinaryServerProtocol{self.slock, nil, [16]byte{}, &sync.Mutex{}, NewLockCommandQueue(4, 16, 256),
         &sync.Mutex{}, false, true, make([]byte, 64), make([]byte, 64), make([]byte, 64)}
     server_protocol.closed = true
 
