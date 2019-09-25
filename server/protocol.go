@@ -41,7 +41,6 @@ type BinaryServerProtocol struct {
     client_id                   [16]byte
     wlock                       *sync.Mutex
     free_commands               *LockCommandQueue
-    free_result_command_lock    *sync.Mutex
     inited                      bool
     closed                      bool
     rbuf                        []byte
@@ -58,8 +57,8 @@ func NewBinaryServerProtocol(slock *SLock, stream *Stream) *BinaryServerProtocol
     owbuf[0] = byte(protocol.MAGIC)
     owbuf[1] = byte(protocol.VERSION)
 
-    server_protocol := &BinaryServerProtocol{slock, stream, [16]byte{}, &sync.Mutex{}, NewLockCommandQueue(4, 64, FREE_COMMAND_QUEUE_INIT_SIZE),
-    &sync.Mutex{}, false, false, make([]byte, 64), wbuf, owbuf}
+    server_protocol := &BinaryServerProtocol{slock, stream, [16]byte{}, &sync.Mutex{},
+        NewLockCommandQueue(4, 64, FREE_COMMAND_QUEUE_INIT_SIZE), false, false, make([]byte, 64), wbuf, owbuf}
     server_protocol.InitLockCommand()
     return server_protocol
 }
@@ -588,23 +587,12 @@ func (self *BinaryServerProtocol) GetLockCommand() *protocol.LockCommand {
 }
 
 func (self *BinaryServerProtocol) FreeLockCommand(command *protocol.LockCommand) error {
-    if self.closed {
-        self.slock.FreeLockCommand(command)
-        return nil
-    }
     return self.free_commands.Push(command)
 }
 
 func (self *BinaryServerProtocol) FreeLockCommandLocked(command *protocol.LockCommand) error {
-    self.free_result_command_lock.Lock()
-    if self.closed {
-        self.free_result_command_lock.Unlock()
-        self.slock.FreeLockCommand(command)
-        return nil
-    }
-    err := self.free_commands.Push(command)
-    self.free_result_command_lock.Unlock()
-    return err
+    self.slock.FreeLockCommand(command)
+    return nil
 }
 
 type TextServerProtocolParser struct {
@@ -752,7 +740,6 @@ type TextServerProtocol struct {
     wlock                       *sync.Mutex
     free_commands               *LockCommandQueue
     free_command_result         *protocol.LockResultCommand
-    free_result_command_lock    *sync.Mutex
     parser                      *TextServerProtocolParser
     handlers                    map[string]TextServerProtocolCommandHandler
     lock_waiter                 chan *protocol.LockResultCommand
@@ -765,8 +752,8 @@ type TextServerProtocol struct {
 func NewTextServerProtocol(slock *SLock, stream *Stream) *TextServerProtocol {
     parser := &TextServerProtocolParser{make([]byte, 4096), 0, 0, 0,make([]string, 0), 0, make([]byte, 0), 0}
     server_protocol := &TextServerProtocol{slock, stream, &sync.Mutex{}, NewLockCommandQueue(4, 16, FREE_COMMAND_QUEUE_INIT_SIZE),
-        nil, &sync.Mutex{}, parser, make(map[string]TextServerProtocolCommandHandler, 64),
-        make(chan *protocol.LockResultCommand, 1),  [16]byte{}, [16]byte{}, 0, false}
+        nil, parser, make(map[string]TextServerProtocolCommandHandler, 64), make(chan *protocol.LockResultCommand, 1),
+        [16]byte{}, [16]byte{}, 0, false}
     server_protocol.InitLockCommand()
 
     server_protocol.handlers["SELECT"] = server_protocol.CommandHandlerSelectDB
@@ -1127,23 +1114,12 @@ func (self *TextServerProtocol) GetLockCommand() *protocol.LockCommand {
 }
 
 func (self *TextServerProtocol) FreeLockCommand(command *protocol.LockCommand) error {
-    if self.closed {
-        self.slock.FreeLockCommand(command)
-        return nil
-    }
     return self.free_commands.Push(command)
 }
 
 func (self *TextServerProtocol) FreeLockCommandLocked(command *protocol.LockCommand) error {
-    self.free_result_command_lock.Lock()
-    if self.closed {
-        self.free_result_command_lock.Unlock()
-        self.slock.FreeLockCommand(command)
-        return nil
-    }
-    err := self.free_commands.Push(command)
-    self.free_result_command_lock.Unlock()
-    return err
+    self.slock.FreeLockCommand(command)
+    return nil
 }
 
 func (self *TextServerProtocol) ArgsToLockComandParseId(arg_id string, lock_id *[16]byte) {
