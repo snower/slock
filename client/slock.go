@@ -27,7 +27,7 @@ type Client struct {
 }
 
 func NewClient(host string, port uint) *Client{
-    client := &Client{host, port, nil, nil,make([]*Database, 256), &sync.Mutex{}, [16]byte{0, 0}, false, 0}
+    client := &Client{host, port, nil, nil,make([]*Database, 256), &sync.Mutex{}, [16]byte{}, false, 0}
     client.InitClientId()
     return client
 }

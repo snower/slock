@@ -55,7 +55,7 @@ func NewBinaryServerProtocol(slock *SLock, stream *Stream) *BinaryServerProtocol
     owbuf[0] = byte(protocol.MAGIC)
     owbuf[1] = byte(protocol.VERSION)
 
-    server_protocol := &BinaryServerProtocol{slock, stream, [16]byte{0, 0}, NewLockCommandQueue(4, 64, FREE_COMMAND_QUEUE_INIT_SIZE),
+    server_protocol := &BinaryServerProtocol{slock, stream, [16]byte{}, NewLockCommandQueue(4, 64, FREE_COMMAND_QUEUE_INIT_SIZE),
     &sync.Mutex{}, false, false, make([]byte, 64), wbuf, owbuf}
     server_protocol.InitLockCommand()
     return server_protocol
@@ -734,7 +734,7 @@ func NewTextServerProtocol(slock *SLock, stream *Stream) *TextServerProtocol {
     parser := &TextServerProtocolParser{make([]byte, 4096), 0, 0, 0,make([]string, 0), 0, make([]byte, 0), 0}
     server_protocol := &TextServerProtocol{slock, stream, NewLockCommandQueue(4, 16, FREE_COMMAND_QUEUE_INIT_SIZE),
         nil, &sync.Mutex{}, parser, make(map[string]TextServerProtocolCommandHandler, 64),
-        make(chan *protocol.LockResultCommand, 1),  [16]byte{0, 0}, [16]byte{0, 0}, 0, false}
+        make(chan *protocol.LockResultCommand, 1),  [16]byte{}, [16]byte{}, 0, false}
     server_protocol.InitLockCommand()
 
     server_protocol.handlers["SELECT"] = server_protocol.CommandHandlerSelectDB
@@ -1008,8 +1008,11 @@ func (self *TextServerProtocol) ProcessLockResultCommand(lock_command *protocol.
         return nil
     }
 
-    self.lock_request_id[0] = 0
-    self.lock_request_id[1] = 0
+    self.lock_request_id[0], self.lock_request_id[1], self.lock_request_id[2], self.lock_request_id[3], self.lock_request_id[4], self.lock_request_id[5], self.lock_request_id[6], self.lock_request_id[7],
+        self.lock_request_id[8], self.lock_request_id[9], self.lock_request_id[10], self.lock_request_id[11], self.lock_request_id[12], self.lock_request_id[13], self.lock_request_id[14], self.lock_request_id[15] =
+        0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0
+
     if self.free_command_result == nil {
         lock_result_commad := protocol.NewLockResultCommand(lock_command, result, 0, lcount, lock_command.Count, lock_command.Rcount)
         self.lock_waiter <- lock_result_commad
@@ -1144,7 +1147,9 @@ func (self *TextServerProtocol) ArgsToLockComand(args []string) (*protocol.LockC
     command.RequestId = self.GetRequestId()
     command.DbId = self.db_id
     command.Timeout = 3
+    command.TimeoutFlag = 0
     command.Expried = 60
+    command.ExpriedFlag = 0
     self.ArgsToLockComandParseId(args[1], &command.LockKey)
 
     has_lock_id := false
@@ -1266,8 +1271,10 @@ func (self *TextServerProtocol) CommandHandlerUnlock(server_protocol *TextServer
     }
     lock_command_result := <- self.lock_waiter
     if lock_command_result.Result == 0 {
-        self.lock_id[0] = 0
-        self.lock_id[1] = 0
+        self.lock_id[0], self.lock_id[1], self.lock_id[2], self.lock_id[3], self.lock_id[4], self.lock_id[5], self.lock_id[6], self.lock_id[7],
+            self.lock_id[8], self.lock_id[9], self.lock_id[10], self.lock_id[11], self.lock_id[12], self.lock_id[13], self.lock_id[14], self.lock_id[15] = 
+                0, 0, 0, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 0, 0
     }
     lock_results := []string{
         fmt.Sprintf("%d", lock_command_result.Result),
