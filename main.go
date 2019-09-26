@@ -78,19 +78,20 @@ func main() {
 
     slock := server.NewSLock(config)
     slock_server := server.NewServer(slock)
-    lerr := slock_server.Listen()
-    if lerr != nil {
-        slock.Log().Errorf("start server listen error: %v", lerr)
-        slock.Log().Info("exited")
+    err = slock_server.Listen()
+    if err != nil {
+        slock.Log().Errorf("Start Server Listen Error: %v", err)
+        slock.Log().Info("Exited")
         return
     }
 
-    aof_err := slock.GetAof().LoadAndInit()
-    if aof_err != nil {
-        slock.Log().Errorf("aof load or init error: %v", aof_err)
-        slock.Log().Info("exited")
+    err = slock.GetAof().LoadAndInit()
+    if err != nil {
+        slock.Log().Errorf("Aof LoadOrInit Error: %v", err)
+        slock.Log().Info("Exited")
         return
     }
+
     slock_server.Loop()
-    slock.Log().Info("exited")
+    slock.Log().Info("Exited")
 }
