@@ -313,15 +313,18 @@ type Aof struct {
     aof_file                *AofFile
     aof_file_glock          *sync.Mutex
     channels                []*AofChannel
+    channel_count           int
     actived_channel_count   int
     is_stop                 bool
     close_waiter            chan bool
     rewrite_size            int
     is_rewriting            bool
+    aof_lock_count          uint64
 }
 
 func NewAof() *Aof {
-    return &Aof{nil, &sync.Mutex{}, "",0, nil, &sync.Mutex{}, make([]*AofChannel, 0), 0, false, nil, 0, false}
+    return &Aof{nil, &sync.Mutex{}, "",0, nil, &sync.Mutex{}, make([]*AofChannel, 0),
+        0,0, false, nil, 0, false, 0}
 }
 
 func (self *Aof) LoadAndInit() error {
@@ -466,11 +469,14 @@ func (self *Aof) Close()  {
 }
 
 func (self *Aof) NewAofChannel(lock_db *LockDB) *AofChannel {
+    self.glock.Lock()
     aof_channel := &AofChannel{self.slock, self, lock_db, make(chan *AofLock, Config.AofQueueSize), make([]*AofLock, Config.AofQueueSize), 63, int32(Config.AofQueueSize - 1)}
     for i :=0; i < 64; i++ {
         aof_channel.free_locks[i] = &AofLock{}
     }
     go aof_channel.Handle()
+    self.channel_count++
+    self.glock.Unlock()
     return aof_channel
 }
 
@@ -512,6 +518,7 @@ func (self *Aof) PushLock(lock *AofLock) {
             }
         }
     }
+    self.aof_lock_count++
 
 
     if self.aof_file.GetSize() >= self.rewrite_size {
