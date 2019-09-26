@@ -1,7 +1,7 @@
 package server
 
 import (
-    "errors"
+    "io"
     "net"
     "time"
 )
@@ -25,15 +25,30 @@ func NewStream(server *Server, conn net.Conn) *Stream {
 
 func (self *Stream) ReadBytes(b []byte) (int, error) {
     if self.closed {
-        return 0, errors.New("stream closed")
+        return 0, io.EOF
     }
 
-    return self.conn.Read(b)
+    cn := len(b)
+    n, err := self.conn.Read(b)
+    if err != nil {
+        return n, err
+    }
+
+    if n < cn {
+        for ; n < cn; {
+            nn, nerr := self.conn.Read(b)
+            if nerr != nil {
+                return n + nn, nerr
+            }
+            n += nn
+        }
+    }
+    return n, nil
 }
 
 func (self *Stream) Read(b []byte) (int, error) {
     if self.closed {
-        return 0, errors.New("stream closed")
+        return 0, io.EOF
     }
 
     return self.conn.Read(b)
@@ -41,32 +56,30 @@ func (self *Stream) Read(b []byte) (int, error) {
 
 func (self *Stream) WriteBytes(b []byte) error {
     if self.closed {
-        return errors.New("stream closed")
-    }
-
-    _, err := self.conn.Write(b)
-    return err
-}
-
-func (self *Stream) WriteAllBytes(b []byte) error {
-    if self.closed {
-        return errors.New("stream closed")
+        return io.EOF
     }
 
     cn := len(b)
-    for ; cn > 0; {
-        n, err := self.conn.Write(b)
-        if err != nil {
-            return err
+    n, err := self.conn.Write(b)
+    if err != nil {
+        return err
+    }
+
+    if n < cn {
+        for ; n < cn; {
+            nn, nerr := self.conn.Write(b)
+            if nerr != nil {
+                return nerr
+            }
+            n += nn
         }
-        cn -= n
     }
     return nil
 }
 
 func (self *Stream) Write(b []byte) (int, error) {
     if self.closed {
-        return 0, errors.New("stream closed")
+        return 0, io.EOF
     }
 
     return self.conn.Write(b)

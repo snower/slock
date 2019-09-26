@@ -37,7 +37,7 @@ func (self *Admin) Close() {
 }
 
 func (self *Admin) CommandHandleShutdownCommand(server_protocol *TextServerProtocol, args []string) error {
-    err := server_protocol.stream.WriteAllBytes(server_protocol.parser.Build(true, "OK", nil))
+    err := server_protocol.stream.WriteBytes(server_protocol.parser.Build(true, "OK", nil))
     if err != nil {
         return err
     }
@@ -52,7 +52,7 @@ func (self *Admin) CommandHandleShutdownCommand(server_protocol *TextServerProto
 }
 
 func (self *Admin) CommandHandleQuitCommand(server_protocol *TextServerProtocol, args []string) error {
-    err := server_protocol.stream.WriteAllBytes(server_protocol.parser.Build(true, "OK", nil))
+    err := server_protocol.stream.WriteBytes(server_protocol.parser.Build(true, "OK", nil))
     if err != nil {
         return err
     }
@@ -138,22 +138,22 @@ func (self *Admin) CommandHandleInfoCommand(server_protocol *TextServerProtocol,
 
     infos = append(infos, "\r\n")
 
-    return server_protocol.stream.WriteAllBytes(server_protocol.parser.Build(true, "", []string{strings.Join(infos, "\r\n")}))
+    return server_protocol.stream.WriteBytes(server_protocol.parser.Build(true, "", []string{strings.Join(infos, "\r\n")}))
 }
 
 func (self *Admin) CommandHandleShowCommand(server_protocol *TextServerProtocol, args []string) error {
     if len(args) < 2 {
-        return server_protocol.stream.WriteAllBytes(server_protocol.parser.Build(false, "Command Arguments Error", nil))
+        return server_protocol.stream.WriteBytes(server_protocol.parser.Build(false, "Command Arguments Error", nil))
     }
 
     db_id, err := strconv.Atoi(args[1])
     if err != nil {
-        return server_protocol.stream.WriteAllBytes(server_protocol.parser.Build(false, "DB Id Error", nil))
+        return server_protocol.stream.WriteBytes(server_protocol.parser.Build(false, "DB Id Error", nil))
     }
 
     db := self.slock.dbs[uint8(db_id)]
     if db == nil {
-        return server_protocol.stream.WriteAllBytes(server_protocol.parser.Build(false, "DB Uninit Error", nil))
+        return server_protocol.stream.WriteBytes(server_protocol.parser.Build(false, "DB Uninit Error", nil))
     }
 
     if len(args) == 2 {
@@ -177,7 +177,7 @@ func (self *Admin) CommandHandleShowDBCommand(server_protocol *TextServerProtoco
         db_infos = append(db_infos, fmt.Sprintf("%x", lock_manager.lock_key))
         db_infos = append(db_infos, fmt.Sprintf("%d", lock_manager.locked))
     }
-    return server_protocol.stream.WriteAllBytes(server_protocol.parser.Build(true, "", db_infos))
+    return server_protocol.stream.WriteBytes(server_protocol.parser.Build(true, "", db_infos))
 }
 
 func (self *Admin) CommandHandleShowLockCommand(server_protocol *TextServerProtocol, args []string, db *LockDB) error {
@@ -189,7 +189,7 @@ func (self *Admin) CommandHandleShowLockCommand(server_protocol *TextServerProto
     db.glock.Unlock()
 
     if !ok || lock_manager.locked <= 0 {
-        return server_protocol.stream.WriteAllBytes(server_protocol.parser.Build(false, "Unknown Lock Manager Error", nil))
+        return server_protocol.stream.WriteBytes(server_protocol.parser.Build(false, "Unknown Lock Manager Error", nil))
     }
 
     lock_infos := make([]string, 0)
@@ -252,5 +252,5 @@ func (self *Admin) CommandHandleShowLockCommand(server_protocol *TextServerProto
         }
     }
     lock_manager.glock.Unlock()
-    return server_protocol.stream.WriteAllBytes(server_protocol.parser.Build(true, "", lock_infos))
+    return server_protocol.stream.WriteBytes(server_protocol.parser.Build(true, "", lock_infos))
 }

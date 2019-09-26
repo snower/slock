@@ -112,7 +112,7 @@ func (self *Server) Loop() {
 
 func (self *Server) CheckProtocol(stream *Stream) (ServerProtocol, error) {
     buf := make([]byte, 64)
-    n, err := stream.ReadBytes(buf)
+    n, err := stream.Read(buf)
     if err != nil {
         return nil, err
     }

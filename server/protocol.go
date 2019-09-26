@@ -96,13 +96,19 @@ func (self *BinaryServerProtocol) Close() error {
 func (self *BinaryServerProtocol) Read() (protocol.CommandDecode, error) {
     buf := self.rbuf
 
-    n, err := self.stream.ReadBytes(buf)
+    n, err := self.stream.Read(buf)
     if err != nil {
         return nil, err
     }
 
     if n < 64 {
-        return nil, errors.New("command data too short")
+        for ; n < 64; {
+            nn, nerr := self.stream.Read(buf[n:])
+            if nerr != nil {
+                return nil, nerr
+            }
+            n += nn
+        }
     }
 
     if len(buf) < 64 {
@@ -176,19 +182,28 @@ func (self *BinaryServerProtocol) Write(result protocol.CommandEncode) error {
     if err != nil {
         return err
     }
-    return self.stream.WriteBytes(self.wbuf)
+    self.wlock.Lock()
+    err = self.stream.WriteBytes(self.wbuf)
+    self.wlock.Unlock()
+    return err
 }
 
 func (self *BinaryServerProtocol) Process() error {
     buf := self.rbuf
     for ; !self.closed; {
-        n, err := self.stream.ReadBytes(buf)
+        n, err := self.stream.conn.Read(buf)
         if err != nil {
             return err
         }
 
         if n < 64 {
-            return errors.New("command data too short")
+            for ; n < 64; {
+                nn, nerr := self.stream.conn.Read(buf)
+                if nerr != nil {
+                    return nerr
+                }
+                n += nn
+            }
         }
 
         err = self.ProcessParse(buf)
@@ -472,7 +487,23 @@ func (self *BinaryServerProtocol) ProcessLockResultCommand(command *protocol.Loc
     buf[54], buf[55], buf[56], buf[57], buf[58], buf[59], buf[60], buf[61] = byte(lcount), byte(lcount >> 8), byte(command.Count), byte(command.Count >> 8), byte(command.Rcount), 0x00, 0x00, 0x00
     buf[62], buf[63] = 0x00, 0x00
 
-    return self.stream.WriteBytes(buf)
+    self.wlock.Lock()
+    n, err := self.stream.conn.Write(buf)
+    if err != nil {
+        return err
+    }
+
+    if n < 64 {
+        for ; n < 64; {
+            nn, nerr := self.stream.conn.Write(buf)
+            if nerr != nil {
+                return nerr
+            }
+            n += nn
+        }
+    }
+    self.wlock.Unlock()
+    return nil
 }
 
 func (self *BinaryServerProtocol) ProcessLockResultCommandLocked(command *protocol.LockCommand, result uint8, lcount uint16) error {
@@ -519,9 +550,22 @@ func (self *BinaryServerProtocol) ProcessLockResultCommandLocked(command *protoc
     buf[54], buf[55], buf[56], buf[57], buf[58], buf[59], buf[60], buf[61] = byte(lcount), byte(lcount >> 8), byte(command.Count), byte(command.Count >> 8), byte(command.Rcount), 0x00, 0x00, 0x00
     buf[62], buf[63] = 0x00, 0x00
 
-    err := self.stream.WriteBytes(buf)
+    n, err := self.stream.conn.Write(buf)
+    if err != nil {
+        return err
+    }
+
+    if n < 64 {
+        for ; n < 64; {
+            nn, nerr := self.stream.conn.Write(buf)
+            if nerr != nil {
+                return nerr
+            }
+            n += nn
+        }
+    }
     self.wlock.Unlock()
-    return err
+    return nil
 }
 
 func (self *BinaryServerProtocol) GetStream() *Stream {
@@ -823,6 +867,7 @@ func (self *TextServerProtocol) Write(result protocol.CommandEncode) error {
         return errors.New("Protocol Closed")
     }
 
+    self.wlock.Lock()
     switch result.(type) {
     case *protocol.LockResultCommand:
         lock_result_command := result.(*protocol.LockResultCommand)
@@ -838,9 +883,13 @@ func (self *TextServerProtocol) Write(result protocol.CommandEncode) error {
             "RCOUNT",
             fmt.Sprintf("%d", lock_result_command.Rcount),
         }
-        return self.stream.WriteAllBytes(self.parser.Build(true, "", lock_results))
+        err := self.stream.WriteBytes(self.parser.Build(true, "", lock_results))
+        self.wlock.Unlock()
+        return err
     }
-    return self.stream.WriteAllBytes(self.parser.Build(false, "Unknwon Command", nil))
+    err := self.stream.WriteBytes(self.parser.Build(false, "Unknwon Command", nil))
+    self.wlock.Unlock()
+    return err
 }
 
 func (self *TextServerProtocol) Process() error {
@@ -910,6 +959,9 @@ func (self *TextServerProtocol) ProcessParse(buf []byte) error {
 }
 
 func (self *TextServerProtocol) ProcessBuild(command protocol.ICommand) error {
+    self.wlock.Lock()
+    defer self.wlock.Unlock()
+
     switch command.GetCommandType() {
     case protocol.COMMAND_LOCK:
         lock_result_command := command.(*protocol.LockResultCommand)
@@ -925,7 +977,7 @@ func (self *TextServerProtocol) ProcessBuild(command protocol.ICommand) error {
             "RCOUNT",
             fmt.Sprintf("%d", lock_result_command.Rcount),
         }
-        return self.stream.WriteAllBytes(self.parser.Build(true, "", lock_results))
+        return self.stream.WriteBytes(self.parser.Build(true, "", lock_results))
     case protocol.COMMAND_UNLOCK:
         lock_result_command := command.(*protocol.LockResultCommand)
         lock_results := []string{
@@ -940,9 +992,9 @@ func (self *TextServerProtocol) ProcessBuild(command protocol.ICommand) error {
             "RCOUNT",
             fmt.Sprintf("%d", lock_result_command.Rcount),
         }
-        return self.stream.WriteAllBytes(self.parser.Build(true, "", lock_results))
+        return self.stream.WriteBytes(self.parser.Build(true, "", lock_results))
     }
-    return self.stream.WriteAllBytes(self.parser.Build(false, "Unknwon Command", nil))
+    return self.stream.WriteBytes(self.parser.Build(false, "Unknwon Command", nil))
 }
 
 func (self *TextServerProtocol) ProcessCommad(command protocol.ICommand) error {
@@ -1235,26 +1287,26 @@ func (self *TextServerProtocol) ArgsToLockComand(args []string) (*protocol.LockC
 }
 
 func (self *TextServerProtocol) CommandHandlerUnknownCommand(server_protocol *TextServerProtocol, args []string) error {
-    return self.stream.WriteAllBytes(self.parser.Build(false, "Unknown Command", nil))
+    return self.stream.WriteBytes(self.parser.Build(false, "Unknown Command", nil))
 }
 
 func (self *TextServerProtocol) CommandHandlerSelectDB(server_protocol *TextServerProtocol, args []string) error {
     if len(args) < 2 {
-        return self.stream.WriteAllBytes(self.parser.Build(false, "Command Parse Len Error", nil))
+        return self.stream.WriteBytes(self.parser.Build(false, "Command Parse Len Error", nil))
     }
 
     db_id, err := strconv.Atoi(args[1])
     if err != nil {
-        return self.stream.WriteAllBytes(self.parser.Build(false, "Command Parse DB_ID Error", nil))
+        return self.stream.WriteBytes(self.parser.Build(false, "Command Parse DB_ID Error", nil))
     }
     self.db_id = uint8(db_id)
-    return self.stream.WriteAllBytes(self.parser.Build(true, "OK", nil))
+    return self.stream.WriteBytes(self.parser.Build(true, "OK", nil))
 }
 
 func (self *TextServerProtocol) CommandHandlerLock(server_protocol *TextServerProtocol, args []string) error {
     lock_command, err := self.ArgsToLockComand(args)
     if err != nil {
-        return self.stream.WriteAllBytes(self.parser.Build(false, err.Error(), nil))
+        return self.stream.WriteBytes(self.parser.Build(false, err.Error(), nil))
     }
 
     db := self.slock.dbs[lock_command.DbId]
@@ -1264,7 +1316,7 @@ func (self *TextServerProtocol) CommandHandlerLock(server_protocol *TextServerPr
     self.lock_request_id = lock_command.RequestId
     err = db.Lock(self, lock_command)
     if err != nil {
-        return self.stream.WriteAllBytes(self.parser.Build(false, "Lock Error", nil))
+        return self.stream.WriteBytes(self.parser.Build(false, "Lock Error", nil))
     }
     lock_command_result := <- self.lock_waiter
     if lock_command_result.Result == 0 {
@@ -1283,22 +1335,22 @@ func (self *TextServerProtocol) CommandHandlerLock(server_protocol *TextServerPr
         fmt.Sprintf("%d", lock_command_result.Rcount),
     }
     self.free_command_result = lock_command_result
-    return self.stream.WriteAllBytes(self.parser.Build(true, "", lock_results))
+    return self.stream.WriteBytes(self.parser.Build(true, "", lock_results))
 }
 
 func (self *TextServerProtocol) CommandHandlerUnlock(server_protocol *TextServerProtocol, args []string) error {
     lock_command, err := self.ArgsToLockComand(args)
     if err != nil {
-        return self.stream.WriteAllBytes(self.parser.Build(false, err.Error(), nil))
+        return self.stream.WriteBytes(self.parser.Build(false, err.Error(), nil))
     }
     db := self.slock.dbs[lock_command.DbId]
     if db == nil {
-        return self.stream.WriteAllBytes(self.parser.Build(false, "Uknown DB Error", nil))
+        return self.stream.WriteBytes(self.parser.Build(false, "Uknown DB Error", nil))
     }
     self.lock_request_id = lock_command.RequestId
     err = db.UnLock(self, lock_command)
     if err != nil {
-        return self.stream.WriteAllBytes(self.parser.Build(false, "UnLock Error", nil))
+        return self.stream.WriteBytes(self.parser.Build(false, "UnLock Error", nil))
     }
     lock_command_result := <- self.lock_waiter
     if lock_command_result.Result == 0 {
@@ -1320,7 +1372,7 @@ func (self *TextServerProtocol) CommandHandlerUnlock(server_protocol *TextServer
         fmt.Sprintf("%d", lock_command_result.Rcount),
     }
     self.free_command_result = lock_command_result
-    return self.stream.WriteAllBytes(self.parser.Build(true, "", lock_results))
+    return self.stream.WriteBytes(self.parser.Build(true, "", lock_results))
 }
 
 func (self *TextServerProtocol) GetRequestId() [16]byte {
