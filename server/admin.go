@@ -111,11 +111,11 @@ func (self *Admin) CommandHandleInfoCommand(server_protocol *TextServerProtocol,
 
     aof := self.slock.GetAof()
     infos = append(infos, "\r\n# Aof")
-    infos = append(infos, fmt.Sprintf("aof_channel_count:%s", aof.channel_count))
-    infos = append(infos, fmt.Sprintf("aof_channel_active:%s", aof.actived_channel_count))
-    infos = append(infos, fmt.Sprintf("aof_count:%s", aof.aof_lock_count))
+    infos = append(infos, fmt.Sprintf("aof_channel_count:%d", aof.channel_count))
+    infos = append(infos, fmt.Sprintf("aof_channel_active:%d", aof.actived_channel_count))
+    infos = append(infos, fmt.Sprintf("aof_count:%d", aof.aof_lock_count))
     infos = append(infos, fmt.Sprintf("aof_file_name:%s", aof.aof_file.filename))
-    infos = append(infos, fmt.Sprintf("aof_file_size:%s", aof.aof_file.size))
+    infos = append(infos, fmt.Sprintf("aof_file_size:%d", aof.aof_file.size))
 
     infos = append(infos, "\r\n# Keyspace")
     for db_id, db := range self.slock.dbs {
