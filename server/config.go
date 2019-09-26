@@ -29,6 +29,10 @@ type ServerConfig struct{
     Port uint                   `long:"port" description:"bind port" default:"5658"`
     Log  string                 `long:"log" description:"log filename, default is output stdout" default:"-"`
     LogLevel string             `long:"log_level" description:"log level" default:"INFO" choice:"DEBUG" choice:"INFO" choice:"Warning" choice:"ERROR"`
+    LogRotatingSize uint        `long:"log_rotating_size" description:"log rotating byte size" default:"67108864"`
+    LogBackupCount  uint        `long:"log_backup_count" description:"log backup count" default:"5"`
+    LogBufferSize   uint        `long:"log_buffer_size" description:"log buffer byte size" default:"0"`
+    LogBufferFlushTime uint     `long:"log_buffer_flush_time" description:"log buffer flush seconds time" default:"1"`
     DataDir string              `long:"data_dir" description:"data dir" default:"./data/"`
     DBConcurrentLock uint       `long:"db_concurrent_lock" description:"db concurrent lock count" default:"8"`
     DBLockAofTime uint          `long:"db_lock_aof_time" description:"db lock aof time" default:"2"`

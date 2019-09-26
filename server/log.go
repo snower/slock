@@ -19,8 +19,8 @@ func InitConsoleLogger(formatter logging.Formatter) logging.Handler {
 
 func InitFileLogger(log_file string, formatter logging.Formatter) logging.Handler {
     handler := logging.MustNewRotatingFileHandler(
-        log_file, os.O_APPEND, 0, 1*time.Second, 1,
-        uint64(1024*1024*1024), 5)
+        log_file, os.O_APPEND, int(Config.LogBufferSize), time.Duration(Config.LogBufferFlushTime)*time.Second, 64,
+        uint64(Config.LogRotatingSize), uint32(Config.LogBackupCount))
 
     handler.SetFormatter(formatter)
     return handler
@@ -47,13 +47,13 @@ func InitLogger(log_file string, log_level string) logging.Logger {
         handler.SetLevel(logging_level)
         logger.SetLevel(logging_level)
         logger.AddHandler(handler)
-        logger.Infof("start ConsoleLogger %s %s", log_level, log_file)
+        logger.Infof("Start ConsoleLogger %s %s", log_level, log_file)
     } else {
         handler := InitFileLogger(log_file, formatter)
         handler.SetLevel(logging_level)
         logger.SetLevel(logging_level)
         logger.AddHandler(handler)
-        logger.Infof("start FileLogger %s %s", log_level, log_file)
+        logger.Infof("Start FileLogger %s %s", log_level, log_file)
     }
     return logger
 }
