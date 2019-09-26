@@ -440,7 +440,7 @@ func (self *Aof) LoadAofFile(filename string, server_protocol *BinaryServerProto
 
         command := &protocol.LockCommand{Command: protocol.Command{Magic: protocol.MAGIC, Version: protocol.VERSION, CommandType: lock.CommandType, RequestId: self.GetRequestId()},
             Flag: lock.Flag, DbId: lock.DbId, LockId: lock.LockId, LockKey: lock.LockKey, TimeoutFlag: 0, Timeout: 5,
-            ExpriedFlag: 0x0200, Expried: uint16(int64(lock.ExpriedTime) - now), Count: lock.Count, Rcount: lock.Rcount}
+            ExpriedFlag: 0x1200, Expried: uint16(int64(lock.ExpriedTime) - now), Count: lock.Count, Rcount: lock.Rcount}
         err = server_protocol.ProcessLockCommand(command)
         if err != nil {
             return err

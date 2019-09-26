@@ -5,6 +5,7 @@ import (
     "io"
     "os"
     "runtime"
+    "strconv"
     "strings"
     "time"
 )
@@ -25,6 +26,7 @@ func (self *Admin) GetHandlers() map[string]TextServerProtocolCommandHandler{
     handlers["SHUTDOWN"] = self.CommandHandleShutdownCommand
     handlers["QUIT"] = self.CommandHandleQuitCommand
     handlers["INFO"] = self.CommandHandleInfoCommand
+    handlers["SHOW"] = self.CommandHandleShowCommand
     return handlers
 }
 
@@ -136,9 +138,119 @@ func (self *Admin) CommandHandleInfoCommand(server_protocol *TextServerProtocol,
 
     infos = append(infos, "\r\n")
 
-    err := server_protocol.stream.WriteAllBytes(server_protocol.parser.Build(true, "", []string{strings.Join(infos, "\r\n")}))
-    if err != nil {
-        return err
+    return server_protocol.stream.WriteAllBytes(server_protocol.parser.Build(true, "", []string{strings.Join(infos, "\r\n")}))
+}
+
+func (self *Admin) CommandHandleShowCommand(server_protocol *TextServerProtocol, args []string) error {
+    if len(args) < 2 {
+        return server_protocol.stream.WriteAllBytes(server_protocol.parser.Build(false, "Command Arguments Error", nil))
     }
-    return nil
+
+    db_id, err := strconv.Atoi(args[1])
+    if err != nil {
+        return server_protocol.stream.WriteAllBytes(server_protocol.parser.Build(false, "DB Id Error", nil))
+    }
+
+    db := self.slock.dbs[uint8(db_id)]
+    if db == nil {
+        return server_protocol.stream.WriteAllBytes(server_protocol.parser.Build(false, "DB Uninit Error", nil))
+    }
+
+    if len(args) == 2 {
+        return self.CommandHandleShowDBCommand(server_protocol, args, db)
+    }
+    return self.CommandHandleShowLockCommand(server_protocol, args, db)
+}
+
+func (self *Admin) CommandHandleShowDBCommand(server_protocol *TextServerProtocol, args []string, db *LockDB) error {
+    db.glock.Lock()
+    lock_managers := make([]*LockManager, 0)
+    for _, lock_manager := range db.locks {
+        if lock_manager.locked > 0 {
+            lock_managers = append(lock_managers, lock_manager)
+        }
+    }
+    db.glock.Unlock()
+
+    db_infos := make([]string, 0)
+    for _, lock_manager := range lock_managers {
+        db_infos = append(db_infos, fmt.Sprintf("%x", lock_manager.lock_key))
+        db_infos = append(db_infos, fmt.Sprintf("%d", lock_manager.locked))
+    }
+    return server_protocol.stream.WriteAllBytes(server_protocol.parser.Build(true, "", db_infos))
+}
+
+func (self *Admin) CommandHandleShowLockCommand(server_protocol *TextServerProtocol, args []string, db *LockDB) error {
+    lock_key := [16]byte{}
+    server_protocol.ArgsToLockComandParseId(args[2], &lock_key)
+
+    db.glock.Lock()
+    lock_manager, ok := db.locks[lock_key]
+    db.glock.Unlock()
+
+    if !ok || lock_manager.locked <= 0 {
+        return server_protocol.stream.WriteAllBytes(server_protocol.parser.Build(false, "Unknown Lock Manager Error", nil))
+    }
+
+    lock_infos := make([]string, 0)
+    lock_manager.glock.Lock()
+    if lock_manager.current_lock != nil {
+        lock := lock_manager.current_lock
+
+        state := uint8(0)
+        if lock.timeouted {
+            state |= 0x01
+        }
+
+        if lock.expried {
+            state |= 0x02
+        }
+
+        if lock.long_wait_index > 0 {
+            state |= 0x04
+        }
+
+        if lock.is_aof {
+            state |= 0x08
+        }
+
+        lock_infos = append(lock_infos, fmt.Sprintf("%x", lock.command.LockId))
+        lock_infos = append(lock_infos, fmt.Sprintf("%d", lock.start_time))
+        lock_infos = append(lock_infos, fmt.Sprintf("%d", lock.timeout_time))
+        lock_infos = append(lock_infos, fmt.Sprintf("%d", lock.expried_time))
+        lock_infos = append(lock_infos, fmt.Sprintf("%d", lock.locked))
+        lock_infos = append(lock_infos, fmt.Sprintf("%d", lock.aof_time))
+        lock_infos = append(lock_infos, fmt.Sprintf("%d", state))
+    }
+
+    if lock_manager.lock_maps != nil {
+        for _, lock := range lock_manager.lock_maps {
+            state := uint8(0)
+            if lock.timeouted {
+                state |= 0x01
+            }
+
+            if lock.expried {
+                state |= 0x02
+            }
+
+            if lock.long_wait_index > 0 {
+                state |= 0x04
+            }
+
+            if lock.is_aof {
+                state |= 0x08
+            }
+
+            lock_infos = append(lock_infos, fmt.Sprintf("%x", lock.command.LockId))
+            lock_infos = append(lock_infos, fmt.Sprintf("%d", lock.start_time))
+            lock_infos = append(lock_infos, fmt.Sprintf("%d", lock.timeout_time))
+            lock_infos = append(lock_infos, fmt.Sprintf("%d", lock.expried_time))
+            lock_infos = append(lock_infos, fmt.Sprintf("%d", lock.locked))
+            lock_infos = append(lock_infos, fmt.Sprintf("%d", lock.aof_time))
+            lock_infos = append(lock_infos, fmt.Sprintf("%d", state))
+        }
+    }
+    lock_manager.glock.Unlock()
+    return server_protocol.stream.WriteAllBytes(server_protocol.parser.Build(true, "", lock_infos))
 }

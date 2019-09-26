@@ -1056,7 +1056,7 @@ func (self *TextServerProtocol) ProcessLockResultCommand(lock_command *protocol.
 
 func (self *TextServerProtocol) ProcessLockResultCommandLocked(command *protocol.LockCommand, result uint8, lcount uint16) error {
     self.wlock.Lock()
-    err := self.ProcessLockResultCommandLocked(command, result, lcount)
+    err := self.ProcessLockResultCommand(command, result, lcount)
     self.wlock.Unlock()
     return err
 }
@@ -1201,14 +1201,14 @@ func (self *TextServerProtocol) ArgsToLockComand(args []string) (*protocol.LockC
                 return nil, errors.New("Command Parse TIMEOUT Error")
             }
             command.Timeout = uint16(timeout & 0xffff)
-            command.TimeoutFlag = uint16(timeout >> 23)
+            command.TimeoutFlag = uint16(timeout >> 16 & 0xffff)
         case "EXPRIED":
             expried, err := strconv.Atoi(args[i + 1])
             if err != nil {
                 return nil, errors.New("Command Parse EXPRIED Error")
             }
             command.Expried = uint16(expried & 0xffff)
-            command.ExpriedFlag = uint16(expried >> 23)
+            command.ExpriedFlag = uint16(expried >> 16 & 0xffff)
         case "COUNT":
             count, err := strconv.Atoi(args[i + 1])
             if err != nil {
