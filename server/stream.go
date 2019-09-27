@@ -36,7 +36,7 @@ func (self *Stream) ReadBytes(b []byte) (int, error) {
 
     if n < cn {
         for ; n < cn; {
-            nn, nerr := self.conn.Read(b)
+            nn, nerr := self.conn.Read(b[n:])
             if nerr != nil {
                 return n + nn, nerr
             }
@@ -67,7 +67,7 @@ func (self *Stream) WriteBytes(b []byte) error {
 
     if n < cn {
         for ; n < cn; {
-            nn, nerr := self.conn.Write(b)
+            nn, nerr := self.conn.Write(b[n:])
             if nerr != nil {
                 return nerr
             }

@@ -482,7 +482,7 @@ func (self *BinaryServerProtocol) ProcessLockResultCommand(command *protocol.Loc
 
     if n < 64 {
         for ; n < 64; {
-            nn, nerr := self.stream.conn.Write(buf)
+            nn, nerr := self.stream.conn.Write(buf[n:])
             if nerr != nil {
                 self.glock.Unlock()
                 return nerr
