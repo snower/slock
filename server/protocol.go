@@ -254,7 +254,7 @@ func (self *BinaryServerProtocol) ProcessParse(buf []byte) error {
     case protocol.COMMAND_LOCK:
         lock_command := self.free_commands.PopRight()
         if lock_command == nil {
-            lock_command = self.GetLockCommand()
+            lock_command = self.GetLockCommandLocked()
         }
 
         lock_command.CommandType = command_type
@@ -291,7 +291,7 @@ func (self *BinaryServerProtocol) ProcessParse(buf []byte) error {
     case protocol.COMMAND_UNLOCK:
         lock_command := self.free_commands.PopRight()
         if lock_command == nil {
-            lock_command = self.GetLockCommand()
+            lock_command = self.GetLockCommandLocked()
         }
 
         lock_command.CommandType = command_type
@@ -549,38 +549,45 @@ func (self *BinaryServerProtocol) UnInitLockCommand() {
 func (self *BinaryServerProtocol) GetLockCommand() *protocol.LockCommand {
     lock_command := self.free_commands.PopRight()
     if lock_command == nil {
-        self.glock.Lock()
-        lock_command = self.locked_free_commands.PopRight()
-        if lock_command != nil {
-            for ;; {
-                command := self.locked_free_commands.PopRight()
-                if command == nil {
-                    break
-                }
-                self.free_commands.Push(command)
+        return self.GetLockCommandLocked()
+    }
+    return lock_command
+}
+
+func (self *BinaryServerProtocol) GetLockCommandLocked() *protocol.LockCommand {
+    self.glock.Lock()
+    lock_command := self.locked_free_commands.PopRight()
+    if lock_command != nil {
+        for ;; {
+            flock_command := self.locked_free_commands.PopRight()
+            if flock_command == nil {
+                break
             }
-            self.glock.Unlock()
-            return lock_command
+            self.free_commands.Push(flock_command)
         }
         self.glock.Unlock()
+        return lock_command
+    }
+    self.glock.Unlock()
 
-        self.slock.free_lock_command_lock.Lock()
-        lock_command = self.slock.free_lock_commands.PopRight()
-        if lock_command != nil {
-            self.slock.free_lock_command_count--
-            for i := 0; i < 8; i++ {
-                flock_command := self.slock.free_lock_commands.PopRight()
-                if flock_command == nil {
-                    break
-                }
-                self.slock.free_lock_command_count--
-                self.free_commands.Push(flock_command)
+    self.slock.free_lock_command_lock.Lock()
+    lock_command = self.slock.free_lock_commands.PopRight()
+    if lock_command != nil {
+        self.slock.free_lock_command_count--
+        for i := 0; i < 8; i++ {
+            flock_command := self.slock.free_lock_commands.PopRight()
+            if flock_command == nil {
+                break
             }
-        } else {
-            lock_command = &protocol.LockCommand{}
+            self.slock.free_lock_command_count--
+            self.free_commands.Push(flock_command)
         }
         self.slock.free_lock_command_lock.Unlock()
+        return lock_command
     }
+
+    lock_command = &protocol.LockCommand{}
+    self.slock.free_lock_command_lock.Unlock()
     return lock_command
 }
 
