@@ -18,6 +18,8 @@ import (
 
 type ServerProtocol interface {
     Init(client_id [16]byte) error
+    Lock()
+    Unlock()
     Read() (protocol.CommandDecode, error)
     Write(protocol.CommandEncode) (error)
     Process() error
@@ -37,15 +39,15 @@ type ServerProtocol interface {
 
 type BinaryServerProtocol struct {
     slock                       *SLock
+    glock                       *sync.Mutex
     stream                      *Stream
     client_id                   [16]byte
-    wlock                       *sync.Mutex
     free_commands               *LockCommandQueue
+    locked_free_commands        *LockCommandQueue
     inited                      bool
     closed                      bool
     rbuf                        []byte
     wbuf                        []byte
-    owbuf                       []byte
 }
 
 func NewBinaryServerProtocol(slock *SLock, stream *Stream) *BinaryServerProtocol {
@@ -53,12 +55,8 @@ func NewBinaryServerProtocol(slock *SLock, stream *Stream) *BinaryServerProtocol
     wbuf[0] = byte(protocol.MAGIC)
     wbuf[1] = byte(protocol.VERSION)
 
-    owbuf := make([]byte, 64)
-    owbuf[0] = byte(protocol.MAGIC)
-    owbuf[1] = byte(protocol.VERSION)
-
-    server_protocol := &BinaryServerProtocol{slock, stream, [16]byte{}, &sync.Mutex{},
-        NewLockCommandQueue(4, 64, FREE_COMMAND_QUEUE_INIT_SIZE), false, false, make([]byte, 64), wbuf, owbuf}
+    server_protocol := &BinaryServerProtocol{slock, &sync.Mutex{}, stream, [16]byte{}, NewLockCommandQueue(4, 64, FREE_COMMAND_QUEUE_INIT_SIZE),
+        NewLockCommandQueue(4, 64, FREE_COMMAND_QUEUE_INIT_SIZE), false, false, make([]byte, 64), wbuf}
     server_protocol.InitLockCommand()
     return server_protocol
 }
@@ -70,6 +68,13 @@ func (self *BinaryServerProtocol) Init(client_id [16]byte) error {
 }
 
 func (self *BinaryServerProtocol) Close() error {
+    self.glock.Lock()
+    defer self.glock.Unlock()
+
+    if self.closed {
+        return nil
+    }
+
     if self.inited {
         self.inited = false
         self.slock.glock.Lock()
@@ -93,7 +98,19 @@ func (self *BinaryServerProtocol) Close() error {
     return nil
 }
 
+func (self *BinaryServerProtocol) Lock() {
+    self.glock.Lock()
+}
+
+func (self *BinaryServerProtocol) Unlock() {
+    self.glock.Unlock()
+}
+
 func (self *BinaryServerProtocol) Read() (protocol.CommandDecode, error) {
+    if self.closed {
+        return nil, errors.New("Protocol Closed")
+    }
+
     buf := self.rbuf
 
     n, err := self.stream.Read(buf)
@@ -182,10 +199,8 @@ func (self *BinaryServerProtocol) Write(result protocol.CommandEncode) error {
     if err != nil {
         return err
     }
-    self.wlock.Lock()
-    err = self.stream.WriteBytes(self.wbuf)
-    self.wlock.Unlock()
-    return err
+
+    return self.stream.WriteBytes(self.wbuf)
 }
 
 func (self *BinaryServerProtocol) Process() error {
@@ -239,22 +254,7 @@ func (self *BinaryServerProtocol) ProcessParse(buf []byte) error {
     case protocol.COMMAND_LOCK:
         lock_command := self.free_commands.PopRight()
         if lock_command == nil {
-            self.slock.free_lock_command_lock.Lock()
-            lock_command = self.slock.free_lock_commands.PopRight()
-            if lock_command != nil {
-                self.slock.free_lock_command_count--
-                for i := 0; i < 8; i++ {
-                    flock_command := self.slock.free_lock_commands.PopRight()
-                    if flock_command == nil {
-                        break
-                    }
-                    self.slock.free_lock_command_count--
-                    self.free_commands.Push(flock_command)
-                }
-            } else {
-                lock_command = &protocol.LockCommand{}
-            }
-            self.slock.free_lock_command_lock.Unlock()
+            lock_command = self.GetLockCommand()
         }
 
         lock_command.CommandType = command_type
@@ -291,22 +291,7 @@ func (self *BinaryServerProtocol) ProcessParse(buf []byte) error {
     case protocol.COMMAND_UNLOCK:
         lock_command := self.free_commands.PopRight()
         if lock_command == nil {
-            self.slock.free_lock_command_lock.Lock()
-            lock_command = self.slock.free_lock_commands.PopRight()
-            if lock_command != nil {
-                self.slock.free_lock_command_count--
-                for i := 0; i < 8; i++ {
-                    flock_command := self.slock.free_lock_commands.PopRight()
-                    if flock_command == nil {
-                        break
-                    }
-                    self.slock.free_lock_command_count--
-                    self.free_commands.Push(flock_command)
-                }
-            } else {
-                lock_command = &protocol.LockCommand{}
-            }
-            self.slock.free_lock_command_lock.Unlock()
+            lock_command = self.GetLockCommand()
         }
 
         lock_command.CommandType = command_type
@@ -460,8 +445,10 @@ func (self *BinaryServerProtocol) ProcessLockResultCommand(command *protocol.Loc
         }
     }
 
+    self.glock.Lock()
     buf := self.wbuf
     if len(buf) < 64 {
+        self.glock.Unlock()
         return errors.New("buf too short")
     }
 
@@ -487,9 +474,9 @@ func (self *BinaryServerProtocol) ProcessLockResultCommand(command *protocol.Loc
     buf[54], buf[55], buf[56], buf[57], buf[58], buf[59], buf[60], buf[61] = byte(lcount), byte(lcount >> 8), byte(command.Count), byte(command.Count >> 8), byte(command.Rcount), 0x00, 0x00, 0x00
     buf[62], buf[63] = 0x00, 0x00
 
-    self.wlock.Lock()
     n, err := self.stream.conn.Write(buf)
     if err != nil {
+        self.glock.Unlock()
         return err
     }
 
@@ -497,75 +484,18 @@ func (self *BinaryServerProtocol) ProcessLockResultCommand(command *protocol.Loc
         for ; n < 64; {
             nn, nerr := self.stream.conn.Write(buf)
             if nerr != nil {
+                self.glock.Unlock()
                 return nerr
             }
             n += nn
         }
     }
-    self.wlock.Unlock()
+    self.glock.Unlock()
     return nil
 }
 
 func (self *BinaryServerProtocol) ProcessLockResultCommandLocked(command *protocol.LockCommand, result uint8, lcount uint16) error {
-    if self.closed {
-        if !self.inited {
-            return errors.New("Protocol Closed")
-        }
-
-        self.slock.glock.Lock()
-        if server_protocol, ok := self.slock.streams[self.client_id]; ok {
-            self.slock.glock.Unlock()
-            return server_protocol.ProcessLockResultCommandLocked(command, result, lcount)
-        } else {
-            self.slock.glock.Unlock()
-            return errors.New("Protocol Closed")
-        }
-    }
-
-    self.wlock.Lock()
-    buf := self.owbuf
-    if len(buf) < 64 {
-        return errors.New("buf too short")
-    }
-
-    buf[2] = byte(command.CommandType)
-
-    buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
-        buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18] =
-        command.RequestId[0], command.RequestId[1], command.RequestId[2], command.RequestId[3], command.RequestId[4], command.RequestId[5], command.RequestId[6], command.RequestId[7],
-        command.RequestId[8], command.RequestId[9], command.RequestId[10], command.RequestId[11], command.RequestId[12], command.RequestId[13], command.RequestId[14], command.RequestId[15]
-
-    buf[19], buf[20], buf[21] = result, 0x00, byte(command.DbId)
-
-    buf[22], buf[23], buf[24], buf[25], buf[26], buf[27], buf[28], buf[29],
-        buf[30], buf[31], buf[32], buf[33], buf[34], buf[35], buf[36], buf[37] =
-        command.LockId[0], command.LockId[1], command.LockId[2], command.LockId[3], command.LockId[4], command.LockId[5], command.LockId[6], command.LockId[7],
-        command.LockId[8], command.LockId[9], command.LockId[10], command.LockId[11], command.LockId[12], command.LockId[13], command.LockId[14], command.LockId[15]
-
-    buf[38], buf[39], buf[40], buf[41], buf[42], buf[43], buf[44], buf[45],
-        buf[46], buf[47], buf[48], buf[49], buf[50], buf[51], buf[52], buf[53] =
-        command.LockKey[0], command.LockKey[1], command.LockKey[2], command.LockKey[3], command.LockKey[4], command.LockKey[5], command.LockKey[6], command.LockKey[7],
-        command.LockKey[8], command.LockKey[9], command.LockKey[10], command.LockKey[11], command.LockKey[12], command.LockKey[13], command.LockKey[14], command.LockKey[15]
-
-    buf[54], buf[55], buf[56], buf[57], buf[58], buf[59], buf[60], buf[61] = byte(lcount), byte(lcount >> 8), byte(command.Count), byte(command.Count >> 8), byte(command.Rcount), 0x00, 0x00, 0x00
-    buf[62], buf[63] = 0x00, 0x00
-
-    n, err := self.stream.conn.Write(buf)
-    if err != nil {
-        return err
-    }
-
-    if n < 64 {
-        for ; n < 64; {
-            nn, nerr := self.stream.conn.Write(buf)
-            if nerr != nil {
-                return nerr
-            }
-            n += nn
-        }
-    }
-    self.wlock.Unlock()
-    return nil
+    return self.ProcessLockResultCommand(command, result, lcount)
 }
 
 func (self *BinaryServerProtocol) GetStream() *Stream {
@@ -604,12 +534,36 @@ func (self *BinaryServerProtocol) UnInitLockCommand() {
         self.slock.free_lock_commands.Push(command)
         self.slock.free_lock_command_count++
     }
+
+    for ;; {
+        command := self.locked_free_commands.PopRight()
+        if command == nil {
+            break
+        }
+        self.slock.free_lock_commands.Push(command)
+        self.slock.free_lock_command_count++
+    }
     self.slock.free_lock_command_lock.Unlock()
 }
 
 func (self *BinaryServerProtocol) GetLockCommand() *protocol.LockCommand {
     lock_command := self.free_commands.PopRight()
     if lock_command == nil {
+        self.glock.Lock()
+        lock_command = self.locked_free_commands.PopRight()
+        if lock_command != nil {
+            for ;; {
+                command := self.locked_free_commands.PopRight()
+                if command == nil {
+                    break
+                }
+                self.free_commands.Push(command)
+            }
+            self.glock.Unlock()
+            return lock_command
+        }
+        self.glock.Unlock()
+
         self.slock.free_lock_command_lock.Lock()
         lock_command = self.slock.free_lock_commands.PopRight()
         if lock_command != nil {
@@ -635,7 +589,16 @@ func (self *BinaryServerProtocol) FreeLockCommand(command *protocol.LockCommand)
 }
 
 func (self *BinaryServerProtocol) FreeLockCommandLocked(command *protocol.LockCommand) error {
-    self.slock.FreeLockCommand(command)
+    self.glock.Lock()
+    if self.closed {
+        self.slock.free_lock_command_lock.Lock()
+        self.slock.free_lock_commands.Push(command)
+        self.slock.free_lock_command_count++
+        self.slock.free_lock_command_lock.Unlock()
+    } else {
+        self.locked_free_commands.Push(command)
+    }
+    self.glock.Unlock()
     return nil
 }
 
@@ -780,8 +743,8 @@ type TextServerProtocolCommandHandler func(*TextServerProtocol, []string) error
 
 type TextServerProtocol struct {
     slock                       *SLock
+    glock                       *sync.Mutex
     stream                      *Stream
-    wlock                       *sync.Mutex
     free_commands               *LockCommandQueue
     free_command_result         *protocol.LockResultCommand
     parser                      *TextServerProtocolParser
@@ -795,7 +758,7 @@ type TextServerProtocol struct {
 
 func NewTextServerProtocol(slock *SLock, stream *Stream) *TextServerProtocol {
     parser := &TextServerProtocolParser{make([]byte, 4096), 0, 0, 0,make([]string, 0), 0, make([]byte, 0), 0}
-    server_protocol := &TextServerProtocol{slock, stream, &sync.Mutex{}, NewLockCommandQueue(4, 16, FREE_COMMAND_QUEUE_INIT_SIZE),
+    server_protocol := &TextServerProtocol{slock, &sync.Mutex{}, stream, NewLockCommandQueue(4, 16, FREE_COMMAND_QUEUE_INIT_SIZE),
         nil, parser, make(map[string]TextServerProtocolCommandHandler, 64), make(chan *protocol.LockResultCommand, 1),
         [16]byte{}, [16]byte{}, 0, false}
     server_protocol.InitLockCommand()
@@ -813,7 +776,22 @@ func (self *TextServerProtocol) Init(client_id [16]byte) error{
     return nil
 }
 
-func (self *TextServerProtocol) Close() (error) {
+func (self *TextServerProtocol) Lock() {
+    self.glock.Lock()
+}
+
+func (self *TextServerProtocol) Unlock() {
+    self.glock.Unlock()
+}
+
+func (self *TextServerProtocol) Close() error {
+    self.glock.Lock()
+    defer self.glock.Unlock()
+
+    if self.closed {
+        return nil
+    }
+
     if self.stream != nil {
         err := self.stream.Close()
         if err != nil {
@@ -859,7 +837,7 @@ func (self *TextServerProtocol) Read() (protocol.CommandDecode, error) {
             self.parser.args_count = 0
         }
     }
-    return nil, errors.New("Unknown Command")
+    return nil, errors.New("Protocol Closed")
 }
 
 func (self *TextServerProtocol) Write(result protocol.CommandEncode) error {
@@ -867,7 +845,6 @@ func (self *TextServerProtocol) Write(result protocol.CommandEncode) error {
         return errors.New("Protocol Closed")
     }
 
-    self.wlock.Lock()
     switch result.(type) {
     case *protocol.LockResultCommand:
         lock_result_command := result.(*protocol.LockResultCommand)
@@ -883,13 +860,9 @@ func (self *TextServerProtocol) Write(result protocol.CommandEncode) error {
             "RCOUNT",
             fmt.Sprintf("%d", lock_result_command.Rcount),
         }
-        err := self.stream.WriteBytes(self.parser.Build(true, "", lock_results))
-        self.wlock.Unlock()
-        return err
+        return self.stream.WriteBytes(self.parser.Build(true, "", lock_results))
     }
-    err := self.stream.WriteBytes(self.parser.Build(false, "Unknwon Command", nil))
-    self.wlock.Unlock()
-    return err
+    return self.stream.WriteBytes(self.parser.Build(false, "Unknwon Command", nil))
 }
 
 func (self *TextServerProtocol) Process() error {
@@ -959,9 +932,6 @@ func (self *TextServerProtocol) ProcessParse(buf []byte) error {
 }
 
 func (self *TextServerProtocol) ProcessBuild(command protocol.ICommand) error {
-    self.wlock.Lock()
-    defer self.wlock.Unlock()
-
     switch command.GetCommandType() {
     case protocol.COMMAND_LOCK:
         lock_result_command := command.(*protocol.LockResultCommand)
@@ -1107,9 +1077,9 @@ func (self *TextServerProtocol) ProcessLockResultCommand(lock_command *protocol.
 }
 
 func (self *TextServerProtocol) ProcessLockResultCommandLocked(command *protocol.LockCommand, result uint8, lcount uint16) error {
-    self.wlock.Lock()
+    self.glock.Lock()
     err := self.ProcessLockResultCommand(command, result, lcount)
-    self.wlock.Unlock()
+    self.glock.Unlock()
     return err
 }
 
@@ -1166,11 +1136,23 @@ func (self *TextServerProtocol) GetLockCommand() *protocol.LockCommand {
 }
 
 func (self *TextServerProtocol) FreeLockCommand(command *protocol.LockCommand) error {
-    return self.free_commands.Push(command)
+    self.glock.Lock()
+    self.free_commands.Push(command)
+    self.glock.Unlock()
+    return nil
 }
 
 func (self *TextServerProtocol) FreeLockCommandLocked(command *protocol.LockCommand) error {
-    self.slock.FreeLockCommand(command)
+    self.glock.Lock()
+    if self.closed {
+        self.slock.free_lock_command_lock.Lock()
+        self.slock.free_lock_commands.Push(command)
+        self.slock.free_lock_command_count++
+        self.slock.free_lock_command_lock.Unlock()
+    } else {
+        self.free_commands.Push(command)
+    }
+    self.glock.Unlock()
     return nil
 }
 
@@ -1204,11 +1186,13 @@ func (self *TextServerProtocol) ArgsToLockComandParseId(arg_id string, lock_id *
                 v[8], v[9], v[10], v[11], v[12], v[13], v[14], v[15]
         }
     } else {
-        for i := 0; i < 16 - arg_len; i++ {
-            lock_id[i] = 0
-        }
-        for i, v := range arg_id {
-            lock_id[16 - arg_len + i] = byte(v)
+        arg_index := 16 - arg_len
+        for i := 0; i < 16; i++ {
+            if i < arg_index {
+                lock_id[i] = 0
+            } else {
+                lock_id[i] = arg_id[i - arg_index]
+            }
         }
     }
 }

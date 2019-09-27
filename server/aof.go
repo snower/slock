@@ -360,9 +360,8 @@ func (self *Aof) LoadAndInit() error {
     self.aof_file_index++
     self.slock.Log().Infof("Aof File Create %s", self.aof_file.filename)
 
-    server_protocol := &BinaryServerProtocol{self.slock, nil, [16]byte{}, &sync.Mutex{},
-        NewLockCommandQueue(4, 16, 256), false, true, make([]byte, 64), make([]byte, 64), make([]byte, 64)}
-    server_protocol.closed = true
+    server_protocol := &BinaryServerProtocol{self.slock, &sync.Mutex{}, nil, [16]byte{}, NewLockCommandQueue(4, 16, 256),
+        NewLockCommandQueue(4, 16, 256), false, true, make([]byte, 64), make([]byte, 64)}
 
     if rewrite_file != "" {
         err := self.LoadAofFile(rewrite_file, server_protocol)
