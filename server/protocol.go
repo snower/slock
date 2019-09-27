@@ -213,7 +213,7 @@ func (self *BinaryServerProtocol) Process() error {
 
         if n < 64 {
             for ; n < 64; {
-                nn, nerr := self.stream.conn.Read(buf)
+                nn, nerr := self.stream.conn.Read(buf[n:])
                 if nerr != nil {
                     return nerr
                 }
