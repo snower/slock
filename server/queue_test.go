@@ -200,6 +200,46 @@ func TestLockQueueReset(t *testing.T) {
     }
 }
 
+func TestLockQueueRellac(t *testing.T) {
+    l := &Lock{}
+    q := NewLockQueue(2, 6, 4)
+    qlen := 0
+
+    for i := 0; i < 1000; i++  {
+        if rand.Intn(100) < 70 {
+            if q.Push(l) == nil {
+                qlen++
+            }
+        } else {
+            if q.Pop() != nil {
+                qlen--
+            }
+        }
+    }
+
+    if q.Len() != int32(qlen) {
+        t.Error("LockQueue Len Fail")
+        return
+    }
+
+    for ; q.Pop() != nil; {
+        qlen--
+    }
+
+    q.Rellac()
+    node_size := 0
+    for _, node_queue := range q.queues {
+        if node_queue == nil {
+            break
+        }
+        node_size++
+    }
+    if q.queue_size != q.base_queue_size * int32(uint32(1) << uint32(node_size - 1)) {
+        t.Error("LockQueue Reset queue_size Fail")
+        return
+    }
+}
+
 func TestLockQueueResize(t *testing.T) {
     l := &Lock{}
     q := NewLockQueue(2, 6, 4)
@@ -518,6 +558,46 @@ func TestLockCommandQueueReset(t *testing.T) {
     }
     if q.queue_size != q.base_queue_size * int32(uint32(1) << uint32(node_size - 1)) {
         t.Error("LockCommandQueue Reset queue_size Fail")
+        return
+    }
+}
+
+func TestLockCommandQueueRellac(t *testing.T) {
+    l := &Lock{}
+    q := NewLockQueue(2, 6, 4)
+    qlen := 0
+
+    for i := 0; i < 1000; i++  {
+        if rand.Intn(100) < 70 {
+            if q.Push(l) == nil {
+                qlen++
+            }
+        } else {
+            if q.Pop() != nil {
+                qlen--
+            }
+        }
+    }
+
+    if q.Len() != int32(qlen) {
+        t.Error("LockQueue Len Fail")
+        return
+    }
+
+    for ; q.Pop() != nil; {
+        qlen--
+    }
+
+    q.Rellac()
+    node_size := 0
+    for _, node_queue := range q.queues {
+        if node_queue == nil {
+            break
+        }
+        node_size++
+    }
+    if q.queue_size != q.base_queue_size * int32(uint32(1) << uint32(node_size - 1)) {
+        t.Error("LockQueue Reset queue_size Fail")
         return
     }
 }

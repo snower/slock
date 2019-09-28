@@ -183,6 +183,37 @@ func (self *LockQueue) Reset() error{
     return nil
 }
 
+func (self *LockQueue) Rellac() error{
+    node_size := self.tail_node_index
+    for i := self.tail_node_index; i < self.node_size; i++ {
+        if self.queues[i] == nil {
+            node_size = i - 1
+        }
+    }
+
+    base_node_size := self.tail_node_index + (node_size - self.tail_node_index) / 2
+    if base_node_size < self.base_node_size {
+        base_node_size = self.base_node_size
+    }
+
+    for ; node_size >= base_node_size; {
+        self.queues[node_size] = nil
+        self.node_queue_sizes[node_size] = 0
+        node_size--
+    }
+
+    self.queue_size = self.base_queue_size * int32(uint32(1) << uint32(node_size))
+    self.head_node_index = 0
+    self.head_queue_index = 0
+    self.head_queue = self.queues[0]
+    self.tail_queue = self.queues[0]
+    self.tail_node_index = 0
+    self.tail_queue_index = 0
+    self.head_queue_size = self.node_queue_sizes[0]
+    self.tail_queue_size = self.node_queue_sizes[0]
+    return nil
+}
+
 func (self *LockQueue) Resize() error {
     if self.head_node_index <= self.base_node_size {
         return nil
@@ -428,6 +459,38 @@ func (self *LockCommandQueue) Reset() error{
     self.tail_queue_size = self.node_queue_sizes[0]
     return nil
 }
+
+func (self *LockCommandQueue) Rellac() error{
+    node_size := self.tail_node_index
+    for i := self.tail_node_index; i < self.node_size; i++ {
+        if self.queues[i] == nil {
+            node_size = i - 1
+        }
+    }
+
+    base_node_size := self.tail_node_index + (node_size - self.tail_node_index) / 2
+    if base_node_size < self.base_node_size {
+        base_node_size = self.base_node_size
+    }
+
+    for ; node_size >= base_node_size; {
+        self.queues[node_size] = nil
+        self.node_queue_sizes[node_size] = 0
+        node_size--
+    }
+
+    self.queue_size = self.base_queue_size * int32(uint32(1) << uint32(node_size))
+    self.head_node_index = 0
+    self.head_queue_index = 0
+    self.head_queue = self.queues[0]
+    self.tail_queue = self.queues[0]
+    self.tail_node_index = 0
+    self.tail_queue_index = 0
+    self.head_queue_size = self.node_queue_sizes[0]
+    self.tail_queue_size = self.node_queue_sizes[0]
+    return nil
+}
+
 
 func (self *LockCommandQueue) Resize() error {
     if self.head_node_index <= self.base_node_size {
