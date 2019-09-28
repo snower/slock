@@ -585,10 +585,8 @@ func (self *BinaryServerProtocol) GetLockCommandLocked() *protocol.LockCommand {
         self.slock.free_lock_command_lock.Unlock()
         return lock_command
     }
-
-    lock_command = &protocol.LockCommand{}
     self.slock.free_lock_command_lock.Unlock()
-    return lock_command
+    return &protocol.LockCommand{}
 }
 
 func (self *BinaryServerProtocol) FreeLockCommand(command *protocol.LockCommand) error {

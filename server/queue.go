@@ -45,8 +45,8 @@ func (self *LockQueue) Push(lock *Lock) error {
     self.tail_queue_index++
 
     if self.tail_queue_index >= self.tail_queue_size{
-        self.tail_queue_index = 0
         self.tail_node_index++
+        self.tail_queue_index = 0
 
         if self.tail_node_index >= self.node_size {
             self.queue_size = self.queue_size * 2
@@ -82,12 +82,6 @@ func (self *LockQueue) PushLeft(lock *Lock) error{
     self.head_queue_index--
     if self.head_queue_index < 0 {
         self.head_node_index--
-        if self.head_node_index < 0 {
-            self.head_node_index = 0
-            self.head_queue_index = 0
-            return nil
-        }
-
         self.head_queue_index = self.node_queue_sizes[self.head_node_index] - 1
         self.head_queue = self.queues[self.head_node_index]
         self.head_queue_size = self.node_queue_sizes[self.head_node_index]
@@ -108,8 +102,8 @@ func (self *LockQueue) Pop() *Lock{
     self.head_queue_index++
 
     if self.head_queue_index >= self.head_queue_size {
-        self.head_queue_index = 0
         self.head_node_index++
+        self.head_queue_index = 0
         self.head_queue = self.queues[self.head_node_index]
         self.head_queue_size = self.node_queue_sizes[self.head_node_index]
     }
@@ -124,12 +118,6 @@ func (self *LockQueue) PopRight() *Lock{
     self.tail_queue_index--
     if self.tail_queue_index < 0 {
         self.tail_node_index--
-        if self.tail_node_index < 0 {
-            self.tail_queue_index = 0
-            self.tail_node_index = 0
-            return nil;
-        }
-
         self.tail_queue_index = self.node_queue_sizes[self.tail_node_index] - 1
         self.tail_queue = self.queues[self.tail_node_index]
         self.tail_queue_size = self.node_queue_sizes[self.tail_node_index]
@@ -305,8 +293,8 @@ func (self *LockCommandQueue) Push(lock *protocol.LockCommand) error {
     self.tail_queue_index++
 
     if self.tail_queue_index >= self.tail_queue_size{
-        self.tail_queue_index = 0
         self.tail_node_index++
+        self.tail_queue_index = 0
 
         if self.tail_node_index >= self.node_size {
             self.queue_size = self.queue_size * 2
@@ -340,12 +328,6 @@ func (self *LockCommandQueue) PushLeft(lock *protocol.LockCommand) error{
     self.head_queue_index--
     if self.head_queue_index < 0 {
         self.head_node_index--
-        if self.head_node_index < 0 {
-            self.head_node_index = 0
-            self.head_queue_index = 0
-            return nil
-        }
-
         self.head_queue_index = self.node_queue_sizes[self.head_node_index] - 1
         self.head_queue = self.queues[self.head_node_index]
         self.head_queue_size = self.node_queue_sizes[self.head_node_index]
@@ -366,8 +348,8 @@ func (self *LockCommandQueue) Pop() *protocol.LockCommand{
     self.head_queue_index++
 
     if self.head_queue_index >= self.head_queue_size {
-        self.head_queue_index = 0
         self.head_node_index++
+        self.head_queue_index = 0
         self.head_queue = self.queues[self.head_node_index]
         self.head_queue_size = self.node_queue_sizes[self.head_node_index]
     }
@@ -382,12 +364,6 @@ func (self *LockCommandQueue) PopRight() *protocol.LockCommand{
     self.tail_queue_index--
     if self.tail_queue_index < 0 {
         self.tail_node_index--
-        if self.tail_node_index < 0 {
-            self.tail_queue_index = 0
-            self.tail_node_index = 0
-            return nil;
-        }
-
         self.tail_queue_index = self.node_queue_sizes[self.tail_node_index] - 1
         self.tail_queue = self.queues[self.tail_node_index]
         self.tail_queue_size = self.node_queue_sizes[self.tail_node_index]
