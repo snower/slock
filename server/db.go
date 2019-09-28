@@ -217,7 +217,7 @@ func (self *LockDB) CheckTimeTimeOut(check_timeout_time int64, now int64) {
             lock = timeout_locks[i].Pop()
         }
 
-        timeout_locks[i].Rellac()
+        timeout_locks[i].Reset()
         self.manager_glocks[i].Unlock()
     }
 
@@ -444,7 +444,7 @@ func (self *LockDB) CheckTimeExpried(check_expried_time int64, now int64){
             lock = expried_locks[i].Pop()
         }
 
-        expried_locks[i].Rellac()
+        expried_locks[i].Reset()
         self.manager_glocks[i].Unlock()
     }
 

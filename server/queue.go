@@ -188,6 +188,7 @@ func (self *LockQueue) Rellac() error{
     for i := self.tail_node_index; i < self.node_size; i++ {
         if self.queues[i] == nil {
             node_size = i - 1
+            break
         }
     }
 
@@ -465,6 +466,7 @@ func (self *LockCommandQueue) Rellac() error{
     for i := self.tail_node_index; i < self.node_size; i++ {
         if self.queues[i] == nil {
             node_size = i - 1
+            break
         }
     }
 
