@@ -2,6 +2,7 @@ package server
 
 import (
     "fmt"
+    "github.com/hhkbp2/go-logging"
     "io"
     "os"
     "reflect"
@@ -360,7 +361,6 @@ func (self *Admin) CommandHandleConfigSetCommand(server_protocol *TextServerProt
         return server_protocol.stream.WriteBytes(server_protocol.parser.Build(false, "Command Arguments Error", nil))
     }
 
-    infos := []string{}
     switch strings.ToUpper(args[2]) {
     case "DB_LOCK_AOF_TIME":
         db_lock_aof_time, err := strconv.Atoi(args[3])
@@ -374,8 +374,6 @@ func (self *Admin) CommandHandleConfigSetCommand(server_protocol *TextServerProt
                 db.aof_time = uint8(db_lock_aof_time)
             }
         }
-        infos = append(infos, "DB_LOCK_AOF_TIME")
-        infos = append(infos, fmt.Sprintf("%d", db_lock_aof_time))
     case "AOF_FILE_REWRITE_SIZE":
         aof_file_rewrite_size, err := strconv.Atoi(args[3])
         if err != nil {
@@ -383,12 +381,30 @@ func (self *Admin) CommandHandleConfigSetCommand(server_protocol *TextServerProt
         }
         Config.DBLockAofTime = uint(aof_file_rewrite_size)
         self.slock.GetAof().rewrite_size = int(aof_file_rewrite_size)
-        infos = append(infos, "AOF_FILE_REWRITE_SIZE")
-        infos = append(infos, fmt.Sprintf("%d", aof_file_rewrite_size))
+    case "LOG_LEVEL":
+        logger := self.slock.Log()
+        logging_level := logging.LevelInfo
+        switch args[3] {
+        case "DEBUG":
+            logging_level = logging.LevelDebug
+        case "INFO":
+            logging_level = logging.LevelInfo
+        case "WARNING":
+            logging_level = logging.LevelWarning
+        case "ERROR":
+            logging_level = logging.LevelError
+        default:
+            return server_protocol.stream.WriteBytes(server_protocol.parser.Build(false, "Unknown Log Level", nil))
+        }
+        Config.LogLevel = args[2]
+        for _, handler := range logger.GetHandlers() {
+            handler.SetLevel(logging_level)
+        }
+        logger.SetLevel(logging_level)
     default:
-        return server_protocol.stream.WriteBytes(server_protocol.parser.Build(false, "UnSupport Config Parameter", nil))
+        return server_protocol.stream.WriteBytes(server_protocol.parser.Build(false, "UnSupport Config Set Parameter", nil))
     }
-    return server_protocol.stream.WriteBytes(server_protocol.parser.Build(true, "", infos))
+    return server_protocol.stream.WriteBytes(server_protocol.parser.Build(true, "OK", nil))
 }
 
 func (self *Admin) CommandHandleClientCommand(server_protocol *TextServerProtocol, args []string) error {

@@ -181,8 +181,8 @@ func (self *LockDB) CloseTimeOut(glock_index int8)  {
         for ; long_lock_count > 0; {
             lock := long_locks.locks.Pop()
             if lock != nil {
-                lock, do_timeout_locks = self.CloseTimeoutCheckLock(long_locks.locks, lock, do_timeout_locks)
                 lock.long_wait_index = 0
+                lock, do_timeout_locks = self.CloseTimeoutCheckLock(long_locks.locks, lock, do_timeout_locks)
             }
             long_lock_count--
         }
@@ -239,8 +239,8 @@ func (self *LockDB) CloseExpried(glock_index int8)  {
         for ; long_lock_count > 0; {
             lock := long_locks.locks.Pop()
             if lock != nil {
-                lock, do_expried_locks = self.CloseExpriedCheckLock(long_locks.locks, lock, do_expried_locks)
                 lock.long_wait_index = 0
+                lock, do_expried_locks = self.CloseExpriedCheckLock(long_locks.locks, lock, do_expried_locks)
             }
             long_lock_count--
         }
