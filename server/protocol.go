@@ -1225,10 +1225,13 @@ func (self *TextServerProtocol) ArgsToLockComand(args []string) (*protocol.LockC
     }
     command.RequestId = self.GetRequestId()
     command.DbId = self.db_id
+    command.Flag = 0
     command.Timeout = 3
     command.TimeoutFlag = 0
     command.Expried = 60
     command.ExpriedFlag = 0
+    command.Count = 0
+    command.Rcount = 0
     self.ArgsToLockComandParseId(args[1], &command.LockKey)
 
     has_lock_id := false

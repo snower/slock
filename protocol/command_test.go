@@ -108,7 +108,7 @@ func TestLockCommand_Decode(t *testing.T) {
 func TestLockResultCommand_Encode(t *testing.T) {
     rid := [16]byte{0, 0, 0, 0, 0, 0, 0, 2, 3, 0, 0, 0, 0, 0, 0, 0}
     command := ResultCommand{MAGIC, VERSION, COMMAND_LOCK, rid, 0}
-    lock_command := LockResultCommand{command, 0, 0, rid, rid, 0, 0,0, [5]byte{0, 0, 0, 0, 0}}
+    lock_command := LockResultCommand{command, 0, 0, rid, rid, 0, 0,0, 0,[4]byte{0, 0, 0, 0}}
     buf := make([]byte,  64)
     if lock_command.Encode(buf) != nil {
         t.Error("TestLockResultCommand_Encode Test Return Nil Fail")

@@ -74,8 +74,7 @@ func (self *LockManager) RemoveLock(lock *Lock) *Lock {
         locked_lock := self.locks.Pop()
         for ; locked_lock != nil; {
             if locked_lock.locked > 0 {
-                _, ok := self.lock_maps[locked_lock.command.LockId]
-                if ok {
+                if _, ok := self.lock_maps[locked_lock.command.LockId]; ok {
                     delete(self.lock_maps, locked_lock.command.LockId)
                 }
                 self.current_lock = locked_lock
@@ -95,8 +94,7 @@ func (self *LockManager) RemoveLock(lock *Lock) *Lock {
         return lock
     }
 
-    _, ok := self.lock_maps[lock.command.LockId]
-    if ok {
+    if _, ok := self.lock_maps[lock.command.LockId]; ok {
         delete(self.lock_maps, lock.command.LockId)
     }
 
