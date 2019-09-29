@@ -71,7 +71,7 @@ KeyCount:	0
 - Semaphore - semaphore, max 0xffff
 - RWLock - read-write lock, max concurrent reading 0xffff
 
-# Redis Command
+# Redis Text Protocol Command
 
 ```
 LOCK lock_key [TIMEOUT seconds] [EXPRIED seconds] [LOCK_ID lock_id_string] [FLAG flag_uint8] [COUNT count_uint16] [RCOUNT rcount_uint8]
