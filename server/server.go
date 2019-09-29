@@ -18,10 +18,11 @@ type Server struct {
     connected_count         uint32
     connecting_count        uint32
     is_stop                 bool
+    stop_waiter             chan bool
 }
 
 func NewServer(slock *SLock) *Server {
-    server := &Server{slock, nil, make([]*Stream, 0), &sync.Mutex{}, 0, 0,false}
+    server := &Server{slock, nil, make([]*Stream, 0), &sync.Mutex{}, 0, 0,false, make(chan bool, 1)}
     admin := slock.GetAdmin()
     admin.server = server
     return server
@@ -37,14 +38,13 @@ func (self *Server) Listen() error {
 }
 
 func (self *Server) Close() {
-    defer self.glock.Unlock()
     self.glock.Lock()
-
     self.is_stop = true
     err := self.server.Close()
     if err != nil {
         self.slock.Log().Errorf("Server Close Error: %v", err)
     }
+    self.glock.Unlock()
 
     self.slock.Close()
     for _, stream := range self.streams {
@@ -53,6 +53,7 @@ func (self *Server) Close() {
             self.slock.Log().Errorf("Stream Close Error: %v", err)
         }
     }
+    self.stop_waiter <- true
 }
 
 func (self *Server) AddStream(stream *Stream) error {
@@ -105,6 +106,7 @@ func (self *Server) Loop() {
         }
         go self.Handle(stream)
     }
+    <- self.stop_waiter
     self.slock.Log().Infof("Server has stopped")
 }
 
@@ -159,7 +161,7 @@ func (self *Server) Handle(stream *Stream) {
 
     err = server_protocol.Process()
     if err != nil {
-        if err != io.EOF {
+        if err != io.EOF && !self.is_stop {
             self.slock.Log().Errorf("Protocol Process Error: %v", err)
         }
     }

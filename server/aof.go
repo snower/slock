@@ -301,8 +301,6 @@ func (self *AofChannel) Handle() {
                 return
             }
             aof_lock := <- self.channel
-            self.aof.ActiveChannel(self)
-
             if aof_lock == nil {
                 if self.closed {
                     self.is_stop = true
@@ -311,6 +309,7 @@ func (self *AofChannel) Handle() {
                 continue
             }
 
+            self.aof.ActiveChannel(self)
             self.aof.PushLock(aof_lock)
             free_lock_index := self.free_lock_index
             if self.free_lock_index < self.free_lock_max && atomic.CompareAndSwapInt32(&self.free_lock_index, free_lock_index, free_lock_index + 1) {
@@ -499,6 +498,7 @@ func (self *Aof) CloseAofChannel(aof_channel *AofChannel) *AofChannel {
     aof_channel.channel <- nil
     self.channel_count--
     aof_channel.closed = true
+    aof_channel.lock_db = nil
     self.glock.Unlock()
     return aof_channel
 }

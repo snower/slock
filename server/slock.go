@@ -62,7 +62,7 @@ func (self *SLock) GetOrNewDB(db_id uint8) *LockDB {
     self.glock.Lock()
 
     if self.dbs[db_id] == nil {
-        self.dbs[db_id] = NewLockDB(self)
+        self.dbs[db_id] = NewLockDB(self, db_id)
     }
     return self.dbs[db_id]
 }
