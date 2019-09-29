@@ -349,7 +349,7 @@ func (self *LockCommand) Encode(buf []byte) error {
     return nil
 }
 
-var RESULT_LOCK_COMMAND_BLANK_BYTERS = [5]byte{}
+var RESULT_LOCK_COMMAND_BLANK_BYTERS = [4]byte{}
 
 type LockResultCommand struct {
     ResultCommand
@@ -359,14 +359,15 @@ type LockResultCommand struct {
     LockKey   [16]byte
     Lcount    uint16
     Count     uint16
+    Lrcount   uint8
     Rcount    uint8
-    Blank     [5]byte
+    Blank     [4]byte
 }
 
-func NewLockResultCommand(command *LockCommand, result uint8, flag uint8, lcount uint16, count uint16, rcount uint8) *LockResultCommand {
+func NewLockResultCommand(command *LockCommand, result uint8, flag uint8, lcount uint16, count uint16, lrcount uint8, rcount uint8) *LockResultCommand {
     result_command := ResultCommand{ MAGIC, VERSION, command.CommandType, command.RequestId, result}
     return &LockResultCommand{result_command, flag, command.DbId, command.LockId, command.LockKey,
-        lcount, count, rcount, RESULT_LOCK_COMMAND_BLANK_BYTERS}
+        lcount, count, lrcount, rcount, RESULT_LOCK_COMMAND_BLANK_BYTERS}
 }
 
 func (self *LockResultCommand) Decode(buf []byte) error{
@@ -393,8 +394,7 @@ func (self *LockResultCommand) Decode(buf []byte) error{
         buf[38], buf[39], buf[40], buf[41], buf[42], buf[43], buf[44], buf[45],
         buf[46], buf[47], buf[48], buf[49], buf[50], buf[51], buf[52], buf[53]
 
-    self.Lcount, self.Count = uint16(buf[54]) | uint16(buf[55])<<8, uint16(buf[56]) | uint16(buf[57])<<8
-    self.Rcount = uint8(buf[58])
+    self.Lcount, self.Count, self.Lrcount, self.Rcount = uint16(buf[54]) | uint16(buf[55])<<8, uint16(buf[56]) | uint16(buf[57])<<8, uint8(buf[58]), uint8(buf[59])
 
     return nil
 }
@@ -423,7 +423,7 @@ func (self *LockResultCommand) Encode(buf []byte) error {
         self.LockKey[0], self.LockKey[1], self.LockKey[2], self.LockKey[3], self.LockKey[4], self.LockKey[5], self.LockKey[6], self.LockKey[7],
         self.LockKey[8], self.LockKey[9], self.LockKey[10], self.LockKey[11], self.LockKey[12], self.LockKey[13], self.LockKey[14], self.LockKey[15]
 
-    buf[54], buf[55], buf[56], buf[57], buf[58], buf[59], buf[60], buf[61] = byte(self.Lcount), byte(self.Lcount >> 8), byte(self.Count), byte(self.Count >> 8), byte(self.Rcount), 0x00, 0x00, 0x00
+    buf[54], buf[55], buf[56], buf[57], buf[58], buf[59], buf[60], buf[61] = byte(self.Lcount), byte(self.Lcount >> 8), byte(self.Count), byte(self.Count >> 8), byte(self.Lrcount), byte(self.Rcount), 0x00, 0x00
     buf[62], buf[63] = 0x00, 0x00
     return nil
 }

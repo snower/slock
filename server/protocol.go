@@ -27,8 +27,8 @@ type ServerProtocol interface {
     ProcessBuild(command protocol.ICommand) error
     ProcessCommad(command protocol.ICommand) error
     ProcessLockCommand(command *protocol.LockCommand) error
-    ProcessLockResultCommand(command *protocol.LockCommand, result uint8, lcount uint16) error
-    ProcessLockResultCommandLocked(command *protocol.LockCommand, result uint8, lcount uint16) error
+    ProcessLockResultCommand(command *protocol.LockCommand, result uint8, lcount uint16, lrcount uint8) error
+    ProcessLockResultCommandLocked(command *protocol.LockCommand, result uint8, lcount uint16, lrcount uint8) error
     Close() (error)
     GetStream() *Stream
     RemoteAddr() net.Addr
@@ -317,7 +317,7 @@ func (self *BinaryServerProtocol) ProcessParse(buf []byte) error {
         lock_command.Count, lock_command.Rcount = uint16(buf[61])|uint16(buf[62])<<8, uint8(buf[63])
         db := self.slock.dbs[lock_command.DbId]
         if db == nil {
-            return self.ProcessLockResultCommand(lock_command, protocol.RESULT_UNKNOWN_DB, 0)
+            return self.ProcessLockResultCommand(lock_command, protocol.RESULT_UNKNOWN_DB, 0, 0)
         }
         err := db.UnLock(self, lock_command)
         if err != nil {
@@ -366,7 +366,7 @@ func (self *BinaryServerProtocol) ProcessCommad(command protocol.ICommand) error
         lock_command := command.(*protocol.LockCommand)
         db := self.slock.dbs[lock_command.DbId]
         if db == nil {
-            return self.ProcessLockResultCommand(lock_command, protocol.RESULT_UNKNOWN_DB, 0)
+            return self.ProcessLockResultCommand(lock_command, protocol.RESULT_UNKNOWN_DB, 0, 0)
         }
         return db.UnLock(self, lock_command)
 
@@ -424,12 +424,12 @@ func (self *BinaryServerProtocol) ProcessLockCommand(lock_command *protocol.Lock
     }
 
     if db == nil {
-        return self.ProcessLockResultCommand(lock_command, protocol.RESULT_UNKNOWN_DB, 0)
+        return self.ProcessLockResultCommand(lock_command, protocol.RESULT_UNKNOWN_DB, 0, 0)
     }
     return db.UnLock(self, lock_command)
 }
 
-func (self *BinaryServerProtocol) ProcessLockResultCommand(command *protocol.LockCommand, result uint8, lcount uint16) error {
+func (self *BinaryServerProtocol) ProcessLockResultCommand(command *protocol.LockCommand, result uint8, lcount uint16, lrcount uint8) error {
     if self.closed {
         if !self.inited {
             return errors.New("Protocol Closed")
@@ -438,7 +438,7 @@ func (self *BinaryServerProtocol) ProcessLockResultCommand(command *protocol.Loc
         self.slock.glock.Lock()
         if server_protocol, ok := self.slock.streams[self.client_id]; ok {
             self.slock.glock.Unlock()
-            return server_protocol.ProcessLockResultCommandLocked(command, result, lcount)
+            return server_protocol.ProcessLockResultCommandLocked(command, result, lcount, lrcount)
         } else {
             self.slock.glock.Unlock()
             return errors.New("Protocol Closed")
@@ -471,7 +471,7 @@ func (self *BinaryServerProtocol) ProcessLockResultCommand(command *protocol.Loc
         command.LockKey[0], command.LockKey[1], command.LockKey[2], command.LockKey[3], command.LockKey[4], command.LockKey[5], command.LockKey[6], command.LockKey[7],
         command.LockKey[8], command.LockKey[9], command.LockKey[10], command.LockKey[11], command.LockKey[12], command.LockKey[13], command.LockKey[14], command.LockKey[15]
 
-    buf[54], buf[55], buf[56], buf[57], buf[58], buf[59], buf[60], buf[61] = byte(lcount), byte(lcount >> 8), byte(command.Count), byte(command.Count >> 8), byte(command.Rcount), 0x00, 0x00, 0x00
+    buf[54], buf[55], buf[56], buf[57], buf[58], buf[59], buf[60], buf[61] = byte(lcount), byte(lcount >> 8), byte(command.Count), byte(command.Count >> 8), byte(lrcount), byte(command.Rcount), 0x00, 0x00
     buf[62], buf[63] = 0x00, 0x00
 
     n, err := self.stream.conn.Write(buf)
@@ -494,8 +494,8 @@ func (self *BinaryServerProtocol) ProcessLockResultCommand(command *protocol.Loc
     return nil
 }
 
-func (self *BinaryServerProtocol) ProcessLockResultCommandLocked(command *protocol.LockCommand, result uint8, lcount uint16) error {
-    return self.ProcessLockResultCommand(command, result, lcount)
+func (self *BinaryServerProtocol) ProcessLockResultCommandLocked(command *protocol.LockCommand, result uint8, lcount uint16, lrcount uint8) error {
+    return self.ProcessLockResultCommand(command, result, lcount, lrcount)
 }
 
 func (self *BinaryServerProtocol) GetStream() *Stream {
@@ -862,6 +862,8 @@ func (self *TextServerProtocol) Write(result protocol.CommandEncode) error {
             fmt.Sprintf("%d", lock_result_command.Lcount),
             "COUNT",
             fmt.Sprintf("%d", lock_result_command.Count),
+            "LRCOUNT",
+            fmt.Sprintf("%d", lock_result_command.Lrcount),
             "RCOUNT",
             fmt.Sprintf("%d", lock_result_command.Rcount),
         }
@@ -949,6 +951,8 @@ func (self *TextServerProtocol) ProcessBuild(command protocol.ICommand) error {
             fmt.Sprintf("%d", lock_result_command.Lcount),
             "COUNT",
             fmt.Sprintf("%d", lock_result_command.Count),
+            "LRCOUNT",
+            fmt.Sprintf("%d", lock_result_command.Lrcount),
             "RCOUNT",
             fmt.Sprintf("%d", lock_result_command.Rcount),
         }
@@ -964,6 +968,8 @@ func (self *TextServerProtocol) ProcessBuild(command protocol.ICommand) error {
             fmt.Sprintf("%d", lock_result_command.Lcount),
             "COUNT",
             fmt.Sprintf("%d", lock_result_command.Count),
+            "LRCOUNT",
+            fmt.Sprintf("%d", lock_result_command.Lrcount),
             "RCOUNT",
             fmt.Sprintf("%d", lock_result_command.Rcount),
         }
@@ -986,7 +992,7 @@ func (self *TextServerProtocol) ProcessCommad(command protocol.ICommand) error {
         lock_command := command.(*protocol.LockCommand)
         db := self.slock.dbs[lock_command.DbId]
         if db == nil {
-            return self.ProcessLockResultCommand(lock_command, protocol.RESULT_UNKNOWN_DB, 0)
+            return self.ProcessLockResultCommand(lock_command, protocol.RESULT_UNKNOWN_DB, 0, 0)
         }
         return db.UnLock(self, lock_command)
 
@@ -1044,12 +1050,12 @@ func (self *TextServerProtocol) ProcessLockCommand(lock_command *protocol.LockCo
     }
 
     if db == nil {
-        return self.ProcessLockResultCommand(lock_command, protocol.RESULT_UNKNOWN_DB, 0)
+        return self.ProcessLockResultCommand(lock_command, protocol.RESULT_UNKNOWN_DB, 0, 0)
     }
     return db.UnLock(self, lock_command)
 }
 
-func (self *TextServerProtocol) ProcessLockResultCommand(lock_command *protocol.LockCommand, result uint8, lcount uint16) error {
+func (self *TextServerProtocol) ProcessLockResultCommand(lock_command *protocol.LockCommand, result uint8, lcount uint16, lrcount uint8) error {
     if lock_command.RequestId != self.lock_request_id {
         return nil
     }
@@ -1060,7 +1066,7 @@ func (self *TextServerProtocol) ProcessLockResultCommand(lock_command *protocol.
         0, 0, 0, 0, 0, 0, 0, 0
 
     if self.free_command_result == nil {
-        lock_result_commad := protocol.NewLockResultCommand(lock_command, result, 0, lcount, lock_command.Count, lock_command.Rcount)
+        lock_result_commad := protocol.NewLockResultCommand(lock_command, result, 0, lcount, lock_command.Count, lrcount, lock_command.Rcount)
         self.lock_waiter <- lock_result_commad
         return nil
     }
@@ -1075,15 +1081,16 @@ func (self *TextServerProtocol) ProcessLockResultCommand(lock_command *protocol.
     lock_result_commad.LockKey = lock_command.LockKey
     lock_result_commad.Lcount = lcount
     lock_result_commad.Count = lock_command.Count
+    lock_result_commad.Lrcount = lrcount
     lock_result_commad.Rcount = lock_command.Rcount
     self.free_command_result = nil
     self.lock_waiter <- lock_result_commad
     return nil
 }
 
-func (self *TextServerProtocol) ProcessLockResultCommandLocked(command *protocol.LockCommand, result uint8, lcount uint16) error {
+func (self *TextServerProtocol) ProcessLockResultCommandLocked(command *protocol.LockCommand, result uint8, lcount uint16, lrcount uint8) error {
     self.glock.Lock()
-    err := self.ProcessLockResultCommand(command, result, lcount)
+    err := self.ProcessLockResultCommand(command, result, lcount, lrcount)
     self.glock.Unlock()
     return err
 }
@@ -1320,6 +1327,8 @@ func (self *TextServerProtocol) CommandHandlerLock(server_protocol *TextServerPr
         fmt.Sprintf("%d", lock_command_result.Lcount),
         "COUNT",
         fmt.Sprintf("%d", lock_command_result.Count),
+        "LRCOUNT",
+        fmt.Sprintf("%d", lock_command_result.Lrcount),
         "RCOUNT",
         fmt.Sprintf("%d", lock_command_result.Rcount),
     }
@@ -1357,6 +1366,8 @@ func (self *TextServerProtocol) CommandHandlerUnlock(server_protocol *TextServer
         fmt.Sprintf("%d", lock_command_result.Lcount),
         "COUNT",
         fmt.Sprintf("%d", lock_command_result.Count),
+        "LRCOUNT",
+        fmt.Sprintf("%d", lock_command_result.Lrcount),
         "RCOUNT",
         fmt.Sprintf("%d", lock_command_result.Rcount),
     }
