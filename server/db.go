@@ -156,6 +156,8 @@ func (self *LockDB) Close()  {
 
     for i := int8(0); i < self.manager_max_glocks; i++ {
         self.manager_glocks[i].Lock()
+        self.slock.GetAof().CloseAofChannel(self.aof_channels[i])
+        self.manager_glocks[i].Unlock()
     }
 }
 
@@ -965,6 +967,13 @@ func (self *LockDB) Lock(server_protocol ServerProtocol, command *protocol.LockC
         return self.Lock(server_protocol, command)
     }
 
+    if self.is_stop {
+        lock_manager.glock.Unlock()
+        server_protocol.ProcessLockResultCommand(command, protocol.RESULT_LOCKED_ERROR, lock_manager.locked, 0)
+        server_protocol.FreeLockCommand(command)
+        return nil
+    }
+
     if lock_manager.locked > 0 {
         if command.Flag == 0x01 {
             lock_manager.glock.Unlock()
@@ -1115,7 +1124,7 @@ func (self *LockDB) UnLock(server_protocol ServerProtocol, command *protocol.Loc
 
     lock_manager.glock.Lock()
 
-    if lock_manager.locked == 0 {
+    if self.is_stop || lock_manager.locked == 0 {
         lock_manager.glock.Unlock()
 
         server_protocol.ProcessLockResultCommand(command, protocol.RESULT_UNLOCK_ERROR, lock_manager.locked, 0)

@@ -58,6 +58,7 @@ func NewBinaryServerProtocol(slock *SLock, stream *Stream) *BinaryServerProtocol
     server_protocol := &BinaryServerProtocol{slock, &sync.Mutex{}, stream, [16]byte{}, NewLockCommandQueue(4, 64, FREE_COMMAND_QUEUE_INIT_SIZE),
         NewLockCommandQueue(4, 64, FREE_COMMAND_QUEUE_INIT_SIZE), false, false, make([]byte, 64), wbuf}
     server_protocol.InitLockCommand()
+    stream.protocol = server_protocol
     return server_protocol
 }
 
@@ -91,6 +92,7 @@ func (self *BinaryServerProtocol) Close() error {
         if err != nil {
             self.slock.Log().Errorf("Connection Close Error: %s %v", self.RemoteAddr().String(), err)
         }
+        self.stream.protocol = nil
     }
 
     self.UnInitLockCommand()
@@ -774,6 +776,7 @@ func NewTextServerProtocol(slock *SLock, stream *Stream) *TextServerProtocol {
     for name, handler := range slock.GetAdmin().GetHandlers() {
         server_protocol.handlers[name] = handler
     }
+    stream.protocol = server_protocol
     return server_protocol
 }
 
@@ -802,6 +805,7 @@ func (self *TextServerProtocol) Close() error {
         if err != nil {
             self.slock.Log().Errorf("Connection Close Error: %s %v", self.RemoteAddr().String(), err)
         }
+        self.stream.protocol = nil
     }
 
     self.UnInitLockCommand()

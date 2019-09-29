@@ -48,9 +48,6 @@ func (self *Server) Close() {
 
     self.slock.Close()
     for _, stream := range self.streams {
-        if stream == nil {
-            continue
-        }
         err := stream.Close()
         if err != nil {
             self.slock.Log().Errorf("Stream Close Error: %v", err)
@@ -71,10 +68,11 @@ func (self *Server) RemoveStream(stream *Stream) error {
     defer self.glock.Unlock()
     self.glock.Lock()
     streams := self.streams
-    self.streams = make([]*Stream, len(streams))
-    for i, v := range streams {
+    self.streams = make([]*Stream, 0)
+
+    for _, v := range streams {
         if stream != v {
-            self.streams[i] = v
+            self.streams = append(self.streams, v)
         } else {
             self.connecting_count--
         }

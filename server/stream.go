@@ -3,17 +3,24 @@ package server
 import (
     "io"
     "net"
+    "sync/atomic"
     "time"
 )
 
+var client_id uint64 = 0
+
 type Stream struct {
-    server *Server
-    conn   net.Conn
-    closed bool
+    server      *Server
+    conn        net.Conn
+    protocol    ServerProtocol
+    start_time  *time.Time
+    stream_id   uint64
+    closed      bool
 }
 
 func NewStream(server *Server, conn net.Conn) *Stream {
-    stream := &Stream{server, conn, false}
+    now := time.Now()
+    stream := &Stream{server, conn, nil,&now, atomic.AddUint64(&client_id, 1), false}
     tcp_conn, ok := conn.(*net.TCPConn)
     if ok {
         if tcp_conn.SetNoDelay(true) != nil {

@@ -253,11 +253,16 @@ type AofChannel struct {
     free_locks      []*AofLock
     free_lock_index int32
     free_lock_max   int32
+    closed          bool
+    is_stop         bool
 }
 
 func (self *AofChannel) Push(lock *Lock, command_type uint8) error {
-    var aof_lock *AofLock
+    if self.is_stop {
+        return errors.New("Closed")
+    }
 
+    var aof_lock *AofLock
     free_lock_index := self.free_lock_index
     if free_lock_index >= 0 && atomic.CompareAndSwapInt32(&self.free_lock_index, free_lock_index, free_lock_index - 1) {
         aof_lock = self.free_locks[free_lock_index]
@@ -291,11 +296,21 @@ func (self *AofChannel) Handle() {
             }
         default:
             self.aof.UnActiveChannel(self)
-            if self.aof.is_stop {
+            if self.closed {
+                self.is_stop = true
                 return
             }
             aof_lock := <- self.channel
             self.aof.ActiveChannel(self)
+
+            if aof_lock == nil {
+                if self.closed {
+                    self.is_stop = true
+                    return
+                }
+                continue
+            }
+
             self.aof.PushLock(aof_lock)
             free_lock_index := self.free_lock_index
             if self.free_lock_index < self.free_lock_max && atomic.CompareAndSwapInt32(&self.free_lock_index, free_lock_index, free_lock_index + 1) {
@@ -469,12 +484,21 @@ func (self *Aof) Close()  {
 
 func (self *Aof) NewAofChannel(lock_db *LockDB) *AofChannel {
     self.glock.Lock()
-    aof_channel := &AofChannel{self.slock, self, lock_db, make(chan *AofLock, Config.AofQueueSize), make([]*AofLock, Config.AofQueueSize), 63, int32(Config.AofQueueSize - 1)}
+    aof_channel := &AofChannel{self.slock, self, lock_db, make(chan *AofLock, Config.AofQueueSize), make([]*AofLock, Config.AofQueueSize), 63, int32(Config.AofQueueSize - 1), false, false}
     for i :=0; i < 64; i++ {
         aof_channel.free_locks[i] = &AofLock{}
     }
     go aof_channel.Handle()
     self.channel_count++
+    self.glock.Unlock()
+    return aof_channel
+}
+
+func (self *Aof) CloseAofChannel(aof_channel *AofChannel) *AofChannel {
+    self.glock.Lock()
+    aof_channel.channel <- nil
+    self.channel_count--
+    aof_channel.closed = true
     self.glock.Unlock()
     return aof_channel
 }
