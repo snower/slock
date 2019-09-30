@@ -4,6 +4,7 @@ import (
     "fmt"
     "github.com/hhkbp2/go-logging"
     "io"
+    "net"
     "os"
     "reflect"
     "runtime"
@@ -158,6 +159,7 @@ func (self *Admin) CommandHandleInfoCommand(server_protocol *TextServerProtocol,
     db_count := 0
     free_lock_manager_count := 0
     free_lock_count := 0
+    free_lock_command_count := 0
     for _, db := range self.slock.dbs {
         if db != nil {
             db_count++
@@ -167,9 +169,25 @@ func (self *Admin) CommandHandleInfoCommand(server_protocol *TextServerProtocol,
             }
         }
     }
+
+    free_lock_command_count += int(self.slock.free_lock_command_count)
+    for _, stream := range self.server.streams {
+        if stream.protocol != nil {
+            switch stream.protocol.(type) {
+            case *BinaryServerProtocol:
+                binary_protocol := stream.protocol.(*BinaryServerProtocol)
+                free_lock_command_count += int(binary_protocol.free_commands.Len())
+                free_lock_command_count += int(binary_protocol.locked_free_commands.Len())
+            case *TextServerProtocol:
+                text_protocol := stream.protocol.(*TextServerProtocol)
+                free_lock_command_count += int(text_protocol.free_commands.Len())
+            }
+        }
+    }
+
     infos = append(infos, "\r\n# Stats")
     infos = append(infos, fmt.Sprintf("db_count:%d", db_count))
-    infos = append(infos, fmt.Sprintf("free_command_count:%d", self.slock.free_lock_command_count))
+    infos = append(infos, fmt.Sprintf("free_command_count:%d", free_lock_command_count))
     infos = append(infos, fmt.Sprintf("free_lock_manager_count:%d", free_lock_manager_count))
     infos = append(infos, fmt.Sprintf("free_lock_count:%d", free_lock_count))
 
@@ -425,13 +443,22 @@ func (self *Admin) CommandHandleClientListCommand(server_protocol *TextServerPro
         if stream.protocol != nil {
             switch stream.protocol.(type) {
             case *BinaryServerProtocol:
-                protocol_name = "Binary"
+                protocol_name = "binary"
                 client_id = stream.protocol.(*BinaryServerProtocol).client_id
             case *TextServerProtocol:
                 protocol_name = "text"
             }
         }
-        infos = append(infos, fmt.Sprintf("id=%d addr=%s protocol=%s age=%d client_id=%x", stream.stream_id, stream.RemoteAddr().String(), protocol_name, time.Now().Unix() - stream.start_time.Unix(), client_id))
+
+        fd := ""
+        if tcp_conn, ok := stream.conn.(*net.TCPConn); ok {
+            tcp_conn_file, err := tcp_conn.File()
+            if err == nil {
+                fd = fmt.Sprintf("%d", tcp_conn_file.Fd())
+            }
+        }
+        infos = append(infos, fmt.Sprintf("id=%d addr=%s fd=%s protocol=%s age=%d client_id=%x", stream.stream_id, stream.RemoteAddr().String(),
+            fd, protocol_name, time.Now().Unix() - stream.start_time.Unix(), client_id))
     }
     infos = append(infos, "\r\n")
     return server_protocol.stream.WriteBytes(server_protocol.parser.Build(true, "", []string{strings.Join(infos, "\r\n")}))

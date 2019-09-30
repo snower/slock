@@ -21,8 +21,7 @@ type Stream struct {
 func NewStream(server *Server, conn net.Conn) *Stream {
     now := time.Now()
     stream := &Stream{server, conn, nil,&now, atomic.AddUint64(&client_id, 1), false}
-    tcp_conn, ok := conn.(*net.TCPConn)
-    if ok {
+    if tcp_conn, ok := conn.(*net.TCPConn); ok {
         if tcp_conn.SetNoDelay(true) != nil {
             return nil
         }
