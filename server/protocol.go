@@ -44,10 +44,11 @@ type BinaryServerProtocol struct {
     client_id                   [16]byte
     free_commands               *LockCommandQueue
     locked_free_commands        *LockCommandQueue
-    inited                      bool
-    closed                      bool
     rbuf                        []byte
     wbuf                        []byte
+    total_command_count         uint64
+    inited                      bool
+    closed                      bool
 }
 
 func NewBinaryServerProtocol(slock *SLock, stream *Stream) *BinaryServerProtocol {
@@ -56,7 +57,7 @@ func NewBinaryServerProtocol(slock *SLock, stream *Stream) *BinaryServerProtocol
     wbuf[1] = byte(protocol.VERSION)
 
     server_protocol := &BinaryServerProtocol{slock, &sync.Mutex{}, stream, [16]byte{}, NewLockCommandQueue(4, 64, FREE_COMMAND_QUEUE_INIT_SIZE),
-        NewLockCommandQueue(4, 64, FREE_COMMAND_QUEUE_INIT_SIZE), false, false, make([]byte, 64), wbuf}
+        NewLockCommandQueue(4, 64, FREE_COMMAND_QUEUE_INIT_SIZE), make([]byte, 64), wbuf, 0, false, false}
     server_protocol.InitLockCommand()
     stream.protocol = server_protocol
     return server_protocol
@@ -76,16 +77,17 @@ func (self *BinaryServerProtocol) Close() error {
         return nil
     }
 
+    self.slock.glock.Lock()
     if self.inited {
         self.inited = false
-        self.slock.glock.Lock()
         if sp, ok := self.slock.streams[self.client_id]; ok {
             if sp == self {
                 delete(self.slock.streams, self.client_id)
             }
         }
-        self.slock.glock.Unlock()
     }
+    self.slock.stats_total_command_count += self.total_command_count
+    self.slock.glock.Unlock()
 
     if self.stream != nil {
         err := self.stream.Close()
@@ -251,6 +253,7 @@ func (self *BinaryServerProtocol) ProcessParse(buf []byte) error {
         }
     }
 
+    self.total_command_count++
     command_type := uint8(buf[2])
     switch command_type {
     case protocol.COMMAND_LOCK:
@@ -611,12 +614,12 @@ func (self *BinaryServerProtocol) FreeLockCommandLocked(command *protocol.LockCo
 
 type TextServerProtocolParser struct {
     buf         []byte
+    args        []string
+    carg        []byte
     buf_index   int
     buf_len     int
-    stage       uint8
-    args        []string
+    stage       int
     args_count  int
-    carg        []byte
     carg_len    int
 }
 
@@ -759,15 +762,16 @@ type TextServerProtocol struct {
     lock_waiter                 chan *protocol.LockResultCommand
     lock_request_id             [16]byte
     lock_id                     [16]byte
+    total_command_count         uint64
     db_id                       uint8
     closed                      bool
 }
 
 func NewTextServerProtocol(slock *SLock, stream *Stream) *TextServerProtocol {
-    parser := &TextServerProtocolParser{make([]byte, 4096), 0, 0, 0,make([]string, 0), 0, make([]byte, 0), 0}
+    parser := &TextServerProtocolParser{make([]byte, 4096), make([]string, 0), make([]byte, 0), 0, 0, 0, 0, 0}
     server_protocol := &TextServerProtocol{slock, &sync.Mutex{}, stream, NewLockCommandQueue(4, 16, FREE_COMMAND_QUEUE_INIT_SIZE),
         nil, parser, make(map[string]TextServerProtocolCommandHandler, 64), make(chan *protocol.LockResultCommand, 1),
-        [16]byte{}, [16]byte{}, 0, false}
+        [16]byte{}, [16]byte{}, 0, 0, false}
     server_protocol.InitLockCommand()
 
     server_protocol.handlers["SELECT"] = server_protocol.CommandHandlerSelectDB
@@ -799,6 +803,10 @@ func (self *TextServerProtocol) Close() error {
     if self.closed {
         return nil
     }
+
+    self.slock.glock.Lock()
+    self.slock.stats_total_command_count += self.total_command_count
+    self.slock.glock.Unlock()
 
     if self.stream != nil {
         err := self.stream.Close()
@@ -894,6 +902,7 @@ func (self *TextServerProtocol) Process() error {
         }
 
         if self.parser.args_count > 0 && self.parser.args_count == len(self.parser.args) {
+            self.total_command_count++
             command_name := strings.ToUpper(self.parser.args[0])
             if command_handler, ok := self.handlers[command_name]; ok {
                 err := command_handler(self, self.parser.args)
@@ -923,6 +932,7 @@ func (self *TextServerProtocol) ProcessParse(buf []byte) error {
     }
 
     if self.parser.args_count > 0 && self.parser.args_count == len(self.parser.args) {
+        self.total_command_count++
         command_name := strings.ToUpper(self.parser.args[0])
         if command_handler, ok := self.handlers[command_name]; ok {
             err := command_handler(self, self.parser.args)

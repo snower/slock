@@ -8,16 +8,17 @@ import (
 )
 
 type SLock struct {
-    dbs                     []*LockDB
-    glock                   *sync.Mutex
-    aof                     *Aof
-    admin                   *Admin
-    logger                  logging.Logger
-    streams                 map[[16]byte]ServerProtocol
-    uptime                  *time.Time
-    free_lock_commands      *LockCommandQueue
-    free_lock_command_lock  *sync.Mutex
-    free_lock_command_count int32
+    dbs                         []*LockDB
+    glock                       *sync.Mutex
+    aof                         *Aof
+    admin                       *Admin
+    logger                      logging.Logger
+    streams                     map[[16]byte]ServerProtocol
+    uptime                      *time.Time
+    free_lock_commands          *LockCommandQueue
+    free_lock_command_lock      *sync.Mutex
+    free_lock_command_count     int32
+    stats_total_command_count   uint64
 }
 
 func NewSLock(config *ServerConfig) *SLock {
@@ -28,7 +29,7 @@ func NewSLock(config *ServerConfig) *SLock {
     now := time.Now()
     logger := InitLogger(Config.Log, Config.LogLevel)
     slock := &SLock{make([]*LockDB, 256), &sync.Mutex{}, aof,admin, logger, make(map[[16]byte]ServerProtocol, STREAMS_INIT_COUNT),
-        &now,NewLockCommandQueue(16, 64, FREE_COMMAND_QUEUE_INIT_SIZE * 16), &sync.Mutex{}, 0}
+        &now,NewLockCommandQueue(16, 64, FREE_COMMAND_QUEUE_INIT_SIZE * 16), &sync.Mutex{}, 0, 0}
     aof.slock = slock
     admin.slock = slock
     return slock

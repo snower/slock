@@ -160,6 +160,7 @@ func (self *Admin) CommandHandleInfoCommand(server_protocol *TextServerProtocol,
     free_lock_manager_count := 0
     free_lock_count := 0
     free_lock_command_count := 0
+    total_command_count := uint64(0)
     for _, db := range self.slock.dbs {
         if db != nil {
             db_count++
@@ -171,6 +172,7 @@ func (self *Admin) CommandHandleInfoCommand(server_protocol *TextServerProtocol,
     }
 
     free_lock_command_count += int(self.slock.free_lock_command_count)
+    total_command_count += self.slock.stats_total_command_count
     for _, stream := range self.server.streams {
         if stream.protocol != nil {
             switch stream.protocol.(type) {
@@ -178,9 +180,11 @@ func (self *Admin) CommandHandleInfoCommand(server_protocol *TextServerProtocol,
                 binary_protocol := stream.protocol.(*BinaryServerProtocol)
                 free_lock_command_count += int(binary_protocol.free_commands.Len())
                 free_lock_command_count += int(binary_protocol.locked_free_commands.Len())
+                total_command_count += binary_protocol.total_command_count
             case *TextServerProtocol:
                 text_protocol := stream.protocol.(*TextServerProtocol)
                 free_lock_command_count += int(text_protocol.free_commands.Len())
+                total_command_count += text_protocol.total_command_count
             }
         }
     }
@@ -190,6 +194,7 @@ func (self *Admin) CommandHandleInfoCommand(server_protocol *TextServerProtocol,
     infos = append(infos, fmt.Sprintf("free_command_count:%d", free_lock_command_count))
     infos = append(infos, fmt.Sprintf("free_lock_manager_count:%d", free_lock_manager_count))
     infos = append(infos, fmt.Sprintf("free_lock_count:%d", free_lock_count))
+    infos = append(infos, fmt.Sprintf("total_command_count:%d", total_command_count))
 
     aof := self.slock.GetAof()
     infos = append(infos, "\r\n# Aof")
