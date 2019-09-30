@@ -115,35 +115,39 @@ UNLOCK lock_key [LOCK_ID lock_id_string] [FLAG flag_uint8] [RCOUNT rcount_uint8]
 # Benchmark
 
 ```
-go run src/github.com/snower/slock/benchmarks/benchmark2.go
+# Intel(R) Core(TM) i5-4590 CPU @ 3.30GHz 4 Processor
+# MemTotal: 8038144 kB
+
+go run benchmarks/benchmark2/benchmark.go
 Run 1 Client, 1 concurrentc, 2000000 Count Lock and Unlock
 Client Opened 1
-2000064 8.000466s 249993.436789r/s
+2000064 8.000411s 249995.170248r/s
 
 Run 16 Client, 16 concurrentc, 5000000 Count Lock and Unlock
 Client Opened 16
-5001024 6.001325s 833319.959898r/s
+5001024 6.000457s 833440.562810r/s
 
 Run 32 Client, 32 concurrentc, 5000000 Count Lock and Unlock
 Client Opened 32
-5002048 6.001126s 833518.306551r/s
+5002048 6.000484s 833607.397606r/s
 
 Run 64 Client, 64 concurrentc, 5000000 Count Lock and Unlock
 Client Opened 64
-5004096 6.003500s 833529.779297r/s
+5004096 5.004120s 999995.269098r/s
 
 Run 128 Client, 128 concurrentc, 5000000 Count Lock and Unlock
 Client Opened 128
-5008192 7.000599s 715394.808603r/s
+5008128 6.007842s 833598.473596r/s
 
 Run 256 Client, 256 concurrentc, 5000000 Count Lock and Unlock
 Client Opened 256
-5016384 7.003221s 716296.734062r/s
+5016384 15.002976s 334359.267624r/s
 
 Run 512 Client, 512 concurrentc, 5000000 Count Lock and Unlock
 Client Opened 512
-5032768 8.004369s 628752.618546r/s
+5032768 16.001961s 314509.457043r/s
 
+Succed
 ```
 
 # Resources
