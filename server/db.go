@@ -1224,7 +1224,7 @@ func (self *LockDB) Lock(server_protocol ServerProtocol, command *protocol.LockC
     }
 
     lock := lock_manager.GetOrNewLock(server_protocol, command)
-    if self.DoLock(lock_manager, lock) {
+    if !lock_manager.waited && self.DoLock(lock_manager, lock) {
         if command.Expried > 0 {
             lock_manager.AddLock(lock)
             lock_manager.locked++
@@ -1404,10 +1404,6 @@ func (self *LockDB) UnLock(server_protocol ServerProtocol, command *protocol.Loc
 func (self *LockDB) DoLock(lock_manager *LockManager, lock *Lock) bool{
     if lock_manager.locked == 0 {
         return true
-    }
-
-    if lock_manager.waited {
-        return false
     }
 
     if(lock_manager.locked <= lock_manager.current_lock.command.Count){
