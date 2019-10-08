@@ -444,14 +444,18 @@ func (self *Admin) CommandHandleClientCommand(server_protocol *TextServerProtoco
 func (self *Admin) CommandHandleClientListCommand(server_protocol *TextServerProtocol, args []string) error {
     infos := []string{}
     for _, stream := range self.server.streams {
-        protocol_name, client_id := "", [16]byte{}
+        protocol_name, client_id, command_count := "", [16]byte{}, uint64(0)
         if stream.protocol != nil {
             switch stream.protocol.(type) {
             case *BinaryServerProtocol:
+                binary_protocol := stream.protocol.(*BinaryServerProtocol)
                 protocol_name = "binary"
-                client_id = stream.protocol.(*BinaryServerProtocol).client_id
+                client_id = binary_protocol.client_id
+                command_count += binary_protocol.total_command_count
             case *TextServerProtocol:
+                text_protocol := stream.protocol.(*TextServerProtocol)
                 protocol_name = "text"
+                command_count += text_protocol.total_command_count
             }
         }
 
@@ -462,8 +466,8 @@ func (self *Admin) CommandHandleClientListCommand(server_protocol *TextServerPro
                 fd = fmt.Sprintf("%d", tcp_conn_file.Fd())
             }
         }
-        infos = append(infos, fmt.Sprintf("id=%d addr=%s fd=%s protocol=%s age=%d client_id=%x", stream.stream_id, stream.RemoteAddr().String(),
-            fd, protocol_name, time.Now().Unix() - stream.start_time.Unix(), client_id))
+        infos = append(infos, fmt.Sprintf("id=%d addr=%s fd=%s protocol=%s age=%d client_id=%x command_count=%d", stream.stream_id, stream.RemoteAddr().String(),
+            fd, protocol_name, time.Now().Unix() - stream.start_time.Unix(), client_id, command_count))
     }
     infos = append(infos, "\r\n")
     return server_protocol.stream.WriteBytes(server_protocol.parser.Build(true, "", []string{strings.Join(infos, "\r\n")}))
