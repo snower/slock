@@ -33,7 +33,9 @@ func (self *LockManager) GetDB() *LockDB{
 }
 
 func (self *LockManager) AddLock(lock *Lock) *Lock {
-    lock.expried_time = self.lock_db.current_time + int64(lock.command.Expried)
+    if lock.command.ExpriedFlag & 0x0400 == 0 {
+        lock.expried_time = self.lock_db.current_time + int64(lock.command.Expried)
+    }
     switch lock.command.ExpriedFlag & 0x0300 {
     case 0x0100:
         lock.aof_time = 0
@@ -137,8 +139,16 @@ func (self *LockManager) UpdateLockedLock(lock *Lock, timeout uint16, timeout_fl
     lock.command.ExpriedFlag = expried_flag
     lock.command.Count = count
     lock.command.Rcount = rcount
-    lock.timeout_time = self.lock_db.current_time + int64(timeout)
-    lock.expried_time = self.lock_db.current_time + int64(expried)
+    if timeout_flag & 0x0400 == 0 {
+        lock.timeout_time = self.lock_db.current_time + int64(timeout)
+    } else {
+        lock.timeout_time = 0
+    }
+    if expried_flag & 0x0400 == 0 {
+        lock.expried_time = self.lock_db.current_time + int64(expried)
+    } else {
+        lock.expried_time = 0
+    }
     lock.timeout_checked_count = 1
     lock.expried_checked_count = 1
 
@@ -211,7 +221,11 @@ func (self *LockManager) GetOrNewLock(protocol ServerProtocol, command *protocol
     lock.protocol = protocol
     lock.start_time = now
     lock.expried_time = 0
-    lock.timeout_time = now + int64(command.Timeout)
+    if lock.command.TimeoutFlag & 0x0400 == 0 {
+        lock.timeout_time = now + int64(command.Timeout)
+    } else {
+        lock.timeout_time = 0
+    }
     lock.timeout_checked_count = 1
     lock.expried_checked_count = 1
     self.ref_count++

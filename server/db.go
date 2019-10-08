@@ -471,7 +471,7 @@ func (self *LockDB) FlushTimeOut(glock_index int8, do_timeout bool)  {
 }
 
 func (self *LockDB) FlushTimeoutCheckLock(lock_queue *LockQueue, lock *Lock, do_timeout_locks []*Lock) (*Lock, []*Lock) {
-    if !lock.expried {
+    if !lock.timeouted {
         do_timeout_locks = append(do_timeout_locks, lock)
         return lock_queue.Pop(), do_timeout_locks
     }
