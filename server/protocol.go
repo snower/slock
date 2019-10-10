@@ -614,12 +614,14 @@ func (self *BinaryServerProtocol) FreeLockCommandLocked(command *protocol.LockCo
 
 type TextServerProtocolParser struct {
     buf         []byte
+    wbuf        []byte
     args        []string
     carg        []byte
     buf_index   int
     buf_len     int
     stage       int
     args_count  int
+    carg_index  int
     carg_len    int
 }
 
@@ -639,17 +641,18 @@ func (self *TextServerProtocolParser) Parse() error {
                         return errors.New("Command parse args count error")
                     }
 
-                    args_count, err := strconv.Atoi(string(self.carg))
+                    args_count, err := strconv.Atoi(string(self.carg[:self.carg_index]))
                     if err != nil {
                         return err
                     }
                     self.args_count = args_count
-                    self.carg = self.carg[:0]
+                    self.carg_index = 0
                     self.buf_index++
                     self.stage = 2
                     break
                 } else if self.buf[self.buf_index] != '\r' {
-                    self.carg = append(self.carg, self.buf[self.buf_index])
+                    self.carg[self.carg_index] = self.buf[self.buf_index]
+                    self.carg_index++
                 }
             }
 
@@ -669,17 +672,18 @@ func (self *TextServerProtocolParser) Parse() error {
                         return errors.New("Command parse arg len error")
                     }
 
-                    carg_len, err := strconv.Atoi(string(self.carg))
+                    carg_len, err := strconv.Atoi(string(self.carg[:self.carg_index]))
                     if err != nil {
                         return errors.New("Command parse args count error")
                     }
                     self.carg_len = carg_len
-                    self.carg = self.carg[:0]
+                    self.carg_index = 0
                     self.buf_index++
                     self.stage = 4
                     break
                 } else if self.buf[self.buf_index] != '\r' {
-                    self.carg = append(self.carg, self.buf[self.buf_index])
+                    self.carg[self.carg_index] = self.buf[self.buf_index]
+                    self.carg_index++
                 }
             }
 
@@ -687,15 +691,25 @@ func (self *TextServerProtocolParser) Parse() error {
                 return nil
             }
         case 4:
-            carg_len := self.carg_len - len(self.carg)
+            carg_len := self.carg_len - self.carg_index
             if carg_len > 0 {
                 if self.buf_len - self.buf_index < carg_len {
-                    self.carg = append(self.carg, self.buf[self.buf_index: self.buf_len]...)
+                    if self.carg_index == 0 {
+                        self.args = append(self.args, string(self.buf[self.buf_index: self.buf_len]))
+                    } else {
+                        self.args[len(self.args) - 1] += string(self.buf[self.buf_index: self.buf_len])
+                    }
+                    self.carg_len = self.buf_len - self.buf_index
                     self.buf_index = self.buf_len
                     return nil
                 }
 
-                self.carg = append(self.carg, self.buf[self.buf_index: self.buf_index + carg_len]...)
+                if self.carg_index == 0 {
+                    self.args = append(self.args, string(self.buf[self.buf_index: self.buf_index + carg_len]))
+                } else {
+                    self.args[len(self.args) - 1] += string(self.buf[self.buf_index: self.buf_index + carg_len])
+                }
+                self.carg_index = carg_len
                 self.buf_index += carg_len
             }
 
@@ -705,8 +719,7 @@ func (self *TextServerProtocolParser) Parse() error {
                         return errors.New("Command parse arg error")
                     }
 
-                    self.args = append(self.args, string(self.carg))
-                    self.carg = self.carg[:0]
+                    self.carg_index = 0
                     self.carg_len = 0
                     self.buf_index++
                     if len(self.args) < self.args_count {
@@ -768,9 +781,10 @@ type TextServerProtocol struct {
 }
 
 func NewTextServerProtocol(slock *SLock, stream *Stream) *TextServerProtocol {
-    parser := &TextServerProtocolParser{make([]byte, 4096), make([]string, 0), make([]byte, 0), 0, 0, 0, 0, 0}
+    parser := &TextServerProtocolParser{make([]byte, 1024), make([]byte, 1024), make([]string, 0), make([]byte, 64),
+        0, 0, 0, 0, 0, 0}
     server_protocol := &TextServerProtocol{slock, &sync.Mutex{}, stream, NewLockCommandQueue(4, 16, FREE_COMMAND_QUEUE_INIT_SIZE),
-        nil, parser, make(map[string]TextServerProtocolCommandHandler, 64), make(chan *protocol.LockResultCommand, 1),
+        nil, parser, make(map[string]TextServerProtocolCommandHandler, 64), make(chan *protocol.LockResultCommand, 4),
         [16]byte{}, [16]byte{}, 0, 0, false}
     server_protocol.InitLockCommand()
 
@@ -1070,10 +1084,6 @@ func (self *TextServerProtocol) ProcessLockCommand(lock_command *protocol.LockCo
 }
 
 func (self *TextServerProtocol) ProcessLockResultCommand(lock_command *protocol.LockCommand, result uint8, lcount uint16, lrcount uint8) error {
-    if lock_command.RequestId != self.lock_request_id {
-        return nil
-    }
-
     self.lock_request_id[0], self.lock_request_id[1], self.lock_request_id[2], self.lock_request_id[3], self.lock_request_id[4], self.lock_request_id[5], self.lock_request_id[6], self.lock_request_id[7],
         self.lock_request_id[8], self.lock_request_id[9], self.lock_request_id[10], self.lock_request_id[11], self.lock_request_id[12], self.lock_request_id[13], self.lock_request_id[14], self.lock_request_id[15] =
         0, 0, 0, 0, 0, 0, 0, 0,
@@ -1104,6 +1114,11 @@ func (self *TextServerProtocol) ProcessLockResultCommand(lock_command *protocol.
 
 func (self *TextServerProtocol) ProcessLockResultCommandLocked(command *protocol.LockCommand, result uint8, lcount uint16, lrcount uint8) error {
     self.glock.Lock()
+    if command.RequestId != self.lock_request_id {
+        self.glock.Unlock()
+        return nil
+    }
+
     err := self.ProcessLockResultCommand(command, result, lcount, lrcount)
     self.glock.Unlock()
     return err
@@ -1335,22 +1350,49 @@ func (self *TextServerProtocol) CommandHandlerLock(server_protocol *TextServerPr
     if lock_command_result.Result == 0 {
         self.lock_id = lock_command.LockId
     }
-    lock_results := []string{
-        fmt.Sprintf("%d", lock_command_result.Result),
-        protocol.ERROR_MSG[lock_command_result.Result],
-        "LOCK_ID",
-        fmt.Sprintf("%x", lock_command_result.LockId),
-        "LCOUNT",
-        fmt.Sprintf("%d", lock_command_result.Lcount),
-        "COUNT",
-        fmt.Sprintf("%d", lock_command_result.Count),
-        "LRCOUNT",
-        fmt.Sprintf("%d", lock_command_result.Lrcount),
-        "RCOUNT",
-        fmt.Sprintf("%d", lock_command_result.Rcount),
-    }
+
+    buf_index := 0
+    tr := ""
+
+    buf_index += copy(self.parser.wbuf[buf_index:], []byte("*12\r\n"))
+
+    tr = fmt.Sprintf("%d", lock_command_result.Result)
+    buf_index += copy(self.parser.wbuf[buf_index:], []byte(fmt.Sprintf("$%d\r\n", len(tr))))
+    buf_index += copy(self.parser.wbuf[buf_index:], []byte(tr))
+
+    tr = protocol.ERROR_MSG[lock_command_result.Result]
+    buf_index += copy(self.parser.wbuf[buf_index:], []byte(fmt.Sprintf("\r\n$%d\r\n", len(tr))))
+    buf_index += copy(self.parser.wbuf[buf_index:], []byte(tr))
+
+    buf_index += copy(self.parser.wbuf[buf_index:], []byte("\r\n$7\r\nLOCK_ID\r\n$32\r\n"))
+    buf_index += copy(self.parser.wbuf[buf_index:], []byte(fmt.Sprintf("%x", lock_command_result.LockId)))
+    buf_index += copy(self.parser.wbuf[buf_index:], []byte("\r\n$6\r\nLCOUNT"))
+
+    tr = fmt.Sprintf("%d", lock_command_result.Lcount)
+    buf_index += copy(self.parser.wbuf[buf_index:], []byte(fmt.Sprintf("\r\n$%d\r\n", len(tr))))
+    buf_index += copy(self.parser.wbuf[buf_index:], []byte(tr))
+
+    buf_index += copy(self.parser.wbuf[buf_index:], []byte("\r\n$5\r\nCOUNT"))
+
+    tr = fmt.Sprintf("%d", lock_command_result.Count)
+    buf_index += copy(self.parser.wbuf[buf_index:], []byte(fmt.Sprintf("\r\n$%d\r\n", len(tr))))
+    buf_index += copy(self.parser.wbuf[buf_index:], []byte(tr))
+
+    buf_index += copy(self.parser.wbuf[buf_index:], []byte("\r\n$7\r\nLRCOUNT"))
+
+    tr = fmt.Sprintf("%d", lock_command_result.Lrcount)
+    buf_index += copy(self.parser.wbuf[buf_index:], []byte(fmt.Sprintf("\r\n$%d\r\n", len(tr))))
+    buf_index += copy(self.parser.wbuf[buf_index:], []byte(tr))
+
+    buf_index += copy(self.parser.wbuf[buf_index:], []byte("\r\n$6\r\nRCOUNT"))
+
+    tr = fmt.Sprintf("%d", lock_command_result.Rcount)
+    buf_index += copy(self.parser.wbuf[buf_index:], []byte(fmt.Sprintf("\r\n$%d\r\n", len(tr))))
+    buf_index += copy(self.parser.wbuf[buf_index:], []byte(tr))
+
+    buf_index += copy(self.parser.wbuf[buf_index:], []byte("\r\n"))
     self.free_command_result = lock_command_result
-    return self.stream.WriteBytes(self.parser.Build(true, "", lock_results))
+    return self.stream.WriteBytes(self.parser.wbuf[:buf_index])
 }
 
 func (self *TextServerProtocol) CommandHandlerUnlock(server_protocol *TextServerProtocol, args []string) error {
@@ -1374,22 +1416,50 @@ func (self *TextServerProtocol) CommandHandlerUnlock(server_protocol *TextServer
                 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 0, 0, 0, 0, 0
     }
-    lock_results := []string{
-        fmt.Sprintf("%d", lock_command_result.Result),
-        protocol.ERROR_MSG[lock_command_result.Result],
-        "LOCK_ID",
-        fmt.Sprintf("%x", lock_command_result.LockId),
-        "LCOUNT",
-        fmt.Sprintf("%d", lock_command_result.Lcount),
-        "COUNT",
-        fmt.Sprintf("%d", lock_command_result.Count),
-        "LRCOUNT",
-        fmt.Sprintf("%d", lock_command_result.Lrcount),
-        "RCOUNT",
-        fmt.Sprintf("%d", lock_command_result.Rcount),
-    }
+
+    buf_index := 0
+    tr := ""
+
+    buf_index += copy(self.parser.wbuf[buf_index:], []byte("*12\r\n"))
+
+    tr = fmt.Sprintf("%d", lock_command_result.Result)
+    buf_index += copy(self.parser.wbuf[buf_index:], []byte(fmt.Sprintf("$%d\r\n", len(tr))))
+    buf_index += copy(self.parser.wbuf[buf_index:], []byte(tr))
+
+    tr = protocol.ERROR_MSG[lock_command_result.Result]
+    buf_index += copy(self.parser.wbuf[buf_index:], []byte(fmt.Sprintf("\r\n$%d\r\n", len(tr))))
+    buf_index += copy(self.parser.wbuf[buf_index:], []byte(tr))
+
+    buf_index += copy(self.parser.wbuf[buf_index:], []byte("\r\n$7\r\nLOCK_ID\r\n$32\r\n"))
+    buf_index += copy(self.parser.wbuf[buf_index:], []byte(fmt.Sprintf("%x", lock_command_result.LockId)))
+    buf_index += copy(self.parser.wbuf[buf_index:], []byte("\r\n$6\r\nLCOUNT"))
+
+    tr = fmt.Sprintf("%d", lock_command_result.Lcount)
+    buf_index += copy(self.parser.wbuf[buf_index:], []byte(fmt.Sprintf("\r\n$%d\r\n", len(tr))))
+    buf_index += copy(self.parser.wbuf[buf_index:], []byte(tr))
+
+    buf_index += copy(self.parser.wbuf[buf_index:], []byte("\r\n$5\r\nCOUNT"))
+
+    tr = fmt.Sprintf("%d", lock_command_result.Count)
+    buf_index += copy(self.parser.wbuf[buf_index:], []byte(fmt.Sprintf("\r\n$%d\r\n", len(tr))))
+    buf_index += copy(self.parser.wbuf[buf_index:], []byte(tr))
+
+    buf_index += copy(self.parser.wbuf[buf_index:], []byte("\r\n$7\r\nLRCOUNT"))
+
+    tr = fmt.Sprintf("%d", lock_command_result.Lrcount)
+    buf_index += copy(self.parser.wbuf[buf_index:], []byte(fmt.Sprintf("\r\n$%d\r\n", len(tr))))
+    buf_index += copy(self.parser.wbuf[buf_index:], []byte(tr))
+
+    buf_index += copy(self.parser.wbuf[buf_index:], []byte("\r\n$6\r\nRCOUNT"))
+
+    tr = fmt.Sprintf("%d", lock_command_result.Rcount)
+    buf_index += copy(self.parser.wbuf[buf_index:], []byte(fmt.Sprintf("\r\n$%d\r\n", len(tr))))
+    buf_index += copy(self.parser.wbuf[buf_index:], []byte(tr))
+
+    buf_index += copy(self.parser.wbuf[buf_index:], []byte("\r\n"))
+
     self.free_command_result = lock_command_result
-    return self.stream.WriteBytes(self.parser.Build(true, "", lock_results))
+    return self.stream.WriteBytes(self.parser.wbuf[:buf_index])
 }
 
 func (self *TextServerProtocol) GetRequestId() [16]byte {

@@ -3,7 +3,8 @@ package server
 import "testing"
 
 func TestTextServerProtocolParser_Parse(t *testing.T) {
-    admin_parse := &TextServerProtocolParser{make([]byte, 4096), make([]string, 0), make([]byte, 0), 0, 0, 0, 0, 0}
+    admin_parse := &TextServerProtocolParser{make([]byte, 1024), make([]byte, 1024), make([]string, 0), make([]byte, 0),
+        0, 0, 0, 0, 0, 0}
 
     data := []byte("*3\r\n$3\r\nSET\r\n$5\r\nmykey\r\n$7\r\nmyvalue\r\n")
 
@@ -35,7 +36,8 @@ func TestTextServerProtocolParser_Parse(t *testing.T) {
 }
 
 func TestTextServerProtocolParser_MultiParse(t *testing.T) {
-    admin_parse := &TextServerProtocolParser{make([]byte, 4096), make([]string, 0), make([]byte, 0), 0, 0, 0, 0, 0}
+    admin_parse := &TextServerProtocolParser{make([]byte, 1024), make([]byte, 1024), make([]string, 0), make([]byte, 0),
+        0, 0, 0, 0, 0, 0}
 
     datas := [][]byte{
         []byte("*3\r\n$3\r\nSET\r\n$5\r\nmykey\r\n$7\r\nmyvalue\r\n*3\r\n$3\r\nSET\r"),
@@ -85,7 +87,8 @@ func TestTextServerProtocolParser_MultiParse(t *testing.T) {
 }
 
 func TestTextServerProtocolParser_Build(t *testing.T) {
-    admin_parse := &TextServerProtocolParser{make([]byte, 4096), make([]string, 0), make([]byte, 0), 0, 0, 0, 0, 0}
+    admin_parse := &TextServerProtocolParser{make([]byte, 1024), make([]byte, 1024), make([]string, 0), make([]byte, 0),
+        0, 0, 0, 0, 0, 0}
     r := admin_parse.Build(true, "OK", nil)
     if string(r) != "+OK\r\n" {
         t.Errorf("Admin Build Success Result Fail %s", string(r))
