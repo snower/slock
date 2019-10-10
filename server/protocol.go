@@ -651,6 +651,9 @@ func (self *TextServerProtocolParser) Parse() error {
                     self.stage = 2
                     break
                 } else if self.buf[self.buf_index] != '\r' {
+                    if self.carg_index >= 64 {
+                        return errors.New("Command parse args count error")
+                    }
                     self.carg[self.carg_index] = self.buf[self.buf_index]
                     self.carg_index++
                 }
@@ -682,6 +685,9 @@ func (self *TextServerProtocolParser) Parse() error {
                     self.stage = 4
                     break
                 } else if self.buf[self.buf_index] != '\r' {
+                    if self.carg_index >= 64 {
+                        return errors.New("Command parse args count error")
+                    }
                     self.carg[self.carg_index] = self.buf[self.buf_index]
                     self.carg_index++
                 }
