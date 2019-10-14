@@ -768,6 +768,14 @@ func (self *LockDB) FlushExpried(glock_index int8, do_expried bool)  {
             self.DoExpried(lock)
         }
         self.manager_glocks[glock_index].Lock()
+    } else {
+        for _, lock := range do_expried_locks {
+            if !lock.is_aof && lock.aof_time != 0xff {
+                if self.aof_channels[lock.manager.glock_index].Push(lock, protocol.COMMAND_LOCK) == nil {
+                    lock.is_aof = true
+                }
+            }
+        }
     }
 }
 
