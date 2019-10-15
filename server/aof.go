@@ -289,6 +289,15 @@ func (self *AofChannel) Handle() {
     for {
         select {
         case aof_lock := <- self.channel:
+            if aof_lock == nil {
+                if self.closed {
+                    self.aof.UnActiveChannel(self)
+                    self.is_stop = true
+                    return
+                }
+                continue
+            }
+
             self.aof.PushLock(aof_lock)
             free_lock_index := self.free_lock_index
             if self.free_lock_index < self.free_lock_max && atomic.CompareAndSwapInt32(&self.free_lock_index, free_lock_index, free_lock_index + 1) {
