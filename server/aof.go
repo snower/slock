@@ -285,7 +285,8 @@ func (self *AofChannel) Push(lock *Lock, command_type uint8) error {
 }
 
 func (self *AofChannel) Handle() {
-    self.aof.ActiveChannel(self)
+    self.aof.ChannelRun(self)
+    self.aof.ChannelActive(self)
     for {
         select {
         case aof_lock := <- self.channel:
@@ -299,10 +300,10 @@ func (self *AofChannel) Handle() {
                 self.free_locks[free_lock_index+1] = aof_lock
             }
         default:
-            self.aof.UnActiveChannel(self)
+            self.aof.ChannelUnActive(self)
             if self.closed {
                 self.is_stop = true
-                self.aof.StopChannel(self)
+                self.aof.ChannelStop(self)
                 return
             }
 
@@ -310,14 +311,14 @@ func (self *AofChannel) Handle() {
             if aof_lock == nil {
                 if self.closed {
                     self.is_stop = true
-                    self.aof.StopChannel(self)
+                    self.aof.ChannelStop(self)
                     return
                 }
-                self.aof.ActiveChannel(self)
+                self.aof.ChannelActive(self)
                 continue
             }
 
-            self.aof.ActiveChannel(self)
+            self.aof.ChannelActive(self)
             self.aof.PushLock(aof_lock)
             free_lock_index := self.free_lock_index
             if self.free_lock_index < self.free_lock_max && atomic.CompareAndSwapInt32(&self.free_lock_index, free_lock_index, free_lock_index + 1) {
@@ -513,11 +514,14 @@ func (self *Aof) CloseAofChannel(aof_channel *AofChannel) *AofChannel {
     return aof_channel
 }
 
-func (self *Aof) ActiveChannel(channel *AofChannel) {
+func (self *Aof) ChannelRun(channel *AofChannel) {
+}
+
+func (self *Aof) ChannelActive(channel *AofChannel) {
     atomic.AddUint32(&self.actived_channel_count, 1)
 }
 
-func (self *Aof) UnActiveChannel(channel *AofChannel) {
+func (self *Aof) ChannelUnActive(channel *AofChannel) {
     atomic.AddUint32(&self.actived_channel_count, 0xffffffff)
     if self.actived_channel_count != 0 {
         return
@@ -532,7 +536,7 @@ func (self *Aof) UnActiveChannel(channel *AofChannel) {
     self.aof_file_glock.Unlock()
 }
 
-func (self *Aof) StopChannel(channel *AofChannel) {
+func (self *Aof) ChannelStop(channel *AofChannel) {
     self.glock.Lock()
     self.channel_count--
     if self.channel_count <= 0 {
