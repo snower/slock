@@ -302,6 +302,7 @@ func (self *AofChannel) Handle() {
             self.aof.UnActiveChannel(self)
             if self.closed {
                 self.is_stop = true
+                self.aof.StopChannel(self)
                 return
             }
 
@@ -309,8 +310,10 @@ func (self *AofChannel) Handle() {
             if aof_lock == nil {
                 if self.closed {
                     self.is_stop = true
+                    self.aof.StopChannel(self)
                     return
                 }
+                self.aof.ActiveChannel(self)
                 continue
             }
 
@@ -332,8 +335,8 @@ type Aof struct {
     aof_file                *AofFile
     aof_file_glock          *sync.Mutex
     channels                []*AofChannel
-    channel_count           int
-    actived_channel_count   int
+    channel_count           uint32
+    actived_channel_count   uint32
     is_stop                 bool
     close_waiter            chan bool
     rewrite_size            int
@@ -474,16 +477,19 @@ func (self *Aof) Close()  {
     }
 
     self.is_stop = true
-    if self.actived_channel_count > 0 {
+    if self.channel_count > 0 {
         self.close_waiter = make(chan bool, 1)
         self.glock.Unlock()
         <- self.close_waiter
         self.glock.Lock()
         self.close_waiter = nil
     }
+    self.glock.Unlock()
+
+    self.aof_file_glock.Lock()
     self.aof_file.Close()
     self.aof_file = nil
-    self.glock.Unlock()
+    self.aof_file_glock.Unlock()
 }
 
 func (self *Aof) NewAofChannel(lock_db *LockDB) *AofChannel {
@@ -492,8 +498,8 @@ func (self *Aof) NewAofChannel(lock_db *LockDB) *AofChannel {
     for i :=0; i < 64; i++ {
         aof_channel.free_locks[i] = &AofLock{}
     }
-    go aof_channel.Handle()
     self.channel_count++
+    go aof_channel.Handle()
     self.glock.Unlock()
     return aof_channel
 }
@@ -501,7 +507,6 @@ func (self *Aof) NewAofChannel(lock_db *LockDB) *AofChannel {
 func (self *Aof) CloseAofChannel(aof_channel *AofChannel) *AofChannel {
     self.glock.Lock()
     aof_channel.channel <- nil
-    self.channel_count--
     aof_channel.closed = true
     aof_channel.lock_db = nil
     self.glock.Unlock()
@@ -509,23 +514,29 @@ func (self *Aof) CloseAofChannel(aof_channel *AofChannel) *AofChannel {
 }
 
 func (self *Aof) ActiveChannel(channel *AofChannel) {
-    self.glock.Lock()
-    self.actived_channel_count++
-    self.glock.Unlock()
+    atomic.AddUint32(&self.actived_channel_count, 1)
 }
 
 func (self *Aof) UnActiveChannel(channel *AofChannel) {
+    atomic.AddUint32(&self.actived_channel_count, 0xffffffff)
+    if self.actived_channel_count != 0 {
+        return
+    }
+
+    if !atomic.CompareAndSwapUint32(&self.actived_channel_count, 0, 0) {
+        return
+    }
+
+    self.aof_file_glock.Lock()
+    self.Flush()
+    self.aof_file_glock.Unlock()
+}
+
+func (self *Aof) StopChannel(channel *AofChannel) {
     self.glock.Lock()
-    self.actived_channel_count--
-    if self.actived_channel_count == 0 {
-        self.glock.Unlock()
-
-        self.aof_file_glock.Lock()
-        self.Flush()
-        self.aof_file_glock.Unlock()
-
-        self.glock.Lock()
-        if self.is_stop {
+    self.channel_count--
+    if self.channel_count <= 0 {
+        if self.is_stop && self.close_waiter != nil {
             self.close_waiter <- true
         }
     }
