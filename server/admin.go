@@ -40,8 +40,6 @@ func (self *Admin) GetHandlers() map[string]TextServerProtocolCommandHandler{
 }
 
 func (self *Admin) Close() {
-    self.slock = nil
-    self.server = nil
     self.is_stop = true
 }
 

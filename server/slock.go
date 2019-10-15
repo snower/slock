@@ -39,10 +39,9 @@ func (self *SLock) Close()  {
     defer self.glock.Unlock()
     self.glock.Lock()
 
-    for db_id, db := range self.dbs {
+    for _, db := range self.dbs {
         if db != nil {
             db.Close()
-            self.dbs[db_id] = nil
         }
     }
 

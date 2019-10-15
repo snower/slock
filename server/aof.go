@@ -480,9 +480,9 @@ func (self *Aof) Close()  {
         <- self.close_waiter
         self.glock.Lock()
         self.close_waiter = nil
-        self.aof_file.Close()
-        self.aof_file = nil
     }
+    self.aof_file.Close()
+    self.aof_file = nil
     self.glock.Unlock()
 }
 
