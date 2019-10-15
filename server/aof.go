@@ -290,11 +290,6 @@ func (self *AofChannel) Handle() {
         select {
         case aof_lock := <- self.channel:
             if aof_lock == nil {
-                if self.closed {
-                    self.aof.UnActiveChannel(self)
-                    self.is_stop = true
-                    return
-                }
                 continue
             }
 
@@ -309,6 +304,7 @@ func (self *AofChannel) Handle() {
                 self.is_stop = true
                 return
             }
+
             aof_lock := <- self.channel
             if aof_lock == nil {
                 if self.closed {
