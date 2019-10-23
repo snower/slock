@@ -206,10 +206,10 @@ func (self *LockManager) FreeLock(lock *Lock) *Lock{
 func (self *LockManager) GetOrNewLock(protocol ServerProtocol, command *protocol.LockCommand) *Lock {
     lock := self.free_locks.PopRight()
     if lock == nil {
-        locks := make([]Lock, 64)
+        locks := make([]Lock, 8)
         lock = &locks[0]
 
-        for i := 1; i < 64; i++ {
+        for i := 1; i < 8; i++ {
             self.free_locks.Push(&locks[i])
         }
     }
