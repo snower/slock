@@ -35,7 +35,7 @@ func (self *RWLock) RUnlock() error {
     self.glock.Lock()
     if len(self.rlocks) == 0 {
         self.glock.Unlock()
-        return &LockError{protocol.RESULT_UNLOCK_ERROR, errors.New("rwlock is unlock")}
+        return &LockError{protocol.RESULT_UNLOCK_ERROR, nil,errors.New("rwlock is unlock")}
     }
 
     rlock := self.rlocks[0]
@@ -59,7 +59,7 @@ func (self *RWLock) Unlock() error {
     self.glock.Lock()
     if self.wlock == nil {
         self.glock.Unlock()
-        return &LockError{protocol.RESULT_UNLOCK_ERROR, errors.New("rwlock is unlock")}
+        return &LockError{protocol.RESULT_UNLOCK_ERROR, nil,errors.New("rwlock is unlock")}
     }
     self.glock.Unlock()
 

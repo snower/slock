@@ -104,12 +104,12 @@ func (self *CycleEvent) Wait(timeout uint32) (bool, error) {
         if self.event_lock == nil {
             self.event_lock = &Lock{self.db, self.db.GetRequestId(), self.event_key, self.event_key, self.timeout, self.expried, 0, 0}
         }
-        err := self.event_lock.DoLock(0x02)
+        _, err := self.event_lock.DoLock(0x02)
         if err != nil && err.Result != protocol.RESULT_LOCKED_ERROR {
             return false, err
         }
 
-        err = self.event_lock.DoUnlock(0x00)
+        _, err = self.event_lock.DoUnlock(0x00)
         if err != nil {
             return true, nil
         }

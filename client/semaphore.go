@@ -1,10 +1,6 @@
 package client
 
-import (
-    "errors"
-    "github.com/snower/slock/protocol"
-    "sync"
-)
+import "github.com/snower/slock/protocol"
 
 type Semaphore struct {
     db *Database
@@ -12,36 +8,69 @@ type Semaphore struct {
     timeout uint32
     expried uint32
     count uint16
-    locks []*Lock
-    glock *sync.Mutex
 }
 
 func NewSemaphore(db *Database, semaphore_key [16]byte, timeout uint32, expried uint32, count uint16) *Semaphore {
-    return &Semaphore{db, semaphore_key, timeout, expried, count, make([]*Lock, 0), &sync.Mutex{}}
+    return &Semaphore{db, semaphore_key, timeout, expried, count}
 }
 
 func (self *Semaphore) Acquire() error {
-    lock := &Lock{self.db, self.db.GetRequestId(), self.db.GenLockId(), self.semaphore_key, self.timeout, self.expried, self.count, 0}
-    err := lock.Lock()
-    if err == nil {
-        self.glock.Lock()
-        self.locks = append(self.locks, lock)
-        self.glock.Unlock()
-    }
+    lock := &Lock{self.db, [16]byte{}, self.db.GenLockId(), self.semaphore_key, self.timeout, self.expried, self.count, 0}
+    _, err := lock.DoLock(0)
     return err
 }
 
 func (self *Semaphore) Release() error {
-    self.glock.Lock()
+    lock := &Lock{self.db, [16]byte{}, [16]byte{}, self.semaphore_key, self.timeout, self.expried, self.count, 0}
+    _, err := lock.DoUnlock(0x01)
+    return err
+}
 
-    if len(self.locks) == 0 {
-        self.glock.Unlock()
-        return &LockError{protocol.RESULT_UNLOCK_ERROR, errors.New("semaphore is empty")}
+func (self *Semaphore) ReleaseN(n int) (int, error) {
+    lock := &Lock{self.db, [16]byte{}, [16]byte{}, self.semaphore_key, self.timeout, self.expried, self.count, 0}
+    for i := 0; i < n; i++{
+        _, err := lock.DoUnlock(0x01)
+        if err != nil {
+            if err.Result == protocol.RESULT_UNLOCK_ERROR || err.Result == protocol.RESULT_UNOWN_ERROR {
+                return i + 1, nil
+            }
+            return i + 1, err
+        }
+    }
+    return n, nil
+}
+
+func (self *Semaphore) ReleaseAll() error {
+    lock := &Lock{self.db, [16]byte{}, [16]byte{}, self.semaphore_key, self.timeout, self.expried, self.count, 0}
+    for ;; {
+        _, err := lock.DoUnlock(0x01)
+        if err != nil {
+            if err.Result == protocol.RESULT_UNLOCK_ERROR || err.Result == protocol.RESULT_UNOWN_ERROR {
+                return nil
+            }
+            return err
+        }
+    }
+}
+
+func (self *Semaphore) Count() (int, error) {
+    lock := &Lock{self.db, [16]byte{}, self.db.GenLockId(), self.semaphore_key, 0, 0, self.count, 0}
+    result_command, err := lock.DoLock(0x01)
+    if err == nil {
+        return 0, nil
     }
 
-    lock := self.locks[0]
-    self.locks = self.locks[1:]
-    self.glock.Unlock()
+    if err.Result == protocol.RESULT_UNLOCK_ERROR {
+        return 0, nil
+    }
 
-    return lock.Unlock()
+    if err.Result == protocol.RESULT_UNOWN_ERROR {
+        return int(result_command.Lcount), nil
+    }
+
+    if err.Result == protocol.RESULT_TIMEOUT {
+        return int(self.count), nil
+    }
+
+    return 0, err
 }

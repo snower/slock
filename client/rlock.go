@@ -21,7 +21,7 @@ func NewRLock(db *Database, lock_key [16]byte, timeout uint32, expried uint32) *
 
 func (self *RLock) Lock() error {
     if self.locked_count >= 0xff {
-        return &LockError{protocol.RESULT_LOCKED_ERROR, errors.New("rlock count full")}
+        return &LockError{protocol.RESULT_LOCKED_ERROR, nil,errors.New("rlock count full")}
     }
 
     err := self.lock.Lock()
@@ -33,7 +33,7 @@ func (self *RLock) Lock() error {
 
 func (self *RLock) Unlock() error {
     if self.locked_count == 0 {
-        return &LockError{protocol.RESULT_UNLOCK_ERROR, errors.New("rlock is empty")}
+        return &LockError{protocol.RESULT_UNLOCK_ERROR, nil,errors.New("rlock is empty")}
     }
     self.locked_count--
     return self.lock.Unlock()

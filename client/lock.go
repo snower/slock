@@ -8,6 +8,7 @@ import (
 
 type LockError struct {
     Result uint8
+    CommandResult *protocol.LockResultCommand
     Err   error
 }
 
@@ -30,40 +31,42 @@ func NewLock(db *Database, lock_key [16]byte, timeout uint32, expried uint32, co
     return &Lock{db, [16]byte{}, db.GenLockId(), lock_key, timeout, expried, count, rcount}
 }
 
-func (self *Lock) DoLock(flag uint8) *LockError{
+func (self *Lock) DoLock(flag uint8) (*protocol.LockResultCommand, *LockError){
     self.request_id = self.db.GetRequestId()
     command := &protocol.LockCommand{Command: protocol.Command{Magic: protocol.MAGIC, Version: protocol.VERSION, CommandType: protocol.COMMAND_LOCK, RequestId: self.request_id},
         Flag: flag, DbId: self.db.db_id, LockId: self.lock_id, LockKey: self.lock_key, TimeoutFlag: uint16(self.timeout >> 16), Timeout: uint16(self.timeout),
         ExpriedFlag: uint16(self.expried >> 16), Expried: uint16(self.expried), Count: self.count, Rcount: 0}
     result_command, err := self.db.SendLockCommand(command)
     if err != nil {
-        return &LockError{protocol.RESULT_ERROR, err}
+        return result_command, &LockError{protocol.RESULT_ERROR, result_command, err}
     }
     if result_command.Result != protocol.RESULT_SUCCED {
-        return &LockError{result_command.Result, errors.New("lock error")}
+        return result_command, &LockError{result_command.Result, result_command, errors.New("lock error")}
     }
-    return nil
+    return result_command, nil
 }
 
-func (self *Lock) DoUnlock(flag uint8) *LockError{
+func (self *Lock) DoUnlock(flag uint8) (*protocol.LockResultCommand, *LockError){
     self.request_id = self.db.GetRequestId()
     command := &protocol.LockCommand{Command: protocol.Command{ Magic: protocol.MAGIC, Version: protocol.VERSION, CommandType: protocol.COMMAND_UNLOCK, RequestId: self.request_id},
         Flag: flag, DbId: self.db.db_id, LockId: self.lock_id, LockKey: self.lock_key, TimeoutFlag: uint16(self.timeout >> 16), Timeout: uint16(self.timeout),
         ExpriedFlag: uint16(self.expried >> 16), Expried: uint16(self.expried), Count: self.count, Rcount: 0}
     result_command, err := self.db.SendUnLockCommand(command)
     if err != nil {
-        return &LockError{protocol.RESULT_ERROR, err}
+        return result_command, &LockError{protocol.RESULT_ERROR, result_command, err}
     }
     if result_command.Result != protocol.RESULT_SUCCED {
-        return &LockError{result_command.Result, errors.New("lock error")}
+        return result_command, &LockError{result_command.Result, result_command, errors.New("lock error")}
     }
-    return nil
+    return result_command, nil
 }
 
 func (self *Lock) Lock() *LockError{
-    return self.DoLock(0)
+    _, err := self.DoLock(0)
+    return err
 }
 
 func (self *Lock) Unlock() *LockError{
-    return self.DoUnlock(0)
+    _, err := self.DoUnlock(0)
+    return err
 }
