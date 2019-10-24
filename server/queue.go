@@ -162,10 +162,8 @@ func (self *LockQueue) Shrink(size int32) int32{
         shrink_size += self.node_queue_sizes[self.head_node_index]
         self.queues[self.shrink_node_size] = nil
         self.node_queue_sizes[self.head_node_index] = 0
-        self.node_index--
         self.shrink_node_size++
     }
-    self.queue_size = self.node_queue_sizes[self.node_index]
     return shrink_size
 }
 
@@ -229,7 +227,6 @@ func (self *LockQueue) Resize() error {
     }
     self.head_node_index -= move_index
     self.tail_node_index -= move_index
-    self.queue_size = self.node_queue_sizes[self.node_index]
     return nil
 }
 
@@ -456,10 +453,8 @@ func (self *LockCommandQueue) Shrink(size int32) int32{
         shrink_size += self.node_queue_sizes[self.head_node_index]
         self.queues[self.shrink_node_size] = nil
         self.node_queue_sizes[self.head_node_index] = 0
-        self.node_index--
         self.shrink_node_size++
     }
-    self.queue_size = self.node_queue_sizes[self.node_index]
     return shrink_size
 }
 
@@ -523,7 +518,6 @@ func (self *LockCommandQueue) Resize() error {
     }
     self.head_node_index -= move_index
     self.tail_node_index -= move_index
-    self.queue_size = self.node_queue_sizes[self.node_index]
     return nil
 }
 
