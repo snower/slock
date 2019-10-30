@@ -386,8 +386,9 @@ func (self *LockDB) RestructuringLongTimeOutQueue() {
                             continue
                         }
 
-                        if long_locks.locks.Push(lock) == nil {
-                            lock.long_wait_index = uint64(long_locks.locks.tail_node_index) << 32 & uint64(long_locks.locks.tail_queue_index)
+                        lock.long_wait_index = uint64(long_locks.locks.tail_node_index) << 32 | uint64(long_locks.locks.tail_queue_index + 1)
+                        if long_locks.locks.Push(lock) != nil {
+                            lock.long_wait_index = 0
                         }
                     }
                 }
@@ -398,8 +399,9 @@ func (self *LockDB) RestructuringLongTimeOutQueue() {
                         continue
                     }
 
-                    if long_locks.locks.Push(lock) == nil {
-                        lock.long_wait_index = uint64(long_locks.locks.tail_node_index) << 32 & uint64(long_locks.locks.tail_queue_index)
+                    lock.long_wait_index = uint64(long_locks.locks.tail_node_index) << 32 | uint64(long_locks.locks.tail_queue_index + 1)
+                    if long_locks.locks.Push(lock) != nil {
+                        lock.long_wait_index = 0
                     }
                 }
 
@@ -708,8 +710,9 @@ func (self *LockDB) RestructuringLongExpriedQueue() {
                             continue
                         }
 
-                        if long_locks.locks.Push(lock) == nil {
-                            lock.long_wait_index = uint64(long_locks.locks.tail_node_index) << 32 & uint64(long_locks.locks.tail_queue_index)
+                        lock.long_wait_index = uint64(long_locks.locks.tail_node_index) << 32 | uint64(long_locks.locks.tail_queue_index + 1)
+                        if long_locks.locks.Push(lock) != nil {
+                            lock.long_wait_index = 0
                         }
                     }
                 }
@@ -720,8 +723,9 @@ func (self *LockDB) RestructuringLongExpriedQueue() {
                         continue
                     }
 
-                    if long_locks.locks.Push(lock) == nil {
-                        lock.long_wait_index = uint64(long_locks.locks.tail_node_index) << 32 & uint64(long_locks.locks.tail_queue_index)
+                    lock.long_wait_index = uint64(long_locks.locks.tail_node_index) << 32 | uint64(long_locks.locks.tail_queue_index + 1)
+                    if long_locks.locks.Push(lock) != nil {
+                        lock.long_wait_index = 0
                     }
                 }
 
@@ -942,12 +946,14 @@ func (self *LockDB) AddTimeOut(lock *Lock){
                 long_locks.lock_time = lock.timeout_time
             }
             self.long_timeout_locks[lock.manager.glock_index][lock.timeout_time] = long_locks
-            if long_locks.locks.Push(lock) == nil {
-                lock.long_wait_index = uint64(long_locks.locks.tail_node_index) << 32 & uint64(long_locks.locks.tail_queue_index)
+            lock.long_wait_index = uint64(long_locks.locks.tail_node_index) << 32 | uint64(long_locks.locks.tail_queue_index + 1)
+            if long_locks.locks.Push(lock) != nil {
+                lock.long_wait_index = 0
             }
         } else {
-            if long_locks.locks.Push(lock) == nil {
-                lock.long_wait_index = uint64(long_locks.locks.tail_node_index) << 32 & uint64(long_locks.locks.tail_queue_index)
+            lock.long_wait_index = uint64(long_locks.locks.tail_node_index) << 32 | uint64(long_locks.locks.tail_queue_index + 1)
+            if long_locks.locks.Push(lock) != nil {
+                lock.long_wait_index = 0
             }
         }
     } else {
@@ -1060,12 +1066,14 @@ func (self *LockDB) AddExpried(lock *Lock){
                 long_locks.lock_time = lock.expried_time
             }
             self.long_expried_locks[lock.manager.glock_index][lock.expried_time] = long_locks
-            if long_locks.locks.Push(lock) == nil {
-                lock.long_wait_index = uint64(long_locks.locks.tail_node_index) << 32 & uint64(long_locks.locks.tail_queue_index)
+            lock.long_wait_index = uint64(long_locks.locks.tail_node_index) << 32 | uint64(long_locks.locks.tail_queue_index + 1)
+            if long_locks.locks.Push(lock) != nil {
+                lock.long_wait_index = 0
             }
         } else {
-            if long_locks.locks.Push(lock) == nil {
-                lock.long_wait_index = uint64(long_locks.locks.tail_node_index) << 32 & uint64(long_locks.locks.tail_queue_index)
+            lock.long_wait_index = uint64(long_locks.locks.tail_node_index) << 32 | uint64(long_locks.locks.tail_queue_index + 1)
+            if long_locks.locks.Push(lock) != nil {
+                lock.long_wait_index = 0
             }
         }
     } else {

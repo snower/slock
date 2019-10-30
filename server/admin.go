@@ -149,15 +149,17 @@ func (self *Admin) CommandHandleInfoCommand(server_protocol *TextServerProtocol,
     infos = append(infos, fmt.Sprintf("process_id:%d", os.Getpid()))
     infos = append(infos, fmt.Sprintf("tcp_bind:%s", Config.Bind))
     infos = append(infos, fmt.Sprintf("tcp_port:%d", Config.Port))
-    infos = append(infos, fmt.Sprintf("uptime_seconds:%d", time.Now().Unix() - self.slock.uptime.Unix()))
+    infos = append(infos, fmt.Sprintf("uptime_in_seconds:%d", time.Now().Unix() - self.slock.uptime.Unix()))
 
     infos = append(infos, "\r\n# Clients")
-    infos = append(infos, fmt.Sprintf("connected_clients:%d", self.server.connected_count))
-    infos = append(infos, fmt.Sprintf("connecting_clients:%d", self.server.connecting_count))
+    infos = append(infos, fmt.Sprintf("total_clients:%d", self.server.connected_count))
+    infos = append(infos, fmt.Sprintf("connected_clients:%d", self.server.connecting_count))
 
     memory_stats := runtime.MemStats{}
     runtime.ReadMemStats(&memory_stats)
     infos = append(infos, "\r\n# Memory")
+    infos = append(infos, fmt.Sprintf("used_memory:%d", memory_stats.TotalAlloc))
+    infos = append(infos, fmt.Sprintf("used_memory_rss:%d", memory_stats.TotalAlloc))
     infos = append(infos, fmt.Sprintf("memory_alloc:%d", memory_stats.Alloc))
     infos = append(infos, fmt.Sprintf("memory_total_alloc:%d", memory_stats.TotalAlloc))
     infos = append(infos, fmt.Sprintf("memory_sys:%d", memory_stats.Sys))
@@ -213,10 +215,10 @@ func (self *Admin) CommandHandleInfoCommand(server_protocol *TextServerProtocol,
     infos = append(infos, fmt.Sprintf("free_command_count:%d", free_lock_command_count))
     infos = append(infos, fmt.Sprintf("free_lock_manager_count:%d", free_lock_manager_count))
     infos = append(infos, fmt.Sprintf("free_lock_count:%d", free_lock_count))
-    infos = append(infos, fmt.Sprintf("total_command_count:%d", total_command_count))
+    infos = append(infos, fmt.Sprintf("total_commands_processed:%d", total_command_count))
 
     aof := self.slock.GetAof()
-    infos = append(infos, "\r\n# Aof")
+    infos = append(infos, "\r\n# Persistence")
     infos = append(infos, fmt.Sprintf("aof_channel_count:%d", aof.channel_count))
     infos = append(infos, fmt.Sprintf("aof_channel_active:%d", aof.actived_channel_count))
     infos = append(infos, fmt.Sprintf("aof_count:%d", aof.aof_lock_count))
