@@ -274,8 +274,18 @@ type LockCommand struct {
     LockId          [16]byte
     LockKey         [16]byte
     TimeoutFlag     uint16
+    /*
+    |15      |                13                   |        11      |       10       |  8|7                                  0|
+    |--------|-------------------------------------|----------------|----------------|---|------------------------------------|
+    |        |update_no_reset_timeout_checked_count|timeout_is_error|millisecond_time|   |                                    |
+    */
     Timeout         uint16
     ExpriedFlag     uint16
+    /*
+    |15      |                13                   |  12 |        11      |       10       |      9      |        8         |7                                  0|
+    |--------|-------------------------------------|-----|----------------|----------------|-------------|------------------|------------------------------------|
+    |        |update_no_reset_expried_checked_count|aofed|expried_is_error|millisecond_time|zeor_aof_time|unlimited_aof_time|                                    |
+    */
     Expried         uint16
     Count           uint16
     Rcount          uint8

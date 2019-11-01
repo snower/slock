@@ -1181,6 +1181,13 @@ func (self *LockDB) AddMillisecondExpried(lock *Lock) {
 }
 
 func (self *LockDB) Lock(server_protocol ServerProtocol, command *protocol.LockCommand) error {
+    /*
+    protocol.LockCommand.Flag
+    |7                        |           1           |         0           |
+    |-------------------------|-----------------------|---------------------|
+    |                         |when_locked_update_lock|when_locked_show_lock|
+    */
+
     lock_manager := self.GetOrNewLockManager(command)
     lock_manager.glock.Lock()
 
@@ -1336,6 +1343,13 @@ func (self *LockDB) Lock(server_protocol ServerProtocol, command *protocol.LockC
 }
 
 func (self *LockDB) UnLock(server_protocol ServerProtocol, command *protocol.LockCommand) error {
+    /*
+    protocol.LockCommand.Flag
+    |7                        |               0               |
+    |-------------------------|-------------------------------|
+    |                         |when_unlocked_unlock_first_lock|
+    */
+
     lock_manager := self.GetLockManager(command)
     if lock_manager == nil {
         server_protocol.ProcessLockResultCommand(command, protocol.RESULT_UNLOCK_ERROR, 0, 0)

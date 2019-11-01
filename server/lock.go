@@ -149,8 +149,13 @@ func (self *LockManager) UpdateLockedLock(lock *Lock, timeout uint16, timeout_fl
     } else {
         lock.expried_time = 0
     }
-    lock.timeout_checked_count = 1
-    lock.expried_checked_count = 1
+
+    if timeout_flag & 0x2000 == 0 {
+        lock.timeout_checked_count = 1
+    }
+    if expried_flag & 0x2000 == 0 {
+        lock.expried_checked_count = 1
+    }
 
     switch lock.command.ExpriedFlag & 0x0300 {
     case 0x0100:
