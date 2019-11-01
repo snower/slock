@@ -104,11 +104,7 @@ func NewLockDB(slock *SLock, db_id uint8) *LockDB {
     db.ResizeAofChannels()
     db.ResizeTimeOut()
     db.ResizeExpried()
-    go db.UpdateCurrentTime()
-    go db.CheckTimeOut()
-    go db.CheckExpried()
-    go db.RestructuringLongTimeOutQueue()
-    go db.RestructuringLongExpriedQueue()
+    db.StartCheckLoop()
     return db
 }
 
@@ -178,21 +174,33 @@ func (self *LockDB) FlushDB() error {
     return nil
 }
 
-func (self *LockDB) UpdateCurrentTime(){
-    for !self.is_stop {
-        self.current_time = time.Now().Unix()
-        time.Sleep(5e8)
-    }
+func (self *LockDB) StartCheckLoop()  {
+    timeout_waiter, expried_waiter := make(chan bool, 16), make(chan bool, 16)
+    go self.UpdateCurrentTime(timeout_waiter, expried_waiter)
+    go self.CheckTimeOut(timeout_waiter)
+    go self.CheckExpried(expried_waiter)
+    go self.RestructuringLongTimeOutQueue()
+    go self.RestructuringLongExpriedQueue()
 }
 
-func (self *LockDB) CheckTimeOut(){
-    time.Sleep(1e9)
+func (self *LockDB) UpdateCurrentTime(timeout_waiter chan bool, expried_waiter chan bool){
+    for !self.is_stop {
+        self.current_time = time.Now().Unix()
+        timeout_waiter <- true
+        expried_waiter <- true
+        time.Sleep(time.Second - time.Duration(time.Now().Nanosecond()))
+    }
+    timeout_waiter <- false
+    expried_waiter <- false
+}
 
+func (self *LockDB) CheckTimeOut(waiter chan bool){
     do_timeout_lock_queues := make([]*LockQueue, 5)
     for i := 0; i < 5; i++ {
         do_timeout_lock_queues[i] = NewLockQueue(2, 16, 4096)
     }
 
+    <- waiter
     for !self.is_stop {
         check_timeout_time := self.check_timeout_time
         now := self.current_time
@@ -203,7 +211,7 @@ func (self *LockDB) CheckTimeOut(){
             check_timeout_time++
         }
 
-        time.Sleep(1e9)
+        <- waiter
     }
 }
 
@@ -355,7 +363,7 @@ func (self *LockDB) CheckMillisecondTimeOut(ms int64, glock_index int8){
 }
 
 func (self *LockDB) RestructuringLongTimeOutQueue() {
-    time.Sleep(1.2e11)
+    time.Sleep(120 * time.Second)
 
     for !self.is_stop {
         for i := int8(0); i < self.manager_max_glocks; i++ {
@@ -430,7 +438,7 @@ func (self *LockDB) RestructuringLongTimeOutQueue() {
             self.manager_glocks[i].Unlock()
         }
 
-        time.Sleep(1.2e11)
+        time.Sleep(120 * time.Second)
     }
 }
 
@@ -511,14 +519,13 @@ func (self *LockDB) FlushTimeoutCheckLock(lock_queue *LockQueue, lock *Lock, do_
     return lock_queue.Pop(), do_timeout_locks
 }
 
-func (self *LockDB) CheckExpried(){
-    time.Sleep(1e9)
-
+func (self *LockDB) CheckExpried(waiter chan bool){
     do_expried_lock_queues := make([]*LockQueue, 5)
     for i := 0; i < 5; i++ {
         do_expried_lock_queues[i] = NewLockQueue(2, 16, 4096)
     }
 
+    <- waiter
     for !self.is_stop {
         check_expried_time := self.check_expried_time
         now := self.current_time
@@ -529,7 +536,7 @@ func (self *LockDB) CheckExpried(){
             check_expried_time++
         }
 
-        time.Sleep(1e9)
+        <- waiter
     }
 }
 
@@ -681,7 +688,7 @@ func (self *LockDB) CheckMillisecondExpried(ms int64, glock_index int8){
 }
 
 func (self *LockDB) RestructuringLongExpriedQueue() {
-    time.Sleep(1.2e11)
+    time.Sleep(120 * time.Second)
 
     for !self.is_stop {
         for i := int8(0); i < self.manager_max_glocks; i++ {
@@ -756,7 +763,7 @@ func (self *LockDB) RestructuringLongExpriedQueue() {
             self.manager_glocks[i].Unlock()
         }
 
-        time.Sleep(1.2e11)
+        time.Sleep(120 * time.Second)
     }
 }
 
@@ -962,11 +969,8 @@ func (self *LockDB) AddTimeOut(lock *Lock){
         }
     } else {
         timeout_time := self.check_timeout_time + int64(lock.timeout_checked_count)
-        if lock.timeout_time < timeout_time {
-            timeout_time = lock.timeout_time
-            if timeout_time < self.check_timeout_time {
-                timeout_time = self.check_timeout_time
-            }
+        if lock.timeout_time <= timeout_time {
+            timeout_time = lock.timeout_time + 1
         }
 
         self.timeout_locks[timeout_time & TIMEOUT_QUEUE_LENGTH_MASK][lock.manager.glock_index].Push(lock)
@@ -1082,15 +1086,12 @@ func (self *LockDB) AddExpried(lock *Lock){
         }
     } else {
         expried_time := self.check_expried_time + int64(lock.expried_checked_count)
-        if lock.expried_time < expried_time {
-            expried_time = lock.expried_time
-            if expried_time < self.check_expried_time {
-                expried_time = self.check_expried_time
-            }
+        if lock.expried_time <= expried_time {
+            expried_time = lock.expried_time + 1
         }
 
         self.expried_locks[expried_time & EXPRIED_QUEUE_LENGTH_MASK][lock.manager.glock_index].Push(lock)
-        if !lock.is_aof && lock.expried_checked_count > lock.aof_time{
+        if !lock.is_aof && lock.expried_checked_count > lock.aof_time {
             if self.aof_channels[lock.manager.glock_index].Push(lock, protocol.COMMAND_LOCK) == nil {
                 lock.is_aof = true
             }
