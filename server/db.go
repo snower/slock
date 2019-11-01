@@ -257,8 +257,8 @@ func (self *LockDB) CheckTimeTimeOut(check_timeout_time int64, now int64, do_tim
             for ; long_lock_count > 0; {
                 lock := long_locks.locks.Pop()
                 if lock != nil {
+                    lock.long_wait_index = 0
                     if !lock.timeouted {
-                        lock.long_wait_index = 0
                         do_timeout_locks.Push(lock)
                     } else {
                         lock_manager := lock.manager
@@ -581,8 +581,8 @@ func (self *LockDB) CheckTimeExpried(check_expried_time int64, now int64, do_exp
             for ; long_lock_count > 0; {
                 lock := long_locks.locks.Pop()
                 if lock != nil {
+                    lock.long_wait_index = 0
                     if !lock.expried {
-                        lock.long_wait_index = 0
                         do_expried_locks.Push(lock)
                     } else {
                         lock_manager := lock.manager
@@ -1234,7 +1234,7 @@ func (self *LockDB) Lock(server_protocol ServerProtocol, command *protocol.LockC
                 command.Timeout = current_lock.command.Timeout
                 command.Count = current_lock.command.Count
                 command.Rcount = current_lock.command.Rcount
-            } else if(current_lock.locked <= command.Rcount){
+            } else if(current_lock.locked < 0xff && current_lock.locked <= command.Rcount){
                 if(command.Expried == 0) {
                     lock_manager.glock.Unlock()
 
@@ -1460,6 +1460,10 @@ func (self *LockDB) UnLock(server_protocol ServerProtocol, command *protocol.Loc
 func (self *LockDB) DoLock(lock_manager *LockManager, lock *Lock) bool{
     if lock_manager.locked == 0 {
         return true
+    }
+
+    if lock_manager.locked == 0xffff {
+        return false
     }
 
     if(lock_manager.locked <= lock_manager.current_lock.command.Count){
