@@ -452,6 +452,8 @@ func (self *LockDB) FlushTimeOut(glock_index int8, do_timeout bool)  {
             if lock != nil {
                 lock.long_wait_index = 0
                 lock, do_timeout_locks = self.FlushTimeoutCheckLock(long_locks.locks, lock, do_timeout_locks)
+            } else {
+                lock = long_locks.locks.Pop()
             }
             long_lock_count--
         }
@@ -776,6 +778,8 @@ func (self *LockDB) FlushExpried(glock_index int8, do_expried bool)  {
             if lock != nil {
                 lock.long_wait_index = 0
                 lock, do_expried_locks = self.FlushExpriedCheckLock(long_locks.locks, lock, do_expried_locks)
+            } else {
+                lock = long_locks.locks.Pop()
             }
             long_lock_count--
         }
