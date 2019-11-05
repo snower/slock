@@ -20,15 +20,16 @@ var LETTERS = []byte("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
 var request_id_index uint64 = 0
 
 type AofLock struct {
-    AofIndex        uint64
-    AofId           uint64
-    DbId            uint8
     CommandType     uint8
-    Flag            uint8
-    LockKey         [16]byte
-    LockId          [16]byte
+    AofIndex        uint32
+    AofId           uint32
     StartTime       uint64
-    ExpriedTime     uint64
+    Flag            uint8
+    DbId            uint8
+    LockId          [16]byte
+    LockKey         [16]byte
+    ExpriedFlag     uint16
+    ExpriedTime     uint16
     Count           uint16
     Rcount          uint8
 }
@@ -154,22 +155,25 @@ func (self *AofFile) ReadLock(lock *AofLock) error {
         }
     }
 
-    lock.AofId = uint64(buf[2]) | uint64(buf[3])<<8 | uint64(buf[4])<<16 | uint64(buf[5])<<24 | uint64(buf[6])<<32 | uint64(buf[7])<<40 | uint64(buf[8])<<48 | uint64(buf[9])<<56
+    lock.CommandType = buf[2]
 
-    lock.DbId, lock.CommandType, lock.Flag = buf[10], buf[11], buf[12]
+    lock.AofIndex, lock.AofId = uint32(buf[3]) | uint32(buf[4])<<8 | uint32(buf[5])<<16 | uint32(buf[6])<<24, uint32(buf[7]) | uint32(buf[8])<<8 | uint32(buf[9])<<16 | uint32(buf[10])<<24
+    lock.StartTime = uint64(buf[11]) | uint64(buf[12])<<8 | uint64(buf[13])<<16 | uint64(buf[14])<<24 | uint64(buf[15])<<32 | uint64(buf[16])<<40 | uint64(buf[17])<<48 | uint64(buf[18])<<56
 
-    lock.LockKey[0], lock.LockKey[1], lock.LockKey[2], lock.LockKey[3], lock.LockKey[4], lock.LockKey[5], lock.LockKey[6], lock.LockKey[7],
-        lock.LockKey[8], lock.LockKey[9], lock.LockKey[10], lock.LockKey[11], lock.LockKey[12], lock.LockKey[13], lock.LockKey[14], lock.LockKey[15] =
-        buf[13], buf[14], buf[15], buf[16], buf[17], buf[18], buf[19], buf[20],
-        buf[21], buf[22], buf[23], buf[24], buf[25], buf[26], buf[27], buf[28]
+    lock.Flag, lock.DbId = buf[19], buf[20]
 
     lock.LockId[0], lock.LockId[1], lock.LockId[2], lock.LockId[3], lock.LockId[4], lock.LockId[5], lock.LockId[6], lock.LockId[7],
         lock.LockId[8], lock.LockId[9], lock.LockId[10], lock.LockId[11], lock.LockId[12], lock.LockId[13], lock.LockId[14], lock.LockId[15] =
-        buf[29], buf[30], buf[31], buf[32], buf[33], buf[34], buf[35], buf[36],
-        buf[37], buf[38], buf[39], buf[40], buf[41], buf[42], buf[43], buf[44]
+        buf[21], buf[22], buf[23], buf[24], buf[25], buf[26], buf[27], buf[28],
+        buf[29], buf[30], buf[31], buf[32], buf[33], buf[34], buf[35], buf[36]
 
-    lock.StartTime = uint64(buf[45]) | uint64(buf[46])<<8 | uint64(buf[47])<<16 | uint64(buf[48])<<24 | uint64(buf[49])<<32 | uint64(buf[50])<<40 | uint64(buf[51])<<48 | uint64(buf[52])<<56
-    lock.ExpriedTime = uint64(buf[53]) | uint64(buf[54])<<8 | uint64(buf[55])<<16 | uint64(buf[56])<<24 | uint64(buf[57])<<32 | uint64(buf[58])<<40 | uint64(buf[59])<<48 | uint64(buf[60])<<56
+    lock.LockKey[0], lock.LockKey[1], lock.LockKey[2], lock.LockKey[3], lock.LockKey[4], lock.LockKey[5], lock.LockKey[6], lock.LockKey[7],
+        lock.LockKey[8], lock.LockKey[9], lock.LockKey[10], lock.LockKey[11], lock.LockKey[12], lock.LockKey[13], lock.LockKey[14], lock.LockKey[15] =
+        buf[37], buf[38], buf[39], buf[40], buf[41], buf[42], buf[43], buf[44],
+        buf[45], buf[46], buf[47], buf[48], buf[49], buf[50], buf[51], buf[52]
+
+
+    lock.ExpriedFlag, lock.ExpriedTime = uint16(buf[57])|uint16(buf[58])<<8, uint16(buf[59])|uint16(buf[60])<<8
 
     lock.Count = uint16(buf[61]) | uint16(buf[62])<<8
     lock.Rcount = buf[63]
@@ -188,22 +192,24 @@ func (self *AofFile) WriteLock(lock *AofLock) error {
 
     buf[0], buf[1] = byte(buf_len), byte(buf_len << 8)
 
-    buf[2], buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9] = byte(lock.AofId), byte(lock.AofId >> 8), byte(lock.AofId >> 16), byte(lock.AofId >> 24), byte(lock.AofId >> 32), byte(lock.AofId >> 40), byte(lock.AofId >> 48), byte(lock.AofId >> 56)
+    buf[2] = lock.CommandType
 
-    buf[10], buf[11], buf[12] = lock.DbId, lock.CommandType, lock.Flag
+    buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10] = byte(lock.AofIndex), byte(lock.AofIndex >> 8), byte(lock.AofIndex >> 16), byte(lock.AofIndex >> 24), byte(lock.AofId), byte(lock.AofId >> 8), byte(lock.AofId >> 16), byte(lock.AofId >> 24)
+    buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18] = byte(lock.StartTime), byte(lock.StartTime >> 8), byte(lock.StartTime >> 16), byte(lock.StartTime >> 24), byte(lock.StartTime >> 32), byte(lock.StartTime >> 40), byte(lock.StartTime >> 48), byte(lock.StartTime >> 56)
 
-    buf[13], buf[14], buf[15], buf[16], buf[17], buf[18], buf[19], buf[20],
-        buf[21], buf[22], buf[23], buf[24], buf[25], buf[26], buf[27], buf[28] =
-        lock.LockKey[0], lock.LockKey[1], lock.LockKey[2], lock.LockKey[3], lock.LockKey[4], lock.LockKey[5], lock.LockKey[6], lock.LockKey[7],
-        lock.LockKey[8], lock.LockKey[9], lock.LockKey[10], lock.LockKey[11], lock.LockKey[12], lock.LockKey[13], lock.LockKey[14], lock.LockKey[15]
+    buf[19], buf[20] = lock.Flag, lock.DbId
 
-    buf[29], buf[30], buf[31], buf[32], buf[33], buf[34], buf[35], buf[36],
-        buf[37], buf[38], buf[39], buf[40], buf[41], buf[42], buf[43], buf[44] =
+    buf[21], buf[22], buf[23], buf[24], buf[25], buf[26], buf[27], buf[28],
+        buf[29], buf[30], buf[31], buf[32], buf[33], buf[34], buf[35], buf[36] =
         lock.LockId[0], lock.LockId[1], lock.LockId[2], lock.LockId[3], lock.LockId[4], lock.LockId[5], lock.LockId[6], lock.LockId[7],
         lock.LockId[8], lock.LockId[9], lock.LockId[10], lock.LockId[11], lock.LockId[12], lock.LockId[13], lock.LockId[14], lock.LockId[15]
 
-    buf[45], buf[46], buf[47], buf[48], buf[49], buf[50], buf[51], buf[52] = byte(lock.StartTime), byte(lock.StartTime >> 8), byte(lock.StartTime >> 16), byte(lock.StartTime >> 24), byte(lock.StartTime >> 32), byte(lock.StartTime >> 40), byte(lock.StartTime >> 48), byte(lock.StartTime >> 56)
-    buf[53], buf[54], buf[55], buf[56], buf[57], buf[58], buf[59], buf[60] = byte(lock.ExpriedTime), byte(lock.ExpriedTime >> 8), byte(lock.ExpriedTime >> 16), byte(lock.ExpriedTime >> 24), byte(lock.ExpriedTime >> 32), byte(lock.ExpriedTime >> 40), byte(lock.ExpriedTime >> 48), byte(lock.ExpriedTime >> 56)
+    buf[37], buf[38], buf[39], buf[40], buf[41], buf[42], buf[43], buf[44],
+        buf[45], buf[46], buf[47], buf[48], buf[49], buf[50], buf[51], buf[52] =
+        lock.LockKey[0], lock.LockKey[1], lock.LockKey[2], lock.LockKey[3], lock.LockKey[4], lock.LockKey[5], lock.LockKey[6], lock.LockKey[7],
+        lock.LockKey[8], lock.LockKey[9], lock.LockKey[10], lock.LockKey[11], lock.LockKey[12], lock.LockKey[13], lock.LockKey[14], lock.LockKey[15]
+
+    buf[53], buf[54], buf[55], buf[56], buf[57], buf[58], buf[59], buf[60] = 0, 0, 0, 0, byte(lock.ExpriedFlag), byte(lock.ExpriedFlag >> 8), byte(lock.ExpriedTime), byte(lock.ExpriedTime >> 8)
 
     buf[61], buf[62] = byte(lock.Count), byte(lock.Count << 8)
     buf[63] = lock.Rcount
@@ -273,18 +279,19 @@ func (self *AofChannel) Push(lock *Lock, command_type uint8) error {
     free_lock_index := self.free_lock_index
     if free_lock_index >= 0 && atomic.CompareAndSwapInt32(&self.free_lock_index, free_lock_index, free_lock_index - 1) {
         aof_lock = self.free_locks[free_lock_index]
-        aof_lock.DbId = lock.manager.db_id
         aof_lock.CommandType = command_type
-        aof_lock.Flag = lock.command.Flag
-        aof_lock.LockKey = lock.command.LockKey
-        aof_lock.LockId = lock.command.LockId
         aof_lock.StartTime = uint64(lock.start_time)
-        aof_lock.ExpriedTime = uint64(lock.expried_time)
+        aof_lock.Flag = lock.command.Flag
+        aof_lock.DbId = lock.manager.db_id
+        aof_lock.LockId = lock.command.LockId
+        aof_lock.LockKey = lock.command.LockKey
+        aof_lock.ExpriedFlag = lock.command.ExpriedFlag & 0x0b00
+        aof_lock.ExpriedTime = uint16(lock.expried_time - lock.start_time)
         aof_lock.Count = lock.command.Count
         aof_lock.Rcount = lock.command.Rcount
     } else {
-        aof_lock = &AofLock{0, 0, lock.manager.db_id, command_type, lock.command.Flag, lock.command.LockKey, lock.command.LockId,
-            uint64(lock.start_time), uint64(lock.expried_time), lock.command.Count, lock.command.Rcount}
+        aof_lock = &AofLock{command_type, 0, 0, uint64(lock.start_time), lock.command.Flag, lock.manager.db_id,  lock.command.LockId,
+            lock.command.LockKey, lock.command.ExpriedFlag & 0x0b00, uint16(lock.expried_time - lock.start_time), lock.command.Count, lock.command.Rcount}
     }
 
     self.channel <- aof_lock
@@ -301,7 +308,6 @@ func (self *AofChannel) Handle() {
                 continue
             }
 
-            aof_lock.AofId = atomic.AddUint64(&self.aof.aof_id, 1)
             self.aof.PushLock(aof_lock)
             free_lock_index := self.free_lock_index
             if self.free_lock_index < self.free_lock_max && atomic.CompareAndSwapInt32(&self.free_lock_index, free_lock_index, free_lock_index + 1) {
@@ -327,7 +333,6 @@ func (self *AofChannel) Handle() {
             }
 
             self.aof.ChannelActive(self)
-            aof_lock.AofId = atomic.AddUint64(&self.aof.aof_id, 1)
             self.aof.PushLock(aof_lock)
             free_lock_index := self.free_lock_index
             if self.free_lock_index < self.free_lock_max && atomic.CompareAndSwapInt32(&self.free_lock_index, free_lock_index, free_lock_index + 1) {
@@ -341,27 +346,27 @@ type Aof struct {
     slock                   *SLock
     glock                   *sync.Mutex
     data_dir                string
-    aof_file_index          int
+    aof_file_index          uint32
     aof_file                *AofFile
     aof_file_glock          *sync.Mutex
     channels                []*AofChannel
     channel_count           uint32
     actived_channel_count   uint32
-    is_stop                 bool
     close_waiter            chan bool
-    rewrite_size            int
+    rewrite_size            uint32
     is_rewriting            bool
+    is_stop                 bool
     aof_lock_count          uint64
-    aof_id                  uint64
+    aof_id                  uint32
 }
 
 func NewAof() *Aof {
     return &Aof{nil, &sync.Mutex{}, "",1, nil, &sync.Mutex{}, make([]*AofChannel, 0),
-        0,0, false, nil, 0, false, 0, 0}
+        0, 0, nil, 0, false, false, 0, 0}
 }
 
 func (self *Aof) LoadAndInit() error {
-    self.rewrite_size = int(Config.AofFileRewriteSize)
+    self.rewrite_size = uint32(Config.AofFileRewriteSize)
     data_dir, err := filepath.Abs(Config.DataDir)
     if err != nil {
         return err
@@ -382,7 +387,7 @@ func (self *Aof) LoadAndInit() error {
         if err != nil {
             return err
         }
-        self.aof_file_index = aof_file_index
+        self.aof_file_index = uint32(aof_file_index)
     }
 
     self.aof_file = NewAofFile(self, filepath.Join(self.data_dir, fmt.Sprintf("%s.%d", "append.aof", self.aof_file_index + 1)), os.O_WRONLY, int(Config.AofFileBufferSize))
@@ -466,13 +471,13 @@ func (self *Aof) LoadAofFile(filename string, server_protocol *BinaryServerProto
             return err
         }
 
-        if int64(lock.ExpriedTime) <= now {
+        if int64(lock.StartTime + uint64(lock.ExpriedTime)) <= now {
             continue
         }
 
         command := &protocol.LockCommand{Command: protocol.Command{Magic: protocol.MAGIC, Version: protocol.VERSION, CommandType: lock.CommandType, RequestId: self.GetRequestId()},
             Flag: lock.Flag, DbId: lock.DbId, LockId: lock.LockId, LockKey: lock.LockKey, TimeoutFlag: 0, Timeout: 5,
-            ExpriedFlag: 0x1200, Expried: uint16(int64(lock.ExpriedTime) - now), Count: lock.Count, Rcount: lock.Rcount}
+            ExpriedFlag: 0x1200, Expried: uint16(int64(lock.StartTime + uint64(lock.ExpriedTime)) - now), Count: lock.Count, Rcount: lock.Rcount}
         err = server_protocol.ProcessLockCommand(command)
         if err != nil {
             return err
@@ -559,6 +564,9 @@ func (self *Aof) ChannelStop(channel *AofChannel) {
 
 func (self *Aof) PushLock(lock *AofLock) {
     self.aof_file_glock.Lock()
+    lock.AofIndex = self.aof_file_index
+    self.aof_id++
+    lock.AofId = self.aof_id
     err := self.aof_file.WriteLock(lock)
     if err != nil {
         for ; !self.is_stop; {
@@ -574,7 +582,7 @@ func (self *Aof) PushLock(lock *AofLock) {
     self.aof_lock_count++
 
 
-    if self.aof_file.GetSize() >= self.rewrite_size {
+    if uint32(self.aof_file.GetSize()) >= self.rewrite_size {
         self.Flush()
 
         err := self.aof_file.Close()
@@ -642,7 +650,7 @@ func (self *Aof) RewriteAofFile() {
     if err != nil {
         return
     }
-    aof_id := uint64(0)
+    aof_id := uint32(0)
 
     if rewrite_file != "" {
         aof_size, err := self.LoadRewriteAofFile(rewrite_file, rewrite_aof_file, &aof_id)
@@ -659,7 +667,7 @@ func (self *Aof) RewriteAofFile() {
             return
         }
 
-        if aof_file_index >= self.aof_file_index {
+        if uint32(aof_file_index) >= self.aof_file_index {
             continue
         }
 
@@ -693,7 +701,7 @@ func (self *Aof) RewriteAofFile() {
             self.slock.Log().Errorf("Aof Rewrite Find Max File Error %s %v", filepath.Join(self.data_dir, append_file), err)
         }
 
-        if aof_file_index >= self.aof_file_index {
+        if uint32(aof_file_index) >= self.aof_file_index {
             continue
         }
 
@@ -711,7 +719,7 @@ func (self *Aof) RewriteAofFile() {
     self.slock.Log().Infof("Aof Rewrite %d to %d", total_aof_size, rewrite_aof_file.GetSize())
 }
 
-func (self *Aof) LoadRewriteAofFile(filename string, rewrite_aof_file *AofFile, aof_id *uint64) (int, error) {
+func (self *Aof) LoadRewriteAofFile(filename string, rewrite_aof_file *AofFile, aof_id *uint32) (int, error) {
     aof_file := NewAofFile(self, filepath.Join(self.data_dir, filename), os.O_RDONLY, int(Config.AofFileBufferSize))
     err := aof_file.Open()
     if err != nil {
@@ -730,11 +738,12 @@ func (self *Aof) LoadRewriteAofFile(filename string, rewrite_aof_file *AofFile, 
             return 0, err
         }
 
-        if int64(lock.ExpriedTime) <= now {
+        if int64(lock.StartTime + uint64(lock.ExpriedTime)) <= now {
             continue
         }
 
-        lock.AofId = atomic.AddUint64(aof_id, 1)
+        *aof_id++
+        lock.AofId = *aof_id
         err = rewrite_aof_file.WriteLock(lock)
         if err != nil {
             return 0, err

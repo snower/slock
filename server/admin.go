@@ -424,7 +424,7 @@ func (self *Admin) CommandHandleConfigSetCommand(server_protocol *TextServerProt
             return server_protocol.stream.WriteBytes(server_protocol.parser.Build(false, "Parameter Value Error", nil))
         }
         Config.DBLockAofTime = uint(aof_file_rewrite_size)
-        self.slock.GetAof().rewrite_size = int(aof_file_rewrite_size)
+        self.slock.GetAof().rewrite_size = uint32(aof_file_rewrite_size)
     case "LOG_LEVEL":
         logger := self.slock.Log()
         logging_level := logging.LevelInfo
