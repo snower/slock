@@ -479,13 +479,13 @@ func (self *Aof) LoadAofFile(filename string, server_protocol *BinaryServerProto
             return err
         }
 
-        if int64(lock.StartTime + uint64(lock.ExpriedTime)) <= now {
+        if lock.ExpriedFlag & 0x4000 == 0 && int64(lock.StartTime + uint64(lock.ExpriedTime)) <= now {
             continue
         }
 
         command := &protocol.LockCommand{Command: protocol.Command{Magic: protocol.MAGIC, Version: protocol.VERSION, CommandType: lock.CommandType, RequestId: self.GetRequestId()},
             Flag: lock.Flag, DbId: lock.DbId, LockId: lock.LockId, LockKey: lock.LockKey, TimeoutFlag: 0, Timeout: 5,
-            ExpriedFlag: 0x1200, Expried: uint16(int64(lock.StartTime + uint64(lock.ExpriedTime)) - now), Count: lock.Count, Rcount: lock.Rcount}
+            ExpriedFlag: lock.ExpriedFlag | 0x1200, Expried: uint16(int64(lock.StartTime + uint64(lock.ExpriedTime)) - now), Count: lock.Count, Rcount: lock.Rcount}
         err = server_protocol.ProcessLockCommand(command)
         if err != nil {
             return err
@@ -746,7 +746,7 @@ func (self *Aof) LoadRewriteAofFile(filename string, rewrite_aof_file *AofFile, 
             return 0, err
         }
 
-        if int64(lock.StartTime + uint64(lock.ExpriedTime)) <= now {
+        if lock.ExpriedFlag & 0x4000 == 0 && int64(lock.StartTime + uint64(lock.ExpriedTime)) <= now {
             continue
         }
 
