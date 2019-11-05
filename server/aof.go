@@ -285,13 +285,21 @@ func (self *AofChannel) Push(lock *Lock, command_type uint8) error {
         aof_lock.DbId = lock.manager.db_id
         aof_lock.LockId = lock.command.LockId
         aof_lock.LockKey = lock.command.LockKey
-        aof_lock.ExpriedFlag = lock.command.ExpriedFlag & 0x0b00
-        aof_lock.ExpriedTime = uint16(lock.expried_time - lock.start_time)
+        aof_lock.ExpriedFlag = lock.command.ExpriedFlag & 0x4800
+        if lock.command.ExpriedFlag & 0x4000 == 0 {
+            aof_lock.ExpriedTime = uint16(lock.expried_time - lock.start_time)
+        } else {
+            aof_lock.ExpriedTime = 0
+        }
         aof_lock.Count = lock.command.Count
         aof_lock.Rcount = lock.command.Rcount
     } else {
+        expried_time := uint16(0)
+        if lock.command.ExpriedFlag & 0x4000 == 0 {
+            aof_lock.ExpriedTime = uint16(lock.expried_time - lock.start_time)
+        }
         aof_lock = &AofLock{command_type, 0, 0, uint64(lock.start_time), lock.command.Flag, lock.manager.db_id,  lock.command.LockId,
-            lock.command.LockKey, lock.command.ExpriedFlag & 0x0b00, uint16(lock.expried_time - lock.start_time), lock.command.Count, lock.command.Rcount}
+            lock.command.LockKey, lock.command.ExpriedFlag & 0x4800, expried_time, lock.command.Count, lock.command.Rcount}
     }
 
     self.channel <- aof_lock
