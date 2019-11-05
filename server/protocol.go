@@ -284,6 +284,10 @@ func (self *BinaryServerProtocol) ProcessParse(buf []byte) error {
         lock_command.Timeout, lock_command.TimeoutFlag, lock_command.Expried, lock_command.ExpriedFlag = uint16(buf[53])|uint16(buf[54])<<8, uint16(buf[55])|uint16(buf[56])<<8, uint16(buf[57])|uint16(buf[58])<<8, uint16(buf[59])|uint16(buf[60])<<8
         lock_command.Count, lock_command.Rcount = uint16(buf[61])|uint16(buf[62])<<8, uint8(buf[63])
 
+        if lock_command.DbId == 0xff {
+            return self.ProcessLockResultCommand(lock_command, protocol.RESULT_UNKNOWN_DB, 0, 0)
+        }
+
         db := self.slock.dbs[lock_command.DbId]
         if db == nil {
             db = self.slock.GetOrNewDB(lock_command.DbId)
@@ -320,6 +324,11 @@ func (self *BinaryServerProtocol) ProcessParse(buf []byte) error {
 
         lock_command.Timeout, lock_command.TimeoutFlag, lock_command.Expried, lock_command.ExpriedFlag = uint16(buf[53])|uint16(buf[54])<<8, uint16(buf[55])|uint16(buf[56])<<8, uint16(buf[57])|uint16(buf[58])<<8, uint16(buf[59])|uint16(buf[60])<<8
         lock_command.Count, lock_command.Rcount = uint16(buf[61])|uint16(buf[62])<<8, uint8(buf[63])
+
+        if lock_command.DbId == 0xff {
+            return self.ProcessLockResultCommand(lock_command, protocol.RESULT_UNKNOWN_DB, 0, 0)
+        }
+
         db := self.slock.dbs[lock_command.DbId]
         if db == nil {
             return self.ProcessLockResultCommand(lock_command, protocol.RESULT_UNKNOWN_DB, 0, 0)
@@ -419,8 +428,11 @@ func (self *BinaryServerProtocol) ProcessCommad(command protocol.ICommand) error
 }
 
 func (self *BinaryServerProtocol) ProcessLockCommand(lock_command *protocol.LockCommand) error {
-    db := self.slock.dbs[lock_command.DbId]
+    if lock_command.DbId == 0xff {
+        return self.ProcessLockResultCommand(lock_command, protocol.RESULT_UNKNOWN_DB, 0, 0)
+    }
 
+    db := self.slock.dbs[lock_command.DbId]
     if lock_command.CommandType == protocol.COMMAND_LOCK {
         if db == nil {
             db = self.slock.GetOrNewDB(lock_command.DbId)
@@ -1074,8 +1086,11 @@ func (self *TextServerProtocol) ProcessCommad(command protocol.ICommand) error {
 }
 
 func (self *TextServerProtocol) ProcessLockCommand(lock_command *protocol.LockCommand) error {
-    db := self.slock.dbs[lock_command.DbId]
+    if lock_command.DbId == 0xff {
+        return self.ProcessLockResultCommand(lock_command, protocol.RESULT_UNKNOWN_DB, 0, 0)
+    }
 
+    db := self.slock.dbs[lock_command.DbId]
     if lock_command.CommandType == protocol.COMMAND_LOCK {
         if db == nil {
             db = self.slock.GetOrNewDB(lock_command.DbId)
@@ -1343,6 +1358,10 @@ func (self *TextServerProtocol) CommandHandlerLock(server_protocol *TextServerPr
         return self.stream.WriteBytes(self.parser.Build(false, err.Error(), nil))
     }
 
+    if lock_command.DbId == 0xff {
+        return self.stream.WriteBytes(self.parser.Build(false, "Uknown DB Error", nil))
+    }
+
     db := self.slock.dbs[lock_command.DbId]
     if db == nil {
         db = self.slock.GetOrNewDB(lock_command.DbId)
@@ -1406,6 +1425,11 @@ func (self *TextServerProtocol) CommandHandlerUnlock(server_protocol *TextServer
     if err != nil {
         return self.stream.WriteBytes(self.parser.Build(false, err.Error(), nil))
     }
+
+    if lock_command.DbId == 0xff {
+        return self.stream.WriteBytes(self.parser.Build(false, "Uknown DB Error", nil))
+    }
+
     db := self.slock.dbs[lock_command.DbId]
     if db == nil {
         return self.stream.WriteBytes(self.parser.Build(false, "Uknown DB Error", nil))
