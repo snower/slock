@@ -296,7 +296,7 @@ func (self *AofChannel) Push(lock *Lock, command_type uint8) error {
     } else {
         expried_time := uint16(0)
         if lock.command.ExpriedFlag & 0x4000 == 0 {
-            aof_lock.ExpriedTime = uint16(lock.expried_time - lock.start_time)
+            expried_time = uint16(lock.expried_time - lock.start_time)
         }
         aof_lock = &AofLock{command_type, 0, 0, uint64(lock.start_time), lock.command.Flag, lock.manager.db_id,  lock.command.LockId,
             lock.command.LockKey, lock.command.ExpriedFlag & 0x4800, expried_time, lock.command.Count, lock.command.Rcount}
