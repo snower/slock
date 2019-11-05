@@ -369,7 +369,7 @@ type Aof struct {
 }
 
 func NewAof() *Aof {
-    return &Aof{nil, &sync.Mutex{}, "",1, nil, &sync.Mutex{}, make([]*AofChannel, 0),
+    return &Aof{nil, &sync.Mutex{}, "",0, nil, &sync.Mutex{}, make([]*AofChannel, 0),
         0, 0, nil, 0, false, false, 0, 0}
 }
 
@@ -750,6 +750,7 @@ func (self *Aof) LoadRewriteAofFile(filename string, rewrite_aof_file *AofFile, 
             continue
         }
 
+        lock.AofIndex = 0
         *aof_id++
         lock.AofId = *aof_id
         err = rewrite_aof_file.WriteLock(lock)
