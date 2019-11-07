@@ -245,6 +245,7 @@ func (self *LockQueue) Restructuring() error {
         for k := int32(0); k < self.node_queue_sizes[j]; k++ {
             lock := self.queues[j][k]
             if lock != nil {
+                self.queues[j][k] = nil
                 self.Push(lock)
             }
         }
@@ -253,6 +254,7 @@ func (self *LockQueue) Restructuring() error {
     for k := int32(0); k < tail_queue_index; k++ {
         lock := self.queues[tail_node_index][k]
         if lock != nil {
+            self.queues[tail_node_index][k] = nil
             self.Push(lock)
         }
     }
@@ -536,6 +538,7 @@ func (self *LockCommandQueue) Restructuring() error {
         for k := int32(0); k < self.node_queue_sizes[j]; k++ {
             lock := self.queues[j][k]
             if lock != nil {
+                self.queues[j][k] = nil
                 self.Push(lock)
             }
         }
@@ -544,6 +547,7 @@ func (self *LockCommandQueue) Restructuring() error {
     for k := int32(0); k < tail_queue_index; k++ {
         lock := self.queues[tail_node_index][k]
         if lock != nil {
+            self.queues[tail_node_index][k] = nil
             self.Push(lock)
         }
     }

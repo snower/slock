@@ -393,6 +393,7 @@ func (self *LockDB) RestructuringLongTimeOutQueue() {
                         if lock == nil {
                             continue
                         }
+                        long_locks.locks.queues[j][k] = nil
 
                         lock.long_wait_index = uint64(long_locks.locks.tail_node_index) << 32 | uint64(long_locks.locks.tail_queue_index + 1)
                         if long_locks.locks.Push(lock) != nil {
@@ -406,6 +407,7 @@ func (self *LockDB) RestructuringLongTimeOutQueue() {
                     if lock == nil {
                         continue
                     }
+                    long_locks.locks.queues[tail_node_index][k] = nil
 
                     lock.long_wait_index = uint64(long_locks.locks.tail_node_index) << 32 | uint64(long_locks.locks.tail_queue_index + 1)
                     if long_locks.locks.Push(lock) != nil {
@@ -718,6 +720,7 @@ func (self *LockDB) RestructuringLongExpriedQueue() {
                         if lock == nil {
                             continue
                         }
+                        long_locks.locks.queues[j][k] = nil
 
                         lock.long_wait_index = uint64(long_locks.locks.tail_node_index) << 32 | uint64(long_locks.locks.tail_queue_index + 1)
                         if long_locks.locks.Push(lock) != nil {
@@ -731,6 +734,7 @@ func (self *LockDB) RestructuringLongExpriedQueue() {
                     if lock == nil {
                         continue
                     }
+                    long_locks.locks.queues[tail_node_index][k] = nil
 
                     lock.long_wait_index = uint64(long_locks.locks.tail_node_index) << 32 | uint64(long_locks.locks.tail_queue_index + 1)
                     if long_locks.locks.Push(lock) != nil {

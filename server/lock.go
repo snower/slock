@@ -240,6 +240,7 @@ func (self *LockManager) GetOrNewLock(protocol ServerProtocol, command *protocol
     }
     lock.timeout_checked_count = 1
     lock.expried_checked_count = 1
+    lock.long_wait_index = 0
     self.ref_count++
     return lock
 }
