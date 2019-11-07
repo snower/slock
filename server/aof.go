@@ -4,7 +4,6 @@ import (
     "bufio"
     "errors"
     "fmt"
-    "github.com/snower/slock/protocol"
     "io"
     "math/rand"
     "os"
@@ -32,6 +31,7 @@ type AofLock struct {
     ExpriedTime     uint16
     Count           uint16
     Rcount          uint8
+    LockType        uint8
 }
 
 type AofFile struct {
@@ -260,9 +260,11 @@ func (self *AofFile) GetSize() int {
 
 type AofChannel struct {
     slock           *SLock
+    glock           *sync.Mutex
     aof             *Aof
     lock_db         *LockDB
     channel         chan *AofLock
+    server_protocol ServerProtocol
     free_locks      []*AofLock
     free_lock_index int32
     free_lock_max   int32
@@ -275,10 +277,16 @@ func (self *AofChannel) Push(lock *Lock, command_type uint8) error {
         return errors.New("Closed")
     }
 
-    var aof_lock *AofLock
-    free_lock_index := self.free_lock_index
-    if free_lock_index >= 0 && atomic.CompareAndSwapInt32(&self.free_lock_index, free_lock_index, free_lock_index - 1) {
-        aof_lock = self.free_locks[free_lock_index]
+    var aof_lock *AofLock = nil
+
+    self.glock.Lock()
+    if self.free_lock_index > 0 {
+        self.free_lock_index--
+        aof_lock = self.free_locks[self.free_lock_index]
+    }
+    self.glock.Unlock()
+
+    if aof_lock != nil {
         aof_lock.CommandType = command_type
         aof_lock.StartTime = uint64(lock.start_time)
         aof_lock.Flag = lock.command.Flag
@@ -299,9 +307,46 @@ func (self *AofChannel) Push(lock *Lock, command_type uint8) error {
             expried_time = uint16(lock.expried_time - lock.start_time)
         }
         aof_lock = &AofLock{command_type, 0, 0, uint64(lock.start_time), lock.command.Flag, lock.manager.db_id,  lock.command.LockId,
-            lock.command.LockKey, lock.command.ExpriedFlag & 0x4800, expried_time, lock.command.Count, lock.command.Rcount}
+            lock.command.LockKey, lock.command.ExpriedFlag & 0x4800, expried_time, lock.command.Count, lock.command.Rcount, 0}
     }
 
+    aof_lock.LockType = 0
+    self.channel <- aof_lock
+    return nil
+}
+
+func (self *AofChannel) Load(lock *AofLock) error {
+    if self.is_stop {
+        return errors.New("Closed")
+    }
+
+    var aof_lock *AofLock = nil
+    self.glock.Lock()
+    if self.free_lock_index > 0 {
+        self.free_lock_index--
+        aof_lock = self.free_locks[self.free_lock_index]
+    }
+    self.glock.Unlock()
+
+    if aof_lock != nil {
+        aof_lock.CommandType = lock.CommandType
+        aof_lock.AofIndex = lock.AofIndex
+        aof_lock.AofId = lock.AofId
+        aof_lock.StartTime = lock.StartTime
+        aof_lock.Flag = lock.Flag
+        aof_lock.DbId = lock.DbId
+        aof_lock.LockId = lock.LockId
+        aof_lock.LockKey = lock.LockKey
+        aof_lock.ExpriedFlag = lock.ExpriedFlag
+        aof_lock.ExpriedTime = lock.ExpriedTime
+        aof_lock.Count = lock.Count
+        aof_lock.Rcount = lock.Rcount
+    } else {
+        aof_lock = &AofLock{lock.CommandType, lock.AofIndex, lock.AofId, lock.StartTime, lock.Flag, lock.DbId,  lock.LockId,
+            lock.LockKey, lock.ExpriedFlag, lock.ExpriedTime, lock.Count, lock.Rcount, 0}
+    }
+
+    aof_lock.LockType = 1
     self.channel <- aof_lock
     return nil
 }
@@ -316,24 +361,18 @@ func (self *AofChannel) Handle() {
                 continue
             }
 
-            self.aof.PushLock(aof_lock)
-            free_lock_index := self.free_lock_index
-            if self.free_lock_index < self.free_lock_max && atomic.CompareAndSwapInt32(&self.free_lock_index, free_lock_index, free_lock_index + 1) {
-                self.free_locks[free_lock_index+1] = aof_lock
-            }
+            self.HandleLock(aof_lock)
         default:
             self.aof.ChannelUnActive(self)
             if self.closed {
-                self.is_stop = true
-                self.aof.ChannelStop(self)
+                self.DoStop()
                 return
             }
 
             aof_lock := <- self.channel
             if aof_lock == nil {
                 if self.closed {
-                    self.is_stop = true
-                    self.aof.ChannelStop(self)
+                    self.DoStop()
                     return
                 }
                 self.aof.ChannelActive(self)
@@ -341,36 +380,80 @@ func (self *AofChannel) Handle() {
             }
 
             self.aof.ChannelActive(self)
-            self.aof.PushLock(aof_lock)
-            free_lock_index := self.free_lock_index
-            if self.free_lock_index < self.free_lock_max && atomic.CompareAndSwapInt32(&self.free_lock_index, free_lock_index, free_lock_index + 1) {
-                self.free_locks[free_lock_index+1] = aof_lock
-            }
+            self.HandleLock(aof_lock)
         }
     }
 }
 
+func (self *AofChannel) HandleLock(aof_lock *AofLock)  {
+    if aof_lock.LockType == 0 {
+        self.aof.PushLock(aof_lock)
+        self.glock.Lock()
+        if self.free_lock_index < self.free_lock_max {
+            self.free_locks[self.free_lock_index] = aof_lock
+            self.free_lock_index++
+        }
+        self.glock.Unlock()
+        return
+    }
+
+    expried_time := uint16(0)
+    if aof_lock.ExpriedFlag & 0x4000 == 0 {
+        expried_time = uint16(int64(aof_lock.StartTime + uint64(aof_lock.ExpriedTime)) - self.lock_db.current_time)
+    }
+
+    lock_command := self.server_protocol.GetLockCommand()
+    lock_command.CommandType = aof_lock.CommandType
+    lock_command.RequestId = self.aof.GetRequestId()
+    lock_command.Flag = aof_lock.Flag
+    lock_command.DbId = aof_lock.DbId
+    lock_command.LockId = aof_lock.LockId
+    lock_command.LockKey = aof_lock.LockKey
+    lock_command.TimeoutFlag = 0
+    lock_command.Timeout = 5
+    lock_command.ExpriedFlag = aof_lock.ExpriedFlag | 0x1200
+    lock_command.Expried = expried_time
+    lock_command.Count = aof_lock.Count
+    lock_command.Rcount = aof_lock.Rcount
+    self.server_protocol.ProcessLockCommand(lock_command)
+    self.glock.Lock()
+    if self.free_lock_index < self.free_lock_max {
+        self.free_locks[self.free_lock_index] = aof_lock
+        self.free_lock_index++
+    }
+    self.glock.Unlock()
+}
+
+func (self *AofChannel) DoStop()  {
+    self.is_stop = true
+    self.server_protocol.Close()
+    self.lock_db = nil
+    self.aof.ChannelStop(self)
+}
+
 type Aof struct {
-    slock                   *SLock
-    glock                   *sync.Mutex
-    data_dir                string
-    aof_file_index          uint32
-    aof_file                *AofFile
-    aof_file_glock          *sync.Mutex
-    channels                []*AofChannel
-    channel_count           uint32
-    actived_channel_count   uint32
-    close_waiter            chan bool
-    rewrite_size            uint32
-    is_rewriting            bool
-    is_stop                 bool
-    aof_lock_count          uint64
-    aof_id                  uint32
+    slock                       *SLock
+    glock                       *sync.Mutex
+    data_dir                    string
+    aof_file_index              uint32
+    aof_file                    *AofFile
+    aof_file_glock              *sync.Mutex
+    channels                    []*AofChannel
+    channel_count               uint32
+    actived_channel_count       uint32
+    stoped_channel_waiter       chan bool
+    unactived_channel_waiter    chan bool
+    rewrited_waiter             chan bool
+    rewrite_size                uint32
+    aof_lock_count              uint64
+    aof_id                      uint32
+    is_rewriting                bool
+    is_stop                     bool
 }
 
 func NewAof() *Aof {
     return &Aof{nil, &sync.Mutex{}, "",0, nil, &sync.Mutex{}, make([]*AofChannel, 0),
-        0, 0, nil, 0, false, false, 0, 0}
+        0, 0, nil, nil, nil, 0, 0, 0, false, false}
 }
 
 func (self *Aof) LoadAndInit() error {
@@ -406,11 +489,8 @@ func (self *Aof) LoadAndInit() error {
     self.aof_file_index++
     self.slock.Log().Infof("Aof File Create %s", self.aof_file.filename)
 
-    server_protocol := &BinaryServerProtocol{self.slock, &sync.Mutex{}, nil, [16]byte{}, NewLockCommandQueue(4, 16, 256),
-        NewLockCommandQueue(4, 16, 256), make([]byte, 64), make([]byte, 64), 0, false, true}
-
     if rewrite_file != "" {
-        err := self.LoadAofFile(rewrite_file, server_protocol)
+        err := self.LoadAofFile(rewrite_file)
         if err != nil {
             return err
         }
@@ -418,13 +498,17 @@ func (self *Aof) LoadAndInit() error {
     }
 
     for _, append_file := range append_files {
-        err := self.LoadAofFile(append_file, server_protocol)
+        err := self.LoadAofFile(append_file)
         if err != nil {
             return err
         }
         self.slock.Log().Infof("Aof File Load %s", filepath.Join(self.data_dir, append_file))
     }
 
+    if self.actived_channel_count > 0 {
+        self.unactived_channel_waiter = make(chan bool, 1)
+        <- self.unactived_channel_waiter
+    }
     if len(append_files) > 0 {
         go self.RewriteAofFile()
     }
@@ -460,7 +544,7 @@ func (self *Aof) FindAofFiles() ([]string, string, error) {
     return append_files, rewrite_file, nil
 }
 
-func (self *Aof) LoadAofFile(filename string, server_protocol *BinaryServerProtocol) error {
+func (self *Aof) LoadAofFile(filename string) error {
     aof_file := NewAofFile(self, filepath.Join(self.data_dir, filename), os.O_RDONLY, int(Config.AofFileBufferSize))
     err := aof_file.Open()
     if err != nil {
@@ -479,18 +563,13 @@ func (self *Aof) LoadAofFile(filename string, server_protocol *BinaryServerProto
             return err
         }
 
-        expried_time := uint16(0)
         if lock.ExpriedFlag & 0x4000 == 0 {
             if int64(lock.StartTime + uint64(lock.ExpriedTime)) <= now {
                 continue
             }
-            expried_time = uint16(int64(lock.StartTime + uint64(lock.ExpriedTime)) - now)
         }
 
-        command := &protocol.LockCommand{Command: protocol.Command{Magic: protocol.MAGIC, Version: protocol.VERSION, CommandType: lock.CommandType, RequestId: self.GetRequestId()},
-            Flag: lock.Flag, DbId: lock.DbId, LockId: lock.LockId, LockKey: lock.LockKey, TimeoutFlag: 0, Timeout: 5,
-            ExpriedFlag: lock.ExpriedFlag | 0x1200, Expried: expried_time, Count: lock.Count, Rcount: lock.Rcount}
-        err = server_protocol.ProcessLockCommand(command)
+        err = self.LoadLock(lock)
         if err != nil {
             return err
         }
@@ -506,11 +585,11 @@ func (self *Aof) Close()  {
 
     self.is_stop = true
     if self.channel_count > 0 {
-        self.close_waiter = make(chan bool, 1)
+        self.stoped_channel_waiter = make(chan bool, 1)
         self.glock.Unlock()
-        <- self.close_waiter
+        <- self.stoped_channel_waiter
         self.glock.Lock()
-        self.close_waiter = nil
+        self.stoped_channel_waiter = nil
     }
     self.glock.Unlock()
 
@@ -522,7 +601,9 @@ func (self *Aof) Close()  {
 
 func (self *Aof) NewAofChannel(lock_db *LockDB) *AofChannel {
     self.glock.Lock()
-    aof_channel := &AofChannel{self.slock, self, lock_db, make(chan *AofLock, Config.AofQueueSize), make([]*AofLock, Config.AofQueueSize), 63, int32(Config.AofQueueSize - 1), false, false}
+    aof_channel := &AofChannel{self.slock, &sync.Mutex{}, self, lock_db, make(chan *AofLock, Config.AofQueueSize),
+        NewMemWaiterServerProtocol(self.slock), make([]*AofLock, Config.AofQueueSize), 64, int32(Config.AofQueueSize),
+        false, false}
     for i :=0; i < 64; i++ {
         aof_channel.free_locks[i] = &AofLock{}
     }
@@ -536,7 +617,6 @@ func (self *Aof) CloseAofChannel(aof_channel *AofChannel) *AofChannel {
     self.glock.Lock()
     aof_channel.channel <- nil
     aof_channel.closed = true
-    aof_channel.lock_db = nil
     self.glock.Unlock()
     return aof_channel
 }
@@ -560,6 +640,10 @@ func (self *Aof) ChannelUnActive(channel *AofChannel) {
 
     self.aof_file_glock.Lock()
     self.Flush()
+    if self.unactived_channel_waiter != nil {
+        self.unactived_channel_waiter <- true
+        self.unactived_channel_waiter = nil
+    }
     self.aof_file_glock.Unlock()
 }
 
@@ -567,11 +651,22 @@ func (self *Aof) ChannelStop(channel *AofChannel) {
     self.glock.Lock()
     self.channel_count--
     if self.channel_count <= 0 {
-        if self.is_stop && self.close_waiter != nil {
-            self.close_waiter <- true
+        if self.is_stop && self.stoped_channel_waiter != nil {
+            self.stoped_channel_waiter <- true
+            self.stoped_channel_waiter = nil
         }
     }
     self.glock.Unlock()
+}
+
+func (self *Aof) LoadLock(lock *AofLock) error {
+    db := self.slock.dbs[lock.DbId]
+    if db == nil {
+        db = self.slock.GetOrNewDB(lock.DbId)
+    }
+
+    aof_channel := db.aof_channels[int8(lock.LockKey[3] ^ lock.LockKey[15]) % db.manager_max_glocks]
+    return aof_channel.Load(lock)
 }
 
 func (self *Aof) PushLock(lock *AofLock) {
@@ -638,12 +733,16 @@ func (self *Aof) RewriteAofFile() {
         self.glock.Unlock()
         return
     }
+
     self.is_rewriting = true
     self.glock.Unlock()
 
     defer func() {
         self.glock.Lock()
         self.is_rewriting = false
+        if self.rewrited_waiter != nil {
+            self.rewrited_waiter <- true
+        }
         self.glock.Unlock()
     }()
 

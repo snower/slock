@@ -37,6 +37,181 @@ type ServerProtocol interface {
     FreeLockCommandLocked(command *protocol.LockCommand) error
 }
 
+type MemWaiterServerProtocol struct {
+    slock                       *SLock
+    glock                       *sync.Mutex
+    free_commands               *LockCommandQueue
+    waiters                     map[[16]byte]chan *protocol.LockResultCommand
+    closed                      bool
+}
+
+func NewMemWaiterServerProtocol(slock *SLock) *MemWaiterServerProtocol {
+    mem_waiter_server_protocol := &MemWaiterServerProtocol{slock, &sync.Mutex{}, NewLockCommandQueue(4, 64, FREE_COMMAND_QUEUE_INIT_SIZE),
+        make(map[[16]byte]chan *protocol.LockResultCommand, 4096), false}
+    mem_waiter_server_protocol.InitLockCommand()
+    return mem_waiter_server_protocol
+}
+
+func (self *MemWaiterServerProtocol) Init(client_id [16]byte) error {
+    return nil
+}
+
+func (self *MemWaiterServerProtocol) Lock() {
+    self.glock.Lock()
+}
+
+func (self *MemWaiterServerProtocol) Unlock() {
+    self.glock.Unlock()
+}
+
+func (self *MemWaiterServerProtocol) Read() (protocol.CommandDecode, error) {
+    return nil, errors.New("read error")
+}
+
+func (self *MemWaiterServerProtocol) Write(protocol.CommandEncode) (error) {
+    return errors.New("write error")
+}
+
+func (self *MemWaiterServerProtocol) Process() error {
+    return nil
+}
+
+func (self *MemWaiterServerProtocol) ProcessParse(buf []byte) error {
+    return nil
+}
+
+func (self *MemWaiterServerProtocol) ProcessBuild(command protocol.ICommand) error {
+    return nil
+}
+
+func (self *MemWaiterServerProtocol) ProcessCommad(command protocol.ICommand) error {
+    return nil
+}
+
+func (self *MemWaiterServerProtocol) ProcessLockCommand(lock_command *protocol.LockCommand) error {
+    db := self.slock.dbs[lock_command.DbId]
+    if lock_command.CommandType == protocol.COMMAND_LOCK {
+        if db == nil {
+            db = self.slock.GetOrNewDB(lock_command.DbId)
+        }
+        return db.Lock(self, lock_command)
+    }
+
+    if db == nil {
+        return self.ProcessLockResultCommand(lock_command, protocol.RESULT_UNKNOWN_DB, 0, 0)
+    }
+    return db.UnLock(self, lock_command)
+}
+
+func (self *MemWaiterServerProtocol)ProcessLockResultCommand(command *protocol.LockCommand, result uint8, lcount uint16, lrcount uint8) error {
+    self.glock.Lock()
+    if waiter, ok := self.waiters[command.RequestId]; ok {
+        waiter <- protocol.NewLockResultCommand(command, result, 0, lcount, command.Count, lrcount, command.Rcount)
+        delete(self.waiters, command.RequestId)
+    }
+    self.glock.Unlock()
+    return nil
+}
+
+func (self *MemWaiterServerProtocol) ProcessLockResultCommandLocked(command *protocol.LockCommand, result uint8, lcount uint16, lrcount uint8) error {
+    return self.ProcessLockResultCommand(command, result, lcount, lrcount)
+}
+
+func (self *MemWaiterServerProtocol) Close() (error) {
+    self.UnInitLockCommand()
+    self.closed = true
+    return nil
+}
+
+func (self *MemWaiterServerProtocol) GetStream() *Stream {
+    return nil
+}
+
+func (self *MemWaiterServerProtocol)RemoteAddr() net.Addr {
+    return &net.TCPAddr{IP: []byte("0.0.0.0"), Port: 0, Zone: ""}
+}
+
+func (self *MemWaiterServerProtocol) InitLockCommand() {
+    self.slock.free_lock_command_lock.Lock()
+    lock_command := self.slock.free_lock_commands.PopRight()
+    if lock_command != nil {
+        self.slock.free_lock_command_count--
+        self.free_commands.Push(lock_command)
+    } else {
+        self.free_commands.Push(&protocol.LockCommand{})
+    }
+    self.slock.free_lock_command_lock.Unlock()
+}
+
+func (self *MemWaiterServerProtocol) UnInitLockCommand() {
+    self.slock.free_lock_command_lock.Lock()
+    for ;; {
+        command := self.free_commands.PopRight()
+        if command == nil {
+            break
+        }
+        self.slock.free_lock_commands.Push(command)
+        self.slock.free_lock_command_count++
+    }
+    self.slock.free_lock_command_lock.Unlock()
+}
+
+func (self *MemWaiterServerProtocol) GetLockCommand() *protocol.LockCommand {
+    lock_command := self.free_commands.PopRight()
+    if lock_command == nil {
+        self.slock.free_lock_command_lock.Lock()
+        lock_command := self.slock.free_lock_commands.PopRight()
+        if lock_command != nil {
+            self.slock.free_lock_command_count--
+            self.slock.free_lock_command_lock.Unlock()
+            return lock_command
+        }
+        self.slock.free_lock_command_lock.Unlock()
+        return &protocol.LockCommand{}
+    }
+    return lock_command
+}
+
+func (self *MemWaiterServerProtocol) FreeLockCommand(command *protocol.LockCommand) error {
+    self.glock.Lock()
+    self.free_commands.Push(command)
+    self.glock.Unlock()
+    return nil
+}
+
+func (self *MemWaiterServerProtocol) FreeLockCommandLocked(command *protocol.LockCommand) error {
+    self.glock.Lock()
+    if self.closed {
+        self.slock.free_lock_command_lock.Lock()
+        self.slock.free_lock_commands.Push(command)
+        self.slock.free_lock_command_count++
+        self.slock.free_lock_command_lock.Unlock()
+    } else {
+        self.free_commands.Push(command)
+    }
+    self.glock.Unlock()
+    return nil
+}
+
+func (self *MemWaiterServerProtocol) AddWaiter(command *protocol.LockCommand, waiter chan *protocol.LockResultCommand) error {
+    self.glock.Lock()
+    if owaiter, ok := self.waiters[command.RequestId]; ok {
+        owaiter <- nil
+    }
+    self.waiters[command.RequestId] = waiter
+    self.glock.Unlock()
+    return nil
+}
+
+func (self *MemWaiterServerProtocol) RemoveWaiter(command *protocol.LockCommand) error {
+    self.glock.Lock()
+    if _, ok := self.waiters[command.RequestId]; ok {
+        delete(self.waiters, command.RequestId)
+    }
+    self.glock.Unlock()
+    return nil
+}
+
 type BinaryServerProtocol struct {
     slock                       *SLock
     glock                       *sync.Mutex
