@@ -665,7 +665,7 @@ func (self *Aof) LoadLock(lock *AofLock) error {
         db = self.slock.GetOrNewDB(lock.DbId)
     }
 
-    aof_channel := db.aof_channels[int8(lock.LockKey[3] ^ lock.LockKey[15]) % db.manager_max_glocks]
+    aof_channel := db.aof_channels[uint8(lock.LockKey[3] ^ lock.LockKey[15]) % uint8(db.manager_max_glocks)]
     return aof_channel.Load(lock)
 }
 
