@@ -47,7 +47,7 @@ func (self *AofLock) Decode() error {
 
     self.CommandType = buf[2]
 
-    self.AofIndex, self.AofId = uint32(buf[3]) | uint32(buf[4])<<8 | uint32(buf[5])<<16 | uint32(buf[6])<<24, uint32(buf[7]) | uint32(buf[8])<<8 | uint32(buf[9])<<16 | uint32(buf[10])<<24
+    self.AofId, self.AofIndex = uint32(buf[3]) | uint32(buf[4])<<8 | uint32(buf[5])<<16 | uint32(buf[6])<<24, uint32(buf[7]) | uint32(buf[8])<<8 | uint32(buf[9])<<16 | uint32(buf[10])<<24
     self.StartTime = uint64(buf[11]) | uint64(buf[12])<<8 | uint64(buf[13])<<16 | uint64(buf[14])<<24 | uint64(buf[15])<<32 | uint64(buf[16])<<40 | uint64(buf[17])<<48 | uint64(buf[18])<<56
 
     self.Flag, self.DbId = buf[19], buf[20]
@@ -63,7 +63,7 @@ func (self *AofLock) Decode() error {
         buf[45], buf[46], buf[47], buf[48], buf[49], buf[50], buf[51], buf[52]
 
 
-    self.ExpriedFlag, self.ExpriedTime = uint16(buf[57])|uint16(buf[58])<<8, uint16(buf[59])|uint16(buf[60])<<8
+    self.ExpriedTime, self.ExpriedFlag = uint16(buf[57])|uint16(buf[58])<<8, uint16(buf[59])|uint16(buf[60])<<8
 
     self.Count = uint16(buf[61]) | uint16(buf[62])<<8
     self.Rcount = buf[63]
@@ -79,7 +79,7 @@ func (self *AofLock) Encode() error {
 
     buf[2] = self.CommandType
 
-    buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10] = byte(self.AofIndex), byte(self.AofIndex >> 8), byte(self.AofIndex >> 16), byte(self.AofIndex >> 24), byte(self.AofId), byte(self.AofId >> 8), byte(self.AofId >> 16), byte(self.AofId >> 24)
+    buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10] = byte(self.AofId), byte(self.AofId >> 8), byte(self.AofId >> 16), byte(self.AofId >> 24), byte(self.AofIndex), byte(self.AofIndex >> 8), byte(self.AofIndex >> 16), byte(self.AofIndex >> 24)
     buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18] = byte(self.StartTime), byte(self.StartTime >> 8), byte(self.StartTime >> 16), byte(self.StartTime >> 24), byte(self.StartTime >> 32), byte(self.StartTime >> 40), byte(self.StartTime >> 48), byte(self.StartTime >> 56)
 
     buf[19], buf[20] = self.Flag, self.DbId
@@ -94,7 +94,7 @@ func (self *AofLock) Encode() error {
         self.LockKey[0], self.LockKey[1], self.LockKey[2], self.LockKey[3], self.LockKey[4], self.LockKey[5], self.LockKey[6], self.LockKey[7],
         self.LockKey[8], self.LockKey[9], self.LockKey[10], self.LockKey[11], self.LockKey[12], self.LockKey[13], self.LockKey[14], self.LockKey[15]
 
-    buf[53], buf[54], buf[55], buf[56], buf[57], buf[58], buf[59], buf[60] = 0, 0, 0, 0, byte(self.ExpriedFlag), byte(self.ExpriedFlag >> 8), byte(self.ExpriedTime), byte(self.ExpriedTime >> 8)
+    buf[53], buf[54], buf[55], buf[56], buf[57], buf[58], buf[59], buf[60] = 0, 0, 0, 0, byte(self.ExpriedTime), byte(self.ExpriedTime >> 8), byte(self.ExpriedFlag), byte(self.ExpriedFlag >> 8)
 
     buf[61], buf[62] = byte(self.Count), byte(self.Count >> 8)
     buf[63] = self.Rcount
@@ -111,7 +111,7 @@ func (self *AofLock) UpdateAofIndexId(aof_index uint32, aof_id uint32) error {
         return errors.New("Buffer Len error")
     }
 
-    buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10] = byte(self.AofIndex), byte(self.AofIndex >> 8), byte(self.AofIndex >> 16), byte(self.AofIndex >> 24), byte(self.AofId), byte(self.AofId >> 8), byte(self.AofId >> 16), byte(self.AofId >> 24)
+    buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10] = byte(self.AofId), byte(self.AofId >> 8), byte(self.AofId >> 16), byte(self.AofId >> 24), byte(self.AofIndex), byte(self.AofIndex >> 8), byte(self.AofIndex >> 16), byte(self.AofIndex >> 24)
     return nil
 }
 
