@@ -945,21 +945,20 @@ func (self *LockDB) AddTimeOut(lock *Lock){
     lock.timeouted = false
 
     if lock.timeout_checked_count > TIMEOUT_QUEUE_MAX_WAIT {
-        lock_timeout_time := lock.timeout_time
-        if lock_timeout_time < self.check_timeout_time {
-            lock_timeout_time = self.check_timeout_time
+        if lock.timeout_time < self.check_timeout_time {
+            lock.timeout_time = self.check_timeout_time
         }
 
-        if long_locks, ok := self.long_timeout_locks[lock.manager.glock_index][lock_timeout_time]; !ok {
+        if long_locks, ok := self.long_timeout_locks[lock.manager.glock_index][lock.timeout_time]; !ok {
             free_long_wait_queue := self.free_long_wait_queues[lock.manager.glock_index]
             if free_long_wait_queue.free_index < 0 {
-                long_locks = &LongWaitLockQueue{NewLockQueue(2, 64, LONG_LOCKS_QUEUE_INIT_SIZE), lock_timeout_time, 0, lock.manager.glock_index}
+                long_locks = &LongWaitLockQueue{NewLockQueue(2, 64, LONG_LOCKS_QUEUE_INIT_SIZE), lock.timeout_time, 0, lock.manager.glock_index}
             } else {
                 long_locks = free_long_wait_queue.queues[free_long_wait_queue.free_index]
                 free_long_wait_queue.free_index--
-                long_locks.lock_time = lock_timeout_time
+                long_locks.lock_time = lock.timeout_time
             }
-            self.long_timeout_locks[lock.manager.glock_index][lock_timeout_time] = long_locks
+            self.long_timeout_locks[lock.manager.glock_index][lock.timeout_time] = long_locks
             lock.long_wait_index = uint64(long_locks.locks.tail_node_index) << 32 | uint64(long_locks.locks.tail_queue_index + 1)
             if long_locks.locks.Push(lock) != nil {
                 lock.long_wait_index = 0
@@ -1066,21 +1065,20 @@ func (self *LockDB) AddExpried(lock *Lock){
     lock.expried = false
 
     if lock.expried_checked_count > EXPRIED_QUEUE_MAX_WAIT {
-        lock_expried_time := lock.expried_time
-        if lock_expried_time < self.check_expried_time {
-            lock_expried_time = self.check_expried_time
+        if lock.expried_time < self.check_expried_time {
+            lock.expried_time = self.check_expried_time
         }
 
-        if long_locks, ok := self.long_expried_locks[lock.manager.glock_index][lock_expried_time]; !ok {
+        if long_locks, ok := self.long_expried_locks[lock.manager.glock_index][lock.expried_time]; !ok {
             free_long_wait_queue := self.free_long_wait_queues[lock.manager.glock_index]
             if free_long_wait_queue.free_index < 0 {
-                long_locks = &LongWaitLockQueue{NewLockQueue(2, 64, LONG_LOCKS_QUEUE_INIT_SIZE), lock_expried_time, 0, lock.manager.glock_index}
+                long_locks = &LongWaitLockQueue{NewLockQueue(2, 64, LONG_LOCKS_QUEUE_INIT_SIZE), lock.expried_time, 0, lock.manager.glock_index}
             } else {
                 long_locks = free_long_wait_queue.queues[free_long_wait_queue.free_index]
                 free_long_wait_queue.free_index--
-                long_locks.lock_time = lock_expried_time
+                long_locks.lock_time = lock.expried_time
             }
-            self.long_expried_locks[lock.manager.glock_index][lock_expried_time] = long_locks
+            self.long_expried_locks[lock.manager.glock_index][lock.expried_time] = long_locks
             lock.long_wait_index = uint64(long_locks.locks.tail_node_index) << 32 | uint64(long_locks.locks.tail_queue_index + 1)
             if long_locks.locks.Push(lock) != nil {
                 lock.long_wait_index = 0

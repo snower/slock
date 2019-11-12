@@ -169,7 +169,7 @@ func (self *LockManager) UpdateLockedLock(lock *Lock, timeout uint16, timeout_fl
     }
 
     if lock.is_aof {
-        self.lock_db.aof_channels[self.glock_index].Push(lock, protocol.COMMAND_LOCK)
+        self.PushLockAof(lock)
     }
 }
 
