@@ -66,11 +66,6 @@ func (self *LockManager) AddLock(lock *Lock) *Lock {
 
 func (self *LockManager) RemoveLock(lock *Lock) *Lock {
     lock.locked = 0
-    if lock.is_aof {
-        if self.lock_db.aof_channels[self.glock_index].Push(lock, protocol.COMMAND_UNLOCK) == nil {
-            lock.is_aof = false
-        }
-    }
 
     if self.current_lock == lock {
         self.current_lock = nil
@@ -204,6 +199,23 @@ func (self *LockManager) GetWaitLock() *Lock {
         return lock
     }
     return nil
+}
+
+func (self *LockManager) PushLockAof(lock *Lock)  {
+    if self.lock_db.aof_channels[self.glock_index].Push(lock, protocol.COMMAND_LOCK) != nil {
+        self.lock_db.slock.Log().Errorf("Lock Push Aof Lock Error DbId:%d LockKey:%x LockId:%x",
+            lock.command.DbId, lock.command.LockKey, lock.command.LockId)
+        return
+    }
+    lock.is_aof = true
+}
+
+func (self *LockManager) PushUnLockAof(lock *Lock)  {
+    if self.lock_db.aof_channels[self.glock_index].Push(lock, protocol.COMMAND_UNLOCK) != nil {
+        self.lock_db.slock.Log().Errorf("Lock Push Aof Unlock Error DbId:%d LockKey:%x LockId:%x",
+            lock.command.DbId, lock.command.LockKey, lock.command.LockId)
+    }
+    lock.is_aof = false
 }
 
 func (self *LockManager) FreeLock(lock *Lock) *Lock{

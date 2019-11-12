@@ -22,11 +22,13 @@ type AofLock struct {
     CommandType     uint8
     AofIndex        uint32
     AofId           uint32
-    StartTime       uint64
+    CommandTime     uint64
     Flag            uint8
     DbId            uint8
     LockId          [16]byte
     LockKey         [16]byte
+    AofFlag         uint16
+    StartTime       uint16
     ExpriedFlag     uint16
     ExpriedTime     uint16
     Count           uint16
@@ -48,7 +50,7 @@ func (self *AofLock) Decode() error {
     self.CommandType = buf[2]
 
     self.AofId, self.AofIndex = uint32(buf[3]) | uint32(buf[4])<<8 | uint32(buf[5])<<16 | uint32(buf[6])<<24, uint32(buf[7]) | uint32(buf[8])<<8 | uint32(buf[9])<<16 | uint32(buf[10])<<24
-    self.StartTime = uint64(buf[11]) | uint64(buf[12])<<8 | uint64(buf[13])<<16 | uint64(buf[14])<<24 | uint64(buf[15])<<32 | uint64(buf[16])<<40 | uint64(buf[17])<<48 | uint64(buf[18])<<56
+    self.CommandTime = uint64(buf[11]) | uint64(buf[12])<<8 | uint64(buf[13])<<16 | uint64(buf[14])<<24 | uint64(buf[15])<<32 | uint64(buf[16])<<40 | uint64(buf[17])<<48 | uint64(buf[18])<<56
 
     self.Flag, self.DbId = buf[19], buf[20]
 
@@ -63,7 +65,7 @@ func (self *AofLock) Decode() error {
         buf[45], buf[46], buf[47], buf[48], buf[49], buf[50], buf[51], buf[52]
 
 
-    self.ExpriedTime, self.ExpriedFlag = uint16(buf[57])|uint16(buf[58])<<8, uint16(buf[59])|uint16(buf[60])<<8
+    self.StartTime, self.AofFlag, self.ExpriedTime, self.ExpriedFlag = uint16(buf[53])|uint16(buf[54])<<8, uint16(buf[55])|uint16(buf[56])<<8, uint16(buf[57])|uint16(buf[58])<<8, uint16(buf[59])|uint16(buf[60])<<8
 
     self.Count = uint16(buf[61]) | uint16(buf[62])<<8
     self.Rcount = buf[63]
@@ -80,7 +82,7 @@ func (self *AofLock) Encode() error {
     buf[2] = self.CommandType
 
     buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10] = byte(self.AofId), byte(self.AofId >> 8), byte(self.AofId >> 16), byte(self.AofId >> 24), byte(self.AofIndex), byte(self.AofIndex >> 8), byte(self.AofIndex >> 16), byte(self.AofIndex >> 24)
-    buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18] = byte(self.StartTime), byte(self.StartTime >> 8), byte(self.StartTime >> 16), byte(self.StartTime >> 24), byte(self.StartTime >> 32), byte(self.StartTime >> 40), byte(self.StartTime >> 48), byte(self.StartTime >> 56)
+    buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18] = byte(self.CommandTime), byte(self.CommandTime >> 8), byte(self.CommandTime >> 16), byte(self.CommandTime >> 24), byte(self.CommandTime >> 32), byte(self.CommandTime >> 40), byte(self.CommandTime >> 48), byte(self.CommandTime >> 56)
 
     buf[19], buf[20] = self.Flag, self.DbId
 
@@ -94,7 +96,7 @@ func (self *AofLock) Encode() error {
         self.LockKey[0], self.LockKey[1], self.LockKey[2], self.LockKey[3], self.LockKey[4], self.LockKey[5], self.LockKey[6], self.LockKey[7],
         self.LockKey[8], self.LockKey[9], self.LockKey[10], self.LockKey[11], self.LockKey[12], self.LockKey[13], self.LockKey[14], self.LockKey[15]
 
-    buf[53], buf[54], buf[55], buf[56], buf[57], buf[58], buf[59], buf[60] = 0, 0, 0, 0, byte(self.ExpriedTime), byte(self.ExpriedTime >> 8), byte(self.ExpriedFlag), byte(self.ExpriedFlag >> 8)
+    buf[53], buf[54], buf[55], buf[56], buf[57], buf[58], buf[59], buf[60] = byte(self.StartTime), byte(self.StartTime >> 8), byte(self.AofFlag), byte(self.AofFlag >> 8), byte(self.ExpriedTime), byte(self.ExpriedTime >> 8), byte(self.ExpriedFlag), byte(self.ExpriedFlag >> 8)
 
     buf[61], buf[62] = byte(self.Count), byte(self.Count >> 8)
     buf[63] = self.Rcount
@@ -324,26 +326,44 @@ func (self *AofChannel) Push(lock *Lock, command_type uint8) error {
         aof_lock.CommandType = command_type
         aof_lock.AofIndex = 0
         aof_lock.AofId = 0
-        aof_lock.StartTime = uint64(lock.start_time)
+        if lock.expried_time > self.lock_db.current_time {
+            aof_lock.CommandTime = uint64(self.lock_db.current_time)
+        } else {
+            aof_lock.CommandTime = uint64(lock.expried_time)
+        }
         aof_lock.Flag = lock.command.Flag
         aof_lock.DbId = lock.manager.db_id
         aof_lock.LockId = lock.command.LockId
         aof_lock.LockKey = lock.command.LockKey
+        aof_lock.AofFlag = 0
+        if aof_lock.CommandTime - uint64(lock.start_time) > 0xffff {
+            aof_lock.StartTime = 0
+        } else {
+            aof_lock.StartTime = uint16(aof_lock.CommandTime - uint64(lock.start_time))
+        }
         aof_lock.ExpriedFlag = lock.command.ExpriedFlag & 0x4800
         if lock.command.ExpriedFlag & 0x4000 == 0 {
-            aof_lock.ExpriedTime = uint16(lock.expried_time - lock.start_time)
+            aof_lock.ExpriedTime = uint16(uint64(lock.expried_time) - aof_lock.CommandTime)
         } else {
             aof_lock.ExpriedTime = 0
         }
         aof_lock.Count = lock.command.Count
         aof_lock.Rcount = lock.command.Rcount
     } else {
+        command_time := self.lock_db.current_time
+        if lock.expried_time <= command_time {
+            command_time = lock.expried_time
+        }
+        start_time := uint16(0)
+        if command_time - lock.start_time <= 0xffff {
+            start_time = uint16(command_time - lock.start_time)
+        }
         expried_time := uint16(0)
         if lock.command.ExpriedFlag & 0x4000 == 0 {
-            expried_time = uint16(lock.expried_time - lock.start_time)
+            expried_time = uint16(lock.expried_time - command_time)
         }
-        aof_lock = &AofLock{command_type, 0, 0, uint64(lock.start_time), lock.command.Flag, lock.manager.db_id,  lock.command.LockId,
-            lock.command.LockKey, lock.command.ExpriedFlag & 0x4800, expried_time, lock.command.Count, lock.command.Rcount, 0, self.buf}
+        aof_lock = &AofLock{command_type, 0, 0, uint64(command_time), lock.command.Flag, lock.manager.db_id,  lock.command.LockId,
+            lock.command.LockKey, lock.command.ExpriedFlag & 0x4800, 0, start_time, expried_time, lock.command.Count, lock.command.Rcount, 0, self.buf}
     }
 
     aof_lock.LockType = 0
@@ -368,18 +388,20 @@ func (self *AofChannel) Load(lock *AofLock) error {
         aof_lock.CommandType = lock.CommandType
         aof_lock.AofIndex = lock.AofIndex
         aof_lock.AofId = lock.AofId
-        aof_lock.StartTime = lock.StartTime
+        aof_lock.CommandTime = lock.CommandTime
         aof_lock.Flag = lock.Flag
         aof_lock.DbId = lock.DbId
         aof_lock.LockId = lock.LockId
         aof_lock.LockKey = lock.LockKey
+        aof_lock.AofFlag = lock.AofFlag
+        aof_lock.StartTime = lock.StartTime
         aof_lock.ExpriedFlag = lock.ExpriedFlag
         aof_lock.ExpriedTime = lock.ExpriedTime
         aof_lock.Count = lock.Count
         aof_lock.Rcount = lock.Rcount
     } else {
-        aof_lock = &AofLock{lock.CommandType, lock.AofIndex, lock.AofId, lock.StartTime, lock.Flag, lock.DbId,  lock.LockId,
-            lock.LockKey, lock.ExpriedFlag, lock.ExpriedTime, lock.Count, lock.Rcount, 0, self.buf}
+        aof_lock = &AofLock{lock.CommandType, lock.AofIndex, lock.AofId, lock.CommandTime, lock.Flag, lock.DbId,  lock.LockId,
+            lock.LockKey, lock.AofFlag, lock.StartTime, lock.ExpriedFlag, lock.ExpriedTime, lock.Count, lock.Rcount, 0, self.buf}
     }
 
     aof_lock.LockType = 1
@@ -439,7 +461,7 @@ func (self *AofChannel) HandleLock(aof_lock *AofLock)  {
 
     expried_time := uint16(0)
     if aof_lock.ExpriedFlag & 0x4000 == 0 {
-        expried_time = uint16(int64(aof_lock.StartTime + uint64(aof_lock.ExpriedTime)) - self.lock_db.current_time)
+        expried_time = uint16(int64(aof_lock.CommandTime + uint64(aof_lock.ExpriedTime)) - self.lock_db.current_time)
     }
 
     lock_command := self.server_protocol.GetLockCommand()
@@ -595,7 +617,7 @@ func (self *Aof) LoadAofFile(filename string) error {
     }
 
     lock := &AofLock{0, 0, 0, 0, 0, 0,  [16]byte{},
-        [16]byte{}, 0, 0, 0, 0, 0, make([]byte, 64)}
+        [16]byte{}, 0, 0, 0, 0, 0, 0, 0, make([]byte, 64)}
     now := time.Now().Unix()
     for {
         err := aof_file.ReadLock(lock)
@@ -613,7 +635,7 @@ func (self *Aof) LoadAofFile(filename string) error {
         }
 
         if lock.ExpriedFlag & 0x4000 == 0 {
-            if int64(lock.StartTime + uint64(lock.ExpriedTime)) <= now {
+            if int64(lock.CommandTime + uint64(lock.ExpriedTime)) <= now {
                 continue
             }
         }
@@ -883,7 +905,7 @@ func (self *Aof) LoadRewriteAofFile(filename string, rewrite_aof_file *AofFile, 
     }
 
     lock := &AofLock{0, 0, 0, 0, 0, 0,  [16]byte{},
-        [16]byte{}, 0, 0, 0, 0, 0, make([]byte, 64)}
+        [16]byte{}, 0, 0, 0, 0, 0, 0, 0, make([]byte, 64)}
     now := time.Now().Unix()
     for {
         err := aof_file.ReadLock(lock)
@@ -900,7 +922,7 @@ func (self *Aof) LoadRewriteAofFile(filename string, rewrite_aof_file *AofFile, 
             return 0, err
         }
 
-        if lock.ExpriedFlag & 0x4000 == 0 && int64(lock.StartTime + uint64(lock.ExpriedTime)) <= now {
+        if lock.ExpriedFlag & 0x4000 == 0 && int64(lock.CommandTime + uint64(lock.ExpriedTime)) <= now {
             continue
         }
 

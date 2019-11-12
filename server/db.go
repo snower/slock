@@ -830,9 +830,7 @@ func (self *LockDB) FlushExpried(glock_index int8, do_expried bool)  {
     } else {
         for _, lock := range do_expried_locks {
             if !lock.is_aof && lock.aof_time != 0xff {
-                if self.aof_channels[lock.manager.glock_index].Push(lock, protocol.COMMAND_LOCK) == nil {
-                    lock.is_aof = true
-                }
+                lock.manager.PushLockAof(lock)
             }
         }
     }
@@ -1104,9 +1102,7 @@ func (self *LockDB) AddExpried(lock *Lock){
 
         self.expried_locks[expried_time & EXPRIED_QUEUE_LENGTH_MASK][lock.manager.glock_index].Push(lock)
         if !lock.is_aof && lock.expried_checked_count > lock.aof_time {
-            if self.aof_channels[lock.manager.glock_index].Push(lock, protocol.COMMAND_LOCK) == nil {
-                lock.is_aof = true
-            }
+            lock.manager.PushLockAof(lock)
         }
     }
 }
@@ -1144,6 +1140,9 @@ func (self *LockDB) DoExpried(lock *Lock){
     lock_manager.locked-=uint16(lock_locked)
     lock_protocol, lock_command := lock.protocol, lock.command
     lock_manager.RemoveLock(lock)
+    if lock.is_aof {
+        lock_manager.PushUnLockAof(lock)
+    }
 
     lock.ref_count--
     if lock.ref_count == 0 {
@@ -1191,9 +1190,7 @@ func (self *LockDB) AddMillisecondExpried(lock *Lock) {
     lock_queue.Push(lock)
 
     if !lock.is_aof && lock.aof_time == 0 {
-        if self.aof_channels[lock.manager.glock_index].Push(lock, protocol.COMMAND_LOCK) == nil {
-            lock.is_aof = true
-        }
+        lock.manager.PushLockAof(lock)
     }
 }
 
@@ -1424,6 +1421,13 @@ func (self *LockDB) UnLock(server_protocol ServerProtocol, command *protocol.Loc
             if current_lock.long_wait_index > 0 {
                 self.RemoveLongExpried(current_lock)
                 lock_manager.RemoveLock(current_lock)
+                if current_lock.is_aof {
+                    if command.ExpriedFlag & 0x1000 == 0 {
+                        lock_manager.PushUnLockAof(current_lock)
+                    } else {
+                        current_lock.is_aof = false
+                    }
+                }
                 lock_manager.locked-=uint16(lock_locked)
 
                 if current_lock.ref_count == 0 {
@@ -1434,6 +1438,13 @@ func (self *LockDB) UnLock(server_protocol ServerProtocol, command *protocol.Loc
                 }
             } else {
                 lock_manager.RemoveLock(current_lock)
+                if current_lock.is_aof {
+                    if command.ExpriedFlag & 0x1000 == 0 {
+                        lock_manager.PushUnLockAof(current_lock)
+                    } else {
+                        current_lock.is_aof = false
+                    }
+                }
                 lock_manager.locked-=uint16(lock_locked)
             }
             lock_manager.glock.Unlock()
@@ -1462,6 +1473,13 @@ func (self *LockDB) UnLock(server_protocol ServerProtocol, command *protocol.Loc
         if current_lock.long_wait_index > 0 {
             self.RemoveLongExpried(current_lock)
             lock_manager.RemoveLock(current_lock)
+            if current_lock.is_aof {
+                if command.ExpriedFlag & 0x1000 == 0 {
+                    lock_manager.PushUnLockAof(current_lock)
+                } else {
+                    current_lock.is_aof = false
+                }
+            }
             lock_manager.locked--
 
             if current_lock.ref_count == 0 {
@@ -1472,6 +1490,13 @@ func (self *LockDB) UnLock(server_protocol ServerProtocol, command *protocol.Loc
             }
         } else {
             lock_manager.RemoveLock(current_lock)
+            if current_lock.is_aof {
+                if command.ExpriedFlag & 0x1000 == 0 {
+                    lock_manager.PushUnLockAof(current_lock)
+                } else {
+                    current_lock.is_aof = false
+                }
+            }
             lock_manager.locked--
         }
         lock_manager.glock.Unlock()
