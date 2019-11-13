@@ -1570,12 +1570,13 @@ func (self *LockDB) WakeUpWaitLock(lock_manager *LockManager, wait_lock *Lock, s
             self.AddMillisecondExpried(wait_lock)
         }
         wait_lock.ref_count++
+        wait_lock_protocol, wait_lock_command := wait_lock.protocol, wait_lock.command
         lock_manager.glock.Unlock()
 
-        if wait_lock.protocol == server_protocol {
-            wait_lock.protocol.ProcessLockResultCommand(wait_lock.command, protocol.RESULT_SUCCED, lock_manager.locked, wait_lock.locked)
+        if wait_lock_protocol == server_protocol {
+            wait_lock_protocol.ProcessLockResultCommand(wait_lock_command, protocol.RESULT_SUCCED, lock_manager.locked, wait_lock.locked)
         } else {
-            wait_lock.protocol.ProcessLockResultCommandLocked(wait_lock.command, protocol.RESULT_SUCCED, lock_manager.locked, wait_lock.locked)
+            wait_lock_protocol.ProcessLockResultCommandLocked(wait_lock_command, protocol.RESULT_SUCCED, lock_manager.locked, wait_lock.locked)
         }
         atomic.AddUint64(&self.state.LockCount, 1)
         atomic.AddUint32(&self.state.LockedCount, 1)
