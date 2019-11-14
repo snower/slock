@@ -198,6 +198,17 @@ func TestLockQueueReset(t *testing.T) {
         t.Error("LockQueue Reset queue_size Fail")
         return
     }
+    node_index := 0
+    for i, node := range q.queues {
+        if node == nil {
+            break
+        }
+        node_index = i
+    }
+    if node_index != int(q.node_index) {
+        t.Errorf("LockQueue Empty Node_Index Fail %d %d", node_index, q.node_index)
+        return
+    }
 }
 
 func TestLockQueueRellac(t *testing.T) {
@@ -236,6 +247,17 @@ func TestLockQueueRellac(t *testing.T) {
     }
     if q.queue_size != q.base_queue_size * int32(uint32(1) << uint32(node_size - 1)) {
         t.Error("LockQueue Reset queue_size Fail")
+        return
+    }
+    node_index := 0
+    for i, node := range q.queues {
+        if node == nil {
+            break
+        }
+        node_index = i
+    }
+    if node_index != int(q.node_index) {
+        t.Errorf("LockQueue Empty Node_Index Fail %d %d", node_index, q.node_index)
         return
     }
 }
@@ -286,6 +308,18 @@ func TestLockQueueResize(t *testing.T) {
 
     if q.head_node_index != q.base_node_size || q.tail_node_index - q.head_node_index != 0 {
         t.Error("LockQueue Empty Node Index Fail")
+        return
+    }
+
+    node_index := 0
+    for i, node := range q.queues {
+        if node == nil {
+            break
+        }
+        node_index = i
+    }
+    if node_index != int(q.node_index) {
+        t.Errorf("LockQueue Empty Node_Index Fail %d %d", node_index, q.node_index)
         return
     }
 
@@ -347,14 +381,20 @@ func TestLockQueueRestructuring(t *testing.T) {
     rlen--
 
     node_size := 0
-    for _, node_queue := range q.queues {
+    node_index := 0
+    for i, node_queue := range q.queues {
         if node_queue == nil {
             break
         }
         node_size++
+        node_index = i
     }
     if q.queue_size != q.base_queue_size * int32(uint32(1) << uint32(node_size - 1)) {
         t.Errorf("LockQueue Restructuring queue_size Fail %d %d", q.queue_size, q.base_queue_size * int32(uint32(1) << uint32(node_size - 1)))
+        return
+    }
+    if node_index != int(q.node_index) {
+        t.Errorf("LockQueue Empty Node_Index Fail %d %d", node_size, q.node_index)
         return
     }
 
@@ -560,6 +600,18 @@ func TestLockCommandQueueReset(t *testing.T) {
         t.Error("LockCommandQueue Reset queue_size Fail")
         return
     }
+
+    node_index := 0
+    for i, node := range q.queues {
+        if node == nil {
+            break
+        }
+        node_index = i
+    }
+    if node_index != int(q.node_index) {
+        t.Errorf("LockCommandQueue Empty Node_Index Fail %d %d", node_index, q.node_index)
+        return
+    }
 }
 
 func TestLockCommandQueueRellac(t *testing.T) {
@@ -580,7 +632,7 @@ func TestLockCommandQueueRellac(t *testing.T) {
     }
 
     if q.Len() != int32(qlen) {
-        t.Error("LockQueue Len Fail")
+        t.Error("LockCommandQueue Len Fail")
         return
     }
 
@@ -597,7 +649,19 @@ func TestLockCommandQueueRellac(t *testing.T) {
         node_size++
     }
     if q.queue_size != q.base_queue_size * int32(uint32(1) << uint32(node_size - 1)) {
-        t.Error("LockQueue Reset queue_size Fail")
+        t.Error("LockCommandQueue Reset queue_size Fail")
+        return
+    }
+
+    node_index := 0
+    for i, node := range q.queues {
+        if node == nil {
+            break
+        }
+        node_index = i
+    }
+    if node_index != int(q.node_index) {
+        t.Errorf("LockCommandQueue Empty Node_Index Fail %d %d", node_index, q.node_index)
         return
     }
 }
@@ -620,19 +684,19 @@ func TestLockCommandQueueResize(t *testing.T) {
     }
 
     if q.Len() != int32(qlen) {
-        t.Error("LockQueue Len Fail")
+        t.Error("LockCommandQueue Len Fail")
         return
     }
     ht := q.tail_node_index - q.head_node_index
 
     q.Resize()
     if q.Len() != int32(qlen) {
-        t.Error("LockQueue Len Fail")
+        t.Error("LockCommandQueue Len Fail")
         return
     }
 
     if q.head_node_index != q.base_node_size || q.tail_node_index - q.head_node_index != ht {
-        t.Error("LockQueue Node Index Fail")
+        t.Error("LockCommandQueue Node Index Fail")
         return
     }
 
@@ -642,12 +706,24 @@ func TestLockCommandQueueResize(t *testing.T) {
 
     q.Resize()
     if q.Len() != int32(qlen) {
-        t.Error("LockQueue Len Fail")
+        t.Error("LockCommandQueue Len Fail")
         return
     }
 
     if q.head_node_index != q.base_node_size || q.tail_node_index - q.head_node_index != 0 {
-        t.Error("LockQueue Empty Node Index Fail")
+        t.Error("LockCommandQueue Empty Node Index Fail")
+        return
+    }
+
+    node_index := 0
+    for i, node := range q.queues {
+        if node == nil {
+            break
+        }
+        node_index = i
+    }
+    if node_index != int(q.node_index) {
+        t.Errorf("LockCommandQueue Empty Node_Index Fail %d %d", node_index, q.node_index)
         return
     }
 
@@ -660,7 +736,7 @@ func TestLockCommandQueueResize(t *testing.T) {
         node_size++
     }
     if q.queue_size != q.base_queue_size * int32(uint32(1) << uint32(node_size - 1)) {
-        t.Error("LockQueue Resize queue_size Fail")
+        t.Error("LockCommandQueue Resize queue_size Fail")
         return
     }
 }
@@ -692,31 +768,37 @@ func TestLockCommandQueueRestructuring(t *testing.T) {
     }
 
     if q.Len() != int32(qlen) {
-        t.Error("LockQueue Len Fail")
+        t.Error("LockCommandQueue Len Fail")
         return
     }
 
     q.Restructuring()
     if q.Len() != int32(rlen) {
-        t.Error("LockQueue Restructuring Len Fail")
+        t.Error("LockCommandQueue Restructuring Len Fail")
         return
     }
 
     if q.PopRight() != last_l {
-        t.Error("LockQueue Restructuring Value Fail")
+        t.Error("LockCommandQueue Restructuring Value Fail")
         return
     }
     rlen--
 
     node_size := 0
-    for _, node_queue := range q.queues {
+    node_index := 0
+    for i, node_queue := range q.queues {
         if node_queue == nil {
             break
         }
         node_size++
+        node_index = i
     }
     if q.queue_size != q.base_queue_size * int32(uint32(1) << uint32(node_size - 1)) {
-        t.Errorf("LockQueue Restructuring queue_size Fail %d %d", q.queue_size, q.base_queue_size * int32(uint32(1) << uint32(node_size - 1)))
+        t.Errorf("LockCommandQueue Restructuring queue_size Fail %d %d", q.queue_size, q.base_queue_size * int32(uint32(1) << uint32(node_size - 1)))
+        return
+    }
+    if node_index != int(q.node_index) {
+        t.Errorf("LockCommandQueue Empty Node_Index Fail %d %d", node_size, q.node_index)
         return
     }
 
@@ -725,7 +807,7 @@ func TestLockCommandQueueRestructuring(t *testing.T) {
     }
 
     if rlen != 0 {
-        t.Error("LockQueue Restructuring Pop Empty Fail")
+        t.Error("LockCommandQueue Restructuring Pop Empty Fail")
         return
     }
 }

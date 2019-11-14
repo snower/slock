@@ -191,7 +191,7 @@ func (self *LockManager) GetWaitLock() *Lock {
             }
 
             lock = self.wait_locks.Head()
-            if self.wait_locks.head_node_index >= 8 {
+            if self.wait_locks.head_node_index >= 6 {
                 self.wait_locks.Resize()
             }
             continue
