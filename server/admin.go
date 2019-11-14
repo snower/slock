@@ -158,8 +158,8 @@ func (self *Admin) CommandHandleInfoCommand(server_protocol *TextServerProtocol,
     memory_stats := runtime.MemStats{}
     runtime.ReadMemStats(&memory_stats)
     infos = append(infos, "\r\n# Memory")
-    infos = append(infos, fmt.Sprintf("used_memory:%d", memory_stats.TotalAlloc))
-    infos = append(infos, fmt.Sprintf("used_memory_rss:%d", memory_stats.TotalAlloc))
+    infos = append(infos, fmt.Sprintf("used_memory:%d", memory_stats.HeapAlloc))
+    infos = append(infos, fmt.Sprintf("used_memory_rss:%d", memory_stats.HeapSys))
     infos = append(infos, fmt.Sprintf("memory_alloc:%d", memory_stats.Alloc))
     infos = append(infos, fmt.Sprintf("memory_total_alloc:%d", memory_stats.TotalAlloc))
     infos = append(infos, fmt.Sprintf("memory_sys:%d", memory_stats.Sys))
