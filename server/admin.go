@@ -29,6 +29,8 @@ func (self *Admin) GetHandlers() map[string]TextServerProtocolCommandHandler{
     handlers["SHUTDOWN"] = self.CommandHandleShutdownCommand
     handlers["BGREWRITEAOF"] = self.CommandHandleBgRewritAaofCommand
     handlers["REWRITEAOF"] = self.CommandHandleRewriteAofCommand
+    handlers["ECHO"] = self.CommandHandleEchoCommand
+    handlers["PING"] = self.CommandHandlePingCommand
     handlers["QUIT"] = self.CommandHandleQuitCommand
     handlers["INFO"] = self.CommandHandleInfoCommand
     handlers["SHOW"] = self.CommandHandleShowCommand
@@ -132,6 +134,22 @@ func (self *Admin) CommandHandleFlushAllCommand(server_protocol *TextServerProto
     return server_protocol.stream.WriteBytes(server_protocol.parser.Build(true, "OK", nil))
 }
 
+func (self *Admin) CommandHandleEchoCommand(server_protocol *TextServerProtocol, args []string) error {
+    if len(args) != 2 {
+        return server_protocol.stream.WriteBytes(server_protocol.parser.Build(false, "Command Arguments Error", nil))
+    }
+    return server_protocol.stream.WriteBytes(server_protocol.parser.Build(true, "", args[1:]))
+}
+
+func (self *Admin) CommandHandlePingCommand(server_protocol *TextServerProtocol, args []string) error {
+    if len(args) > 1 {
+        if len(args) != 2 {
+            return server_protocol.stream.WriteBytes(server_protocol.parser.Build(false, "Command Arguments Error", nil))
+        }
+        return server_protocol.stream.WriteBytes(server_protocol.parser.Build(true, "", args[1:]))
+    }
+    return server_protocol.stream.WriteBytes(server_protocol.parser.Build(true, "PONG", nil))
+}
 
 func (self *Admin) CommandHandleQuitCommand(server_protocol *TextServerProtocol, args []string) error {
     err := server_protocol.stream.WriteBytes(server_protocol.parser.Build(true, "OK", nil))
