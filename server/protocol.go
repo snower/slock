@@ -892,7 +892,7 @@ func (self *TextServerProtocolParser) Parse() error {
                     } else {
                         self.args[len(self.args) - 1] += string(self.buf[self.buf_index: self.buf_len])
                     }
-                    self.carg_len = self.buf_len - self.buf_index
+                    self.carg_index += self.buf_len - self.buf_index
                     self.buf_index = self.buf_len
                     return nil
                 }
@@ -1045,7 +1045,7 @@ func (self *TextServerProtocol) Read() (protocol.CommandDecode, error) {
             return nil, err
         }
 
-        if self.parser.args_count > 0 && self.parser.args_count == len(self.parser.args) {
+        if self.parser.stage == 0 {
             command_name := strings.ToUpper(self.parser.args[0])
             if command_name == "LOCK" || command_name == "UNLOCK" {
                 if len(self.parser.args) < 5 {
@@ -1108,7 +1108,7 @@ func (self *TextServerProtocol) Process() error {
             return err
         }
 
-        if self.parser.args_count > 0 && self.parser.args_count == len(self.parser.args) {
+        if self.parser.stage == 0 {
             self.total_command_count++
             command_name := strings.ToUpper(self.parser.args[0])
             if command_handler, ok := self.handlers[command_name]; ok {
@@ -1138,7 +1138,7 @@ func (self *TextServerProtocol) ProcessParse(buf []byte) error {
         return err
     }
 
-    if self.parser.args_count > 0 && self.parser.args_count == len(self.parser.args) {
+    if self.parser.stage == 0 {
         self.total_command_count++
         command_name := strings.ToUpper(self.parser.args[0])
         if command_handler, ok := self.handlers[command_name]; ok {

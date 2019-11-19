@@ -41,8 +41,8 @@ func TestTextServerProtocolParser_MultiParse(t *testing.T) {
 
     datas := [][]byte{
         []byte("*3\r\n$3\r\nSET\r\n$5\r\nmykey\r\n$7\r\nmyvalue\r\n*3\r\n$3\r\nSET\r"),
-        []byte("\n$5\r\nmykey\r\n$7\r\nmyvalue\r\n*3\r\n$3\r\nSET\r\n$5\r\nmykey\r\n$"),
-        []byte("7\r\nmyvalue\r\n*3\r\n$3\r\nSET\r\n$5\r\nmykey\r\n$7\r\nmyvalue\r\n"),
+        []byte("\n$5\r\nmykey\r\n$7\r\nmyvalue\r\n*3\r\n$3\r\nSET\r\n$5\r\nmykey\r\n$7\r\nmyv"),
+        []byte("alue\r\n*3\r\n$3\r\nSET\r\n$5\r\nmykey\r\n$7\r\nmyvalue\r\n"),
     }
 
     cmd_count := 0
@@ -58,7 +58,7 @@ func TestTextServerProtocolParser_MultiParse(t *testing.T) {
                 return
             }
 
-            if len(admin_parse.args) != admin_parse.args_count {
+            if admin_parse.stage != 0 {
                 continue
             }
             cmd_count++

@@ -18,7 +18,7 @@ type Client struct {
     host string
     port uint
     stream *Stream
-    protocol *ClientProtocol
+    protocol ClientProtocol
     dbs []*Database
     glock *sync.Mutex
     client_id [16]byte
@@ -43,7 +43,7 @@ func (self *Client) Open() error {
         return err
     }
     stream := NewStream(self, conn)
-    client_protocol := NewClientProtocol(stream)
+    client_protocol := NewBinaryClientProtocol(stream)
     if err := self.InitProtocol(client_protocol); err != nil {
         client_protocol.Close()
         return err
@@ -84,7 +84,7 @@ func (self *Client) InitClientId() {
     }
 }
 
-func (self *Client) InitProtocol(client_protocol *ClientProtocol) error {
+func (self *Client) InitProtocol(client_protocol ClientProtocol) error {
     init_command := &protocol.InitCommand{Command: protocol.Command{ Magic: protocol.MAGIC, Version: protocol.VERSION, CommandType: protocol.COMMAND_INIT, RequestId: self.client_id}, ClientId: self.client_id}
     if err := client_protocol.Write(init_command); err != nil {
         return err
