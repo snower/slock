@@ -364,6 +364,13 @@ func (self *BinaryServerProtocol) Read() (protocol.CommandDecode, error) {
                 return nil, err
             }
             return admin_command, nil
+        case protocol.COMMAND_PING:
+            ping_command := &protocol.PingCommand{}
+            err := ping_command.Decode(buf)
+            if err != nil {
+                return nil, err
+            }
+            return ping_command, nil
         }
     }
     return nil, errors.New("Unknown Command")
@@ -522,6 +529,8 @@ func (self *BinaryServerProtocol) ProcessParse(buf []byte) error {
             command = &protocol.StateCommand{}
         case protocol.COMMAND_ADMIN:
             command = &protocol.AdminCommand{}
+        case protocol.COMMAND_PING:
+            command = &protocol.PingCommand{}
         default:
             command = &protocol.Command{}
         }
@@ -595,6 +604,9 @@ func (self *BinaryServerProtocol) ProcessCommad(command protocol.ICommand) error
             server_protocol.UnInitLockCommand()
             server_protocol.closed = true
             return err
+        case protocol.COMMAND_PING:
+            ping_command := command.(*protocol.PingCommand)
+            return self.Write(protocol.NewPingResultCommand(ping_command, protocol.RESULT_SUCCED))
 
         default:
             return self.Write(protocol.NewResultCommand(command, protocol.RESULT_UNKNOWN_COMMAND))

@@ -6,11 +6,12 @@ const MAGIC uint8 = 0x56
 const VERSION uint8 = 0x01
 
 const (
-    COMMAND_INIT uint8 = 0
-    COMMAND_LOCK uint8 = 1
-    COMMAND_UNLOCK uint8 = 2
-    COMMAND_STATE uint8 = 3
-    COMMAND_ADMIN uint8 = 4
+    COMMAND_INIT    uint8 = 0
+    COMMAND_LOCK    uint8 = 1
+    COMMAND_UNLOCK  uint8 = 2
+    COMMAND_STATE   uint8 = 3
+    COMMAND_ADMIN   uint8 = 4
+    COMMAND_PING    uint8 = 5
 )
 
 const (
@@ -676,6 +677,93 @@ func (self *ResultAdminCommand) Decode(buf []byte) error{
 }
 
 func (self *ResultAdminCommand) Encode(buf []byte) error {
+    buf[0] = byte(self.Magic)
+    buf[1] = byte(self.Version)
+    buf[2] = byte(self.CommandType)
+
+    buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
+        buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18] =
+        self.RequestId[0], self.RequestId[1], self.RequestId[2], self.RequestId[3], self.RequestId[4], self.RequestId[5], self.RequestId[6], self.RequestId[7],
+        self.RequestId[8], self.RequestId[9], self.RequestId[10], self.RequestId[11], self.RequestId[12], self.RequestId[13], self.RequestId[14], self.RequestId[15]
+
+    buf[19] = uint8(self.Result)
+
+    for i :=0; i<44; i++ {
+        buf[20 + i] = 0x00
+    }
+
+    return nil
+}
+
+type PingCommand struct {
+    Command
+    Blank       [45]byte
+}
+
+func NewPingCommand(buf []byte) *PingCommand {
+    command := PingCommand{}
+    if command.Decode(buf) != nil {
+        return nil
+    }
+    return &command
+}
+
+func (self *PingCommand) Decode(buf []byte) error{
+    self.Magic = uint8(buf[0])
+    self.Version = uint8(buf[1])
+    self.CommandType = uint8(buf[2])
+
+    self.RequestId[0], self.RequestId[1], self.RequestId[2], self.RequestId[3], self.RequestId[4], self.RequestId[5], self.RequestId[6], self.RequestId[7],
+        self.RequestId[8], self.RequestId[9], self.RequestId[10], self.RequestId[11], self.RequestId[12], self.RequestId[13], self.RequestId[14], self.RequestId[15] =
+        buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
+        buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18]
+
+    return nil
+}
+
+func (self *PingCommand) Encode(buf []byte) error {
+    buf[0] = byte(self.Magic)
+    buf[1] = byte(self.Version)
+    buf[2] = byte(self.CommandType)
+
+    buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
+        buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18] =
+        self.RequestId[0], self.RequestId[1], self.RequestId[2], self.RequestId[3], self.RequestId[4], self.RequestId[5], self.RequestId[6], self.RequestId[7],
+        self.RequestId[8], self.RequestId[9], self.RequestId[10], self.RequestId[11], self.RequestId[12], self.RequestId[13], self.RequestId[14], self.RequestId[15]
+
+    for i :=0; i<45; i++ {
+        buf[19 + i] = 0x00
+    }
+
+    return nil
+}
+
+type ResultPingCommand struct {
+    ResultCommand
+    Blank [44]byte
+}
+
+func NewPingResultCommand(command *PingCommand, result uint8) *ResultPingCommand {
+    result_command := ResultCommand{MAGIC, VERSION, command.CommandType, command.RequestId, result}
+    return &ResultPingCommand{result_command, [44]byte{}}
+}
+
+func (self *ResultPingCommand) Decode(buf []byte) error{
+    self.Magic = uint8(buf[0])
+    self.Version = uint8(buf[1])
+    self.CommandType = uint8(buf[2])
+
+    self.RequestId[0], self.RequestId[1], self.RequestId[2], self.RequestId[3], self.RequestId[4], self.RequestId[5], self.RequestId[6], self.RequestId[7],
+        self.RequestId[8], self.RequestId[9], self.RequestId[10], self.RequestId[11], self.RequestId[12], self.RequestId[13], self.RequestId[14], self.RequestId[15] =
+        buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
+        buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18]
+
+    self.Result = uint8(buf[19])
+
+    return nil
+}
+
+func (self *ResultPingCommand) Encode(buf []byte) error {
     buf[0] = byte(self.Magic)
     buf[1] = byte(self.Version)
     buf[2] = byte(self.CommandType)

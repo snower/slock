@@ -79,6 +79,20 @@ func (self *BinaryClientProtocol) Read() (protocol.CommandDecode, error) {
             return nil, err
         }
         return &command, nil
+    case protocol.COMMAND_ADMIN:
+        command := protocol.ResultAdminCommand{}
+        err := command.Decode(self.rbuf)
+        if err != nil {
+            return nil, err
+        }
+        return &command, nil
+    case protocol.COMMAND_PING:
+        command := protocol.ResultPingCommand{}
+        err := command.Decode(self.rbuf)
+        if err != nil {
+            return nil, err
+        }
+        return &command, nil
     default:
         return nil, errors.New("unknown command")
     }
