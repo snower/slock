@@ -25,6 +25,7 @@ const (
     RESULT_UNOWN_ERROR
     RESULT_TIMEOUT
     RESULT_EXPRIED
+    RESULT_STATE_ERROR
     RESULT_ERROR
 )
 
@@ -39,6 +40,7 @@ var ERROR_MSG []string = []string{
     "UNOWN_ERROR",
     "TIMEOUT",
     "EXPRIED",
+    "RESULT_STATE_ERROR",
     "UNKNOWN_ERROR",
 }
 

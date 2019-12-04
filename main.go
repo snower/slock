@@ -85,9 +85,9 @@ func main() {
         return
     }
 
-    err = slock.GetAof().LoadAndInit()
+    err = slock.Init()
     if err != nil {
-        slock.Log().Errorf("Aof LoadOrInit Error: %v", err)
+        slock.Log().Errorf("Init Error: %v", err)
         slock.Log().Info("Exited")
         return
     }
