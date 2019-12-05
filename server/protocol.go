@@ -371,6 +371,13 @@ func (self *BinaryServerProtocol) Read() (protocol.CommandDecode, error) {
                 return nil, err
             }
             return ping_command, nil
+        case protocol.COMMAND_QUIT:
+            quit_command := &protocol.QuitCommand{}
+            err := quit_command.Decode(buf)
+            if err != nil {
+                return nil, err
+            }
+            return quit_command, nil
         }
     }
     return nil, errors.New("Unknown Command")
@@ -539,6 +546,8 @@ func (self *BinaryServerProtocol) ProcessParse(buf []byte) error {
             command = &protocol.AdminCommand{}
         case protocol.COMMAND_PING:
             command = &protocol.PingCommand{}
+        case protocol.COMMAND_QUIT:
+            command = &protocol.QuitCommand{}
         default:
             command = &protocol.Command{}
         }
@@ -627,12 +636,26 @@ func (self *BinaryServerProtocol) ProcessCommad(command protocol.ICommand) error
                     self.slock.Log().Errorf("Protocol Process Error: %v", err)
                 }
             }
+
+            if self.stream != nil {
+                self.stream.protocol = self
+            }
+            self.total_command_count += server_protocol.total_command_count
             server_protocol.UnInitLockCommand()
             server_protocol.closed = true
             return err
+
         case protocol.COMMAND_PING:
             ping_command := command.(*protocol.PingCommand)
             return self.Write(protocol.NewPingResultCommand(ping_command, protocol.RESULT_SUCCED))
+
+        case protocol.COMMAND_QUIT:
+            quit_command := command.(*protocol.QuitCommand)
+            err := self.Write(protocol.NewQuitResultCommand(quit_command, protocol.RESULT_SUCCED))
+            if err == nil {
+                return io.EOF
+            }
+            return err
 
         default:
             return self.Write(protocol.NewResultCommand(command, protocol.RESULT_UNKNOWN_COMMAND))
@@ -1310,8 +1333,25 @@ func (self *TextServerProtocol) ProcessCommad(command protocol.ICommand) error {
                     self.slock.Log().Errorf("Protocol Process Error: %v", err)
                 }
             }
+
+            if self.stream != nil {
+                self.stream.protocol = self
+            }
+            self.total_command_count += server_protocol.total_command_count
             server_protocol.UnInitLockCommand()
             server_protocol.closed = true
+            return err
+
+        case protocol.COMMAND_PING:
+            ping_command := command.(*protocol.PingCommand)
+            return self.Write(protocol.NewPingResultCommand(ping_command, protocol.RESULT_SUCCED))
+
+        case protocol.COMMAND_QUIT:
+            quit_command := command.(*protocol.QuitCommand)
+            err := self.Write(protocol.NewQuitResultCommand(quit_command, protocol.RESULT_SUCCED))
+            if err == nil {
+                return io.EOF
+            }
             return err
 
         default:

@@ -12,6 +12,7 @@ const (
     COMMAND_STATE   uint8 = 3
     COMMAND_ADMIN   uint8 = 4
     COMMAND_PING    uint8 = 5
+    COMMAND_QUIT    uint8 = 6
 )
 
 const (
@@ -492,7 +493,7 @@ func (self *StateCommand) Encode(buf []byte) error {
     return nil
 }
 
-type ResultStateCommand struct {
+type StateResultCommand struct {
     ResultCommand
     Flag      uint8
     DbState uint8
@@ -501,15 +502,15 @@ type ResultStateCommand struct {
     Blank [1]byte
 }
 
-func NewStateResultCommand(command *StateCommand, result uint8, flag uint8, db_state uint8, state *LockDBState) *ResultStateCommand {
+func NewStateResultCommand(command *StateCommand, result uint8, flag uint8, db_state uint8, state *LockDBState) *StateResultCommand {
     result_command := ResultCommand{MAGIC, VERSION, command.CommandType, command.RequestId, result}
     if state == nil {
         state = &LockDBState{}
     }
-    return &ResultStateCommand{result_command, flag, db_state, command.DbId, *state, [1]byte{}}
+    return &StateResultCommand{result_command, flag, db_state, command.DbId, *state, [1]byte{}}
 }
 
-func (self *ResultStateCommand) Decode(buf []byte) error{
+func (self *StateResultCommand) Decode(buf []byte) error{
     self.Magic = uint8(buf[0])
     self.Version = uint8(buf[1])
     self.CommandType = uint8(buf[2])
@@ -536,7 +537,7 @@ func (self *ResultStateCommand) Decode(buf []byte) error{
     return nil
 }
 
-func (self *ResultStateCommand) Encode(buf []byte) error {
+func (self *StateResultCommand) Encode(buf []byte) error {
     buf[0] = byte(self.Magic)
     buf[1] = byte(self.Version)
     buf[2] = byte(self.CommandType)
@@ -653,17 +654,17 @@ func (self *AdminCommand) Encode(buf []byte) error {
     return nil
 }
 
-type ResultAdminCommand struct {
+type AdminResultCommand struct {
     ResultCommand
     Blank [44]byte
 }
 
-func NewAdminResultCommand(command *AdminCommand, result uint8) *ResultAdminCommand {
+func NewAdminResultCommand(command *AdminCommand, result uint8) *AdminResultCommand {
     result_command := ResultCommand{MAGIC, VERSION, command.CommandType, command.RequestId, result}
-    return &ResultAdminCommand{result_command, [44]byte{}}
+    return &AdminResultCommand{result_command, [44]byte{}}
 }
 
-func (self *ResultAdminCommand) Decode(buf []byte) error{
+func (self *AdminResultCommand) Decode(buf []byte) error{
     self.Magic = uint8(buf[0])
     self.Version = uint8(buf[1])
     self.CommandType = uint8(buf[2])
@@ -678,7 +679,7 @@ func (self *ResultAdminCommand) Decode(buf []byte) error{
     return nil
 }
 
-func (self *ResultAdminCommand) Encode(buf []byte) error {
+func (self *AdminResultCommand) Encode(buf []byte) error {
     buf[0] = byte(self.Magic)
     buf[1] = byte(self.Version)
     buf[2] = byte(self.CommandType)
@@ -740,17 +741,17 @@ func (self *PingCommand) Encode(buf []byte) error {
     return nil
 }
 
-type ResultPingCommand struct {
+type PingResultCommand struct {
     ResultCommand
     Blank [44]byte
 }
 
-func NewPingResultCommand(command *PingCommand, result uint8) *ResultPingCommand {
+func NewPingResultCommand(command *PingCommand, result uint8) *PingResultCommand {
     result_command := ResultCommand{MAGIC, VERSION, command.CommandType, command.RequestId, result}
-    return &ResultPingCommand{result_command, [44]byte{}}
+    return &PingResultCommand{result_command, [44]byte{}}
 }
 
-func (self *ResultPingCommand) Decode(buf []byte) error{
+func (self *PingResultCommand) Decode(buf []byte) error{
     self.Magic = uint8(buf[0])
     self.Version = uint8(buf[1])
     self.CommandType = uint8(buf[2])
@@ -765,7 +766,94 @@ func (self *ResultPingCommand) Decode(buf []byte) error{
     return nil
 }
 
-func (self *ResultPingCommand) Encode(buf []byte) error {
+func (self *PingResultCommand) Encode(buf []byte) error {
+    buf[0] = byte(self.Magic)
+    buf[1] = byte(self.Version)
+    buf[2] = byte(self.CommandType)
+
+    buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
+        buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18] =
+        self.RequestId[0], self.RequestId[1], self.RequestId[2], self.RequestId[3], self.RequestId[4], self.RequestId[5], self.RequestId[6], self.RequestId[7],
+        self.RequestId[8], self.RequestId[9], self.RequestId[10], self.RequestId[11], self.RequestId[12], self.RequestId[13], self.RequestId[14], self.RequestId[15]
+
+    buf[19] = uint8(self.Result)
+
+    for i :=0; i<44; i++ {
+        buf[20 + i] = 0x00
+    }
+
+    return nil
+}
+
+type QuitCommand struct {
+    Command
+    Blank       [45]byte
+}
+
+func NewQuitCommand(buf []byte) *QuitCommand {
+    command := QuitCommand{}
+    if command.Decode(buf) != nil {
+        return nil
+    }
+    return &command
+}
+
+func (self *QuitCommand) Decode(buf []byte) error{
+    self.Magic = uint8(buf[0])
+    self.Version = uint8(buf[1])
+    self.CommandType = uint8(buf[2])
+
+    self.RequestId[0], self.RequestId[1], self.RequestId[2], self.RequestId[3], self.RequestId[4], self.RequestId[5], self.RequestId[6], self.RequestId[7],
+        self.RequestId[8], self.RequestId[9], self.RequestId[10], self.RequestId[11], self.RequestId[12], self.RequestId[13], self.RequestId[14], self.RequestId[15] =
+        buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
+        buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18]
+
+    return nil
+}
+
+func (self *QuitCommand) Encode(buf []byte) error {
+    buf[0] = byte(self.Magic)
+    buf[1] = byte(self.Version)
+    buf[2] = byte(self.CommandType)
+
+    buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
+        buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18] =
+        self.RequestId[0], self.RequestId[1], self.RequestId[2], self.RequestId[3], self.RequestId[4], self.RequestId[5], self.RequestId[6], self.RequestId[7],
+        self.RequestId[8], self.RequestId[9], self.RequestId[10], self.RequestId[11], self.RequestId[12], self.RequestId[13], self.RequestId[14], self.RequestId[15]
+
+    for i :=0; i<45; i++ {
+        buf[19 + i] = 0x00
+    }
+
+    return nil
+}
+
+type QuitResultCommand struct {
+    ResultCommand
+    Blank [44]byte
+}
+
+func NewQuitResultCommand(command *QuitCommand, result uint8) *QuitResultCommand {
+    result_command := ResultCommand{MAGIC, VERSION, command.CommandType, command.RequestId, result}
+    return &QuitResultCommand{result_command, [44]byte{}}
+}
+
+func (self *QuitResultCommand) Decode(buf []byte) error{
+    self.Magic = uint8(buf[0])
+    self.Version = uint8(buf[1])
+    self.CommandType = uint8(buf[2])
+
+    self.RequestId[0], self.RequestId[1], self.RequestId[2], self.RequestId[3], self.RequestId[4], self.RequestId[5], self.RequestId[6], self.RequestId[7],
+        self.RequestId[8], self.RequestId[9], self.RequestId[10], self.RequestId[11], self.RequestId[12], self.RequestId[13], self.RequestId[14], self.RequestId[15] =
+        buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
+        buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18]
+
+    self.Result = uint8(buf[19])
+
+    return nil
+}
+
+func (self *QuitResultCommand) Encode(buf []byte) error {
     buf[0] = byte(self.Magic)
     buf[1] = byte(self.Version)
     buf[2] = byte(self.CommandType)

@@ -64,7 +64,7 @@ func (self *Database) HandleUnLockCommandResult (command *protocol.LockResultCom
     return nil
 }
 
-func (self *Database) HandleStateCommandResult (command *protocol.ResultStateCommand) error {
+func (self *Database) HandleStateCommandResult (command *protocol.StateResultCommand) error {
     self.glock.Lock()
 
     if request, ok := self.requests[command.RequestId]; ok {
@@ -143,7 +143,7 @@ func (self *Database) SendUnLockCommand(command *protocol.LockCommand) (*protoco
     return result_command.(*protocol.LockResultCommand), nil
 }
 
-func (self *Database) SendStateCommand(command *protocol.StateCommand) (*protocol.ResultStateCommand, error) {
+func (self *Database) SendStateCommand(command *protocol.StateCommand) (*protocol.StateResultCommand, error) {
     if self.client.protocol == nil {
         return nil, errors.New("client not opened")
     }
@@ -172,7 +172,7 @@ func (self *Database) SendStateCommand(command *protocol.StateCommand) (*protoco
     if result_command == nil {
         return nil, errors.New("wait timeout")
     }
-    return result_command.(*protocol.ResultStateCommand), nil
+    return result_command.(*protocol.StateResultCommand), nil
 }
 
 func (self *Database) Lock(lock_key [16]byte, timeout uint32, expried uint32) *Lock {
@@ -199,7 +199,7 @@ func (self *Database) RLock(lock_key [16]byte, timeout uint32, expried uint32) *
     return NewRLock(self, lock_key, timeout, expried)
 }
 
-func (self *Database) State() *protocol.ResultStateCommand {
+func (self *Database) State() *protocol.StateResultCommand {
     request_id := self.GetRequestId()
     command := &protocol.StateCommand{Command: protocol.Command{Magic: protocol.MAGIC, Version: protocol.VERSION, CommandType: protocol.COMMAND_STATE, RequestId: request_id},
         Flag: 0, DbId: self.db_id, Blank: [43]byte{}}

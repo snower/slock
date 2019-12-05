@@ -208,7 +208,7 @@ func (self *Client) HandleCommand(command protocol.ICommand) error{
         return db.HandleUnLockCommandResult(lock_command)
 
     case protocol.COMMAND_STATE:
-        state_command := command.(*protocol.ResultStateCommand)
+        state_command := command.(*protocol.StateResultCommand)
         db := self.dbs[state_command.DbId]
         if db == nil {
             db = self.GetDb(state_command.DbId)
@@ -251,6 +251,6 @@ func (self *Client) RLock(lock_key [16]byte, timeout uint32, expried uint32) *RL
 }
 
 
-func (self *Client) State(db_id uint8) *protocol.ResultStateCommand {
+func (self *Client) State(db_id uint8) *protocol.StateResultCommand {
     return self.SelectDB(db_id).State()
 }

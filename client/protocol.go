@@ -66,7 +66,7 @@ func (self *BinaryClientProtocol) Read() (protocol.CommandDecode, error) {
         }
         return &command, nil
     case protocol.COMMAND_STATE:
-        command := protocol.ResultStateCommand{}
+        command := protocol.StateResultCommand{}
         err := command.Decode(self.rbuf)
         if err != nil {
             return nil, err
@@ -80,14 +80,21 @@ func (self *BinaryClientProtocol) Read() (protocol.CommandDecode, error) {
         }
         return &command, nil
     case protocol.COMMAND_ADMIN:
-        command := protocol.ResultAdminCommand{}
+        command := protocol.AdminResultCommand{}
         err := command.Decode(self.rbuf)
         if err != nil {
             return nil, err
         }
         return &command, nil
     case protocol.COMMAND_PING:
-        command := protocol.ResultPingCommand{}
+        command := protocol.PingResultCommand{}
+        err := command.Decode(self.rbuf)
+        if err != nil {
+            return nil, err
+        }
+        return &command, nil
+    case protocol.COMMAND_QUIT:
+        command := protocol.QuitResultCommand{}
         err := command.Decode(self.rbuf)
         if err != nil {
             return nil, err
