@@ -1070,6 +1070,9 @@ func (self *LockDB) RemoveLockManager(lock_manager *LockManager) {
     free_lock_manager_head := atomic.AddUint32(&self.free_lock_manager_head, 1) % self.max_free_lock_manager_count
     if self.free_lock_managers[free_lock_manager_head] != nil {
         atomic.AddUint32(&self.free_lock_manager_head, 0xffffffff)
+        if free_lock_manager_head == 0 && self.free_lock_managers[(0xffffffff % self.max_free_lock_manager_count) + 1] == nil {
+            atomic.AddUint32(&self.free_lock_manager_head, (0xffffffff % self.max_free_lock_manager_count) + 1)
+        }
 
         lock_manager.current_lock = nil
         lock_manager.locks = nil
