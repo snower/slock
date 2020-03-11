@@ -203,7 +203,14 @@ func (self *Admin) CommandHandleInfoCommand(server_protocol *TextServerProtocol,
     for _, db := range self.slock.dbs {
         if db != nil {
             db_count++
-            free_lock_manager_count += int(db.free_lock_manager_count) + 1
+            free_lock_manager_head, free_lock_manager_tail := db.free_lock_manager_head, db.free_lock_manager_tail
+            if free_lock_manager_head >= free_lock_manager_tail {
+                free_lock_manager_count += int(free_lock_manager_head - free_lock_manager_tail)
+            } else {
+                if free_lock_manager_head < 0x7fffffff && free_lock_manager_tail > 0x7fffffff {
+                    free_lock_manager_count += int(0xffffffff - free_lock_manager_tail + free_lock_manager_head)
+                }
+            }
             for i := int8(0); i < db.manager_max_glocks; i++ {
                 free_lock_count += int(db.free_locks[i].Len())
             }
