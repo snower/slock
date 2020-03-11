@@ -872,7 +872,11 @@ func (self *LockDB) InitNewLockManager(db_id uint8) {
         free_lock_manager_head := atomic.AddUint32(&self.free_lock_manager_head, 1) % self.max_free_lock_manager_count
         if self.free_lock_managers[free_lock_manager_head] != nil {
             atomic.AddUint32(&self.free_lock_manager_head, 0xffffffff)
-            break
+            if free_lock_manager_head == 0 && self.free_lock_managers[(0xffffffff % self.max_free_lock_manager_count) + 1] == nil {
+                free_lock_manager_head = atomic.AddUint32(&self.free_lock_manager_head, (0xffffffff % self.max_free_lock_manager_count) + 1)
+            } else {
+                break
+            }
         }
 
         lock_managers[i].lock_db = self
@@ -913,6 +917,12 @@ func (self *LockDB) GetOrNewLockManager(command *protocol.LockCommand) *LockMana
                 lock_manager := self.free_lock_managers[free_lock_manager_tail]
                 for ; lock_manager == nil; {
                     atomic.AddUint32(&self.free_lock_manager_tail, 0xffffffff)
+                    if free_lock_manager_tail == 0 && self.free_lock_managers[(0xffffffff % self.max_free_lock_manager_count) + 1] != nil {
+                        free_lock_manager_tail = atomic.AddUint32(&self.free_lock_manager_tail, (0xffffffff % self.max_free_lock_manager_count) + 1)
+                        lock_manager = self.free_lock_managers[free_lock_manager_tail]
+                        continue
+                    }
+
                     self.glock.Lock()
                     self.InitNewLockManager(command.DbId)
                     self.glock.Unlock()
@@ -951,6 +961,12 @@ func (self *LockDB) GetOrNewLockManager(command *protocol.LockCommand) *LockMana
     lock_manager = self.free_lock_managers[free_lock_manager_tail]
     for ; lock_manager == nil; {
         atomic.AddUint32(&self.free_lock_manager_tail, 0xffffffff)
+        if free_lock_manager_tail == 0 && self.free_lock_managers[(0xffffffff % self.max_free_lock_manager_count) + 1] != nil {
+            free_lock_manager_tail = atomic.AddUint32(&self.free_lock_manager_tail, (0xffffffff % self.max_free_lock_manager_count) + 1)
+            lock_manager = self.free_lock_managers[free_lock_manager_tail]
+            continue
+        }
+
         self.InitNewLockManager(command.DbId)
         free_lock_manager_tail = atomic.AddUint32(&self.free_lock_manager_tail, 1) % self.max_free_lock_manager_count
         lock_manager = self.free_lock_managers[free_lock_manager_tail]
@@ -1010,6 +1026,9 @@ func (self *LockDB) RemoveLockManager(lock_manager *LockManager) {
         free_lock_manager_head := atomic.AddUint32(&self.free_lock_manager_head, 1) % self.max_free_lock_manager_count
         if self.free_lock_managers[free_lock_manager_head] != nil {
             atomic.AddUint32(&self.free_lock_manager_head, 0xffffffff)
+            if free_lock_manager_head == 0 && self.free_lock_managers[(0xffffffff % self.max_free_lock_manager_count) + 1] == nil {
+                atomic.AddUint32(&self.free_lock_manager_head, (0xffffffff % self.max_free_lock_manager_count) + 1)
+            }
 
             lock_manager.current_lock = nil
             lock_manager.locks = nil
