@@ -1013,6 +1013,10 @@ func (self *LockDB) GetLockManager(command *protocol.LockCommand) *LockManager{
 
 func (self *LockDB) RemoveLockManager(lock_manager *LockManager) {
     fast_value := lock_manager.fast_key_value
+    if fast_value == nil {
+        return
+    }
+
     if fast_value.manager == lock_manager {
         if !atomic.CompareAndSwapUint32(&fast_value.lock, 1, 0) {
             return
