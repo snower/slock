@@ -120,6 +120,10 @@ func (self *LockManager) RemoveLock(lock *Lock) *Lock {
 }
 
 func (self *LockManager) GetLockedLock(command *protocol.LockCommand) *Lock {
+    if self.current_lock == nil {
+        return nil
+    }
+    
     if self.current_lock.command.LockId == command.LockId {
         return self.current_lock
     }
