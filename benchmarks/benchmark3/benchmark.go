@@ -12,7 +12,7 @@ var lock_key [16]byte
 
 func run(slock_client *client.Client, count *int, max_count int, end_count *int, clock *sync.Mutex) {
     for ;; {
-        lock := client.NewLock(slock_client.SelectDB(0), lock_key, 0, 60, 100, 0)
+        lock := client.NewLock(slock_client.SelectDB(0), lock_key, 60, 60, 31, 0)
         //lock := slock_client.Lock(lock_key, 5, 5)
 
         err := lock.Lock()
