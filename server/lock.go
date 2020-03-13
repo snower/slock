@@ -15,8 +15,8 @@ type LockManager struct {
     glock          *sync.Mutex
     free_locks     *LockQueue
     fast_key_value *FastKeyValue
-    locked         uint16
-    ref_count      uint16
+    ref_count      uint32
+    locked         uint32
     db_id          uint8
     waited         bool
     freed          bool
@@ -75,30 +75,25 @@ func (self *LockManager) RemoveLock(lock *Lock) *Lock {
         locked_lock := self.locks.Pop()
         for ; locked_lock != nil; {
             if locked_lock.locked > 0 {
-                if _, ok := self.lock_maps[locked_lock.command.LockId]; ok {
-                    delete(self.lock_maps, locked_lock.command.LockId)
-                }
+                delete(self.lock_maps, locked_lock.command.LockId)
                 self.current_lock = locked_lock
-                return lock
+                break
             }
 
             locked_lock.ref_count--
             if locked_lock.ref_count == 0 {
                 self.FreeLock(locked_lock)
             }
-
             locked_lock = self.locks.Pop()
-            if self.locks.head_node_index >= 8 {
-                self.locks.Resize()
-            }
+        }
+
+        if self.locks.head_node_index >= 8 {
+            self.locks.Resize()
         }
         return lock
     }
 
-    if _, ok := self.lock_maps[lock.command.LockId]; ok {
-        delete(self.lock_maps, lock.command.LockId)
-    }
-
+    delete(self.lock_maps, lock.command.LockId)
     locked_lock := self.locks.Head()
     for ; locked_lock != nil; {
         if locked_lock.locked > 0 {
@@ -110,20 +105,16 @@ func (self *LockManager) RemoveLock(lock *Lock) *Lock {
         if locked_lock.ref_count == 0 {
             self.FreeLock(locked_lock)
         }
-
         locked_lock = self.locks.Head()
-        if self.locks.head_node_index >= 8 {
-            self.locks.Resize()
-        }
+    }
+
+    if self.locks.head_node_index >= 8 {
+        self.locks.Resize()
     }
     return lock
 }
 
 func (self *LockManager) GetLockedLock(command *protocol.LockCommand) *Lock {
-    if self.current_lock == nil {
-        return nil
-    }
-    
     if self.current_lock.command.LockId == command.LockId {
         return self.current_lock
     }
@@ -191,17 +182,21 @@ func (self *LockManager) GetWaitLock() *Lock {
         if lock.timeouted {
             self.wait_locks.Pop()
             lock.ref_count--
-            if lock.ref_count == 0{
+            if lock.ref_count == 0 {
                 self.FreeLock(lock)
             }
-
             lock = self.wait_locks.Head()
-            if self.wait_locks.head_node_index >= 6 {
-                self.wait_locks.Resize()
-            }
             continue
         }
+
+        if self.wait_locks.head_node_index >= 6 {
+            self.wait_locks.Resize()
+        }
         return lock
+    }
+
+    if self.wait_locks.head_node_index >= 6 {
+        self.wait_locks.Resize()
     }
     return nil
 }
@@ -223,7 +218,7 @@ func (self *LockManager) PushUnLockAof(lock *Lock)  {
     lock.is_aof = false
 }
 
-func (self *LockManager) FreeLock(lock *Lock) *Lock{
+func (self *LockManager) FreeLock(lock *Lock) *Lock {
     self.ref_count--
     lock.manager = nil
     lock.protocol = nil
@@ -272,8 +267,8 @@ type Lock struct {
     long_wait_index         uint64
     timeout_checked_count   uint8
     expried_checked_count   uint8
-    locked                  uint8
     ref_count               uint8
+    locked                  uint8
     timeouted               bool
     expried                 bool
     aof_time                uint8

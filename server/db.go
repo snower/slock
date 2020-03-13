@@ -904,11 +904,10 @@ func (self *LockDB) GetOrNewLockManager(command *protocol.LockCommand) *LockMana
         uint32(command.LockKey[8]) << 24 | uint32(command.LockKey[9]) << 16 | uint32(command.LockKey[10]) << 8 | uint32(command.LockKey[11])) ^ (
         uint32(command.LockKey[12]) << 24 | uint32(command.LockKey[13]) << 16 | uint32(command.LockKey[14]) << 8 | uint32(command.LockKey[15]))
     fast_value := &self.fast_locks[fash_hash % self.fast_key_count]
-    fast_lock_manager := fast_value.manager
 
     if atomic.LoadUint32(&fast_value.count) != 0 {
-        if fast_lock_manager != nil && fast_lock_manager.lock_key == command.LockKey {
-            return fast_lock_manager
+        if fast_value.manager != nil && fast_value.manager.lock_key == command.LockKey {
+            return fast_value.manager
         }
     } else {
         for ;; {
@@ -940,10 +939,9 @@ func (self *LockDB) GetOrNewLockManager(command *protocol.LockCommand) *LockMana
                 return lock_manager
             }
 
-            fast_lock_manager := fast_value.manager
             if atomic.LoadUint32(&fast_value.count) != 0 {
-                if fast_lock_manager != nil && fast_lock_manager.lock_key == command.LockKey {
-                    return fast_lock_manager
+                if fast_value.manager != nil && fast_value.manager.lock_key == command.LockKey {
+                    return fast_value.manager
                 }
                 break
             }
@@ -990,14 +988,13 @@ func (self *LockDB) GetLockManager(command *protocol.LockCommand) *LockManager{
             uint32(command.LockKey[8]) << 24 | uint32(command.LockKey[9]) << 16 | uint32(command.LockKey[10]) << 8 | uint32(command.LockKey[11])) ^ (
                 uint32(command.LockKey[12]) << 24 | uint32(command.LockKey[13]) << 16 | uint32(command.LockKey[14]) << 8 | uint32(command.LockKey[15]))
     fast_value := &self.fast_locks[fash_hash % self.fast_key_count]
-    fast_lock_manager := fast_value.manager
 
     if atomic.LoadUint32(&fast_value.count) == 0 {
         return  nil
     }
 
-    if fast_lock_manager != nil && fast_lock_manager.lock_key == command.LockKey {
-        return fast_lock_manager
+    if fast_value.manager != nil && fast_value.manager.lock_key == command.LockKey {
+        return fast_value.manager
     }
 
     self.glock.Lock()
@@ -1040,14 +1037,14 @@ func (self *LockDB) RemoveLockManager(lock_manager *LockManager) {
             lock_manager.wait_locks = nil
             lock_manager.free_locks = nil
         } else {
-            self.free_lock_managers[free_lock_manager_head] = lock_manager
-
             if lock_manager.locks != nil {
                 lock_manager.locks.Reset()
             }
             if lock_manager.wait_locks != nil {
                 lock_manager.wait_locks.Reset()
             }
+
+            self.free_lock_managers[free_lock_manager_head] = lock_manager
         }
 
         atomic.AddUint32(&self.state.KeyCount, 0xffffffff)
@@ -1067,8 +1064,8 @@ func (self *LockDB) RemoveLockManager(lock_manager *LockManager) {
 
     delete(self.locks, lock_manager.lock_key)
     lock_manager.freed = true
-    lock_manager.fast_key_value = nil
     self.glock.Unlock()
+    lock_manager.fast_key_value = nil
     atomic.AddUint32(&fast_value.count, 0xffffffff)
 
     free_lock_manager_head := atomic.AddUint32(&self.free_lock_manager_head, 1) % self.max_free_lock_manager_count
@@ -1084,14 +1081,14 @@ func (self *LockDB) RemoveLockManager(lock_manager *LockManager) {
         lock_manager.wait_locks = nil
         lock_manager.free_locks = nil
     } else {
-        self.free_lock_managers[free_lock_manager_head] = lock_manager
-
         if lock_manager.locks != nil {
             lock_manager.locks.Reset()
         }
         if lock_manager.wait_locks != nil {
             lock_manager.wait_locks.Reset()
         }
+
+        self.free_lock_managers[free_lock_manager_head] = lock_manager
     }
 
     atomic.AddUint32(&self.state.KeyCount, 0xffffffff)
@@ -1183,7 +1180,7 @@ func (self *LockDB) DoTimeOut(lock *Lock){
     lock_manager.glock.Unlock()
 
     timeout_flag := lock_command.TimeoutFlag
-    lock_protocol.ProcessLockResultCommandLocked(lock_command, protocol.RESULT_TIMEOUT, lock_manager.locked, lock.locked)
+    lock_protocol.ProcessLockResultCommandLocked(lock_command, protocol.RESULT_TIMEOUT, uint16(lock_manager.locked), lock.locked)
     lock_protocol.FreeLockCommandLocked(lock_command)
     atomic.AddUint32(&self.state.WaitCount, 0xffffffff)
     atomic.AddUint32(&self.state.TimeoutedCount, 1)
@@ -1291,7 +1288,7 @@ func (self *LockDB) DoExpried(lock *Lock){
 
     lock_locked := lock.locked
     lock.expried = true
-    lock_manager.locked-=uint16(lock_locked)
+    lock_manager.locked -= uint32(lock_locked)
     lock_protocol, lock_command := lock.protocol, lock.command
     lock_manager.RemoveLock(lock)
     if lock.is_aof {
@@ -1308,7 +1305,7 @@ func (self *LockDB) DoExpried(lock *Lock){
     lock_manager.glock.Unlock()
 
     expried_flag := lock_command.ExpriedFlag
-    lock_protocol.ProcessLockResultCommandLocked(lock_command, protocol.RESULT_EXPRIED, lock_manager.locked, lock.locked)
+    lock_protocol.ProcessLockResultCommandLocked(lock_command, protocol.RESULT_EXPRIED, uint16(lock_manager.locked), lock.locked)
     lock_protocol.FreeLockCommandLocked(lock_command)
     atomic.AddUint32(&self.state.LockedCount, 0xffffffff - uint32(lock_locked) + 1)
     atomic.AddUint32(&self.state.ExpriedCount, uint32(lock_locked))
@@ -1366,7 +1363,7 @@ func (self *LockDB) Lock(server_protocol ServerProtocol, command *protocol.LockC
 
     if self.is_stop {
         lock_manager.glock.Unlock()
-        server_protocol.ProcessLockResultCommand(command, protocol.RESULT_LOCKED_ERROR, lock_manager.locked, 0)
+        server_protocol.ProcessLockResultCommand(command, protocol.RESULT_LOCKED_ERROR, uint16(lock_manager.locked), 0)
         server_protocol.FreeLockCommand(command)
         return nil
     }
@@ -1382,7 +1379,7 @@ func (self *LockDB) Lock(server_protocol ServerProtocol, command *protocol.LockC
             command.Count = current_lock.command.Count
             command.Rcount = current_lock.command.Rcount
 
-            server_protocol.ProcessLockResultCommand(command, protocol.RESULT_UNOWN_ERROR, lock_manager.locked, current_lock.locked)
+            server_protocol.ProcessLockResultCommand(command, protocol.RESULT_UNOWN_ERROR, uint16(lock_manager.locked), current_lock.locked)
             server_protocol.FreeLockCommand(command)
             return nil
         }
@@ -1418,7 +1415,7 @@ func (self *LockDB) Lock(server_protocol ServerProtocol, command *protocol.LockC
                     command.Count = current_lock.command.Count
                     command.Rcount = current_lock.command.Rcount
 
-                    server_protocol.ProcessLockResultCommand(command, protocol.RESULT_EXPRIED, lock_manager.locked, current_lock.locked)
+                    server_protocol.ProcessLockResultCommand(command, protocol.RESULT_EXPRIED, uint16(lock_manager.locked), current_lock.locked)
                     server_protocol.FreeLockCommand(command)
                     return nil
                 }
@@ -1439,7 +1436,7 @@ func (self *LockDB) Lock(server_protocol ServerProtocol, command *protocol.LockC
                 }
                 lock_manager.glock.Unlock()
 
-                server_protocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, lock_manager.locked, current_lock.locked)
+                server_protocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, uint16(lock_manager.locked), current_lock.locked)
                 server_protocol.FreeLockCommand(command)
                 atomic.AddUint64(&self.state.LockCount, 1)
                 atomic.AddUint32(&self.state.LockedCount, 1)
@@ -1448,7 +1445,7 @@ func (self *LockDB) Lock(server_protocol ServerProtocol, command *protocol.LockC
                 lock_manager.glock.Unlock()
             }
 
-            server_protocol.ProcessLockResultCommand(command, protocol.RESULT_LOCKED_ERROR, lock_manager.locked, current_lock.locked)
+            server_protocol.ProcessLockResultCommand(command, protocol.RESULT_LOCKED_ERROR, uint16(lock_manager.locked), current_lock.locked)
             server_protocol.FreeLockCommand(command)
             return nil
         }
@@ -1467,7 +1464,7 @@ func (self *LockDB) Lock(server_protocol ServerProtocol, command *protocol.LockC
             lock.ref_count++
             lock_manager.glock.Unlock()
 
-            server_protocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, lock_manager.locked, lock.locked)
+            server_protocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, uint16(lock_manager.locked), lock.locked)
             atomic.AddUint64(&self.state.LockCount, 1)
             atomic.AddUint32(&self.state.LockedCount, 1)
             return nil
@@ -1479,7 +1476,7 @@ func (self *LockDB) Lock(server_protocol ServerProtocol, command *protocol.LockC
         }
         lock_manager.glock.Unlock()
 
-        server_protocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, lock_manager.locked, lock.locked)
+        server_protocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, uint16(lock_manager.locked), lock.locked)
         server_protocol.FreeLockCommand(command)
         atomic.AddUint64(&self.state.LockCount, 1)
         return nil
@@ -1505,7 +1502,7 @@ func (self *LockDB) Lock(server_protocol ServerProtocol, command *protocol.LockC
     }
     lock_manager.glock.Unlock()
 
-    server_protocol.ProcessLockResultCommand(command, protocol.RESULT_TIMEOUT, lock_manager.locked, lock.locked)
+    server_protocol.ProcessLockResultCommand(command, protocol.RESULT_TIMEOUT, uint16(lock_manager.locked), lock.locked)
     server_protocol.FreeLockCommand(command)
     return nil
 }
@@ -1531,7 +1528,7 @@ func (self *LockDB) UnLock(server_protocol ServerProtocol, command *protocol.Loc
     if self.is_stop || lock_manager.locked == 0 {
         lock_manager.glock.Unlock()
 
-        server_protocol.ProcessLockResultCommand(command, protocol.RESULT_UNLOCK_ERROR, lock_manager.locked, 0)
+        server_protocol.ProcessLockResultCommand(command, protocol.RESULT_UNLOCK_ERROR, uint16(lock_manager.locked), 0)
         server_protocol.FreeLockCommand(command)
         atomic.AddUint32(&self.state.UnlockErrorCount, 1)
         return nil
@@ -1545,7 +1542,7 @@ func (self *LockDB) UnLock(server_protocol ServerProtocol, command *protocol.Loc
             if current_lock == nil {
                 lock_manager.glock.Unlock()
 
-                server_protocol.ProcessLockResultCommand(command, protocol.RESULT_UNOWN_ERROR, lock_manager.locked, 0)
+                server_protocol.ProcessLockResultCommand(command, protocol.RESULT_UNOWN_ERROR, uint16(lock_manager.locked), 0)
                 server_protocol.FreeLockCommand(command)
                 atomic.AddUint32(&self.state.UnlockErrorCount, 1)
                 return nil
@@ -1559,7 +1556,7 @@ func (self *LockDB) UnLock(server_protocol ServerProtocol, command *protocol.Loc
         } else {
             lock_manager.glock.Unlock()
 
-            server_protocol.ProcessLockResultCommand(command, protocol.RESULT_UNOWN_ERROR, lock_manager.locked, 0)
+            server_protocol.ProcessLockResultCommand(command, protocol.RESULT_UNOWN_ERROR, uint16(lock_manager.locked), 0)
             server_protocol.FreeLockCommand(command)
             atomic.AddUint32(&self.state.UnlockErrorCount, 1)
             return nil
@@ -1582,7 +1579,7 @@ func (self *LockDB) UnLock(server_protocol ServerProtocol, command *protocol.Loc
                         current_lock.is_aof = false
                     }
                 }
-                lock_manager.locked-=uint16(lock_locked)
+                lock_manager.locked -= uint32(lock_locked)
 
                 if current_lock.ref_count == 0 {
                     lock_manager.FreeLock(current_lock)
@@ -1599,11 +1596,11 @@ func (self *LockDB) UnLock(server_protocol ServerProtocol, command *protocol.Loc
                         current_lock.is_aof = false
                     }
                 }
-                lock_manager.locked-=uint16(lock_locked)
+                lock_manager.locked -= uint32(lock_locked)
             }
             lock_manager.glock.Unlock()
 
-            server_protocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, lock_manager.locked, current_lock.locked)
+            server_protocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, uint16(lock_manager.locked), current_lock.locked)
             server_protocol.FreeLockCommand(command)
             server_protocol.FreeLockCommand(current_lock_command)
 
@@ -1614,7 +1611,7 @@ func (self *LockDB) UnLock(server_protocol ServerProtocol, command *protocol.Loc
             current_lock.locked--
             lock_manager.glock.Unlock()
 
-            server_protocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, lock_manager.locked, current_lock.locked)
+            server_protocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, uint16(lock_manager.locked), current_lock.locked)
             server_protocol.FreeLockCommand(command)
 
             atomic.AddUint64(&self.state.UnLockCount, 1)
@@ -1655,7 +1652,7 @@ func (self *LockDB) UnLock(server_protocol ServerProtocol, command *protocol.Loc
         }
         lock_manager.glock.Unlock()
 
-        server_protocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, lock_manager.locked, current_lock.locked)
+        server_protocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, uint16(lock_manager.locked), current_lock.locked)
         server_protocol.FreeLockCommand(command)
         server_protocol.FreeLockCommand(current_lock_command)
 
@@ -1676,8 +1673,8 @@ func (self *LockDB) DoLock(lock_manager *LockManager, lock *Lock) bool{
         return false
     }
 
-    if(lock_manager.locked <= lock_manager.current_lock.command.Count){
-        if(lock_manager.locked <= lock.command.Count) {
+    if(lock_manager.locked <= uint32(lock_manager.current_lock.command.Count)){
+        if(lock_manager.locked <= uint32(lock.command.Count)) {
             return true
         }
     }
@@ -1730,9 +1727,9 @@ func (self *LockDB) WakeUpWaitLock(lock_manager *LockManager, wait_lock *Lock, s
         lock_manager.glock.Unlock()
 
         if wait_lock_protocol == server_protocol {
-            wait_lock_protocol.ProcessLockResultCommand(wait_lock_command, protocol.RESULT_SUCCED, lock_manager.locked, wait_lock.locked)
+            wait_lock_protocol.ProcessLockResultCommand(wait_lock_command, protocol.RESULT_SUCCED, uint16(lock_manager.locked), wait_lock.locked)
         } else {
-            wait_lock_protocol.ProcessLockResultCommandLocked(wait_lock_command, protocol.RESULT_SUCCED, lock_manager.locked, wait_lock.locked)
+            wait_lock_protocol.ProcessLockResultCommandLocked(wait_lock_command, protocol.RESULT_SUCCED, uint16(lock_manager.locked), wait_lock.locked)
         }
         atomic.AddUint64(&self.state.LockCount, 1)
         atomic.AddUint32(&self.state.LockedCount, 1)
@@ -1744,10 +1741,10 @@ func (self *LockDB) WakeUpWaitLock(lock_manager *LockManager, wait_lock *Lock, s
     lock_manager.glock.Unlock()
 
     if wait_lock_protocol == server_protocol {
-        wait_lock_protocol.ProcessLockResultCommand(wait_lock_command, protocol.RESULT_SUCCED, lock_manager.locked, wait_lock.locked)
+        wait_lock_protocol.ProcessLockResultCommand(wait_lock_command, protocol.RESULT_SUCCED, uint16(lock_manager.locked), wait_lock.locked)
         server_protocol.FreeLockCommand(wait_lock_command)
     } else {
-        wait_lock_protocol.ProcessLockResultCommandLocked(wait_lock_command, protocol.RESULT_SUCCED, lock_manager.locked, wait_lock.locked)
+        wait_lock_protocol.ProcessLockResultCommandLocked(wait_lock_command, protocol.RESULT_SUCCED, uint16(lock_manager.locked), wait_lock.locked)
         wait_lock_protocol.FreeLockCommandLocked(wait_lock_command)
     }
 
