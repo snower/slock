@@ -104,7 +104,7 @@ func NewLockDB(slock *SLock, db_id uint8) *LockDB {
         fast_key_count: uint32(Config.DBFastKeyCount),
         free_lock_manager_head: 0,
         free_lock_manager_tail: 0,
-        max_free_lock_manager_count: max_free_lock_manager_count - 1,
+        max_free_lock_manager_count: max_free_lock_manager_count,
         manager_glock_index: 0,
         manager_max_glocks: manager_max_glocks,
         aof_time: aof_time,
