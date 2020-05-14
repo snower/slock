@@ -121,31 +121,31 @@ UNLOCK lock_key [LOCK_ID lock_id_string] [FLAG flag_uint8] [RCOUNT rcount_uint8]
 go run benchmarks/benchmark2/benchmark.go
 Run 1 Client, 1 concurrentc, 2000000 Count Lock and Unlock
 Client Opened 1
-2000064 8.000411s 249995.170248r/s
+2000064 8.000514s 249991.953173r/s
 
 Run 16 Client, 16 concurrentc, 5000000 Count Lock and Unlock
 Client Opened 16
-5001024 6.000457s 833440.562810r/s
+5001024 5.016842s 996847.011356r/s
 
 Run 32 Client, 32 concurrentc, 5000000 Count Lock and Unlock
 Client Opened 32
-5002048 6.000484s 833607.397606r/s
+5001984 4.004664s 1249039.521556r/s
 
 Run 64 Client, 64 concurrentc, 5000000 Count Lock and Unlock
 Client Opened 64
-5004096 5.004120s 999995.269098r/s
+5004096 4.007319s 1248739.082514r/s
 
 Run 128 Client, 128 concurrentc, 5000000 Count Lock and Unlock
 Client Opened 128
-5008128 6.007842s 833598.473596r/s
+5008128 5.003915s 1000841.934160r/s
 
 Run 256 Client, 256 concurrentc, 5000000 Count Lock and Unlock
 Client Opened 256
-5016384 15.002976s 334359.267624r/s
+5016384 6.042036s 830247.293000r/s
 
 Run 512 Client, 512 concurrentc, 5000000 Count Lock and Unlock
 Client Opened 512
-5032768 16.001961s 314509.457043r/s
+5032768 7.000784s 718886.349061r/s
 
 Succed
 ```
