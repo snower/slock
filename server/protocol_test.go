@@ -95,7 +95,7 @@ func TestTextServerProtocolParser_Build(t *testing.T) {
         return
     }
 
-    r = admin_parse.Build(false, "Unknown Command", nil)
+    r = admin_parse.Build(false, "ERR Unknown Command", nil)
     if string(r) != "-ERR Unknown Command\r\n" {
         t.Errorf("Admin Build Error Result Fail %s", string(r))
         return

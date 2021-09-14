@@ -42,7 +42,7 @@ func (self *Client) Open() error {
     if err != nil {
         return err
     }
-    stream := NewStream(self, conn)
+    stream := NewStream(conn)
     client_protocol := NewBinaryClientProtocol(stream)
     if err := self.InitProtocol(client_protocol); err != nil {
         client_protocol.Close()

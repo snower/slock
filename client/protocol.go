@@ -15,6 +15,8 @@ type ClientProtocol interface {
     Close() error
     Read() (protocol.CommandDecode, error)
     Write(protocol.CommandEncode) error
+    ReadCommand() (protocol.CommandDecode, error)
+    WriteCommand(protocol.CommandEncode) error
     RemoteAddr() net.Addr
 }
 
@@ -114,6 +116,14 @@ func (self *BinaryClientProtocol) Write(result protocol.CommandEncode) error {
     return self.stream.WriteBytes(wbuf)
 }
 
+func (self *BinaryClientProtocol) ReadCommand() (protocol.CommandDecode, error) {
+    return self.Read()
+}
+
+func (self *BinaryClientProtocol) WriteCommand(result protocol.CommandEncode) error {
+    return self.Write(result)
+}
+
 func (self *BinaryClientProtocol) RemoteAddr() net.Addr {
     return self.stream.RemoteAddr()
 }
@@ -145,10 +155,11 @@ func (self *TextClientProtocolParser) Parse() error {
                 self.stage = 5
             case '-':
                 self.args = append(self.args, "")
+                self.args = append(self.args, "")
                 self.args_count = 0
                 self.arg_type = 2
                 self.buf_index++
-                self.stage = 5
+                self.stage = 6
             case '$':
                 self.arg_type = 3
                 self.buf_index++
@@ -278,6 +289,28 @@ func (self *TextClientProtocolParser) Parse() error {
                     self.stage = 0
                     return nil
                 } else if self.buf[self.buf_index] != '\r' {
+                    if self.arg_type == 1 {
+                        self.args[0] += string(self.buf[self.buf_index])
+                    } else {
+                        self.args[1] += string(self.buf[self.buf_index])
+                    }
+                }
+            }
+        case 6:
+            for ; self.buf_index < self.buf_len; self.buf_index++ {
+                if self.buf[self.buf_index] == ' ' {
+                    self.buf_index++
+                    self.stage = 5
+                    return nil
+                } else if self.buf[self.buf_index] == '\n' {
+                    if self.buf_index > 0 && self.buf[self.buf_index-1] != '\r' {
+                        return errors.New("Response parse msg error")
+                    }
+
+                    self.buf_index++
+                    self.stage = 0
+                    return nil
+                } else if self.buf[self.buf_index] != '\r' {
                     self.args[0] += string(self.buf[self.buf_index])
                 }
             }
@@ -295,6 +328,53 @@ func (self *TextClientProtocolParser) Build(args []string) []byte {
     return buf
 }
 
+type TextClientCommand struct {
+    Parser      *TextClientProtocolParser
+    CommandType int
+    ErrorType   string
+    Args        []string
+    Message     string
+}
+
+func (self *TextClientCommand) Decode(buf []byte) error  {
+    if len(buf) > len(self.Parser.buf) || self.Parser.buf_index != self.Parser.buf_len {
+        return errors.New("buf error")
+    }
+
+    copy(self.Parser.buf, buf)
+    self.Parser.buf_len = len(buf)
+    self.Parser.buf_index = 0
+    return self.Parser.Parse()
+}
+
+func (self *TextClientCommand) Encode(buf []byte) error  {
+    build_buf := self.Parser.Build(self.Args)
+    if len(build_buf) > len(buf)|| self.Parser.buf_index == self.Parser.buf_len {
+        return errors.New("buf error")
+    }
+
+    copy(buf, build_buf)
+    return nil
+}
+
+func (self *TextClientCommand) GetCommandType() int {
+    return self.CommandType
+}
+
+
+func (self *TextClientCommand) GetErrorType() string {
+    return self.ErrorType
+}
+
+func (self *TextClientCommand) GetArgs() []string {
+    return self.Args
+}
+
+func (self *TextClientCommand) GetMessage() string {
+    return self.Message
+}
+
+
 type TextClientProtocol struct {
     stream *Stream
     parser            *TextClientProtocolParser
@@ -309,6 +389,10 @@ func NewTextClientProtocol(stream *Stream) *TextClientProtocol {
 
 func (self *TextClientProtocol) Close() error {
     return self.stream.Close()
+}
+
+func (self *TextClientProtocol) GetParser() *TextClientProtocolParser {
+    return self.parser
 }
 
 func (self *TextClientProtocol) ArgsToLockComandResultParseId(arg_id string, lock_id *[16]byte) {
@@ -417,22 +501,49 @@ func (self *TextClientProtocol) Read() (protocol.CommandDecode, error) {
         }
 
         if self.parser.stage == 0 {
-            if self.parser.arg_type != 4 {
-                if self.parser.arg_type == 2 {
-                    return nil, errors.New(self.parser.args[0])
-                }
-                return nil, errors.New("unknown result")
+            var command *TextClientCommand
+            if self.parser.arg_type == 2 {
+                command = &TextClientCommand{self.parser, self.parser.arg_type, self.parser.args[0], make([]string, 0), self.parser.args[1]}
+            } else {
+                command = &TextClientCommand{self.parser, self.parser.arg_type, self.parser.args[0], make([]string, len(self.parser.args)), self.parser.args[1]}
+                copy(command.Args, self.parser.args)
             }
-
-            lock_command_result, err := self.ArgsToLockComandResult(self.parser.args)
             self.parser.args = self.parser.args[:0]
             self.parser.args_count = 0
-            return lock_command_result, err
+            return command, err
         }
     }
 }
 
 func (self *TextClientProtocol) Write(result protocol.CommandEncode) error {
+    switch result.(type) {
+    case *protocol.LockResultCommand:
+        return self.WriteCommand(result)
+    case *TextClientCommand:
+        return self.stream.WriteBytes(self.parser.Build(result.(*TextClientCommand).Args))
+    }
+    return errors.New("unknown command")
+}
+
+func (self *TextClientProtocol) ReadCommand() (protocol.CommandDecode, error) {
+    command, err := self.Read()
+    if err != nil {
+        return nil, err
+    }
+
+    text_client_command := command.(*TextClientCommand)
+    if text_client_command.ErrorType != "" {
+        if text_client_command.Message != "" {
+            return nil, errors.New(text_client_command.ErrorType + " " + text_client_command.Message)
+        }
+        return nil, errors.New("unknown result")
+    }
+
+    lock_command_result, err := self.ArgsToLockComandResult(text_client_command.Args)
+    return lock_command_result, err
+}
+
+func (self *TextClientProtocol) WriteCommand(result protocol.CommandEncode) error {
     lock_command_result, ok := result.(*protocol.LockResultCommand)
     if !ok {
         return errors.New("unknown result")

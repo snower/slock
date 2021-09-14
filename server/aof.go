@@ -4,6 +4,7 @@ import (
     "bufio"
     "errors"
     "fmt"
+    "github.com/snower/slock/protocol"
     "io"
     "math/rand"
     "os"
@@ -115,6 +116,13 @@ func (self *AofLock) UpdateAofIndexId(aof_index uint32, aof_id uint32) error {
 
     buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10] = byte(self.AofId), byte(self.AofId >> 8), byte(self.AofId >> 16), byte(self.AofId >> 24), byte(self.AofIndex), byte(self.AofIndex >> 8), byte(self.AofIndex >> 16), byte(self.AofIndex >> 24)
     return nil
+}
+
+func (self *AofLock) GetRequestId() [16]byte {
+    request_id := [16]byte{}
+    request_id[0], request_id[1], request_id[2], request_id[3], request_id[4], request_id[5], request_id[6], request_id[7] = byte(self.AofId), byte(self.AofId >> 8), byte(self.AofId >> 16), byte(self.AofId >> 24), byte(self.AofIndex), byte(self.AofIndex >> 8), byte(self.AofIndex >> 16), byte(self.AofIndex >> 24)
+    request_id[8], request_id[9], request_id[10], request_id[11], request_id[12], request_id[13], request_id[14], request_id[15] = byte(self.CommandTime), byte(self.CommandTime >> 8), byte(self.CommandTime >> 16), byte(self.CommandTime >> 24), byte(self.CommandTime >> 32), byte(self.CommandTime >> 40), byte(self.CommandTime >> 48), byte(self.CommandTime >> 56)
+    return request_id
 }
 
 type AofFile struct {
@@ -782,6 +790,10 @@ func (self *Aof) PushLock(lock *AofLock) {
             }
         }
     }
+    err = self.slock.replication_manager.PushLock(lock)
+    if err != nil {
+        self.slock.Log().Errorf("Aof File Push Error %v", err)
+    }
     self.aof_lock_count++
 
     if uint32(self.aof_file.GetSize()) >= self.rewrite_size {
@@ -810,6 +822,7 @@ func (self *Aof) AppendLock(lock *AofLock) {
             }
         }
     }
+    self.aof_id = lock.AofId
     self.aof_lock_count++
     self.aof_file_glock.Unlock()
 }
@@ -848,9 +861,8 @@ func (self *Aof) Reset() error {
         return err
     }
 
-    prefix := "backup-" + time.Now().Format("20060102150405") + "-"
     if rewrite_file != "" {
-        err := os.Rename(filepath.Join(self.data_dir, rewrite_file), filepath.Join(self.data_dir, prefix + rewrite_file))
+        err := os.Remove(filepath.Join(self.data_dir, rewrite_file))
         if err != nil {
             self.slock.Log().Errorf("Aof Reset Rename Error %v", err)
             return err
@@ -858,7 +870,7 @@ func (self *Aof) Reset() error {
     }
 
     for _, append_file := range append_files {
-        err := os.Rename(filepath.Join(self.data_dir, append_file), filepath.Join(self.data_dir, prefix + append_file))
+        err := os.Remove(filepath.Join(self.data_dir, append_file))
         if err != nil {
             self.slock.Log().Errorf("Aof Reset Rename Error %v", err)
             return err
@@ -867,7 +879,13 @@ func (self *Aof) Reset() error {
 
     self.aof_file_index = 0
     self.aof_id = 0
-    self.aof_lock_count = 0
+    self.aof_file = NewAofFile(self, filepath.Join(self.data_dir, fmt.Sprintf("%s.%d", "append.aof", self.aof_file_index + 1)), os.O_WRONLY, int(Config.AofFileBufferSize))
+    err = self.aof_file.Open()
+    if err != nil {
+        return err
+    }
+    self.aof_file_index++
+    self.slock.Log().Infof("Aof File Create %s.%d", "append.aof", self.aof_file_index)
     return nil
 }
 
@@ -970,10 +988,24 @@ func (self *Aof) LoadRewriteAofFiles(aof_filenames []string) (*AofFile, []*AofFi
         return nil, nil, err
     }
 
+    lock_command := &protocol.LockCommand{}
     aof_files := make([]*AofFile, 0)
     aof_id := uint32(0)
 
     lerr := self.LoadAofFiles(aof_filenames, func (filename string, aof_file *AofFile, lock *AofLock, first_lock bool) (bool, error) {
+        db := self.slock.GetDB(lock.DbId)
+        if db == nil {
+            return true, nil
+        }
+
+        lock_command.CommandType = lock.CommandType
+        lock_command.DbId = lock.DbId
+        lock_command.LockId = lock.LockId
+        lock_command.LockKey = lock.LockKey
+        if !db.HasLock(lock_command) {
+            return true, nil
+        }
+
         aof_id++
         lock.UpdateAofIndexId(0, aof_id)
         err = rewrite_aof_file.WriteLock(lock)

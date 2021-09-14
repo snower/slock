@@ -21,7 +21,9 @@ type ServerProtocol interface {
     Lock()
     Unlock()
     Read() (protocol.CommandDecode, error)
-    Write(protocol.CommandEncode) (error)
+    Write(protocol.CommandEncode) error
+    ReadCommand() (protocol.CommandDecode, error)
+    WriteCommand(protocol.CommandEncode) error
     Process() error
     ProcessParse(buf []byte) error
     ProcessBuild(command protocol.ICommand) error
@@ -29,7 +31,7 @@ type ServerProtocol interface {
     ProcessLockCommand(command *protocol.LockCommand) error
     ProcessLockResultCommand(command *protocol.LockCommand, result uint8, lcount uint16, lrcount uint8) error
     ProcessLockResultCommandLocked(command *protocol.LockCommand, result uint8, lcount uint16, lrcount uint8) error
-    Close() (error)
+    Close() error
     GetStream() *Stream
     RemoteAddr() net.Addr
     GetLockCommand() *protocol.LockCommand
@@ -69,6 +71,14 @@ func (self *MemWaiterServerProtocol) Read() (protocol.CommandDecode, error) {
 }
 
 func (self *MemWaiterServerProtocol) Write(protocol.CommandEncode) (error) {
+    return errors.New("write error")
+}
+
+func (self *MemWaiterServerProtocol) ReadCommand() (protocol.CommandDecode, error) {
+    return nil, errors.New("read error")
+}
+
+func (self *MemWaiterServerProtocol) WriteCommand(protocol.CommandEncode) (error) {
     return errors.New("write error")
 }
 
@@ -394,6 +404,14 @@ func (self *BinaryServerProtocol) Write(result protocol.CommandEncode) error {
     }
 
     return self.stream.WriteBytes(self.wbuf)
+}
+
+func (self *BinaryServerProtocol) ReadCommand() (protocol.CommandDecode, error) {
+    return self.Read()
+}
+
+func (self *BinaryServerProtocol) WriteCommand(result protocol.CommandEncode) error {
+    return self.Write(result)
 }
 
 func (self *BinaryServerProtocol) Process() error {
@@ -1000,7 +1018,7 @@ func (self *TextServerProtocolParser) Parse() error {
 
 func (self *TextServerProtocolParser) Build(is_success bool, err_msg string, results []string) []byte {
     if !is_success {
-        return []byte(fmt.Sprintf("-ERR %s\r\n", err_msg))
+        return []byte(fmt.Sprintf("-%s\r\n", err_msg))
     }
 
     if results == nil || len(results) == 0 {
@@ -1018,6 +1036,55 @@ func (self *TextServerProtocolParser) Build(is_success bool, err_msg string, res
         buf = append(buf, []byte(fmt.Sprintf("$%d\r\n%s\r\n", len(result), result))...)
     }
     return buf
+}
+
+type TextServerCommand struct {
+    Parser      *TextServerProtocolParser
+    CommandType int
+    ErrorType   string
+    Args        []string
+    Message     string
+}
+
+func (self *TextServerCommand) Decode(buf []byte) error {
+    if len(buf) > len(self.Parser.buf) || self.Parser.buf_index != self.Parser.buf_len {
+        return errors.New("buf error")
+    }
+
+    copy(self.Parser.buf, buf)
+    self.Parser.buf_len = len(buf)
+    self.Parser.buf_index = 0
+    return self.Parser.Parse()
+}
+
+func (self *TextServerCommand) Encode(buf []byte) error {
+    message := self.Message
+    if self.ErrorType != "" {
+        message = fmt.Sprintf("%s %s", self.ErrorType, self.Message)
+    }
+    build_buf := self.Parser.Build(self.ErrorType == "", message, self.Args)
+    if len(build_buf) > len(buf) || self.Parser.buf_index == self.Parser.buf_len {
+        return errors.New("buf error")
+    }
+
+    copy(buf, build_buf)
+    return nil
+}
+
+func (self *TextServerCommand) GetCommandType() int {
+    return self.CommandType
+}
+
+func (self *TextServerCommand) GetErrorType() string {
+    return self.ErrorType
+}
+
+func (self *TextServerCommand) GetArgs() []string {
+    return self.Args
+}
+
+func (self *TextServerCommand) GetMessage() string {
+    return self.Message
 }
 
 type TextServerProtocolCommandHandler func(*TextServerProtocol, []string) error
@@ -1049,6 +1116,9 @@ func NewTextServerProtocol(slock *SLock, stream *Stream) *TextServerProtocol {
     server_protocol.handlers["SELECT"] = server_protocol.CommandHandlerSelectDB
     server_protocol.handlers["LOCK"] = server_protocol.CommandHandlerLock
     server_protocol.handlers["UNLOCK"] = server_protocol.CommandHandlerUnlock
+    for name, handler := range slock.GetReplicationManager().GetHandlers() {
+        server_protocol.handlers[name] = handler
+    }
     for name, handler := range slock.GetAdmin().GetHandlers() {
         server_protocol.handlers[name] = handler
     }
@@ -1093,6 +1163,10 @@ func (self *TextServerProtocol) Close() error {
     return nil
 }
 
+func (self *TextServerProtocol) GetParser() *TextServerProtocolParser {
+    return self.parser
+}
+
 func (self *TextServerProtocol) Read() (protocol.CommandDecode, error) {
     for ; !self.closed; {
         if self.parser.buf_index == self.parser.buf_len {
@@ -1111,25 +1185,46 @@ func (self *TextServerProtocol) Read() (protocol.CommandDecode, error) {
         }
 
         if self.parser.stage == 0 {
-            command_name := strings.ToUpper(self.parser.args[0])
-            if command_name == "LOCK" || command_name == "UNLOCK" {
-                if len(self.parser.args) < 5 {
-                    return nil, errors.New("Command Parse Error")
-                }
-
-                command, err := self.ArgsToLockComand(self.parser.args)
-                self.parser.args = self.parser.args[:0]
-                self.parser.args_count = 0
-                return command, err
-            }
+            command := &TextServerCommand{self.parser, 0, "", make([]string, len(self.parser.args)), ""}
+            copy(command.Args, self.parser.args)
             self.parser.args = self.parser.args[:0]
             self.parser.args_count = 0
+            return command, nil
         }
     }
     return nil, errors.New("Protocol Closed")
 }
 
 func (self *TextServerProtocol) Write(result protocol.CommandEncode) error {
+    switch result.(type) {
+    case *protocol.LockResultCommand:
+        return self.WriteCommand(result)
+    case *TextServerCommand:
+        return self.stream.WriteBytes(self.parser.Build(false, "ERR Unknwon Command", nil))
+    }
+    return self.stream.WriteBytes(self.parser.Build(false, "ERR Unknwon Command", nil))
+}
+
+func (self *TextServerProtocol) ReadCommand() (protocol.CommandDecode, error) {
+    command, err := self.Read()
+    if err != nil {
+        return nil, err
+    }
+
+    text_server_command := command.(*TextServerCommand)
+    command_name := strings.ToUpper(text_server_command.Args[0])
+    if command_name == "LOCK" || command_name == "UNLOCK" {
+        if len(text_server_command.Args) < 5 {
+            return nil, errors.New("Command Parse Error")
+        }
+
+        command, err := self.ArgsToLockComand(text_server_command.Args)
+        return command, err
+    }
+    return nil, errors.New("unknown command")
+}
+
+func (self *TextServerProtocol) WriteCommand(result protocol.CommandEncode) error {
     if self.closed {
         return errors.New("Protocol Closed")
     }
@@ -1153,7 +1248,7 @@ func (self *TextServerProtocol) Write(result protocol.CommandEncode) error {
         }
         return self.stream.WriteBytes(self.parser.Build(true, "", lock_results))
     }
-    return self.stream.WriteBytes(self.parser.Build(false, "Unknwon Command", nil))
+    return self.stream.WriteBytes(self.parser.Build(false, "ERR Unknwon Command", nil))
 }
 
 func (self *TextServerProtocol) Process() error {
@@ -1261,7 +1356,7 @@ func (self *TextServerProtocol) ProcessBuild(command protocol.ICommand) error {
         }
         return self.stream.WriteBytes(self.parser.Build(true, "", lock_results))
     }
-    return self.stream.WriteBytes(self.parser.Build(false, "Unknwon Command", nil))
+    return self.stream.WriteBytes(self.parser.Build(false, "ERR Unknwon Command", nil))
 }
 
 func (self *TextServerProtocol) ProcessCommad(command protocol.ICommand) error {
@@ -1615,17 +1710,17 @@ func (self *TextServerProtocol) ArgsToLockComand(args []string) (*protocol.LockC
 }
 
 func (self *TextServerProtocol) CommandHandlerUnknownCommand(server_protocol *TextServerProtocol, args []string) error {
-    return self.stream.WriteBytes(self.parser.Build(false, "Unknown Command", nil))
+    return self.stream.WriteBytes(self.parser.Build(false, "ERR Unknown Command", nil))
 }
 
 func (self *TextServerProtocol) CommandHandlerSelectDB(server_protocol *TextServerProtocol, args []string) error {
     if len(args) < 2 {
-        return self.stream.WriteBytes(self.parser.Build(false, "Command Parse Len Error", nil))
+        return self.stream.WriteBytes(self.parser.Build(false, "ERR Command Parse Len Error", nil))
     }
 
     db_id, err := strconv.Atoi(args[1])
     if err != nil {
-        return self.stream.WriteBytes(self.parser.Build(false, "Command Parse DB_ID Error", nil))
+        return self.stream.WriteBytes(self.parser.Build(false, "ERR Command Parse DB_ID Error", nil))
     }
     self.db_id = uint8(db_id)
     return self.stream.WriteBytes(self.parser.Build(true, "OK", nil))
@@ -1634,15 +1729,15 @@ func (self *TextServerProtocol) CommandHandlerSelectDB(server_protocol *TextServ
 func (self *TextServerProtocol) CommandHandlerLock(server_protocol *TextServerProtocol, args []string) error {
     lock_command, err := self.ArgsToLockComand(args)
     if err != nil {
-        return self.stream.WriteBytes(self.parser.Build(false, err.Error(), nil))
+        return self.stream.WriteBytes(self.parser.Build(false, "ERR " + err.Error(), nil))
     }
 
     if self.slock.state != STATE_LEADER {
-        return self.stream.WriteBytes(self.parser.Build(false, "State Error", nil))
+        return self.stream.WriteBytes(self.parser.Build(false, "ERR State Error", nil))
     }
 
     if lock_command.DbId == 0xff {
-        return self.stream.WriteBytes(self.parser.Build(false, "Uknown DB Error", nil))
+        return self.stream.WriteBytes(self.parser.Build(false, "ERR Uknown DB Error", nil))
     }
 
     db := self.slock.dbs[lock_command.DbId]
@@ -1652,7 +1747,7 @@ func (self *TextServerProtocol) CommandHandlerLock(server_protocol *TextServerPr
     self.lock_request_id = lock_command.RequestId
     err = db.Lock(self, lock_command)
     if err != nil {
-        return self.stream.WriteBytes(self.parser.Build(false, "Lock Error", nil))
+        return self.stream.WriteBytes(self.parser.Build(false, "ERR Lock Error", nil))
     }
     lock_command_result := <- self.lock_waiter
     if lock_command_result.Result == 0 {
@@ -1706,25 +1801,25 @@ func (self *TextServerProtocol) CommandHandlerLock(server_protocol *TextServerPr
 func (self *TextServerProtocol) CommandHandlerUnlock(server_protocol *TextServerProtocol, args []string) error {
     lock_command, err := self.ArgsToLockComand(args)
     if err != nil {
-        return self.stream.WriteBytes(self.parser.Build(false, err.Error(), nil))
+        return self.stream.WriteBytes(self.parser.Build(false, "ERR " + err.Error(), nil))
     }
 
     if self.slock.state != STATE_LEADER {
-        return self.stream.WriteBytes(self.parser.Build(false, "State Error", nil))
+        return self.stream.WriteBytes(self.parser.Build(false, "ERR State Error", nil))
     }
 
     if lock_command.DbId == 0xff {
-        return self.stream.WriteBytes(self.parser.Build(false, "Uknown DB Error", nil))
+        return self.stream.WriteBytes(self.parser.Build(false, "ERR Uknown DB Error", nil))
     }
 
     db := self.slock.dbs[lock_command.DbId]
     if db == nil {
-        return self.stream.WriteBytes(self.parser.Build(false, "Uknown DB Error", nil))
+        return self.stream.WriteBytes(self.parser.Build(false, "ERR Uknown DB Error", nil))
     }
     self.lock_request_id = lock_command.RequestId
     err = db.UnLock(self, lock_command)
     if err != nil {
-        return self.stream.WriteBytes(self.parser.Build(false, "UnLock Error", nil))
+        return self.stream.WriteBytes(self.parser.Build(false, "ERR UnLock Error", nil))
     }
     lock_command_result := <- self.lock_waiter
     if lock_command_result.Result == 0 {

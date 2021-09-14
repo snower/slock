@@ -1271,6 +1271,16 @@ func (self *LockDB) RemoveLongExpried(lock *Lock){
 }
 
 func (self *LockDB) DoExpried(lock *Lock){
+    if self.slock.state != STATE_LEADER {
+        if lock.command.ExpriedFlag & 0x0400 == 0 {
+            lock.expried_time = self.current_time + int64(lock.command.Expried) + 1
+        } else if lock.command.ExpriedFlag & 0x4000 != 0 {
+            lock.expried_time = 0x7fffffffffffffff
+        }
+        self.AddExpried(lock)
+        return
+    }
+
     lock_manager := lock.manager
     lock_manager.glock.Lock()
     if lock.expried {
@@ -1750,6 +1760,22 @@ func (self *LockDB) WakeUpWaitLock(lock_manager *LockManager, wait_lock *Lock, s
 
     atomic.AddUint64(&self.state.LockCount, 1)
     atomic.AddUint32(&self.state.WaitCount, 0xffffffff)
+}
+
+func (self *LockDB) HasLock(command *protocol.LockCommand) bool {
+    lock_manager := self.GetLockManager(command)
+    if lock_manager == nil {
+        return false
+    }
+
+    lock_manager.glock.Lock()
+    current_lock := lock_manager.GetLockedLock(command)
+    if current_lock != nil {
+        lock_manager.glock.Unlock()
+        return true
+    }
+    lock_manager.glock.Unlock()
+    return false
 }
 
 func (self *LockDB) GetState() *protocol.LockDBState {

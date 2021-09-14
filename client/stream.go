@@ -7,13 +7,12 @@ import (
 )
 
 type Stream struct {
-    client *Client
     conn   net.Conn
     closed bool
 }
 
-func NewStream(client *Client, conn net.Conn) *Stream {
-    stream := &Stream{client, conn, false}
+func NewStream(conn net.Conn) *Stream {
+    stream := &Stream{conn, false}
     tcp_conn, ok := conn.(*net.TCPConn)
     if ok {
         if tcp_conn.SetNoDelay(true) != nil {
@@ -91,7 +90,6 @@ func (self *Stream) Close() error {
     }
 
     self.closed = true
-    self.client = nil
     return self.conn.Close()
 }
 

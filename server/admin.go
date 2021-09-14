@@ -83,23 +83,23 @@ func (self *Admin) CommandHandleFlushDBCommand(server_protocol *TextServerProtoc
     defer self.slock.glock.Unlock()
 
     if len(args) < 2 {
-        return server_protocol.stream.WriteBytes(server_protocol.parser.Build(false, "Command Parse Len Error", nil))
+        return server_protocol.stream.WriteBytes(server_protocol.parser.Build(false, "ERR Command Parse Len Error", nil))
     }
 
     db_id, err := strconv.Atoi(args[1])
     if err != nil {
-        return server_protocol.stream.WriteBytes(server_protocol.parser.Build(false, "Command Parse DB_ID Error", nil))
+        return server_protocol.stream.WriteBytes(server_protocol.parser.Build(false, "ERR Command Parse DB_ID Error", nil))
     }
     db := self.slock.dbs[uint8(db_id)]
     if db == nil {
-        return server_protocol.stream.WriteBytes(server_protocol.parser.Build(false, "No Such DB", nil))
+        return server_protocol.stream.WriteBytes(server_protocol.parser.Build(false, "ERR No Such DB", nil))
     }
 
     self.slock.dbs[uint8(db_id)] = nil
     err = db.FlushDB()
     if err != nil {
         self.slock.dbs[uint8(db_id)] = db
-        return server_protocol.stream.WriteBytes(server_protocol.parser.Build(false, fmt.Sprintf("Flush DB Error %s", err.Error()), nil))
+        return server_protocol.stream.WriteBytes(server_protocol.parser.Build(false, fmt.Sprintf("ERR Flush DB Error %s", err.Error()), nil))
     }
     self.slock.dbs[uint8(db_id)] = db
     return server_protocol.stream.WriteBytes(server_protocol.parser.Build(true, "OK", nil))
@@ -124,7 +124,7 @@ func (self *Admin) CommandHandleFlushAllCommand(server_protocol *TextServerProto
             for db_id, db := range self.slock.dbs {
                 self.slock.dbs[db_id] = db
             }
-            return server_protocol.stream.WriteBytes(server_protocol.parser.Build(false, fmt.Sprintf("Flush DB %d Error %s", db_id, err.Error()), nil))
+            return server_protocol.stream.WriteBytes(server_protocol.parser.Build(false, fmt.Sprintf("ERR Flush DB %d Error %s", db_id, err.Error()), nil))
         }
     }
 
@@ -136,7 +136,7 @@ func (self *Admin) CommandHandleFlushAllCommand(server_protocol *TextServerProto
 
 func (self *Admin) CommandHandleEchoCommand(server_protocol *TextServerProtocol, args []string) error {
     if len(args) != 2 {
-        return server_protocol.stream.WriteBytes(server_protocol.parser.Build(false, "Command Arguments Error", nil))
+        return server_protocol.stream.WriteBytes(server_protocol.parser.Build(false, "ERR Command Arguments Error", nil))
     }
     return server_protocol.stream.WriteBytes(server_protocol.parser.Build(true, "", args[1:]))
 }
@@ -144,7 +144,7 @@ func (self *Admin) CommandHandleEchoCommand(server_protocol *TextServerProtocol,
 func (self *Admin) CommandHandlePingCommand(server_protocol *TextServerProtocol, args []string) error {
     if len(args) > 1 {
         if len(args) != 2 {
-            return server_protocol.stream.WriteBytes(server_protocol.parser.Build(false, "Command Arguments Error", nil))
+            return server_protocol.stream.WriteBytes(server_protocol.parser.Build(false, "ERR Command Arguments Error", nil))
         }
         return server_protocol.stream.WriteBytes(server_protocol.parser.Build(true, "", args[1:]))
     }
@@ -274,17 +274,17 @@ func (self *Admin) CommandHandleInfoCommand(server_protocol *TextServerProtocol,
 
 func (self *Admin) CommandHandleShowCommand(server_protocol *TextServerProtocol, args []string) error {
     if len(args) < 2 {
-        return server_protocol.stream.WriteBytes(server_protocol.parser.Build(false, "Command Arguments Error", nil))
+        return server_protocol.stream.WriteBytes(server_protocol.parser.Build(false, "ERR Command Arguments Error", nil))
     }
 
     db_id, err := strconv.Atoi(args[1])
     if err != nil {
-        return server_protocol.stream.WriteBytes(server_protocol.parser.Build(false, "DB Id Error", nil))
+        return server_protocol.stream.WriteBytes(server_protocol.parser.Build(false, "ERR DB Id Error", nil))
     }
 
     db := self.slock.dbs[uint8(db_id)]
     if db == nil {
-        return server_protocol.stream.WriteBytes(server_protocol.parser.Build(false, "DB Uninit Error", nil))
+        return server_protocol.stream.WriteBytes(server_protocol.parser.Build(false, "ERR DB Uninit Error", nil))
     }
 
     if len(args) == 2 {
@@ -320,7 +320,7 @@ func (self *Admin) CommandHandleShowLockCommand(server_protocol *TextServerProto
     db.glock.Unlock()
 
     if !ok || lock_manager.locked <= 0 {
-        return server_protocol.stream.WriteBytes(server_protocol.parser.Build(false, "Unknown Lock Manager Error", nil))
+        return server_protocol.stream.WriteBytes(server_protocol.parser.Build(false, "ERR Unknown Lock Manager Error", nil))
     }
 
     lock_infos := make([]string, 0)
@@ -388,7 +388,7 @@ func (self *Admin) CommandHandleShowLockCommand(server_protocol *TextServerProto
 
 func (self *Admin) CommandHandleConfigCommand(server_protocol *TextServerProtocol, args []string) error {
     if len(args) < 2 {
-        return server_protocol.stream.WriteBytes(server_protocol.parser.Build(false, "Command Arguments Error", nil))
+        return server_protocol.stream.WriteBytes(server_protocol.parser.Build(false, "ERR Command Arguments Error", nil))
     }
 
     if strings.ToUpper(args[1]) == "SET" {
@@ -420,21 +420,21 @@ func (self *Admin) CommandHandleConfigGetCommand(server_protocol *TextServerProt
     }
 
     if len(infos) <= 0 {
-        return server_protocol.stream.WriteBytes(server_protocol.parser.Build(false, "Unknown Config Parameter", nil))
+        return server_protocol.stream.WriteBytes(server_protocol.parser.Build(false, "ERR Unknown Config Parameter", nil))
     }
     return server_protocol.stream.WriteBytes(server_protocol.parser.Build(true, "", infos))
 }
 
 func (self *Admin) CommandHandleConfigSetCommand(server_protocol *TextServerProtocol, args []string) error {
     if len(args) < 4 {
-        return server_protocol.stream.WriteBytes(server_protocol.parser.Build(false, "Command Arguments Error", nil))
+        return server_protocol.stream.WriteBytes(server_protocol.parser.Build(false, "ERR Command Arguments Error", nil))
     }
 
     switch strings.ToUpper(args[2]) {
     case "DB_LOCK_AOF_TIME":
         db_lock_aof_time, err := strconv.Atoi(args[3])
         if err != nil {
-            return server_protocol.stream.WriteBytes(server_protocol.parser.Build(false, "Parameter Value Error", nil))
+            return server_protocol.stream.WriteBytes(server_protocol.parser.Build(false, "ERR Parameter Value Error", nil))
         }
 
         Config.DBLockAofTime = uint(db_lock_aof_time)
@@ -446,7 +446,7 @@ func (self *Admin) CommandHandleConfigSetCommand(server_protocol *TextServerProt
     case "AOF_FILE_REWRITE_SIZE":
         aof_file_rewrite_size, err := strconv.Atoi(args[3])
         if err != nil {
-            return server_protocol.stream.WriteBytes(server_protocol.parser.Build(false, "Parameter Value Error", nil))
+            return server_protocol.stream.WriteBytes(server_protocol.parser.Build(false, "ERR Parameter Value Error", nil))
         }
         Config.DBLockAofTime = uint(aof_file_rewrite_size)
         self.slock.GetAof().rewrite_size = uint32(aof_file_rewrite_size)
@@ -463,7 +463,7 @@ func (self *Admin) CommandHandleConfigSetCommand(server_protocol *TextServerProt
         case "ERROR":
             logging_level = logging.LevelError
         default:
-            return server_protocol.stream.WriteBytes(server_protocol.parser.Build(false, "Unknown Log Level", nil))
+            return server_protocol.stream.WriteBytes(server_protocol.parser.Build(false, "ERR Unknown Log Level", nil))
         }
         Config.LogLevel = args[2]
         for _, handler := range logger.GetHandlers() {
@@ -471,14 +471,14 @@ func (self *Admin) CommandHandleConfigSetCommand(server_protocol *TextServerProt
         }
         logger.SetLevel(logging_level)
     default:
-        return server_protocol.stream.WriteBytes(server_protocol.parser.Build(false, "UnSupport Config Set Parameter", nil))
+        return server_protocol.stream.WriteBytes(server_protocol.parser.Build(false, "ERR UnSupport Config Set Parameter", nil))
     }
     return server_protocol.stream.WriteBytes(server_protocol.parser.Build(true, "OK", nil))
 }
 
 func (self *Admin) CommandHandleClientCommand(server_protocol *TextServerProtocol, args []string) error {
     if len(args) < 2 {
-        return server_protocol.stream.WriteBytes(server_protocol.parser.Build(false, "Command Arguments Error", nil))
+        return server_protocol.stream.WriteBytes(server_protocol.parser.Build(false, "ERR Command Arguments Error", nil))
     }
 
     if strings.ToUpper(args[1]) == "KILL" {
@@ -521,18 +521,18 @@ func (self *Admin) CommandHandleClientListCommand(server_protocol *TextServerPro
 
 func (self *Admin) CommandHandleClientKillCommand(server_protocol *TextServerProtocol, args []string) error {
     if len(args) < 3 {
-        return server_protocol.stream.WriteBytes(server_protocol.parser.Build(false, "Command Arguments Error", nil))
+        return server_protocol.stream.WriteBytes(server_protocol.parser.Build(false, "ERR Command Arguments Error", nil))
     }
 
     for _, stream := range self.server.streams {
         if stream.RemoteAddr().String() == args[2] {
             err := stream.Close()
             if err != nil {
-                return server_protocol.stream.WriteBytes(server_protocol.parser.Build(false, "Client Close Error", nil))
+                return server_protocol.stream.WriteBytes(server_protocol.parser.Build(false, "ERR Client Close Error", nil))
             }
             return server_protocol.stream.WriteBytes(server_protocol.parser.Build(true, "OK", nil))
         }
     }
 
-    return server_protocol.stream.WriteBytes(server_protocol.parser.Build(false, "No such client", nil))
+    return server_protocol.stream.WriteBytes(server_protocol.parser.Build(false, "ERR No such client", nil))
 }

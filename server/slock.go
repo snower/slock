@@ -18,6 +18,7 @@ type SLock struct {
     dbs                         []*LockDB
     glock                       *sync.Mutex
     aof                         *Aof
+    replication_manager          *ReplicationManager
     admin                       *Admin
     logger                      logging.Logger
     streams                     map[[16]byte]ServerProtocol
@@ -33,24 +34,35 @@ func NewSLock(config *ServerConfig) *SLock {
     SetConfig(config)
 
     aof := NewAof()
+    replication_manager := NewReplicationManager()
     admin := NewAdmin()
     now := time.Now()
     logger := InitLogger(Config.Log, Config.LogLevel)
-    slock := &SLock{make([]*LockDB, 256), &sync.Mutex{}, aof,admin, logger, make(map[[16]byte]ServerProtocol, STREAMS_INIT_COUNT),
-        &now,NewLockCommandQueue(16, 64, FREE_COMMAND_QUEUE_INIT_SIZE * 16), &sync.Mutex{}, 0,
-        0, STATE_INIT}
+    slock := &SLock{make([]*LockDB, 256), &sync.Mutex{}, aof,replication_manager, admin, logger,
+        make(map[[16]byte]ServerProtocol, STREAMS_INIT_COUNT), &now,NewLockCommandQueue(16, 64, FREE_COMMAND_QUEUE_INIT_SIZE * 16),
+        &sync.Mutex{}, 0, 0, STATE_INIT}
     aof.slock = slock
+    replication_manager.slock = slock
     admin.slock = slock
     return slock
 }
 
 func (self *SLock) Init() error {
-    err := self.aof.LoadAndInit()
-    if err != nil {
-        self.logger.Errorf("Aof LoadOrInit Error: %v", err)
-        return err
+    if Config.SlaveOf != "" {
+        err := self.replication_manager.StartSync()
+        if err != nil {
+            self.logger.Errorf("Replication Start Sync Error: %v", err)
+            return err
+        }
+        self.UpdateState(STATE_SYNC)
+    } else {
+        err := self.aof.LoadAndInit()
+        if err != nil {
+            self.logger.Errorf("Aof LoadOrInit Error: %v", err)
+            return err
+        }
+        self.UpdateState(STATE_LEADER)
     }
-    self.UpdateState(STATE_LEADER)
     return nil
 }
 
@@ -65,6 +77,7 @@ func (self *SLock) Close()  {
     }
 
     self.aof.Close()
+    self.replication_manager.Close()
     self.admin.Close()
 }
 
@@ -74,6 +87,10 @@ func (self *SLock) UpdateState(state uint8)  {
 
 func (self *SLock) GetAof() *Aof {
     return self.aof
+}
+
+func (self *SLock) GetReplicationManager() *ReplicationManager {
+    return self.replication_manager
 }
 
 func (self *SLock) GetAdmin() *Admin {
