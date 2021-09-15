@@ -15,6 +15,7 @@ const (
 )
 
 type SLock struct {
+    server                      *Server
     dbs                         []*LockDB
     glock                       *sync.Mutex
     aof                         *Aof
@@ -34,11 +35,11 @@ func NewSLock(config *ServerConfig) *SLock {
     SetConfig(config)
 
     aof := NewAof()
-    replication_manager := NewReplicationManager()
+    replication_manager := NewReplicationManager(Config.SlaveOf)
     admin := NewAdmin()
     now := time.Now()
     logger := InitLogger(Config.Log, Config.LogLevel)
-    slock := &SLock{make([]*LockDB, 256), &sync.Mutex{}, aof,replication_manager, admin, logger,
+    slock := &SLock{nil,make([]*LockDB, 256), &sync.Mutex{}, aof,replication_manager, admin, logger,
         make(map[[16]byte]ServerProtocol, STREAMS_INIT_COUNT), &now,NewLockCommandQueue(16, 64, FREE_COMMAND_QUEUE_INIT_SIZE * 16),
         &sync.Mutex{}, 0, 0, STATE_INIT}
     aof.slock = slock
@@ -47,7 +48,8 @@ func NewSLock(config *ServerConfig) *SLock {
     return slock
 }
 
-func (self *SLock) Init() error {
+func (self *SLock) Init(server *Server) error {
+    self.server = server
     if Config.SlaveOf != "" {
         err := self.replication_manager.StartSync()
         if err != nil {
@@ -79,6 +81,7 @@ func (self *SLock) Close()  {
     self.aof.Close()
     self.replication_manager.Close()
     self.admin.Close()
+    self.server = nil
 }
 
 func (self *SLock) UpdateState(state uint8)  {

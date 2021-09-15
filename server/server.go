@@ -81,6 +81,17 @@ func (self *Server) RemoveStream(stream *Stream) error {
     return nil
 }
 
+func (self *Server) CloseStreams() error {
+    self.glock.Lock()
+    streams := make([]*Stream, 0)
+    streams = append(streams, self.streams...)
+    self.glock.Unlock()
+    for _, stream := range streams {
+        stream.Close()
+    }
+    return nil
+}
+
 func (self *Server) Loop() {
     stop_signal := make(chan os.Signal, 1)
     signal.Notify(stop_signal, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
@@ -111,6 +122,7 @@ func (self *Server) Loop() {
 }
 
 func (self *Server) CheckProtocol(stream *Stream) (ServerProtocol, error) {
+    var server_protocol ServerProtocol
     buf := make([]byte, 64)
     n, err := stream.Read(buf)
     if err != nil {
@@ -119,7 +131,11 @@ func (self *Server) CheckProtocol(stream *Stream) (ServerProtocol, error) {
 
     mv := uint16(buf[0]) | uint16(buf[1])<<8
     if n == 64 && mv == 0x0156 {
-        server_protocol := NewBinaryServerProtocol(self.slock, stream)
+        if self.slock.state == STATE_LEADER {
+            server_protocol = NewBinaryServerProtocol(self.slock, stream)
+        } else {
+            server_protocol = NewTransparencyBinaryServerProtocol(self.slock, stream, NewBinaryServerProtocol(self.slock, stream))
+        }
         err := server_protocol.ProcessParse(buf)
         if err != nil {
             cerr := server_protocol.Close()
@@ -132,7 +148,12 @@ func (self *Server) CheckProtocol(stream *Stream) (ServerProtocol, error) {
         return server_protocol, nil
     }
 
-    server_protocol := NewTextServerProtocol(self.slock, stream)
+
+    if self.slock.state == STATE_LEADER {
+        server_protocol = NewTextServerProtocol(self.slock, stream)
+    } else {
+        server_protocol = NewTransparencyTextServerProtocol(self.slock, stream, NewTextServerProtocol(self.slock, stream))
+    }
     err = server_protocol.ProcessParse(buf[:n])
     if err != nil {
         cerr := server_protocol.Close()
