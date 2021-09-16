@@ -40,6 +40,7 @@ type ServerConfig struct{
     AofQueueSize uint           `long:"aof_queue_size" description:"aof channel queue size" default:"4096"`
     AofFileRewriteSize uint     `long:"aof_file_rewrite_size" description:"aof file rewrite size" default:"67174400"`
     AofFileBufferSize uint      `long:"aof_file_buffer_size" description:"aof file buffer size" default:"4096"`
+    AofRingBufferMaxSize uint   `long:"aof_ring_buffer_max_size" description:"slave sync ring buffer max size" default:"268435456"`
     SlaveOf string              `long:"slaveof" description:"slave of to master sync" default:""`
 }
 

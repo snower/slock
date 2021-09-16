@@ -96,13 +96,10 @@ func (self *Admin) CommandHandleFlushDBCommand(server_protocol *TextServerProtoc
         return server_protocol.stream.WriteBytes(server_protocol.parser.BuildResponse(false, "ERR No Such DB", nil))
     }
 
-    self.slock.dbs[uint8(db_id)] = nil
     err = db.FlushDB()
     if err != nil {
-        self.slock.dbs[uint8(db_id)] = db
         return server_protocol.stream.WriteBytes(server_protocol.parser.BuildResponse(false, fmt.Sprintf("ERR Flush DB Error %s", err.Error()), nil))
     }
-    self.slock.dbs[uint8(db_id)] = db
     return server_protocol.stream.WriteBytes(server_protocol.parser.BuildResponse(true, "OK", nil))
 }
 
@@ -110,28 +107,13 @@ func (self *Admin) CommandHandleFlushAllCommand(server_protocol *TextServerProto
     self.slock.glock.Lock()
     defer self.slock.glock.Unlock()
 
-    dbs := make(map[int]*LockDB)
-
     for db_id, db := range self.slock.dbs {
-        if db != nil {
-            self.slock.dbs[db_id] = nil
-            dbs[db_id] = db
-        }
-    }
-
-    for db_id, db := range dbs {
         err := db.FlushDB()
         if err != nil {
-            for db_id, db := range self.slock.dbs {
-                self.slock.dbs[db_id] = db
-            }
             return server_protocol.stream.WriteBytes(server_protocol.parser.BuildResponse(false, fmt.Sprintf("ERR Flush DB %d Error %s", db_id, err.Error()), nil))
         }
     }
 
-    for db_id, db := range self.slock.dbs {
-        self.slock.dbs[db_id] = db
-    }
     return server_protocol.stream.WriteBytes(server_protocol.parser.BuildResponse(true, "OK", nil))
 }
 

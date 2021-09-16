@@ -84,6 +84,16 @@ func (self *TransparencyBinaryClientProtocol) Process(server_protocol *Transpare
 				}
 				return
 			}
+		case *protocol.InitResultCommand:
+			err = server_protocol.Write(command.(*protocol.LockResultCommand))
+			if err != nil {
+				if self.slock.state == STATE_LEADER {
+					self.Close()
+				} else {
+					server_protocol.Close()
+				}
+				return
+			}
 		}
 	}
 }
@@ -345,7 +355,7 @@ func (self *TransparencyBinaryServerProtocol) ProcessParse(buf []byte) error {
 		if err != nil {
 			return err
 		}
-		err = self.server_protocol.ProcessCommad(command)
+		err = self.ProcessCommad(command)
 		if err != nil {
 			return err
 		}
@@ -358,6 +368,17 @@ func (self *TransparencyBinaryServerProtocol) ProcessBuild(command protocol.ICom
 }
 
 func (self *TransparencyBinaryServerProtocol) ProcessCommad(command protocol.ICommand) error {
+	switch command.GetCommandType() {
+	case protocol.COMMAND_INIT:
+		init_command := command.(*protocol.InitCommand)
+		if self.Init(init_command.ClientId) != nil {
+			return self.Write(protocol.NewInitResultCommand(init_command, protocol.RESULT_ERROR, 0))
+		}
+		self.slock.glock.Lock()
+		self.slock.streams[init_command.ClientId] = self
+		self.slock.glock.Unlock()
+		return self.client_protocol.protocol.Write(init_command)
+	}
 	return self.server_protocol.ProcessCommad(command)
 }
 
@@ -423,8 +444,11 @@ type TransparencyTextServerProtocol struct {
 
 func NewTransparencyTextServerProtocol(slock *SLock, stream *Stream, server_protocol *TextServerProtocol) *TransparencyTextServerProtocol {
 	client_protocol := &TransparencyBinaryClientProtocol{slock, nil, nil, false}
-	return &TransparencyTextServerProtocol{slock, &sync.Mutex{}, stream, server_protocol, client_protocol,
+	transparency_protocol := &TransparencyTextServerProtocol{slock, &sync.Mutex{}, stream, server_protocol, client_protocol,
 		make(chan *protocol.LockResultCommand, 4),[16]byte{}, [16]byte{}, false}
+	server_protocol.handlers["LOCK"] = transparency_protocol.CommandHandlerLock
+	server_protocol.handlers["UNLOCK"] = transparency_protocol.CommandHandlerUnlock
+	return transparency_protocol
 }
 
 func (self *TransparencyTextServerProtocol) Init(client_id [16]byte) error{
@@ -628,7 +652,7 @@ func (self *TransparencyTextServerProtocol) CommandHandlerLock(server_protocol *
 		return self.stream.WriteBytes(self.server_protocol.parser.BuildResponse(false, "ERR " + err.Error(), nil))
 	}
 
-	if self.slock.state != STATE_LEADER {
+	if self.slock.state != STATE_FOLLOWER {
 		return self.stream.WriteBytes(self.server_protocol.parser.BuildResponse(false, "ERR State Error", nil))
 	}
 
@@ -701,7 +725,7 @@ func (self *TransparencyTextServerProtocol) CommandHandlerUnlock(server_protocol
 		return self.stream.WriteBytes(self.server_protocol.parser.BuildResponse(false, "ERR " + err.Error(), nil))
 	}
 
-	if self.slock.state != STATE_LEADER {
+	if self.slock.state != STATE_FOLLOWER {
 		return self.stream.WriteBytes(self.server_protocol.parser.BuildResponse(false, "ERR State Error", nil))
 	}
 

@@ -46,13 +46,13 @@ func (self *Server) Close() {
     }
     self.glock.Unlock()
 
-    self.slock.Close()
     for _, stream := range self.streams {
         err := stream.Close()
         if err != nil {
             self.slock.Log().Errorf("Stream Close Error: %v", err)
         }
     }
+    self.slock.Close()
     self.stop_waiter <- true
 }
 
@@ -82,11 +82,9 @@ func (self *Server) RemoveStream(stream *Stream) error {
 }
 
 func (self *Server) CloseStreams() error {
+    defer self.glock.Unlock()
     self.glock.Lock()
-    streams := make([]*Stream, 0)
-    streams = append(streams, self.streams...)
-    self.glock.Unlock()
-    for _, stream := range streams {
+    for _, stream := range self.streams {
         stream.Close()
     }
     return nil
@@ -97,7 +95,7 @@ func (self *Server) Loop() {
     signal.Notify(stop_signal, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
     go func() {
         <-stop_signal
-        self.slock.Log().Infof("Server is stopping")
+        self.slock.Log().Infof("Server is shutdown start")
         self.Close()
     }()
 
@@ -118,7 +116,7 @@ func (self *Server) Loop() {
         go self.Handle(stream)
     }
     <- self.stop_waiter
-    self.slock.Log().Infof("Server has stopped")
+    self.slock.Log().Infof("Server has shutdown")
 }
 
 func (self *Server) CheckProtocol(stream *Stream) (ServerProtocol, error) {

@@ -51,7 +51,13 @@ func NewSLock(config *ServerConfig) *SLock {
 func (self *SLock) Init(server *Server) error {
     self.server = server
     if Config.SlaveOf != "" {
-        err := self.replication_manager.StartSync()
+        err := self.aof.Init()
+        if err != nil {
+            self.logger.Errorf("Aof Init Error: %v", err)
+            return err
+        }
+
+        err = self.replication_manager.StartSync()
         if err != nil {
             self.logger.Errorf("Replication Start Sync Error: %v", err)
             return err
@@ -69,18 +75,16 @@ func (self *SLock) Init(server *Server) error {
 }
 
 func (self *SLock) Close()  {
-    defer self.glock.Unlock()
+    self.replication_manager.Close()
     self.glock.Lock()
-
     for _, db := range self.dbs {
         if db != nil {
             db.Close()
         }
     }
-
-    self.aof.Close()
-    self.replication_manager.Close()
+    self.glock.Unlock()
     self.admin.Close()
+    self.aof.Close()
     self.server = nil
 }
 

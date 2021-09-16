@@ -1273,7 +1273,11 @@ func (self *LockDB) RemoveLongExpried(lock *Lock){
 func (self *LockDB) DoExpried(lock *Lock){
     if self.slock.state != STATE_LEADER {
         if lock.command.ExpriedFlag & 0x0400 == 0 {
-            lock.expried_time = self.current_time + int64(lock.command.Expried) + 1
+            if lock.command.Expried > 30 {
+                lock.expried_time = self.current_time + 30
+            } else {
+                lock.expried_time = self.current_time + int64(lock.command.Expried) + 1
+            }
         } else if lock.command.ExpriedFlag & 0x4000 != 0 {
             lock.expried_time = 0x7fffffffffffffff
         }
