@@ -1213,6 +1213,7 @@ func (self *ReplicationManager) StartSync() error {
 	self.client_channel = channel
 
 	go func() {
+		channel.current_request_id = self.current_request_id
 		for ; !self.closed && self.slock.state != STATE_LEADER; {
 			err = channel.InitSync()
 			if err != nil {
