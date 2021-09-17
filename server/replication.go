@@ -238,18 +238,22 @@ func (self *ReplicationClientChannel) SendInitSyncCommand() (*protocol.TextRespo
 }
 
 func (self *ReplicationClientChannel) InitSync() error {
-	command, err := self.SendInitSyncCommand()
+	text_command, err := self.SendInitSyncCommand()
 	if err != nil {
 		return err
 	}
 
 	if self.aof_lock != nil {
+		err = self.SendStart()
+		if err != nil {
+			return err
+		}
 		self.recved_files = true
 		self.manager.slock.logger.Infof("Replication Recv Waiting")
 		return nil
 	}
 
-	v, err := hex.DecodeString(command.Results[0])
+	v, err := hex.DecodeString(text_command.Results[0])
 	if err != nil {
 		return err
 	}
@@ -261,8 +265,30 @@ func (self *ReplicationClientChannel) InitSync() error {
 	if err != nil {
 		return err
 	}
+
 	self.aof_lock = NewAofLock()
+	err = self.SendStart()
+	if err != nil {
+		return err
+	}
 	return self.HandleFiles()
+}
+
+func (self *ReplicationClientChannel) SendStart() error {
+	self.aof_lock.CommandType = protocol.COMMAND_INIT
+	self.aof_lock.AofIndex = 0xffffffff
+	self.aof_lock.AofId = 0xffffffff
+	err := self.aof_lock.Encode()
+	if err != nil {
+		return err
+	}
+	self.glock.Lock()
+	err = self.stream.WriteBytes(self.aof_lock.buf)
+	self.glock.Unlock()
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (self *ReplicationClientChannel) HandleFiles() error {
@@ -282,7 +308,7 @@ func (self *ReplicationClientChannel) HandleFiles() error {
 			return err
 		}
 
-		if self.aof_lock.AofIndex >= 0xffffffff && self.aof_lock.AofId >= 0xffffffff {
+		if self.aof_lock.CommandType == protocol.COMMAND_INIT && self.aof_lock.AofIndex >= 0xffffffff && self.aof_lock.AofId >= 0xffffffff {
 			if aof_file != nil {
 				aof_file.Flush()
 				err := aof_file.Close()
@@ -525,6 +551,11 @@ func (self *ReplicationServerChannel) InitSync(args []string) (bool, error) {
 		}
 		self.buffer_index = buffer_index
 		self.manager.slock.logger.Infof("Replication Client Send Files Start %s %s", self.protocol.RemoteAddr().String(), request_id)
+
+		err = self.RecvStart()
+		if err != nil {
+			return false, err
+		}
 		go (func() {
 			err := self.SendFiles()
 			if err != nil {
@@ -559,6 +590,11 @@ func (self *ReplicationServerChannel) InitSync(args []string) (bool, error) {
 	self.buffer_index = buffer_index + 1
 	self.sended_files = true
 	self.manager.slock.logger.Infof("Replication Client Send Start %s %s", self.protocol.RemoteAddr().String(), request_id)
+
+	err = self.RecvStart()
+	if err != nil {
+		return false, err
+	}
 	return true, nil
 }
 
@@ -601,7 +637,38 @@ func (self *ReplicationServerChannel) SendFiles() error {
 	return self.manager.WakeupServerChannel()
 }
 
+func (self *ReplicationServerChannel) RecvStart() error {
+	buf := self.raof_lock.buf
+	for ; !self.closed; {
+		n, err := self.stream.Read(buf)
+		if err != nil {
+			return err
+		}
+
+		if n < 64 {
+			for ; n < 64; {
+				nn, nerr := self.stream.Read(buf[n:])
+				if nerr != nil {
+					return nerr
+				}
+				n += nn
+			}
+		}
+
+		err = self.raof_lock.Decode()
+		if err != nil {
+			return err
+		}
+
+		if self.raof_lock.CommandType == protocol.COMMAND_INIT && self.raof_lock.AofIndex == 0xffffffff && self.raof_lock.AofId == 0xffffffff {
+			return nil
+		}
+	}
+	return io.EOF
+}
+
 func (self *ReplicationServerChannel) SendFilesFinish() error {
+	self.waof_lock.CommandType = protocol.COMMAND_INIT
 	self.waof_lock.AofIndex = 0xffffffff
 	self.waof_lock.AofId = 0xffffffff
 	err := self.waof_lock.Encode()

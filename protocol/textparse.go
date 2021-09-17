@@ -113,6 +113,13 @@ func (self *TextParser) CopyToReadBuf(buf []byte) {
 	self.buf_len += len(buf)
 }
 
+func (self *TextParser) GetRemainingReadBuffer() []byte {
+	buf := self.rbuf[self.buf_index: self.buf_len]
+	self.buf_len = 0
+	self.buf_index = 0
+	return buf
+}
+
 func (self *TextParser) GetWriteBuf() []byte {
 	return self.wbuf
 }
