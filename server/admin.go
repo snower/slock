@@ -570,11 +570,7 @@ func (self *Admin) CommandHandleClientKillCommand(server_protocol *TextServerPro
 }
 
 func (self *Admin) CommandHandleClientSlaveOfCommand(server_protocol *TextServerProtocol, args []string) error {
-    if !(len(args) == 1 || len(args) == 3) {
-        return server_protocol.stream.WriteBytes(server_protocol.parser.BuildResponse(false, "ERR Command Arguments Error", nil))
-    }
-
-    if len(args) == 1 || (len(args) == 3 && args[1] == "") {
+    if len(args) == 1 || (len(args) >= 2 && args[1] == "") {
         if self.slock.state == STATE_LEADER {
             return server_protocol.stream.WriteBytes(server_protocol.parser.BuildResponse(true, "OK", nil))
         }
@@ -584,7 +580,8 @@ func (self *Admin) CommandHandleClientSlaveOfCommand(server_protocol *TextServer
         if err != nil {
             return server_protocol.stream.WriteBytes(server_protocol.parser.BuildResponse(false, "ERR Change Error", nil))
         }
-    } else {
+        return server_protocol.stream.WriteBytes(server_protocol.parser.BuildResponse(true, "OK", nil))
+    } else if len(args) >= 3 && args[1] != "" && args[2] != "" {
         if self.slock.state == STATE_FOLLOWER {
             return server_protocol.stream.WriteBytes(server_protocol.parser.BuildResponse(true, "OK", nil))
         }
@@ -594,7 +591,8 @@ func (self *Admin) CommandHandleClientSlaveOfCommand(server_protocol *TextServer
         if err != nil {
             return server_protocol.stream.WriteBytes(server_protocol.parser.BuildResponse(false, "ERR Change Error", nil))
         }
+        return server_protocol.stream.WriteBytes(server_protocol.parser.BuildResponse(true, "OK", nil))
     }
 
-    return server_protocol.stream.WriteBytes(server_protocol.parser.BuildResponse(true, "OK", nil))
+    return server_protocol.stream.WriteBytes(server_protocol.parser.BuildResponse(false, "ERR Command Arguments Error", nil))
 }

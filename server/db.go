@@ -1399,9 +1399,9 @@ func (self *LockDB) AddMillisecondExpried(lock *Lock) {
 func (self *LockDB) Lock(server_protocol ServerProtocol, command *protocol.LockCommand) error {
     /*
     protocol.LockCommand.Flag
-    |7                        |           1           |         0           |
-    |-------------------------|-----------------------|---------------------|
-    |                         |when_locked_update_lock|when_locked_show_lock|
+    |7                     |           1           |         0           |
+    |----------------------|-----------------------|---------------------|
+    |                      |when_locked_update_lock|when_locked_show_lock|
     */
 
     lock_manager := self.GetOrNewLockManager(command)
@@ -1419,6 +1419,7 @@ func (self *LockDB) Lock(server_protocol ServerProtocol, command *protocol.LockC
         return nil
     }
 
+    waited := lock_manager.waited
     if lock_manager.locked > 0 {
         if command.Flag == 0x01 {
             lock_manager.glock.Unlock()
@@ -1506,10 +1507,17 @@ func (self *LockDB) Lock(server_protocol ServerProtocol, command *protocol.LockC
             server_protocol.FreeLockCommand(command)
             return nil
         }
+    } else {
+        if command.TimeoutFlag & 0x0200 != 0 {
+            waited = true
+        } else {
+            waited = false
+        }
     }
 
     lock := lock_manager.GetOrNewLock(server_protocol, command)
-    if !lock_manager.waited && self.DoLock(lock_manager, lock) {
+    if !waited && self.DoLock(lock_manager, lock) {
+        require_wakeup := lock_manager.waited && lock.locked == 0
         if command.Expried > 0 {
             lock_manager.AddLock(lock)
             lock_manager.locked++
@@ -1540,6 +1548,10 @@ func (self *LockDB) Lock(server_protocol ServerProtocol, command *protocol.LockC
             server_protocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, uint16(lock_manager.locked), lock.locked)
             atomic.AddUint64(&self.state.LockCount, 1)
             atomic.AddUint32(&self.state.LockedCount, 1)
+
+            if require_wakeup {
+                self.WakeUpWaitLocks(lock_manager, server_protocol)
+            }
             return nil
         }
 
@@ -1552,6 +1564,10 @@ func (self *LockDB) Lock(server_protocol ServerProtocol, command *protocol.LockC
         server_protocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, uint16(lock_manager.locked), lock.locked)
         server_protocol.FreeLockCommand(command)
         atomic.AddUint64(&self.state.LockCount, 1)
+
+        if require_wakeup {
+            self.WakeUpWaitLocks(lock_manager, server_protocol)
+        }
         return nil
     }
 

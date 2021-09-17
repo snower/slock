@@ -130,7 +130,12 @@ func (self *LockManager) GetLockedLock(command *protocol.LockCommand) *Lock {
 
 func (self *LockManager) UpdateLockedLock(lock *Lock, timeout uint16, timeout_flag uint16, expried uint16, expried_flag uint16, count uint16, rcount uint8) {
     lock.command.Timeout = timeout
-    lock.command.TimeoutFlag = timeout_flag
+    if lock.command.TimeoutFlag & 0x1000 != 0 {
+        lock.command.TimeoutFlag = timeout_flag
+        lock.command.TimeoutFlag |= 0x1000
+    } else {
+        lock.command.TimeoutFlag = timeout_flag
+    }
     lock.command.Expried = expried
     lock.command.ExpriedFlag = expried_flag
     lock.command.Count = count

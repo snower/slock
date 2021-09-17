@@ -495,67 +495,7 @@ func (self *TransparencyTextServerProtocol) WriteCommand(result protocol.Command
 	return self.server_protocol.WriteCommand(result)
 }
 
-func (self *TransparencyTextServerProtocol) Process() error {
-	rbuf := self.server_protocol.parser.GetReadBuf()
-	for ; !self.closed; {
-		if self.server_protocol.parser.IsBufferEnd() {
-			n, err := self.stream.Read(rbuf)
-			if err != nil {
-				return err
-			}
-
-			self.server_protocol.parser.BufferUpdate(n)
-		}
-
-		err := self.server_protocol.parser.ParseRequest()
-		if err != nil {
-			return err
-		}
-
-		if self.server_protocol.parser.IsParseFinish() {
-			if self.slock.state == STATE_SYNC {
-				waiter := make(chan bool, 1)
-				self.slock.replication_manager.WaitInitSynced(waiter)
-				succed := <- waiter
-				if succed {
-					return io.EOF
-				}
-			} else if self.slock.state == STATE_FOLLOWER {
-				if !self.client_protocol.IsOpened() {
-					leader_addrss := self.slock.replication_manager.leader_address
-					if leader_addrss == "" {
-						return errors.New("unknown leader address")
-					}
-
-					err := self.client_protocol.Open(leader_addrss)
-					if err != nil {
-						return err
-					}
-					go self.client_protocol.ProcessWaiter(self)
-				}
-			}
-
-			self.server_protocol.total_command_count++
-			command_name := self.server_protocol.parser.GetCommandType()
-			if command_handler, ok := self.server_protocol.handlers[command_name]; ok {
-				err := command_handler(self.server_protocol, self.server_protocol.parser.GetArgs())
-				if err != nil {
-					return err
-				}
-			} else {
-				err := self.CommandHandlerUnknownCommand(self.server_protocol, self.server_protocol.parser.GetArgs())
-				if err != nil {
-					return err
-				}
-			}
-
-			self.server_protocol.parser.Reset()
-		}
-	}
-	return nil
-}
-
-func (self *TransparencyTextServerProtocol) ProcessParse(buf []byte) error {
+func (self *TransparencyTextServerProtocol) CheckClient() error {
 	if self.slock.state == STATE_SYNC {
 		waiter := make(chan bool, 1)
 		self.slock.replication_manager.WaitInitSynced(waiter)
@@ -577,7 +517,14 @@ func (self *TransparencyTextServerProtocol) ProcessParse(buf []byte) error {
 			go self.client_protocol.ProcessWaiter(self)
 		}
 	}
+	return nil
+}
 
+func (self *TransparencyTextServerProtocol) Process() error {
+	return self.server_protocol.Process()
+}
+
+func (self *TransparencyTextServerProtocol) ProcessParse(buf []byte) error {
 	return self.server_protocol.ProcessParse(buf)
 }
 
@@ -645,6 +592,11 @@ func (self *TransparencyTextServerProtocol) CommandHandlerUnknownCommand(server_
 func (self *TransparencyTextServerProtocol) CommandHandlerLock(server_protocol *TextServerProtocol, args []string) error {
 	if self.slock.state == STATE_LEADER {
 		return self.server_protocol.CommandHandlerLock(server_protocol, args)
+	}
+
+	cerr := self.CheckClient()
+	if cerr != nil {
+		return self.stream.WriteBytes(self.server_protocol.parser.BuildResponse(false, "ERR Leader Server Error", nil))
 	}
 
 	lock_command, err := self.server_protocol.ArgsToLockComand(args)
@@ -718,6 +670,11 @@ func (self *TransparencyTextServerProtocol) CommandHandlerLock(server_protocol *
 func (self *TransparencyTextServerProtocol) CommandHandlerUnlock(server_protocol *TextServerProtocol, args []string) error {
 	if self.slock.state == STATE_LEADER {
 		return self.server_protocol.CommandHandlerUnlock(server_protocol, args)
+	}
+
+	cerr := self.CheckClient()
+	if cerr != nil {
+		return self.stream.WriteBytes(self.server_protocol.parser.BuildResponse(false, "ERR Leader Server Error", nil))
 	}
 
 	lock_command, err := self.server_protocol.ArgsToLockComand(args)

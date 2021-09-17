@@ -417,9 +417,9 @@ func (self *AofChannel) Push(lock *Lock, command_type uint8) error {
             expried_time = uint16(lock.expried_time - command_time)
         }
         aof_lock = &AofLock{command_type, 0, 0, uint64(command_time), lock.command.Flag, lock.manager.db_id,  lock.command.LockId,
-            lock.command.LockKey, lock.command.ExpriedFlag & 0x4800, 0, start_time, expried_time, lock.command.Count,
+            lock.command.LockKey, lock.command.ExpriedFlag & 0xefff, 0, start_time, expried_time, lock.command.Count,
             lock.command.Rcount, 0, self.buf, nil}
-        if command_type == protocol.COMMAND_LOCK && lock.command.TimeoutFlag & 0x1000 != 0 {
+        if lock.command.TimeoutFlag & 0x1000 != 0 {
             aof_lock.AofFlag |= 0x1000
             aof_lock.lock = lock
         }
