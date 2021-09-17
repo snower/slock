@@ -35,6 +35,36 @@ func TestTextParser_ParseRequest(t *testing.T) {
 	}
 }
 
+func TestTextParser_ParseZeroArgsRequest(t *testing.T) {
+	admin_parse := NewTextParser(make([]byte, 1024), make([]byte, 1024))
+
+	data := []byte("*3\r\n$7\r\nslaveof\r\n$0\r\n\r\n$0\r\n\r\n")
+	admin_parse.CopyToReadBuf(data)
+
+	err := admin_parse.ParseRequest()
+	if err != nil {
+		t.Errorf("Text Request Command Parse Fail %v %v", err, admin_parse.GetArgs())
+		return
+	}
+
+	if len(admin_parse.args) != 3 {
+		t.Errorf("Admin Parse Fail %v", admin_parse.args)
+		return
+	}
+
+	for i, arg := range []string{"slaveof", "", ""} {
+		if admin_parse.args[i] != arg {
+			t.Errorf("Text Request Command Parse Arg Fail %v %s", admin_parse.args, arg)
+			return
+		}
+	}
+
+	if len(admin_parse.args) != admin_parse.args_count {
+		t.Errorf("Text Request Command Parse Args Count Fail %v %d", admin_parse.args, admin_parse.args_count)
+		return
+	}
+}
+
 func TestTextParser_MultiParseRequest(t *testing.T) {
 	admin_parse := NewTextParser(make([]byte, 1024), make([]byte, 1024))
 
@@ -254,6 +284,35 @@ func TestTextParser_ParseResponseARY(t *testing.T) {
 	}
 
 	if admin_parse.args[0] != "Success" || admin_parse.args[1] != "test" {
+		t.Errorf("Text Response Command Parse ARY args Fail %v", admin_parse.args)
+		return
+	}
+}
+
+
+func TestTextParser_ParseResponseZeroArg(t *testing.T) {
+	admin_parse := NewTextParser(make([]byte, 1024), make([]byte, 1024))
+
+	data := []byte("*2\r\n$0\r\n\r\n$4\r\ntest\r\n")
+	copy(admin_parse.rbuf, data)
+	admin_parse.buf_len = len(data)
+	r := admin_parse.ParseResponse()
+	if r != nil {
+		t.Errorf("Text Response Command Parse ARY Fail %v", r)
+		return
+	}
+
+	if admin_parse.args_type != 4 {
+		t.Errorf("Text Response Command Parse ARY arg_type Fail %d", admin_parse.args_type)
+		return
+	}
+
+	if len(admin_parse.args) != 2 {
+		t.Errorf("Text Response Command Parse ARY args len Fail %d", len(admin_parse.args))
+		return
+	}
+
+	if admin_parse.args[0] != "" || admin_parse.args[1] != "test" {
 		t.Errorf("Text Response Command Parse ARY args Fail %v", admin_parse.args)
 		return
 	}

@@ -82,8 +82,6 @@ func (self *Server) RemoveStream(stream *Stream) error {
 }
 
 func (self *Server) CloseStreams() error {
-    defer self.glock.Unlock()
-    self.glock.Lock()
     for _, stream := range self.streams {
         stream.Close()
     }

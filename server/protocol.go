@@ -39,17 +39,20 @@ type ServerProtocol interface {
     FreeLockCommandLocked(command *protocol.LockCommand) error
 }
 
+type MemWaiterServerProtocolResultCallback func (*MemWaiterServerProtocol, *protocol.LockCommand, uint8, uint16, uint8) error
+
 type MemWaiterServerProtocol struct {
     slock                       *SLock
     glock                       *sync.Mutex
     free_commands               *LockCommandQueue
     waiters                     map[[16]byte]chan *protocol.LockResultCommand
+    result_callback             MemWaiterServerProtocolResultCallback
     closed                      bool
 }
 
 func NewMemWaiterServerProtocol(slock *SLock) *MemWaiterServerProtocol {
     mem_waiter_server_protocol := &MemWaiterServerProtocol{slock, &sync.Mutex{}, NewLockCommandQueue(4, 64, FREE_COMMAND_QUEUE_INIT_SIZE),
-        make(map[[16]byte]chan *protocol.LockResultCommand, 4096), false}
+        make(map[[16]byte]chan *protocol.LockResultCommand, 4096), nil, false}
     mem_waiter_server_protocol.InitLockCommand()
     return mem_waiter_server_protocol
 }
@@ -100,20 +103,26 @@ func (self *MemWaiterServerProtocol) ProcessCommad(command protocol.ICommand) er
 
 func (self *MemWaiterServerProtocol) ProcessLockCommand(lock_command *protocol.LockCommand) error {
     db := self.slock.dbs[lock_command.DbId]
-    if lock_command.CommandType == protocol.COMMAND_LOCK {
+    switch lock_command.CommandType {
+    case protocol.COMMAND_LOCK:
         if db == nil {
             db = self.slock.GetOrNewDB(lock_command.DbId)
         }
         return db.Lock(self, lock_command)
+    case protocol.COMMAND_UNLOCK:
+        if db == nil {
+            return self.ProcessLockResultCommand(lock_command, protocol.RESULT_UNKNOWN_DB, 0, 0)
+        }
+        return db.UnLock(self, lock_command)
     }
-
-    if db == nil {
-        return self.ProcessLockResultCommand(lock_command, protocol.RESULT_UNKNOWN_DB, 0, 0)
-    }
-    return db.UnLock(self, lock_command)
+    return self.ProcessLockResultCommand(lock_command, protocol.RESULT_UNKNOWN_COMMAND, 0, 0)
 }
 
 func (self *MemWaiterServerProtocol)ProcessLockResultCommand(command *protocol.LockCommand, result uint8, lcount uint16, lrcount uint8) error {
+    if self.result_callback != nil {
+        return self.result_callback(self, command, result, lcount, lrcount)
+    }
+
     self.glock.Lock()
     if waiter, ok := self.waiters[command.RequestId]; ok {
         waiter <- protocol.NewLockResultCommand(command, result, 0, lcount, command.Count, lrcount, command.Rcount)
@@ -219,6 +228,11 @@ func (self *MemWaiterServerProtocol) RemoveWaiter(command *protocol.LockCommand)
         delete(self.waiters, command.RequestId)
     }
     self.glock.Unlock()
+    return nil
+}
+
+func (self *MemWaiterServerProtocol) SetResultCallback(callback MemWaiterServerProtocolResultCallback) error {
+    self.result_callback = callback
     return nil
 }
 

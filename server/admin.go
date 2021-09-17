@@ -13,6 +13,8 @@ import (
     "time"
 )
 
+var STATE_NAMES  = []string{"initing", "leader", "follower", "syncing"}
+
 type Admin struct {
     slock *SLock
     server *Server
@@ -151,6 +153,7 @@ func (self *Admin) CommandHandleInfoCommand(server_protocol *TextServerProtocol,
     infos = append(infos, fmt.Sprintf("tcp_bind:%s", Config.Bind))
     infos = append(infos, fmt.Sprintf("tcp_port:%d", Config.Port))
     infos = append(infos, fmt.Sprintf("uptime_in_seconds:%d", time.Now().Unix() - self.slock.uptime.Unix()))
+    infos = append(infos, fmt.Sprintf("state:%s", STATE_NAMES[self.slock.state]))
 
     infos = append(infos, "\r\n# Clients")
     infos = append(infos, fmt.Sprintf("total_clients:%d", self.server.connected_count))
@@ -218,6 +221,31 @@ func (self *Admin) CommandHandleInfoCommand(server_protocol *TextServerProtocol,
         }
     }
 
+    infos = append(infos, "\r\n# Replication")
+    if self.slock.state == STATE_LEADER {
+        infos = append(infos, "role:leader")
+        infos = append(infos, fmt.Sprintf("connected_followers:%d", len(self.slock.replication_manager.server_channels)))
+        infos = append(infos, fmt.Sprintf("current_aof_id:%x", self.slock.replication_manager.current_request_id))
+        for i, server_channel := range self.slock.replication_manager.server_channels {
+            if server_channel.protocol == nil {
+                continue
+            }
+            infos = append(infos, fmt.Sprintf("follower%d:host=%s,state=online,aof_id=%x", i + 1, server_channel.protocol.RemoteAddr().String(), server_channel.current_request_id))
+        }
+    } else {
+        infos = append(infos, "role:follower")
+        infos = append(infos, fmt.Sprintf("leader_host:%s", self.slock.replication_manager.leader_address))
+        if self.slock.replication_manager.client_channel != nil && !self.slock.replication_manager.client_channel.closed {
+            infos = append(infos, "leader_link_status:up")
+        } else {
+            infos = append(infos, "leader_link_status:down")
+        }
+
+        if self.slock.replication_manager.client_channel != nil {
+            infos = append(infos, fmt.Sprintf("current_aof_id:%x", self.slock.replication_manager.client_channel.current_request_id))
+        }
+    }
+
     infos = append(infos, "\r\n# Stats")
     infos = append(infos, fmt.Sprintf("db_count:%d", db_count))
     infos = append(infos, fmt.Sprintf("free_command_count:%d", free_lock_command_count))
@@ -246,6 +274,27 @@ func (self *Admin) CommandHandleInfoCommand(server_protocol *TextServerProtocol,
             db_infos = append(db_infos, fmt.Sprintf("expried_count=%d", db_state.ExpriedCount))
             db_infos = append(db_infos, fmt.Sprintf("unlock_error_count=%d", db_state.UnlockErrorCount))
             db_infos = append(db_infos, fmt.Sprintf("key_count=%d", db_state.KeyCount))
+            if self.slock.state == STATE_LEADER {
+                ack_db := self.slock.replication_manager.GetAckDB(uint8(db_id))
+                if ack_db != nil && ack_db.locks != nil {
+                    if len(ack_db.locks) >= len(ack_db.requests) {
+                        db_infos = append(db_infos, fmt.Sprintf("wait_ack_count=%d", len(ack_db.locks)))
+                    } else {
+                        db_infos = append(db_infos, fmt.Sprintf("wait_ack_count=%d", len(ack_db.requests)))
+                    }
+                } else {
+                    db_infos = append(db_infos,"wait_ack_count=0")
+                }
+            } else if self.slock.state == STATE_FOLLOWER {
+                ack_db := self.slock.replication_manager.GetAckDB(uint8(db_id))
+                if ack_db != nil && ack_db.ack_locks != nil {
+                    db_infos = append(db_infos, fmt.Sprintf("wait_ack_count=%d", len(ack_db.ack_locks)))
+                } else {
+                    db_infos = append(db_infos,"wait_ack_count=0")
+                }
+            } else {
+                db_infos = append(db_infos,"wait_ack_count=0")
+            }
             infos = append(infos, fmt.Sprintf("db%d:%s", db_id, strings.Join(db_infos, ",")))
         }
     }
@@ -521,18 +570,26 @@ func (self *Admin) CommandHandleClientKillCommand(server_protocol *TextServerPro
 }
 
 func (self *Admin) CommandHandleClientSlaveOfCommand(server_protocol *TextServerProtocol, args []string) error {
-    if len(args) < 1 {
+    if !(len(args) == 1 || len(args) == 3) {
         return server_protocol.stream.WriteBytes(server_protocol.parser.BuildResponse(false, "ERR Command Arguments Error", nil))
     }
 
-    if len(args) == 1 || (len(args) == 2 && args[1] == "") {
+    if len(args) == 1 || (len(args) == 3 && args[1] == "") {
+        if self.slock.state == STATE_LEADER {
+            return server_protocol.stream.WriteBytes(server_protocol.parser.BuildResponse(true, "OK", nil))
+        }
+
         self.slock.replication_manager.leader_address = ""
         err := self.slock.replication_manager.SwitchToLeader()
         if err != nil {
             return server_protocol.stream.WriteBytes(server_protocol.parser.BuildResponse(false, "ERR Change Error", nil))
         }
     } else {
-        self.slock.replication_manager.leader_address = args[1]
+        if self.slock.state == STATE_FOLLOWER {
+            return server_protocol.stream.WriteBytes(server_protocol.parser.BuildResponse(true, "OK", nil))
+        }
+
+        self.slock.replication_manager.leader_address = fmt.Sprintf("%s:%s", args[1], args[2])
         err := self.slock.replication_manager.SwitchToFollower()
         if err != nil {
             return server_protocol.stream.WriteBytes(server_protocol.parser.BuildResponse(false, "ERR Change Error", nil))

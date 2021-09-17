@@ -304,6 +304,9 @@ func (self *TextParser) ParseRequest() error {
 						return errors.New("Command parse arg error")
 					}
 
+					if self.carg_len == 0 {
+						self.args = append(self.args, "")
+					}
 					self.carg_index = 0
 					self.carg_len = 0
 					self.buf_index++
@@ -445,6 +448,9 @@ func (self *TextParser) ParseResponse() error {
 						return errors.New("Response parse arg error")
 					}
 
+					if self.carg_len == 0 {
+						self.args = append(self.args, "")
+					}
 					self.carg_index = 0
 					self.carg_len = 0
 					self.buf_index++

@@ -51,6 +51,7 @@ func NewSLock(config *ServerConfig) *SLock {
 func (self *SLock) Init(server *Server) error {
     self.server = server
     if Config.SlaveOf != "" {
+        self.UpdateState(STATE_SYNC)
         err := self.aof.Init()
         if err != nil {
             self.logger.Errorf("Aof Init Error: %v", err)
@@ -62,14 +63,13 @@ func (self *SLock) Init(server *Server) error {
             self.logger.Errorf("Replication Start Sync Error: %v", err)
             return err
         }
-        self.UpdateState(STATE_SYNC)
     } else {
+        self.UpdateState(STATE_LEADER)
         err := self.aof.LoadAndInit()
         if err != nil {
             self.logger.Errorf("Aof LoadOrInit Error: %v", err)
             return err
         }
-        self.UpdateState(STATE_LEADER)
     }
     return nil
 }
@@ -105,12 +105,11 @@ func (self *SLock) GetAdmin() *Admin {
 }
 
 func (self *SLock) GetOrNewDB(db_id uint8) *LockDB {
-    defer self.glock.Unlock()
     self.glock.Lock()
-
     if self.dbs[db_id] == nil {
         self.dbs[db_id] = NewLockDB(self, db_id)
     }
+    self.glock.Unlock()
     return self.dbs[db_id]
 }
 

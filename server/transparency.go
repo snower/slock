@@ -644,7 +644,7 @@ func (self *TransparencyTextServerProtocol) CommandHandlerUnknownCommand(server_
 
 func (self *TransparencyTextServerProtocol) CommandHandlerLock(server_protocol *TextServerProtocol, args []string) error {
 	if self.slock.state == STATE_LEADER {
-		return self.CommandHandlerLock(server_protocol, args)
+		return self.server_protocol.CommandHandlerLock(server_protocol, args)
 	}
 
 	lock_command, err := self.server_protocol.ArgsToLockComand(args)
@@ -717,7 +717,7 @@ func (self *TransparencyTextServerProtocol) CommandHandlerLock(server_protocol *
 
 func (self *TransparencyTextServerProtocol) CommandHandlerUnlock(server_protocol *TextServerProtocol, args []string) error {
 	if self.slock.state == STATE_LEADER {
-		return self.CommandHandlerUnlock(server_protocol, args)
+		return self.server_protocol.CommandHandlerUnlock(server_protocol, args)
 	}
 
 	lock_command, err := self.server_protocol.ArgsToLockComand(args)
