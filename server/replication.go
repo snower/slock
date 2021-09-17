@@ -732,9 +732,9 @@ type ReplicationAckLock struct {
 }
 
 func NewReplicationAckLock() *ReplicationAckLock {
-	result_command := protocol.ResultCommand{ protocol.MAGIC, protocol.VERSION, 0, [16]byte{}, 0}
-	lock_result := protocol.LockResultCommand{result_command, 0, 0, [16]byte{}, [16]byte{},
-		0, 0, 0, 0, protocol.RESULT_LOCK_COMMAND_BLANK_BYTERS}
+	result_command := protocol.ResultCommand{ Magic:protocol.MAGIC, Version:protocol.VERSION, CommandType:0, RequestId:[16]byte{}, Result:0}
+	lock_result := protocol.LockResultCommand{ResultCommand:result_command, Flag:0, DbId:0, LockId:[16]byte{}, LockKey:[16]byte{},
+		Count:0, Lcount:0, Lrcount:0, Rcount:0, Blank:protocol.RESULT_LOCK_COMMAND_BLANK_BYTERS}
 	return &ReplicationAckLock{lock_result, false, false, false}
 }
 
