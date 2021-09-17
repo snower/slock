@@ -1326,17 +1326,18 @@ func (self *ReplicationManager) SwitchToFollower() error {
 		return errors.New("state error")
 	}
 
-	self.slock.UpdateState(STATE_FOLLOWER)
+	self.slock.UpdateState(STATE_SYNC)
 	self.glock.Unlock()
-	for _, db := range self.ack_dbs {
-		if db != nil {
-			db.SwitchToFollower()
-		}
-	}
 
 	err := self.slock.server.CloseStreams()
 	if err != nil {
 		return err
+	}
+
+	for _, db := range self.ack_dbs {
+		if db != nil {
+			db.SwitchToFollower()
+		}
 	}
 
 	for _, db := range self.slock.dbs {
