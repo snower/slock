@@ -775,16 +775,14 @@ func (self *Aof) Close()  {
         self.glock.Unlock()
         return
     }
-
     self.is_stop = true
+    self.glock.Unlock()
+
     if self.channel_count > 0 {
         self.stoped_channel_waiter = make(chan bool, 1)
-        self.glock.Unlock()
         <- self.stoped_channel_waiter
-        self.glock.Lock()
         self.stoped_channel_waiter = nil
     }
-    self.glock.Unlock()
 
     if self.aof_file != nil {
         self.aof_file_glock.Lock()

@@ -1292,22 +1292,9 @@ func (self *LockDB) RemoveLongExpried(lock *Lock){
 }
 
 func (self *LockDB) DoExpried(lock *Lock){
-    if self.slock.state != STATE_LEADER {
-        if lock.command.ExpriedFlag & 0x0400 == 0 {
-            if lock.command.Expried > 30 {
-                lock.expried_time = self.current_time + 30
-            } else {
-                lock.expried_time = self.current_time + int64(lock.command.Expried) + 1
-            }
-        } else if lock.command.ExpriedFlag & 0x4000 != 0 {
-            lock.expried_time = 0x7fffffffffffffff
-        }
-        self.AddExpried(lock)
-        return
-    }
-
     lock_manager := lock.manager
     lock_manager.glock.Lock()
+
     if lock.expried {
         lock.ref_count--
         if lock.ref_count == 0 {
@@ -1319,6 +1306,31 @@ func (self *LockDB) DoExpried(lock *Lock){
 
         lock_manager.glock.Unlock()
         return
+    }
+
+    if self.slock.state != STATE_LEADER {
+        if lock.command.ExpriedFlag & 0x0400 == 0 {
+            if lock.command.Expried > 30 {
+                lock.expried_time = self.current_time + 30
+            } else {
+                lock.expried_time = self.current_time + int64(lock.command.Expried) + 1
+            }
+        } else if lock.command.ExpriedFlag & 0x4000 != 0 {
+            lock.expried_time = 0x7fffffffffffffff
+        }
+        self.AddExpried(lock)
+        lock_manager.glock.Unlock()
+        return
+    }
+
+    if lock.command.ExpriedFlag & 0x8000 != 0 {
+        stream := lock.protocol.GetStream()
+        if stream != nil && !stream.closed {
+            lock.expried_time = self.current_time + int64(lock.command.Expried)
+            self.AddExpried(lock)
+            lock_manager.glock.Unlock()
+            return
+        }
     }
 
     lock_locked := lock.locked

@@ -213,6 +213,10 @@ func (self *ReplicationClientChannel) SendInitSyncCommand() (*protocol.TextRespo
 	text_client_command := result_command.(*protocol.TextResponseCommand)
 	if text_client_command.ErrorType != "" {
 		if self.aof_lock != nil && text_client_command.ErrorType == "ERR_NOT_FOUND" {
+			err := self.manager.Resync()
+			if err != nil {
+				return nil, err
+			}
 			self.manager.slock.logger.Infof("Replication Resend File Sync")
 			if self.aof_lock != nil {
 				self.aof_lock = nil
@@ -321,6 +325,7 @@ func (self *ReplicationClientChannel) HandleFiles() error {
 		if err != nil {
 			return err
 		}
+		self.manager.buffer_queue.Push(self.aof_lock.buf)
 
 		buf := self.aof_lock.buf
 		self.current_request_id[0], self.current_request_id[1], self.current_request_id[2], self.current_request_id[3], self.current_request_id[4], self.current_request_id[5], self.current_request_id[6], self.current_request_id[7],
@@ -344,6 +349,7 @@ func (self *ReplicationClientChannel) Handle() error {
 			return err
 		}
 		self.aof.AppendLock(self.aof_lock)
+		self.manager.buffer_queue.Push(self.aof_lock.buf)
 
 		buf := self.aof_lock.buf
 		self.current_request_id[0], self.current_request_id[1], self.current_request_id[2], self.current_request_id[3], self.current_request_id[4], self.current_request_id[5], self.current_request_id[6], self.current_request_id[7],
@@ -670,6 +676,11 @@ func (self *ReplicationServerChannel) Handle() error {
 		if err != nil {
 			if err == io.EOF {
 				atomic.AddUint32(&self.manager.server_channel_wait_count, 1)
+				if atomic.CompareAndSwapUint32(&self.manager.server_channel_wait_count, uint32(len(self.manager.server_channels)), uint32(len(self.manager.server_channels))) {
+					if self.manager.server_flush_waiter != nil {
+						self.manager.server_flush_waiter <- true
+					}
+				}
 				<- self.manager.server_channel_waiter
 				continue
 			}
@@ -1034,6 +1045,7 @@ type ReplicationManager struct {
 	leader_address				string
 	server_channel_wait_count 	uint32
 	server_channel_waiter 		chan bool
+	server_flush_waiter			chan bool
 	inited_waters				[]chan bool
 	closed 						bool
 }
@@ -1041,7 +1053,7 @@ type ReplicationManager struct {
 func NewReplicationManager(address string) *ReplicationManager {
 	return &ReplicationManager{nil, &sync.Mutex{}, NewReplicationBufferQueue(), make([]*ReplicationAckDB, 256),
 		nil, make([]*ReplicationServerChannel, 0), [16]byte{}, address, 0,
-		make(chan bool, 8), make([]chan bool, 0), false}
+		make(chan bool, 8), nil, make([]chan bool, 0), false}
 }
 
 func (self *ReplicationManager) GetHandlers() map[string]TextServerProtocolCommandHandler{
@@ -1052,24 +1064,27 @@ func (self *ReplicationManager) GetHandlers() map[string]TextServerProtocolComma
 
 func (self *ReplicationManager) Close() {
 	self.glock.Lock()
+	if self.closed {
+		self.glock.Unlock()
+		return
+	}
 	self.closed = true
+	self.glock.Unlock()
+
 	if self.client_channel != nil {
 		self.client_channel.Close()
-		self.glock.Unlock()
 		<- self.client_channel.closed_waiter
-		self.glock.Lock()
 		self.client_channel = nil
 	}
 
 	self.WakeupServerChannel()
+	self.WaitServerChannelSynced()
 	for _, channel := range self.server_channels {
 		channel.Close()
-		self.glock.Unlock()
 		<- channel.closed_waiter
-		self.glock.Lock()
 	}
+	self.glock.Lock()
 	self.server_channels = self.server_channels[:0]
-
 	for _, waiter := range self.inited_waters {
 		waiter <- false
 	}
@@ -1085,7 +1100,27 @@ func (self *ReplicationManager) Close() {
 	self.slock.logger.Infof("Replication Closed")
 }
 
+func (self *ReplicationManager) WaitServerChannelSynced() error {
+	if self.server_channel_wait_count < uint32(len(self.server_channels)) {
+		self.server_flush_waiter = make(chan bool, 2)
+		go func() {
+			time.Sleep(30 * time.Second)
+			if self.server_flush_waiter != nil {
+				self.server_flush_waiter <- true
+			}
+		}()
+		<- self.server_flush_waiter
+		self.server_flush_waiter = nil
+	}
+	return nil
+}
+
 func (self *ReplicationManager) CommandHandleSyncCommand(server_protocol *TextServerProtocol, args []string) error {
+	if self.closed {
+		server_protocol.stream.WriteBytes(server_protocol.parser.BuildResponse(false, "ERR server closed", nil))
+		return io.EOF
+	}
+
 	channel := NewReplicationServerChannel(self, server_protocol)
 	self.slock.logger.Infof("Replication Client Sync %s", server_protocol.RemoteAddr().String())
 	err := channel.InitSync(args)
@@ -1151,6 +1186,12 @@ func (self *ReplicationManager) RemoveServerChannel(channel *ReplicationServerCh
 	for _, db := range self.ack_dbs {
 		if db != nil {
 			db.ack_count = uint8(ack_count)
+		}
+	}
+
+	if self.server_channel_wait_count >= uint32(len(self.server_channels)) {
+		if self.server_flush_waiter != nil {
+			self.server_flush_waiter <- true
 		}
 	}
 	self.glock.Unlock()
@@ -1334,21 +1375,30 @@ func (self *ReplicationManager) SwitchToFollower() error {
 		return err
 	}
 
+	self.WakeupServerChannel()
+	self.WaitServerChannelSynced()
+	for _, channel := range self.server_channels {
+		channel.Close()
+	}
+
 	for _, db := range self.ack_dbs {
 		if db != nil {
 			db.SwitchToFollower()
 		}
 	}
 
+	err = self.StartSync()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (self *ReplicationManager) Resync() error {
 	for _, db := range self.slock.dbs {
 		if db != nil {
 			db.FlushDB()
 		}
-	}
-
-	err = self.StartSync()
-	if err != nil {
-		return err
 	}
 	return nil
 }
