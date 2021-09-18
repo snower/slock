@@ -176,11 +176,71 @@ func (self *Server) Handle(stream *Stream) {
         return
     }
 
-    err = server_protocol.Process()
-    if err != nil {
-        if err != io.EOF && !self.is_stop {
-            self.slock.Log().Errorf("Protocol Process Error: %v", err)
+    for {
+        switch server_protocol.(type) {
+        case *BinaryServerProtocol:
+            if self.slock.state != STATE_LEADER {
+                if err == AGAIN {
+                    binary_server_protocol := server_protocol.(*BinaryServerProtocol)
+                    server_protocol = NewTransparencyBinaryServerProtocol(self.slock, stream, binary_server_protocol)
+                    err = server_protocol.ProcessParse(binary_server_protocol.rbuf)
+                    if err == nil {
+                        err = server_protocol.Process()
+                    }
+                } else {
+                    server_protocol = NewTransparencyBinaryServerProtocol(self.slock, stream, server_protocol.(*BinaryServerProtocol))
+                    err = server_protocol.Process()
+                }
+            } else {
+                err = server_protocol.Process()
+            }
+        case *TextServerProtocol:
+            if self.slock.state != STATE_LEADER {
+                if err == AGAIN {
+                    text_server_protocol := server_protocol.(*TextServerProtocol)
+                    transparency_server_protocol := NewTransparencyTextServerProtocol(self.slock, stream, text_server_protocol)
+                    server_protocol = transparency_server_protocol
+                    err = transparency_server_protocol.RunCommand()
+                    if err == nil {
+                        err = server_protocol.Process()
+                    }
+                } else {
+                    server_protocol = NewTransparencyTextServerProtocol(self.slock, stream, server_protocol.(*TextServerProtocol))
+                    if err == nil {
+                        err = server_protocol.Process()
+                    }
+                }
+            } else {
+                err = server_protocol.Process()
+            }
+        case *TransparencyBinaryServerProtocol:
+            if self.slock.state == STATE_LEADER {
+                transparency_server_protocol := server_protocol.(*TransparencyBinaryServerProtocol)
+                err = transparency_server_protocol.server_protocol.Process()
+            } else {
+                err = server_protocol.Process()
+            }
+        case *TransparencyTextServerProtocol:
+            if self.slock.state == STATE_LEADER {
+                transparency_server_protocol := server_protocol.(*TransparencyTextServerProtocol)
+                err = transparency_server_protocol.server_protocol.Process()
+            } else {
+                err = server_protocol.Process()
+            }
+        default:
+            err = server_protocol.Process()
         }
+
+        if err != nil {
+            if err == AGAIN {
+                continue
+            }
+
+            if err != io.EOF && !self.is_stop {
+                self.slock.Log().Errorf("Protocol Process Error: %v", err)
+            }
+        }
+        break
     }
 
     err = server_protocol.Close()

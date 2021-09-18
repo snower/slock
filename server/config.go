@@ -24,6 +24,9 @@ const FREE_MILLISECOND_WAIT_QUEUE_INIT_SIZE  = 8096
 const FREE_COMMAND_QUEUE_INIT_SIZE  = 256
 const STREAMS_INIT_COUNT  = 65536
 
+const REPLICATION_ACK_DB_INIT_SIZE = 1024 * 1024
+const REPLICATION_MAX_FREE_ACK_LOCK_QUEUE_SIZE = 4096
+
 type ServerConfig struct{
     Bind string                 `long:"bind" description:"bind address" default:"127.0.0.1"`
     Port uint                   `long:"port" description:"bind port" default:"5658"`

@@ -12,6 +12,8 @@ const (
     STATE_LEADER
     STATE_FOLLOWER
     STATE_SYNC
+    STATE_VOTE
+    STATE_CLOSE
 )
 
 type SLock struct {
@@ -51,25 +53,25 @@ func NewSLock(config *ServerConfig) *SLock {
 func (self *SLock) Init(server *Server) error {
     self.server = server
     if Config.SlaveOf != "" {
-        self.UpdateState(STATE_SYNC)
         err := self.aof.Init()
         if err != nil {
             self.logger.Errorf("Aof Init Error: %v", err)
             return err
         }
 
+        self.UpdateState(STATE_SYNC)
         err = self.replication_manager.StartSync()
         if err != nil {
             self.logger.Errorf("Replication Start Sync Error: %v", err)
             return err
         }
     } else {
-        self.UpdateState(STATE_LEADER)
         err := self.aof.LoadAndInit()
         if err != nil {
             self.logger.Errorf("Aof LoadOrInit Error: %v", err)
             return err
         }
+        self.UpdateState(STATE_LEADER)
     }
     return nil
 }
@@ -90,6 +92,17 @@ func (self *SLock) Close()  {
 
 func (self *SLock) UpdateState(state uint8)  {
     self.state = state
+
+    for _, db := range self.dbs {
+        if db != nil && db.status != STATE_CLOSE && state != STATE_CLOSE {
+            db.status = state
+
+            for i := int8(0); i < db.manager_max_glocks; i++ {
+                db.manager_glocks[i].Lock()
+                db.manager_glocks[i].Unlock()
+            }
+        }
+    }
 }
 
 func (self *SLock) GetAof() *Aof {

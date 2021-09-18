@@ -116,7 +116,7 @@ func (self *TransparencyBinaryClientProtocol) ProcessWaiter(server_protocol *Tra
 		switch command.(type) {
 		case *protocol.LockResultCommand:
 			lock_command := command.(*protocol.LockResultCommand)
-			if lock_command.RequestId == server_protocol.lock_request_id {
+			if lock_command.RequestId == server_protocol.server_protocol.lock_request_id {
 				server_protocol.lock_waiter <- lock_command
 			}
 		}
@@ -178,6 +178,35 @@ func (self *TransparencyBinaryServerProtocol) WriteCommand(result protocol.Comma
 	return self.Write(result)
 }
 
+func (self *TransparencyBinaryServerProtocol) CheckClient() error {
+	if self.slock.state == STATE_SYNC {
+		waiter := make(chan bool, 1)
+		self.slock.replication_manager.WaitInitSynced(waiter)
+		succed := <- waiter
+		if succed {
+			return io.EOF
+		}
+	}
+
+	if self.slock.state != STATE_FOLLOWER {
+		return io.EOF
+	}
+
+	if !self.client_protocol.IsOpened() {
+		leader_addrss := self.slock.replication_manager.leader_address
+		if leader_addrss == "" {
+			return errors.New("unknown leader address")
+		}
+
+		err := self.client_protocol.Open(leader_addrss)
+		if err != nil {
+			return err
+		}
+		go self.client_protocol.Process(self)
+	}
+	return nil
+}
+
 func (self *TransparencyBinaryServerProtocol) Process() error {
 	buf := self.server_protocol.rbuf
 	for ; !self.closed; {
@@ -200,37 +229,15 @@ func (self *TransparencyBinaryServerProtocol) Process() error {
 		if err != nil {
 			return err
 		}
+
+		if self.slock.state == STATE_LEADER {
+			return AGAIN
+		}
 	}
 	return io.EOF
 }
 
 func (self *TransparencyBinaryServerProtocol) ProcessParse(buf []byte) error {
-	if self.slock.state != STATE_FOLLOWER {
-		if self.slock.state == STATE_SYNC {
-			waiter := make(chan bool, 1)
-			self.slock.replication_manager.WaitInitSynced(waiter)
-			succed := <- waiter
-			if succed {
-				return io.EOF
-			}
-			return nil
-		}
-		return self.server_protocol.ProcessParse(buf)
-	}
-
-	if !self.client_protocol.IsOpened() {
-		leader_addrss := self.slock.replication_manager.leader_address
-		if leader_addrss == "" {
-			return self.server_protocol.ProcessParse(buf)
-		}
-
-		err := self.client_protocol.Open(leader_addrss)
-		if err != nil {
-			return err
-		}
-		go self.client_protocol.Process(self)
-	}
-
 	if len(buf) < 64 {
 		return errors.New("command data too short")
 	}
@@ -281,15 +288,27 @@ func (self *TransparencyBinaryServerProtocol) ProcessParse(buf []byte) error {
 		lock_command.Timeout, lock_command.TimeoutFlag, lock_command.Expried, lock_command.ExpriedFlag = uint16(buf[53])|uint16(buf[54])<<8, uint16(buf[55])|uint16(buf[56])<<8, uint16(buf[57])|uint16(buf[58])<<8, uint16(buf[59])|uint16(buf[60])<<8
 		lock_command.Count, lock_command.Rcount = uint16(buf[61])|uint16(buf[62])<<8, uint8(buf[63])
 
-		if self.slock.state != STATE_LEADER {
-			return self.server_protocol.ProcessLockResultCommand(lock_command, protocol.RESULT_STATE_ERROR, 0, 0)
-		}
-
 		if lock_command.DbId == 0xff {
 			return self.server_protocol.ProcessLockResultCommand(lock_command, protocol.RESULT_UNKNOWN_DB, 0, 0)
 		}
 
-		err := self.client_protocol.Lock(lock_command)
+		if self.slock.state == STATE_LEADER {
+			db := self.slock.dbs[lock_command.DbId]
+			if db == nil {
+				db = self.slock.GetOrNewDB(lock_command.DbId)
+			}
+			err := db.Lock(self, lock_command)
+			if err != nil {
+				return err
+			}
+			return nil
+		}
+
+		err := self.CheckClient()
+		if err != nil {
+			return err
+		}
+		err = self.client_protocol.Lock(lock_command)
 		if err != nil {
 			return err
 		}
@@ -322,15 +341,27 @@ func (self *TransparencyBinaryServerProtocol) ProcessParse(buf []byte) error {
 		lock_command.Timeout, lock_command.TimeoutFlag, lock_command.Expried, lock_command.ExpriedFlag = uint16(buf[53])|uint16(buf[54])<<8, uint16(buf[55])|uint16(buf[56])<<8, uint16(buf[57])|uint16(buf[58])<<8, uint16(buf[59])|uint16(buf[60])<<8
 		lock_command.Count, lock_command.Rcount = uint16(buf[61])|uint16(buf[62])<<8, uint8(buf[63])
 
-		if self.slock.state != STATE_LEADER {
-			return self.server_protocol.ProcessLockResultCommand(lock_command, protocol.RESULT_STATE_ERROR, 0, 0)
-		}
-
 		if lock_command.DbId == 0xff {
 			return self.server_protocol.ProcessLockResultCommand(lock_command, protocol.RESULT_UNKNOWN_DB, 0, 0)
 		}
 
-		err := self.client_protocol.Unlock(lock_command)
+		if self.slock.state == STATE_LEADER {
+			db := self.slock.dbs[lock_command.DbId]
+			if db == nil {
+				return self.ProcessLockResultCommand(lock_command, protocol.RESULT_UNKNOWN_DB, 0, 0)
+			}
+			err := db.UnLock(self, lock_command)
+			if err != nil {
+				return err
+			}
+			return nil
+		}
+
+		err := self.CheckClient()
+		if err != nil {
+			return err
+		}
+		err = self.client_protocol.Unlock(lock_command)
 		if err != nil {
 			return err
 		}
@@ -370,6 +401,14 @@ func (self *TransparencyBinaryServerProtocol) ProcessBuild(command protocol.ICom
 func (self *TransparencyBinaryServerProtocol) ProcessCommad(command protocol.ICommand) error {
 	switch command.GetCommandType() {
 	case protocol.COMMAND_INIT:
+		if self.slock.state == STATE_LEADER {
+			return self.server_protocol.ProcessCommad(command)
+		}
+
+		err := self.CheckClient()
+		if err != nil {
+			return err
+		}
 		init_command := command.(*protocol.InitCommand)
 		if self.Init(init_command.ClientId) != nil {
 			return self.Write(protocol.NewInitResultCommand(init_command, protocol.RESULT_ERROR, 0))
@@ -437,15 +476,13 @@ type TransparencyTextServerProtocol struct {
 	server_protocol				*TextServerProtocol
 	client_protocol 			*TransparencyBinaryClientProtocol
 	lock_waiter                 chan *protocol.LockResultCommand
-	lock_request_id             [16]byte
-	lock_id                     [16]byte
 	closed                      bool
 }
 
 func NewTransparencyTextServerProtocol(slock *SLock, stream *Stream, server_protocol *TextServerProtocol) *TransparencyTextServerProtocol {
 	client_protocol := &TransparencyBinaryClientProtocol{slock, nil, nil, false}
 	transparency_protocol := &TransparencyTextServerProtocol{slock, &sync.Mutex{}, stream, server_protocol, client_protocol,
-		make(chan *protocol.LockResultCommand, 4),[16]byte{}, [16]byte{}, false}
+		make(chan *protocol.LockResultCommand, 4), false}
 	server_protocol.handlers["LOCK"] = transparency_protocol.CommandHandlerLock
 	server_protocol.handlers["UNLOCK"] = transparency_protocol.CommandHandlerUnlock
 	return transparency_protocol
@@ -503,25 +540,86 @@ func (self *TransparencyTextServerProtocol) CheckClient() error {
 		if succed {
 			return io.EOF
 		}
-	} else if self.slock.state == STATE_FOLLOWER {
-		if !self.client_protocol.IsOpened() {
-			leader_addrss := self.slock.replication_manager.leader_address
-			if leader_addrss == "" {
-				return errors.New("unknown leader address")
-			}
+	}
 
-			err := self.client_protocol.Open(leader_addrss)
-			if err != nil {
-				return err
-			}
-			go self.client_protocol.ProcessWaiter(self)
+	if self.slock.state != STATE_FOLLOWER {
+		return io.EOF
+	}
+
+	if !self.client_protocol.IsOpened() {
+		leader_addrss := self.slock.replication_manager.leader_address
+		if leader_addrss == "" {
+			return errors.New("unknown leader address")
 		}
+
+		err := self.client_protocol.Open(leader_addrss)
+		if err != nil {
+			return err
+		}
+		go self.client_protocol.ProcessWaiter(self)
 	}
 	return nil
 }
 
 func (self *TransparencyTextServerProtocol) Process() error {
-	return self.server_protocol.Process()
+	rbuf := self.server_protocol.parser.GetReadBuf()
+	for ; !self.closed; {
+		if self.server_protocol.parser.IsBufferEnd() {
+			n, err := self.stream.Read(rbuf)
+			if err != nil {
+				return err
+			}
+
+			self.server_protocol.parser.BufferUpdate(n)
+		}
+
+		err := self.server_protocol.parser.ParseRequest()
+		if err != nil {
+			return err
+		}
+
+		if self.server_protocol.parser.IsParseFinish() {
+			self.server_protocol.total_command_count++
+			command_name := self.server_protocol.parser.GetCommandType()
+			if command_handler, ok := self.server_protocol.handlers[command_name]; ok {
+				err := command_handler(self.server_protocol, self.server_protocol.parser.GetArgs())
+				if err != nil {
+					return err
+				}
+			} else {
+				err := self.CommandHandlerUnknownCommand(self.server_protocol, self.server_protocol.parser.GetArgs())
+				if err != nil {
+					return err
+				}
+			}
+
+			self.server_protocol.parser.Reset()
+
+			if self.slock.state == STATE_LEADER {
+				return AGAIN
+			}
+		}
+	}
+	return nil
+}
+
+func (self *TransparencyTextServerProtocol) RunCommand() error {
+	self.server_protocol.total_command_count++
+	command_name := self.server_protocol.parser.GetCommandType()
+	if command_handler, ok := self.server_protocol.handlers[command_name]; ok {
+		err := command_handler(self.server_protocol, self.server_protocol.parser.GetArgs())
+		if err != nil {
+			return err
+		}
+	} else {
+		err := self.CommandHandlerUnknownCommand(self.server_protocol, self.server_protocol.parser.GetArgs())
+		if err != nil {
+			return err
+		}
+	}
+
+	self.server_protocol.parser.Reset()
+	return nil
 }
 
 func (self *TransparencyTextServerProtocol) ProcessParse(buf []byte) error {
@@ -604,22 +702,18 @@ func (self *TransparencyTextServerProtocol) CommandHandlerLock(server_protocol *
 		return self.stream.WriteBytes(self.server_protocol.parser.BuildResponse(false, "ERR " + err.Error(), nil))
 	}
 
-	if self.slock.state != STATE_FOLLOWER {
-		return self.stream.WriteBytes(self.server_protocol.parser.BuildResponse(false, "ERR State Error", nil))
-	}
-
 	if lock_command.DbId == 0xff {
 		return self.stream.WriteBytes(self.server_protocol.parser.BuildResponse(false, "ERR Uknown DB Error", nil))
 	}
 
-	self.lock_request_id = lock_command.RequestId
+	self.server_protocol.lock_request_id = lock_command.RequestId
 	err = self.client_protocol.Lock(lock_command)
 	if err != nil {
 		return self.stream.WriteBytes(self.server_protocol.parser.BuildResponse(false, "ERR Lock Error", nil))
 	}
 	lock_command_result := <- self.lock_waiter
 	if lock_command_result.Result == 0 {
-		self.lock_id = lock_command.LockId
+		self.server_protocol.lock_id = lock_command.LockId
 	}
 
 	buf_index := 0
@@ -682,27 +776,21 @@ func (self *TransparencyTextServerProtocol) CommandHandlerUnlock(server_protocol
 		return self.stream.WriteBytes(self.server_protocol.parser.BuildResponse(false, "ERR " + err.Error(), nil))
 	}
 
-	if self.slock.state != STATE_FOLLOWER {
-		return self.stream.WriteBytes(self.server_protocol.parser.BuildResponse(false, "ERR State Error", nil))
-	}
-
 	if lock_command.DbId == 0xff {
 		return self.stream.WriteBytes(self.server_protocol.parser.BuildResponse(false, "ERR Uknown DB Error", nil))
 	}
 
-	db := self.slock.dbs[lock_command.DbId]
-	if db == nil {
-		return self.stream.WriteBytes(self.server_protocol.parser.BuildResponse(false, "ERR Uknown DB Error", nil))
-	}
-	self.lock_request_id = lock_command.RequestId
+	self.server_protocol.lock_request_id = lock_command.RequestId
 	err = self.client_protocol.Unlock(lock_command)
 	if err != nil {
 		return self.stream.WriteBytes(self.server_protocol.parser.BuildResponse(false, "ERR UnLock Error", nil))
 	}
 	lock_command_result := <- self.lock_waiter
 	if lock_command_result.Result == 0 {
-		self.lock_id[0], self.lock_id[1], self.lock_id[2], self.lock_id[3], self.lock_id[4], self.lock_id[5], self.lock_id[6], self.lock_id[7],
-			self.lock_id[8], self.lock_id[9], self.lock_id[10], self.lock_id[11], self.lock_id[12], self.lock_id[13], self.lock_id[14], self.lock_id[15] =
+		self.server_protocol.lock_id[0], self.server_protocol.lock_id[1], self.server_protocol.lock_id[2], self.server_protocol.lock_id[3],
+		self.server_protocol.lock_id[4], self.server_protocol.lock_id[5], self.server_protocol.lock_id[6], self.server_protocol.lock_id[7],
+			self.server_protocol.lock_id[8], self.server_protocol.lock_id[9], self.server_protocol.lock_id[10], self.server_protocol.lock_id[11],
+			self.server_protocol.lock_id[12], self.server_protocol.lock_id[13], self.server_protocol.lock_id[14], self.server_protocol.lock_id[15] =
 			0, 0, 0, 0, 0, 0, 0, 0,
 			0, 0, 0, 0, 0, 0, 0, 0
 	}

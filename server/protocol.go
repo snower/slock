@@ -39,6 +39,8 @@ type ServerProtocol interface {
     FreeLockCommandLocked(command *protocol.LockCommand) error
 }
 
+var AGAIN = errors.New("AGAIN")
+
 type MemWaiterServerProtocolResultCallback func (*MemWaiterServerProtocol, *protocol.LockCommand, uint8, uint16, uint8) error
 
 type MemWaiterServerProtocol struct {
@@ -446,6 +448,10 @@ func (self *BinaryServerProtocol) Process() error {
             }
         }
 
+        if self.slock.state != STATE_LEADER {
+            return AGAIN
+        }
+
         err = self.ProcessParse(buf)
         if err != nil {
             return err
@@ -505,10 +511,6 @@ func (self *BinaryServerProtocol) ProcessParse(buf []byte) error {
         lock_command.Timeout, lock_command.TimeoutFlag, lock_command.Expried, lock_command.ExpriedFlag = uint16(buf[53])|uint16(buf[54])<<8, uint16(buf[55])|uint16(buf[56])<<8, uint16(buf[57])|uint16(buf[58])<<8, uint16(buf[59])|uint16(buf[60])<<8
         lock_command.Count, lock_command.Rcount = uint16(buf[61])|uint16(buf[62])<<8, uint8(buf[63])
 
-        if self.slock.state != STATE_LEADER {
-            return self.ProcessLockResultCommand(lock_command, protocol.RESULT_STATE_ERROR, 0, 0)
-        }
-
         if lock_command.DbId == 0xff {
             return self.ProcessLockResultCommand(lock_command, protocol.RESULT_UNKNOWN_DB, 0, 0)
         }
@@ -549,10 +551,6 @@ func (self *BinaryServerProtocol) ProcessParse(buf []byte) error {
 
         lock_command.Timeout, lock_command.TimeoutFlag, lock_command.Expried, lock_command.ExpriedFlag = uint16(buf[53])|uint16(buf[54])<<8, uint16(buf[55])|uint16(buf[56])<<8, uint16(buf[57])|uint16(buf[58])<<8, uint16(buf[59])|uint16(buf[60])<<8
         lock_command.Count, lock_command.Rcount = uint16(buf[61])|uint16(buf[62])<<8, uint8(buf[63])
-
-        if self.slock.state != STATE_LEADER {
-            return self.ProcessLockResultCommand(lock_command, protocol.RESULT_STATE_ERROR, 0, 0)
-        }
 
         if lock_command.DbId == 0xff {
             return self.ProcessLockResultCommand(lock_command, protocol.RESULT_UNKNOWN_DB, 0, 0)
@@ -604,10 +602,6 @@ func (self *BinaryServerProtocol) ProcessCommad(command protocol.ICommand) error
     case protocol.COMMAND_LOCK:
         lock_command := command.(*protocol.LockCommand)
 
-        if self.slock.state != STATE_LEADER {
-            return self.ProcessLockResultCommand(lock_command, protocol.RESULT_STATE_ERROR, 0, 0)
-        }
-
         if lock_command.DbId == 0xff {
             return self.ProcessLockResultCommand(lock_command, protocol.RESULT_UNKNOWN_DB, 0, 0)
         }
@@ -620,10 +614,6 @@ func (self *BinaryServerProtocol) ProcessCommad(command protocol.ICommand) error
 
     case protocol.COMMAND_UNLOCK:
         lock_command := command.(*protocol.LockCommand)
-
-        if self.slock.state != STATE_LEADER {
-            return self.ProcessLockResultCommand(lock_command, protocol.RESULT_STATE_ERROR, 0, 0)
-        }
 
         if lock_command.DbId == 0xff {
             return self.ProcessLockResultCommand(lock_command, protocol.RESULT_UNKNOWN_DB, 0, 0)
@@ -639,7 +629,7 @@ func (self *BinaryServerProtocol) ProcessCommad(command protocol.ICommand) error
         switch command.GetCommandType() {
         case protocol.COMMAND_INIT:
             init_command := command.(*protocol.InitCommand)
-            if self.Init(init_command.ClientId) != nil {
+            if self.Init(init_command.ClientId) != nil || self.slock.state != STATE_LEADER  {
                 return self.Write(protocol.NewInitResultCommand(init_command, protocol.RESULT_ERROR, 0))
             }
             self.slock.glock.Lock()
@@ -696,10 +686,6 @@ func (self *BinaryServerProtocol) ProcessCommad(command protocol.ICommand) error
 }
 
 func (self *BinaryServerProtocol) ProcessLockCommand(lock_command *protocol.LockCommand) error {
-    if self.slock.state != STATE_LEADER {
-        return self.ProcessLockResultCommand(lock_command, protocol.RESULT_STATE_ERROR, 0, 0)
-    }
-
     if lock_command.DbId == 0xff {
         return self.ProcessLockResultCommand(lock_command, protocol.RESULT_UNKNOWN_DB, 0, 0)
     }
@@ -1075,6 +1061,10 @@ func (self *TextServerProtocol) Process() error {
         }
 
         if self.parser.IsParseFinish() {
+            if self.slock.state != STATE_LEADER {
+                return AGAIN
+            }
+
             self.total_command_count++
             command_name := self.parser.GetCommandType()
             if command_handler, ok := self.handlers[command_name]; ok {
@@ -1092,6 +1082,25 @@ func (self *TextServerProtocol) Process() error {
             self.parser.Reset()
         }
     }
+    return nil
+}
+
+func (self *TextServerProtocol) RunCommand() error {
+    self.total_command_count++
+    command_name := self.parser.GetCommandType()
+    if command_handler, ok := self.handlers[command_name]; ok {
+        err := command_handler(self, self.parser.GetArgs())
+        if err != nil {
+            return err
+        }
+    } else {
+        err := self.CommandHandlerUnknownCommand(self, self.parser.GetArgs())
+        if err != nil {
+            return err
+        }
+    }
+
+    self.parser.Reset()
     return nil
 }
 
@@ -1167,10 +1176,6 @@ func (self *TextServerProtocol) ProcessCommad(command protocol.ICommand) error {
     case protocol.COMMAND_LOCK:
         lock_command := command.(*protocol.LockCommand)
 
-        if self.slock.state != STATE_LEADER {
-            return self.ProcessLockResultCommand(lock_command, protocol.RESULT_STATE_ERROR, 0, 0)
-        }
-
         if lock_command.DbId == 0xff {
             return self.ProcessLockResultCommand(lock_command, protocol.RESULT_UNKNOWN_DB, 0, 0)
         }
@@ -1183,10 +1188,6 @@ func (self *TextServerProtocol) ProcessCommad(command protocol.ICommand) error {
 
     case protocol.COMMAND_UNLOCK:
         lock_command := command.(*protocol.LockCommand)
-
-        if self.slock.state != STATE_LEADER {
-            return self.ProcessLockResultCommand(lock_command, protocol.RESULT_STATE_ERROR, 0, 0)
-        }
 
         if lock_command.DbId == 0xff {
             return self.ProcessLockResultCommand(lock_command, protocol.RESULT_UNKNOWN_DB, 0, 0)
@@ -1259,10 +1260,6 @@ func (self *TextServerProtocol) ProcessCommad(command protocol.ICommand) error {
 }
 
 func (self *TextServerProtocol) ProcessLockCommand(lock_command *protocol.LockCommand) error {
-    if self.slock.state != STATE_LEADER {
-        return self.ProcessLockResultCommand(lock_command, protocol.RESULT_STATE_ERROR, 0, 0)
-    }
-
     if lock_command.DbId == 0xff {
         return self.ProcessLockResultCommand(lock_command, protocol.RESULT_UNKNOWN_DB, 0, 0)
     }
@@ -1535,10 +1532,6 @@ func (self *TextServerProtocol) CommandHandlerLock(server_protocol *TextServerPr
         return self.stream.WriteBytes(self.parser.BuildResponse(false, "ERR " + err.Error(), nil))
     }
 
-    if self.slock.state != STATE_LEADER {
-        return self.stream.WriteBytes(self.parser.BuildResponse(false, "ERR State Error", nil))
-    }
-
     if lock_command.DbId == 0xff {
         return self.stream.WriteBytes(self.parser.BuildResponse(false, "ERR Uknown DB Error", nil))
     }
@@ -1608,10 +1601,6 @@ func (self *TextServerProtocol) CommandHandlerUnlock(server_protocol *TextServer
         return self.stream.WriteBytes(self.parser.BuildResponse(false, "ERR " + err.Error(), nil))
     }
 
-    if self.slock.state != STATE_LEADER {
-        return self.stream.WriteBytes(self.parser.BuildResponse(false, "ERR State Error", nil))
-    }
-
     if lock_command.DbId == 0xff {
         return self.stream.WriteBytes(self.parser.BuildResponse(false, "ERR Uknown DB Error", nil))
     }
@@ -1620,6 +1609,7 @@ func (self *TextServerProtocol) CommandHandlerUnlock(server_protocol *TextServer
     if db == nil {
         return self.stream.WriteBytes(self.parser.BuildResponse(false, "ERR Uknown DB Error", nil))
     }
+
     self.lock_request_id = lock_command.RequestId
     err = db.UnLock(self, lock_command)
     if err != nil {

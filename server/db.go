@@ -59,7 +59,7 @@ type LockDB struct {
     manager_glock_index             int8
     manager_max_glocks              int8
     aof_time                        uint8
-    is_stop                         bool
+    status                          uint8
     db_id                           uint8
     state                           *protocol.LockDBState
 }
@@ -108,7 +108,7 @@ func NewLockDB(slock *SLock, db_id uint8) *LockDB {
         manager_glock_index: 0,
         manager_max_glocks: manager_max_glocks,
         aof_time: aof_time,
-        is_stop: false,
+        status: slock.state,
         db_id: db_id,
         state: &protocol.LockDBState{},
     }
@@ -156,12 +156,12 @@ func (self *LockDB) ResizeExpried (){
 
 func (self *LockDB) Close()  {
     self.glock.Lock()
-    if self.is_stop {
+    if self.status != STATE_CLOSE {
         self.glock.Unlock()
         return
     }
 
-    self.is_stop = true
+    self.status = STATE_CLOSE
     self.glock.Unlock()
 
     for i := int8(0); i < self.manager_max_glocks; i++ {
@@ -196,7 +196,7 @@ func (self *LockDB) StartCheckLoop()  {
 }
 
 func (self *LockDB) UpdateCurrentTime(timeout_waiter chan bool, expried_waiter chan bool){
-    for !self.is_stop {
+    for self.status != STATE_CLOSE {
         self.current_time = time.Now().Unix()
         timeout_waiter <- true
         expried_waiter <- true
@@ -213,7 +213,7 @@ func (self *LockDB) CheckTimeOut(waiter chan bool){
     }
 
     <- waiter
-    for !self.is_stop {
+    for self.status != STATE_CLOSE {
         check_timeout_time := self.check_timeout_time
         now := self.current_time
         self.check_timeout_time = now + 1
@@ -377,7 +377,7 @@ func (self *LockDB) CheckMillisecondTimeOut(ms int64, glock_index int8){
 func (self *LockDB) RestructuringLongTimeOutQueue() {
     time.Sleep(120 * time.Second)
 
-    for !self.is_stop {
+    for self.status != STATE_CLOSE {
         for i := int8(0); i < self.manager_max_glocks; i++ {
             self.manager_glocks[i].Lock()
             for lock_time, long_locks := range self.long_timeout_locks[i] {
@@ -540,7 +540,7 @@ func (self *LockDB) CheckExpried(waiter chan bool){
     }
 
     <- waiter
-    for !self.is_stop {
+    for self.status != STATE_CLOSE {
         check_expried_time := self.check_expried_time
         now := self.current_time
         self.check_expried_time = now + 1
@@ -704,7 +704,7 @@ func (self *LockDB) CheckMillisecondExpried(ms int64, glock_index int8){
 func (self *LockDB) RestructuringLongExpriedQueue() {
     time.Sleep(120 * time.Second)
 
-    for !self.is_stop {
+    for self.status != STATE_CLOSE {
         for i := int8(0); i < self.manager_max_glocks; i++ {
             self.manager_glocks[i].Lock()
             for lock_time, long_locks := range self.long_expried_locks[i] {
@@ -1412,11 +1412,13 @@ func (self *LockDB) Lock(server_protocol ServerProtocol, command *protocol.LockC
         return self.Lock(server_protocol, command)
     }
 
-    if self.is_stop {
-        lock_manager.glock.Unlock()
-        server_protocol.ProcessLockResultCommand(command, protocol.RESULT_LOCKED_ERROR, uint16(lock_manager.locked), 0)
-        server_protocol.FreeLockCommand(command)
-        return nil
+    if self.status != STATE_LEADER {
+        if self.status != STATE_FOLLOWER || command.ExpriedFlag & 0x1000 == 0 {
+            lock_manager.glock.Unlock()
+            server_protocol.ProcessLockResultCommand(command, protocol.RESULT_LOCKED_ERROR, uint16(lock_manager.locked), 0)
+            server_protocol.FreeLockCommand(command)
+            return nil
+        }
     }
 
     waited := lock_manager.waited
@@ -1614,13 +1616,15 @@ func (self *LockDB) UnLock(server_protocol ServerProtocol, command *protocol.Loc
 
     lock_manager.glock.Lock()
 
-    if self.is_stop || lock_manager.locked == 0 {
-        lock_manager.glock.Unlock()
+    if self.status != STATE_LEADER || lock_manager.locked == 0 {
+        if self.status != STATE_FOLLOWER || command.ExpriedFlag & 0x1000 == 0 || lock_manager.locked == 0 {
+            lock_manager.glock.Unlock()
 
-        server_protocol.ProcessLockResultCommand(command, protocol.RESULT_UNLOCK_ERROR, uint16(lock_manager.locked), 0)
-        server_protocol.FreeLockCommand(command)
-        atomic.AddUint32(&self.state.UnlockErrorCount, 1)
-        return nil
+            server_protocol.ProcessLockResultCommand(command, protocol.RESULT_UNLOCK_ERROR, uint16(lock_manager.locked), 0)
+            server_protocol.FreeLockCommand(command)
+            atomic.AddUint32(&self.state.UnlockErrorCount, 1)
+            return nil
+        }
     }
 
     current_lock := lock_manager.GetLockedLock(command)

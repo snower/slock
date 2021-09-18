@@ -146,6 +146,7 @@ type ReplicationClientChannel struct {
 	rbuf_index			int
 	rbuf_channel		chan []byte
 	wbuf				[]byte
+	wakeup_signal		chan bool
 	closed_waiter		chan bool
 	closed 				bool
 	connected_leader 	bool
@@ -155,7 +156,7 @@ type ReplicationClientChannel struct {
 func NewReplicationClientChannel(manager *ReplicationManager) *ReplicationClientChannel {
 	channel := &ReplicationClientChannel{manager, &sync.Mutex{}, nil, nil, manager.slock.GetAof(),
 		nil, [16]byte{}, make([][]byte, 16), 0, make(chan []byte, 8),
-		make([]byte, 64), make(chan bool, 1), false, true, false}
+		make([]byte, 64), nil, make(chan bool, 1), false, true, false}
 	for i := 0; i < 16; i++ {
 		channel.rbufs[i] = make([]byte, 64)
 	}
@@ -186,6 +187,9 @@ func (self *ReplicationClientChannel) Close() error {
 	}
 	self.stream = nil
 	self.protocol = nil
+	if self.wakeup_signal != nil {
+		self.wakeup_signal <- true
+	}
 	return nil
 }
 
@@ -492,6 +496,17 @@ func (self *ReplicationClientChannel) HandleAcked(ack_lock *ReplicationAckLock) 
 	err = self.stream.WriteBytes(self.wbuf)
 	self.glock.Unlock()
 	return err
+}
+
+func (self *ReplicationClientChannel) SleepWhenRetryConnect() error {
+	self.wakeup_signal = make(chan bool, 1)
+	select {
+	case <- self.wakeup_signal:
+		self.wakeup_signal = nil
+		return nil
+	case <- time.After(5 * time.Second):
+		return nil
+	}
 }
 
 type ReplicationServerChannel struct {
@@ -830,14 +845,14 @@ type ReplicationAckDB struct {
 
 func NewReplicationAckDB(manager *ReplicationManager) *ReplicationAckDB {
 	if manager.slock.state == STATE_LEADER {
-		return &ReplicationAckDB{manager, &sync.Mutex{}, make(map[[16]byte]*Lock, 1024 * 1024),
-			make(map[[2][16]byte][16]byte, 1024 * 1024), nil,
+		return &ReplicationAckDB{manager, &sync.Mutex{}, make(map[[16]byte]*Lock, REPLICATION_ACK_DB_INIT_SIZE),
+			make(map[[2][16]byte][16]byte, REPLICATION_ACK_DB_INIT_SIZE), nil,
 			nil, 0, 1, false}
 	}
 
 	return &ReplicationAckDB{manager, &sync.Mutex{}, nil,
-		nil, make(map[[16]byte]*ReplicationAckLock, 1024 * 1024),
-		make([]*ReplicationAckLock, FREE_LOCK_QUEUE_INIT_SIZE), 0, 1, false}
+		nil, make(map[[16]byte]*ReplicationAckLock, REPLICATION_ACK_DB_INIT_SIZE),
+		make([]*ReplicationAckLock, REPLICATION_MAX_FREE_ACK_LOCK_QUEUE_SIZE), 0, 1, false}
 }
 
 func (self *ReplicationAckDB) Close() error {
@@ -1025,7 +1040,7 @@ func (self *ReplicationAckDB) ProcessAcked(command *protocol.LockCommand, result
 		self.manager.client_channel.HandleAcked(ack_lock)
 	}
 	self.glock.Lock()
-	if self.free_ack_locks_index < FREE_LOCK_QUEUE_INIT_SIZE {
+	if self.free_ack_locks_index < REPLICATION_MAX_FREE_ACK_LOCK_QUEUE_SIZE {
 		self.free_ack_locks[self.free_ack_locks_index] = ack_lock
 		self.free_ack_locks_index++
 	}
@@ -1061,7 +1076,7 @@ func (self *ReplicationAckDB) ProcessAckAofed(request_id [16]byte, succed bool) 
 		self.manager.client_channel.HandleAcked(ack_lock)
 	}
 	self.glock.Lock()
-	if self.free_ack_locks_index < FREE_LOCK_QUEUE_INIT_SIZE {
+	if self.free_ack_locks_index < REPLICATION_MAX_FREE_ACK_LOCK_QUEUE_SIZE {
 		self.free_ack_locks[self.free_ack_locks_index] = ack_lock
 		self.free_ack_locks_index++
 	}
@@ -1077,9 +1092,9 @@ func (self *ReplicationAckDB) SwitchToLeader() error {
 	}
 	self.locks = nil
 	self.requests = nil
-	self.ack_locks = make(map[[16]byte]*ReplicationAckLock, 1024 * 1024)
+	self.ack_locks = make(map[[16]byte]*ReplicationAckLock, REPLICATION_ACK_DB_INIT_SIZE)
 	if self.free_ack_locks == nil {
-		self.free_ack_locks = make([]*ReplicationAckLock, FREE_LOCK_QUEUE_INIT_SIZE)
+		self.free_ack_locks = make([]*ReplicationAckLock, REPLICATION_MAX_FREE_ACK_LOCK_QUEUE_SIZE)
 	}
 	self.glock.Unlock()
 	return nil
@@ -1089,14 +1104,14 @@ func (self *ReplicationAckDB) SwitchToFollower() error {
 	self.glock.Lock()
 	for _, ack_lock := range self.ack_locks {
 		self.manager.client_channel.HandleAcked(ack_lock)
-		if self.free_ack_locks_index < FREE_LOCK_QUEUE_INIT_SIZE {
+		if self.free_ack_locks_index < REPLICATION_MAX_FREE_ACK_LOCK_QUEUE_SIZE {
 			self.free_ack_locks[self.free_ack_locks_index] = ack_lock
 			self.free_ack_locks_index++
 		}
 	}
 	self.ack_locks = nil
-	self.locks = make(map[[16]byte]*Lock, 1024 * 1024)
-	self.requests = make(map[[2][16]byte][16]byte, 1024 * 1024)
+	self.locks = make(map[[16]byte]*Lock, REPLICATION_ACK_DB_INIT_SIZE)
+	self.requests = make(map[[2][16]byte][16]byte, REPLICATION_ACK_DB_INIT_SIZE)
 	self.glock.Unlock()
 	return nil
 }
@@ -1327,7 +1342,7 @@ func (self *ReplicationManager) StartSync() error {
 				self.inited_waters = self.inited_waters[:0]
 				self.glock.Unlock()
 
-				time.Sleep(5 * time.Second)
+				channel.SleepWhenRetryConnect()
 			}
 		}
 
@@ -1454,12 +1469,8 @@ func (self *ReplicationManager) SwitchToFollower() error {
 	self.slock.UpdateState(STATE_SYNC)
 	self.glock.Unlock()
 
-	err := self.slock.server.CloseStreams()
-	if err != nil {
-		return err
-	}
-
 	self.WakeupServerChannel()
+	self.slock.aof.WaitFlushAofChannel()
 	self.WaitServerChannelSynced()
 	for _, channel := range self.server_channels {
 		channel.Close()
@@ -1472,11 +1483,42 @@ func (self *ReplicationManager) SwitchToFollower() error {
 		}
 	}
 
-	err = self.StartSync()
+	err := self.StartSync()
 	if err != nil {
 		return err
 	}
 	self.slock.logger.Infof("Replication Finish Change To Follower")
+	return nil
+}
+
+func (self *ReplicationManager) ChangeLeader(address string) error {
+	self.glock.Lock()
+	if self.slock.state != STATE_FOLLOWER {
+		self.glock.Unlock()
+		return errors.New("state error")
+	}
+
+	if self.leader_address == address {
+		self.glock.Unlock()
+		return nil
+	}
+
+	self.slock.UpdateState(STATE_SYNC)
+	self.glock.Unlock()
+
+	if self.client_channel != nil {
+		client_channel := self.client_channel
+		client_channel.Close()
+		<- client_channel.closed_waiter
+		self.current_request_id = client_channel.current_request_id
+		self.client_channel = nil
+	}
+
+	err := self.StartSync()
+	if err != nil {
+		return err
+	}
+	self.slock.logger.Infof("Replication Change To Leader %s", address)
 	return nil
 }
 
