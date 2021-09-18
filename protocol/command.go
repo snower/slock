@@ -924,6 +924,10 @@ func (self *CallCommand) Decode(buf []byte) error{
 }
 
 func (self *CallCommand) Encode(buf []byte) error {
+    if len(self.MethodName) > 38 {
+        return errors.New("MethodName too long")
+    }
+
     buf[0] = byte(self.Magic)
     buf[1] = byte(self.Version)
     buf[2] = byte(self.CommandType)
@@ -949,7 +953,6 @@ func (self *CallCommand) Encode(buf []byte) error {
             buf[26 + i] = self.MethodName[i]
         }
     }
-
     return nil
 }
 
@@ -994,6 +997,10 @@ func (self *CallResultCommand) Decode(buf []byte) error{
 }
 
 func (self *CallResultCommand) Encode(buf []byte) error {
+    if len(self.ErrType) > 37 {
+        return errors.New("ErrType too long")
+    }
+
     buf[0] = byte(self.Magic)
     buf[1] = byte(self.Version)
     buf[2] = byte(self.CommandType)
@@ -1021,6 +1028,5 @@ func (self *CallResultCommand) Encode(buf []byte) error {
             buf[27 + i] = self.ErrType[i]
         }
     }
-
     return nil
 }
