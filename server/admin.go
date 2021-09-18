@@ -246,6 +246,7 @@ func (self *Admin) CommandHandleInfoCommand(server_protocol *TextServerProtocol,
 
         if self.slock.replication_manager.client_channel != nil {
             infos = append(infos, fmt.Sprintf("current_aof_id:%x", self.slock.replication_manager.client_channel.current_request_id))
+            infos = append(infos, fmt.Sprintf("load_offset:%d", self.slock.replication_manager.client_channel.loaded_count))
         }
     }
 

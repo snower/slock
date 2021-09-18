@@ -854,7 +854,11 @@ func (self *Aof) LoadLock(lock *AofLock) error {
         db = self.slock.GetOrNewDB(lock.DbId)
     }
 
-    aof_channel := db.aof_channels[lock.AofId % uint32(db.manager_max_glocks)]
+    fash_hash := (uint32(lock.LockKey[0]) << 24 | uint32(lock.LockKey[1]) << 16 | uint32(lock.LockKey[2]) << 8 | uint32(lock.LockKey[3])) ^ (
+        uint32(lock.LockKey[4]) << 24 | uint32(lock.LockKey[5]) << 16 | uint32(lock.LockKey[6]) << 8 | uint32(lock.LockKey[7])) ^ (
+        uint32(lock.LockKey[8]) << 24 | uint32(lock.LockKey[9]) << 16 | uint32(lock.LockKey[10]) << 8 | uint32(lock.LockKey[11])) ^ (
+        uint32(lock.LockKey[12]) << 24 | uint32(lock.LockKey[13]) << 16 | uint32(lock.LockKey[14]) << 8 | uint32(lock.LockKey[15]))
+    aof_channel := db.aof_channels[fash_hash % uint32(db.manager_max_glocks)]
     return aof_channel.Load(lock)
 }
 

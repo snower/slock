@@ -147,6 +147,7 @@ type ReplicationClientChannel struct {
 	rbuf_index			int
 	rbuf_channel		chan []byte
 	wbuf				[]byte
+	loaded_count		uint64
 	wakeup_signal		chan bool
 	closed_waiter		chan bool
 	closed 				bool
@@ -157,7 +158,7 @@ type ReplicationClientChannel struct {
 func NewReplicationClientChannel(manager *ReplicationManager) *ReplicationClientChannel {
 	channel := &ReplicationClientChannel{manager, &sync.Mutex{}, nil, nil, manager.slock.GetAof(),
 		nil, [16]byte{}, make([][]byte, 16), 0, make(chan []byte, 8),
-		make([]byte, 64), nil, make(chan bool, 1), false, true, false}
+		make([]byte, 64), 0, nil, make(chan bool, 1), false, true, false}
 	for i := 0; i < 16; i++ {
 		channel.rbufs[i] = make([]byte, 64)
 	}
@@ -369,6 +370,7 @@ func (self *ReplicationClientChannel) HandleFiles() error {
 			return err
 		}
 		self.manager.buffer_queue.Push(self.aof_lock.buf)
+		self.loaded_count++
 
 		buf := self.aof_lock.buf
 		self.current_request_id[0], self.current_request_id[1], self.current_request_id[2], self.current_request_id[3], self.current_request_id[4], self.current_request_id[5], self.current_request_id[6], self.current_request_id[7],
@@ -393,6 +395,7 @@ func (self *ReplicationClientChannel) Handle() error {
 		}
 		self.aof.AppendLock(self.aof_lock)
 		self.manager.buffer_queue.Push(self.aof_lock.buf)
+		self.loaded_count++
 
 		buf := self.aof_lock.buf
 		self.current_request_id[0], self.current_request_id[1], self.current_request_id[2], self.current_request_id[3], self.current_request_id[4], self.current_request_id[5], self.current_request_id[6], self.current_request_id[7],
