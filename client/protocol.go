@@ -9,6 +9,7 @@ import (
     "net"
     "strconv"
     "strings"
+    "sync"
 )
 
 type ClientProtocol interface {
@@ -21,12 +22,15 @@ type ClientProtocol interface {
 }
 
 type BinaryClientProtocol struct {
-    stream *Stream
-    rbuf []byte
+    stream  *Stream
+    rglock  *sync.Mutex
+    wglock  *sync.Mutex
+    rbuf    []byte
+    wbuf    []byte
 }
 
 func NewBinaryClientProtocol(stream *Stream) *BinaryClientProtocol {
-    return &BinaryClientProtocol{stream, make([]byte, 64)}
+    return &BinaryClientProtocol{stream, &sync.Mutex{}, &sync.Mutex{}, make([]byte, 64), make([]byte, 64)}
 }
 
 func (self *BinaryClientProtocol) Close() error {
@@ -34,6 +38,9 @@ func (self *BinaryClientProtocol) Close() error {
 }
 
 func (self *BinaryClientProtocol) Read() (protocol.CommandDecode, error) {
+    defer self.rglock.Unlock()
+    self.rglock.Lock()
+
     n, err := self.stream.ReadBytes(self.rbuf)
     if err != nil {
         return nil, err
@@ -121,7 +128,10 @@ func (self *BinaryClientProtocol) Read() (protocol.CommandDecode, error) {
 }
 
 func (self *BinaryClientProtocol) Write(command protocol.CommandEncode) error {
-    wbuf := make([]byte, 64)
+    defer self.wglock.Unlock()
+    self.wglock.Lock()
+
+    wbuf := self.wbuf
     err := command.Encode(wbuf)
     if err != nil {
         return err
@@ -155,13 +165,15 @@ func (self *BinaryClientProtocol) RemoteAddr() net.Addr {
 }
 
 type TextClientProtocol struct {
-    stream *Stream
-    parser *protocol.TextParser
+    stream  *Stream
+    rglock  *sync.Mutex
+    wglock  *sync.Mutex
+    parser  *protocol.TextParser
 }
 
 func NewTextClientProtocol(stream *Stream) *TextClientProtocol {
     parser := protocol.NewTextParser(make([]byte, 1024), make([]byte, 1024))
-    client_protocol := &TextClientProtocol{stream, parser}
+    client_protocol := &TextClientProtocol{stream, &sync.Mutex{}, &sync.Mutex{}, parser}
     return client_protocol
 }
 
@@ -262,6 +274,9 @@ func (self *TextClientProtocol) ArgsToLockComandResult(args []string) (*protocol
 }
 
 func (self *TextClientProtocol) Read() (protocol.CommandDecode, error) {
+    defer self.rglock.Unlock()
+    self.rglock.Lock()
+
     rbuf := self.parser.GetReadBuf()
     for ;; {
         if self.parser.IsBufferEnd() {
@@ -291,7 +306,10 @@ func (self *TextClientProtocol) Write(result protocol.CommandEncode) error {
     case *protocol.LockResultCommand:
         return self.WriteCommand(result)
     case *protocol.TextRequestCommand:
-        return self.stream.WriteBytes(self.parser.BuildRequest(result.(*protocol.TextRequestCommand).Args))
+        self.wglock.Lock()
+        err := self.stream.WriteBytes(self.parser.BuildRequest(result.(*protocol.TextRequestCommand).Args))
+        self.wglock.Unlock()
+        return err
     }
     return errors.New("unknown command")
 }
@@ -315,6 +333,9 @@ func (self *TextClientProtocol) ReadCommand() (protocol.CommandDecode, error) {
 }
 
 func (self *TextClientProtocol) WriteCommand(result protocol.CommandEncode) error {
+    defer self.wglock.Unlock()
+    self.wglock.Lock()
+
     lock_command_result, ok := result.(*protocol.LockResultCommand)
     if !ok {
         return errors.New("unknown result")

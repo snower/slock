@@ -445,13 +445,16 @@ func (self *BinaryServerProtocol) Write(result protocol.CommandEncode) error {
         return errors.New("Protocol Closed")
     }
 
+    self.glock.Lock()
     err := result.Encode(self.wbuf)
     if err != nil {
+        self.glock.Unlock()
         return err
     }
 
     err = self.stream.WriteBytes(self.wbuf)
     if err != nil {
+        self.glock.Unlock()
         return err
     }
 
@@ -462,6 +465,7 @@ func (self *BinaryServerProtocol) Write(result protocol.CommandEncode) error {
             err = self.stream.WriteBytes(call_command.Data)
         }
     }
+    self.glock.Unlock()
     return err
 }
 
