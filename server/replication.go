@@ -222,7 +222,11 @@ func (self *ReplicationClientChannel) SendInitSyncCommand() (*protobuf.SyncRespo
 		return nil, rerr
 	}
 
-	call_result_command := result_command.(*protocol.CallResultCommand)
+	call_result_command, ok := result_command.(*protocol.CallResultCommand)
+	if !ok {
+		return nil, errors.New("unknown command result")
+	}
+
 	if call_result_command.Result != 0 || call_result_command.ErrType != "" {
 		if call_result_command.Result == 0 && call_result_command.ErrType == "ERR_NOT_FOUND" {
 			self.current_request_id = [16]byte{}
