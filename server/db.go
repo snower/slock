@@ -1415,7 +1415,7 @@ func (self *LockDB) Lock(server_protocol ServerProtocol, command *protocol.LockC
     if self.status != STATE_LEADER {
         if self.status != STATE_FOLLOWER || command.ExpriedFlag & 0x1000 == 0 {
             lock_manager.glock.Unlock()
-            server_protocol.ProcessLockResultCommand(command, protocol.RESULT_LOCKED_ERROR, uint16(lock_manager.locked), 0)
+            server_protocol.ProcessLockResultCommand(command, protocol.RESULT_STATE_ERROR, uint16(lock_manager.locked), 0)
             server_protocol.FreeLockCommand(command)
             return nil
         }
@@ -1616,15 +1616,24 @@ func (self *LockDB) UnLock(server_protocol ServerProtocol, command *protocol.Loc
 
     lock_manager.glock.Lock()
 
-    if self.status != STATE_LEADER || lock_manager.locked == 0 {
-        if self.status != STATE_FOLLOWER || command.ExpriedFlag & 0x1000 == 0 || lock_manager.locked == 0 {
+    if self.status != STATE_LEADER {
+        if self.status != STATE_FOLLOWER || command.ExpriedFlag & 0x1000 == 0 {
             lock_manager.glock.Unlock()
 
-            server_protocol.ProcessLockResultCommand(command, protocol.RESULT_UNLOCK_ERROR, uint16(lock_manager.locked), 0)
+            server_protocol.ProcessLockResultCommand(command, protocol.RESULT_STATE_ERROR, uint16(lock_manager.locked), 0)
             server_protocol.FreeLockCommand(command)
             atomic.AddUint32(&self.state.UnlockErrorCount, 1)
             return nil
         }
+    }
+
+    if lock_manager.locked == 0 {
+        lock_manager.glock.Unlock()
+
+        server_protocol.ProcessLockResultCommand(command, protocol.RESULT_UNLOCK_ERROR, uint16(lock_manager.locked), 0)
+        server_protocol.FreeLockCommand(command)
+        atomic.AddUint32(&self.state.UnlockErrorCount, 1)
+        return nil
     }
 
     current_lock := lock_manager.GetLockedLock(command)
@@ -1866,7 +1875,14 @@ func (self *LockDB) DoAckLock(lock *Lock, succed bool) {
         }
     }
 
-    if succed {
+    state_error := false
+    if self.status != STATE_LEADER {
+        if self.status != STATE_FOLLOWER || lock.command.ExpriedFlag & 0x1000 == 0 {
+            state_error = true
+        }
+    }
+
+    if succed || state_error {
         lock.ack_count = 0xff
         if lock.command.ExpriedFlag & 0x0400 == 0 {
             self.AddExpried(lock)
@@ -1876,7 +1892,11 @@ func (self *LockDB) DoAckLock(lock *Lock, succed bool) {
         lock_protocol, lock_command := lock.protocol, lock.command
         lock_manager.glock.Unlock()
 
-        lock_protocol.ProcessLockResultCommandLocked(lock_command, protocol.RESULT_SUCCED, uint16(lock_manager.locked), lock.locked)
+        if state_error {
+            lock_protocol.ProcessLockResultCommandLocked(lock_command, protocol.RESULT_STATE_ERROR, uint16(lock_manager.locked), lock.locked)
+        } else {
+            lock_protocol.ProcessLockResultCommandLocked(lock_command, protocol.RESULT_SUCCED, uint16(lock_manager.locked), lock.locked)
+        }
         atomic.AddUint64(&self.state.LockCount, 1)
         atomic.AddUint32(&self.state.LockedCount, 1)
         return
@@ -1903,7 +1923,7 @@ func (self *LockDB) DoAckLock(lock *Lock, succed bool) {
     }
     lock_manager.glock.Unlock()
 
-    lock_protocol.ProcessLockResultCommandLocked(lock_command, protocol.RESULT_LOCKED_ERROR, uint16(lock_manager.locked), lock.locked)
+    lock_protocol.ProcessLockResultCommandLocked(lock_command, protocol.RESULT_ERROR, uint16(lock_manager.locked), lock.locked)
     lock_protocol.FreeLockCommandLocked(lock_command)
 
     self.WakeUpWaitLocks(lock_manager, nil)
