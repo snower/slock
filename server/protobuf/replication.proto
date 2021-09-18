@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package protobuf;
+
+message SyncRequest{
+    string aof_id = 1;
+}
+
+message SyncResponse{
+    string aof_id = 1;
+}

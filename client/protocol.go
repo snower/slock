@@ -120,21 +120,34 @@ func (self *BinaryClientProtocol) Read() (protocol.CommandDecode, error) {
     }
 }
 
-func (self *BinaryClientProtocol) Write(result protocol.CommandEncode) error {
+func (self *BinaryClientProtocol) Write(command protocol.CommandEncode) error {
     wbuf := make([]byte, 64)
-    err := result.Encode(wbuf)
+    err := command.Encode(wbuf)
     if err != nil {
         return err
     }
-    return self.stream.WriteBytes(wbuf)
+
+    err = self.stream.WriteBytes(wbuf)
+    if err != nil {
+        return err
+    }
+
+    switch command.(type) {
+    case *protocol.CallCommand:
+        call_command := command.(*protocol.CallCommand)
+        if call_command.ContentLen > 0 {
+            err = self.stream.WriteBytes(call_command.Data)
+        }
+    }
+    return err
 }
 
 func (self *BinaryClientProtocol) ReadCommand() (protocol.CommandDecode, error) {
     return self.Read()
 }
 
-func (self *BinaryClientProtocol) WriteCommand(result protocol.CommandEncode) error {
-    return self.Write(result)
+func (self *BinaryClientProtocol) WriteCommand(command protocol.CommandEncode) error {
+    return self.Write(command)
 }
 
 func (self *BinaryClientProtocol) RemoteAddr() net.Addr {

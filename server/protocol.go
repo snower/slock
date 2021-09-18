@@ -264,6 +264,9 @@ func NewBinaryServerProtocol(slock *SLock, stream *Stream) *BinaryServerProtocol
         NewLockCommandQueue(4, 64, FREE_COMMAND_QUEUE_INIT_SIZE), make([]byte, 64), wbuf,
         make(map[string]BinaryServerProtocolCallHandler, 8), 0, false, false}
     server_protocol.InitLockCommand()
+    for name, handler := range slock.GetReplicationManager().GetCallMethods() {
+        server_protocol.call_methods[name] = handler
+    }
     stream.protocol = server_protocol
     return server_protocol
 }
@@ -437,7 +440,19 @@ func (self *BinaryServerProtocol) Write(result protocol.CommandEncode) error {
         return err
     }
 
-    return self.stream.WriteBytes(self.wbuf)
+    err = self.stream.WriteBytes(self.wbuf)
+    if err != nil {
+        return err
+    }
+
+    switch result.(type) {
+    case *protocol.CallResultCommand:
+        call_command := result.(*protocol.CallResultCommand)
+        if call_command.ContentLen > 0 {
+            err = self.stream.WriteBytes(call_command.Data)
+        }
+    }
+    return err
 }
 
 func (self *BinaryServerProtocol) ReadCommand() (protocol.CommandDecode, error) {
@@ -486,14 +501,22 @@ func (self *BinaryServerProtocol) ProcessParse(buf []byte) error {
     mv := uint16(buf[0]) | uint16(buf[1])<<8
     if mv != 0x0156 {
         if mv&0xff != uint16(protocol.MAGIC) {
-            command := protocol.NewCommand(buf)
-            self.Write(protocol.NewResultCommand(command, protocol.RESULT_UNKNOWN_MAGIC))
+            command := protocol.Command{}
+            err := command.Decode(buf)
+            if err != nil {
+                return err
+            }
+            self.Write(protocol.NewResultCommand(&command, protocol.RESULT_UNKNOWN_MAGIC))
             return errors.New("Unknown Magic")
         }
 
         if (mv>>8)&0xff != uint16(protocol.VERSION) {
-            command := protocol.NewCommand(buf)
-            self.Write(protocol.NewResultCommand(command, protocol.RESULT_UNKNOWN_VERSION))
+            command := protocol.Command{}
+            err := command.Decode(buf)
+            if err != nil {
+                return err
+            }
+            self.Write(protocol.NewResultCommand(&command, protocol.RESULT_UNKNOWN_VERSION))
             return errors.New("Unknown Version")
         }
     }
@@ -597,7 +620,24 @@ func (self *BinaryServerProtocol) ProcessParse(buf []byte) error {
         case protocol.COMMAND_QUIT:
             command = &protocol.QuitCommand{}
         case protocol.COMMAND_CALL:
-            command = &protocol.CallCommand{}
+            call_command := protocol.CallCommand{}
+            err := call_command.Decode(buf)
+            if err != nil {
+                return err
+            }
+
+            call_command.Data = make([]byte, call_command.ContentLen)
+            if call_command.ContentLen > 0 {
+                _, err := self.stream.ReadBytes(call_command.Data)
+                if err != nil {
+                    return err
+                }
+            }
+            err = self.ProcessCommad(&call_command)
+            if err != nil {
+                return err
+            }
+            return nil
         default:
             command = &protocol.Command{}
         }
@@ -701,28 +741,19 @@ func (self *BinaryServerProtocol) ProcessCommad(command protocol.ICommand) error
 
         case protocol.COMMAND_CALL:
             call_command := command.(*protocol.CallCommand)
-            call_command.Data = make([]byte, call_command.ContentLen)
-            if call_command.ContentLen > 0 {
-                _, err := self.stream.ReadBytes(call_command.Data)
-                if err != nil {
-                    return err
-                }
-            }
-
             if handler, ok := self.call_methods[call_command.MethodName]; ok {
-                result_command, err := handler(self, call_command)
-                if err != nil {
-                    return self.Write(protocol.NewCallResultCommand(call_command, protocol.RESULT_ERROR, 0, 0, 0, 0,""))
+                result_command, rerr := handler(self, call_command)
+                if result_command == nil {
+                    return rerr
                 }
 
-                err = self.Write(result_command)
-                if err != nil || result_command.ContentLen == 0 {
-                    return err
+                err := self.Write(result_command)
+                if err == nil {
+                    return rerr
                 }
-                return self.stream.WriteBytes(result_command.Data)
+                return err
             }
-
-            return self.Write(protocol.NewCallResultCommand(call_command, protocol.RESULT_UNKNOWN_COMMAND, 0, 0, 0, 0,""))
+            return self.Write(protocol.NewCallResultCommand(call_command, protocol.RESULT_UNKNOWN_COMMAND, "", nil))
 
         default:
             return self.Write(protocol.NewResultCommand(command, protocol.RESULT_UNKNOWN_COMMAND))
@@ -955,9 +986,6 @@ func NewTextServerProtocol(slock *SLock, stream *Stream) *TextServerProtocol {
     server_protocol.handlers["SELECT"] = server_protocol.CommandHandlerSelectDB
     server_protocol.handlers["LOCK"] = server_protocol.CommandHandlerLock
     server_protocol.handlers["UNLOCK"] = server_protocol.CommandHandlerUnlock
-    for name, handler := range slock.GetReplicationManager().GetHandlers() {
-        server_protocol.handlers[name] = handler
-    }
     for name, handler := range slock.GetAdmin().GetHandlers() {
         server_protocol.handlers[name] = handler
     }
@@ -1300,14 +1328,7 @@ func (self *TextServerProtocol) ProcessCommad(command protocol.ICommand) error {
 
         case protocol.COMMAND_CALL:
             call_command := command.(*protocol.CallCommand)
-            call_command.Data = make([]byte, call_command.ContentLen)
-            if call_command.ContentLen > 0 {
-                _, err := self.stream.ReadBytes(call_command.Data)
-                if err != nil {
-                    return err
-                }
-            }
-            return self.Write(protocol.NewCallResultCommand(call_command, protocol.RESULT_UNKNOWN_COMMAND, 0, 0, 0, 0,""))
+            return self.Write(protocol.NewCallResultCommand(call_command, protocol.RESULT_UNKNOWN_COMMAND, "", nil))
 
         default:
             return self.Write(protocol.NewResultCommand(command, protocol.RESULT_UNKNOWN_COMMAND))

@@ -2,7 +2,10 @@ package protocol
 
 import (
     "errors"
+    "math/rand"
     "strings"
+    "sync/atomic"
+    "time"
 )
 
 const MAGIC uint8 = 0x56
@@ -57,6 +60,18 @@ var ERROR_MSG []string = []string{
     "UNKNOWN_ERROR",
 }
 
+var LETTERS = []byte("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+var request_id_index uint64 = 0
+
+func GenRequestId() [16]byte {
+    now := uint32(time.Now().Unix())
+    request_id_index := atomic.AddUint64(&request_id_index, 1)
+    return [16]byte{
+        byte(now >> 24), byte(now >> 16), byte(now >> 8), byte(now), LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)],
+        LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], byte(request_id_index >> 40), byte(request_id_index >> 32), byte(request_id_index >> 24), byte(request_id_index >> 16), byte(request_id_index >> 8), byte(request_id_index),
+    }
+}
+
 type ICommand interface {
     GetCommandType() uint8
     GetRequestId() [16]byte
@@ -79,12 +94,8 @@ type Command struct {
     RequestId [16]byte
 }
 
-func NewCommand(buf []byte) *Command {
-    command := Command{}
-    if command.Decode(buf) != nil {
-        return nil
-    }
-
+func NewCommand(command_type uint8) *Command {
+    command := Command{Magic:MAGIC, Version:VERSION, CommandType:command_type, RequestId:GenRequestId()}
     return &command
 }
 
@@ -180,12 +191,10 @@ type InitCommand struct {
     Blank       [29]byte
 }
 
-func NewInitCommand(buf []byte) *InitCommand {
-    command := InitCommand{}
-    if command.Decode(buf) != nil {
-        return nil
-    }
-    return &command
+func NewInitCommand(client_id [16]byte) *InitCommand {
+    command := Command{Magic:MAGIC, Version:VERSION, CommandType:COMMAND_INIT, RequestId:GenRequestId()}
+    init_command := InitCommand{Command:command, ClientId:client_id, Blank:[29]byte{}}
+    return &init_command
 }
 
 func (self *InitCommand) Decode(buf []byte) error{
@@ -307,12 +316,11 @@ type LockCommand struct {
     Rcount          uint8
 }
 
-func NewLockCommand(buf []byte) *LockCommand {
-    command := LockCommand{}
-    if command.Decode(buf) != nil {
-        return nil
-    }
-    return &command
+func NewLockCommand(db_id uint8, lock_key [16]byte, lock_id [16]byte, timeout uint16, expried uint16, count uint16) *LockCommand {
+    command := Command{Magic:MAGIC, Version:VERSION, CommandType:COMMAND_LOCK, RequestId:GenRequestId()}
+    lock_command := LockCommand{Command:command, Flag:0, DbId:db_id, LockId:lock_id, LockKey:lock_key, TimeoutFlag:0,
+        Timeout:timeout, ExpriedFlag:0, Expried:expried, Count:count, Rcount:0}
+    return &lock_command
 }
 
 func (self *LockCommand) Decode(buf []byte) error{
@@ -461,12 +469,10 @@ type StateCommand struct {
     Blank [43]byte
 }
 
-func NewStateCommand(buf []byte) *StateCommand {
-    command := StateCommand{}
-    if command.Decode(buf) != nil {
-        return nil
-    }
-    return &command
+func NewStateCommand(db_id uint8) *StateCommand {
+    command := Command{Magic:MAGIC, Version:VERSION, CommandType:COMMAND_STATE, RequestId:GenRequestId()}
+    state_command := StateCommand{Command:command, Flag:0, DbId:db_id, Blank:[43]byte{}}
+    return &state_command
 }
 
 func (self *StateCommand) Decode(buf []byte) error{
@@ -624,12 +630,10 @@ type AdminCommand struct {
     Blank       [44]byte
 }
 
-func NewAdminCommand(buf []byte) *AdminCommand {
-    command := AdminCommand{}
-    if command.Decode(buf) != nil {
-        return nil
-    }
-    return &command
+func NewAdminCommand(admin_type uint8) *AdminCommand {
+    command := Command{Magic:MAGIC, Version:VERSION, CommandType:COMMAND_ADMIN, RequestId:GenRequestId()}
+    admin_command := AdminCommand{Command:command, AdminType:admin_type, Blank:[44]byte{}}
+    return &admin_command
 }
 
 func (self *AdminCommand) Decode(buf []byte) error{
@@ -715,12 +719,10 @@ type PingCommand struct {
     Blank       [45]byte
 }
 
-func NewPingCommand(buf []byte) *PingCommand {
-    command := PingCommand{}
-    if command.Decode(buf) != nil {
-        return nil
-    }
-    return &command
+func NewPingCommand() *PingCommand {
+    command := Command{Magic:MAGIC, Version:VERSION, CommandType:COMMAND_PING, RequestId:GenRequestId()}
+    ping_command := PingCommand{Command:command, Blank:[45]byte{}}
+    return &ping_command
 }
 
 func (self *PingCommand) Decode(buf []byte) error{
@@ -802,12 +804,10 @@ type QuitCommand struct {
     Blank       [45]byte
 }
 
-func NewQuitCommand(buf []byte) *QuitCommand {
-    command := QuitCommand{}
-    if command.Decode(buf) != nil {
-        return nil
-    }
-    return &command
+func NewQuitCommand() *QuitCommand {
+    command := Command{Magic:MAGIC, Version:VERSION, CommandType:COMMAND_QUIT, RequestId:GenRequestId()}
+    quit_command := QuitCommand{Command:command, Blank:[45]byte{}}
+    return &quit_command
 }
 
 func (self *QuitCommand) Decode(buf []byte) error{
@@ -894,12 +894,15 @@ type CallCommand struct {
     Data        []byte
 }
 
-func NewCallCommand(buf []byte) *CallCommand {
-    command := CallCommand{}
-    if command.Decode(buf) != nil {
-        return nil
+func NewCallCommand(method_name string, data []byte) *CallCommand {
+    content_len := uint32(0)
+    if data != nil {
+        content_len = uint32(len(data))
     }
-    return &command
+
+    command := Command{Magic:MAGIC, Version:VERSION, CommandType:COMMAND_CALL, RequestId:GenRequestId()}
+    call_command := CallCommand{Command:command, Flag:0, Encoding:CALL_COMMAND_ENCODING_PROTOCOL, Charset:CALL_COMMAND_CHARSET_UTF8, ContentLen:content_len, MethodName:method_name, Data:data}
+    return &call_command
 }
 
 func (self *CallCommand) Decode(buf []byte) error{
@@ -941,9 +944,9 @@ func (self *CallCommand) Encode(buf []byte) error {
 
     for i :=0; i < 38; i++ {
         if i >= len(self.MethodName) {
-            buf[25 + i] = 0x00
+            buf[26 + i] = 0x00
         } else {
-            buf[25 + i] = self.MethodName[i]
+            buf[26 + i] = self.MethodName[i]
         }
     }
 
@@ -960,9 +963,14 @@ type CallResultCommand struct {
     Data        []byte
 }
 
-func NewCallResultCommand(command *CallCommand, result uint8, flag uint8, encoding uint8, charset uint8, content_len uint32, err_type string) *CallResultCommand {
+func NewCallResultCommand(command *CallCommand, result uint8, err_type string, data []byte) *CallResultCommand {
+    content_len := uint32(0)
+    if data != nil {
+        content_len = uint32(len(data))
+    }
+
     result_command := ResultCommand{MAGIC, VERSION, command.CommandType, command.RequestId, result}
-    return &CallResultCommand{result_command, flag, encoding, charset, content_len, err_type, nil}
+    return &CallResultCommand{result_command, 0, CALL_COMMAND_ENCODING_PROTOCOL, CALL_COMMAND_CHARSET_UTF8, content_len, err_type, data}
 }
 
 func (self *CallResultCommand) Decode(buf []byte) error{
@@ -997,20 +1005,20 @@ func (self *CallResultCommand) Encode(buf []byte) error {
 
     buf[19] = uint8(self.Result)
 
-    buf[19] = byte(self.Flag)
-    buf[20] = byte(self.Encoding)
-    buf[21] = byte(self.Charset)
+    buf[20] = byte(self.Flag)
+    buf[21] = byte(self.Encoding)
+    buf[22] = byte(self.Charset)
 
-    buf[22] = byte(self.ContentLen)
-    buf[23] = byte(self.ContentLen >> 8)
-    buf[24] = byte(self.ContentLen >> 16)
-    buf[25] = byte(self.ContentLen >> 24)
+    buf[23] = byte(self.ContentLen)
+    buf[24] = byte(self.ContentLen >> 8)
+    buf[25] = byte(self.ContentLen >> 16)
+    buf[26] = byte(self.ContentLen >> 24)
 
-    for i :=0; i < 38; i++ {
+    for i :=0; i < 37; i++ {
         if i >= len(self.ErrType) {
-            buf[25 + i] = 0x00
+            buf[27 + i] = 0x00
         } else {
-            buf[25 + i] = self.ErrType[i]
+            buf[27 + i] = self.ErrType[i]
         }
     }
 

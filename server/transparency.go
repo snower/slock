@@ -247,14 +247,22 @@ func (self *TransparencyBinaryServerProtocol) ProcessParse(buf []byte) error {
 	mv := uint16(buf[0]) | uint16(buf[1])<<8
 	if mv != 0x0156 {
 		if mv&0xff != uint16(protocol.MAGIC) {
-			command := protocol.NewCommand(buf)
-			self.server_protocol.Write(protocol.NewResultCommand(command, protocol.RESULT_UNKNOWN_MAGIC))
+			command := protocol.Command{}
+			err := command.Decode(buf)
+			if err != nil {
+				return err
+			}
+			self.server_protocol.Write(protocol.NewResultCommand(&command, protocol.RESULT_UNKNOWN_MAGIC))
 			return errors.New("Unknown Magic")
 		}
 
 		if (mv>>8)&0xff != uint16(protocol.VERSION) {
-			command := protocol.NewCommand(buf)
-			self.server_protocol.Write(protocol.NewResultCommand(command, protocol.RESULT_UNKNOWN_VERSION))
+			command := protocol.Command{}
+			err := command.Decode(buf)
+			if err != nil {
+				return err
+			}
+			self.server_protocol.Write(protocol.NewResultCommand(&command, protocol.RESULT_UNKNOWN_VERSION))
 			return errors.New("Unknown Version")
 		}
 	}
@@ -381,6 +389,16 @@ func (self *TransparencyBinaryServerProtocol) ProcessParse(buf []byte) error {
 			command = &protocol.PingCommand{}
 		case protocol.COMMAND_QUIT:
 			command = &protocol.QuitCommand{}
+		case protocol.COMMAND_CALL:
+			call_command := protocol.CallCommand{}
+			call_command.Data = make([]byte, call_command.ContentLen)
+			if call_command.ContentLen > 0 {
+				_, err := self.stream.ReadBytes(call_command.Data)
+				if err != nil {
+					return err
+				}
+			}
+			command = &call_command
 		default:
 			command = &protocol.Command{}
 		}

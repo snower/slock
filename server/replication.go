@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/snower/slock/client"
 	"github.com/snower/slock/protocol"
+	"github.com/snower/slock/server/protobuf"
 	"io"
 	"net"
 	"sync"
@@ -138,7 +139,7 @@ type ReplicationClientChannel struct {
 	manager 			*ReplicationManager
 	glock 				*sync.Mutex
 	stream 				*client.Stream
-	protocol 			*client.TextClientProtocol
+	protocol 			*client.BinaryClientProtocol
 	aof 				*Aof
 	aof_lock 			*AofLock
 	current_request_id	[16]byte
@@ -173,7 +174,7 @@ func (self *ReplicationClientChannel) Open(addr string) error {
 		return err
 	}
 	stream := client.NewStream(conn)
-	client_protocol := client.NewTextClientProtocol(stream)
+	client_protocol := client.NewBinaryClientProtocol(stream)
 	self.stream = stream
 	self.protocol = client_protocol
 	self.closed = false
@@ -193,21 +194,25 @@ func (self *ReplicationClientChannel) Close() error {
 	return nil
 }
 
-func (self *ReplicationClientChannel) SendInitSyncCommand() (*protocol.TextResponseCommand, error) {
-	args := []string{"SYNC"}
+func (self *ReplicationClientChannel) SendInitSyncCommand() (*protobuf.SyncResponse, error) {
 	request_id := fmt.Sprintf("%x", self.current_request_id)
 	if request_id != "00000000000000000000000000000000" {
-		args = append(args, request_id)
 		if self.aof_lock == nil {
 			self.aof_lock = NewAofLock()
 		}
-		self.manager.slock.logger.Infof("Replication Send Start Sync %s", args[1])
+		self.manager.slock.logger.Infof("Replication Send Start Sync %s", request_id)
 	} else {
+		request_id = ""
 		self.manager.slock.logger.Infof("Replication Send Start Sync")
 	}
 
-	command := protocol.TextRequestCommand{Parser: self.protocol.GetParser(), Args: args}
-	werr := self.protocol.Write(&command)
+	request := protobuf.SyncRequest{AofId:request_id}
+	data, err := request.Marshal()
+	if err != nil {
+		return nil, err
+	}
+	command := protocol.NewCallCommand("SYNC", data)
+	werr := self.protocol.Write(command)
 	if werr != nil {
 		return nil, werr
 	}
@@ -217,9 +222,9 @@ func (self *ReplicationClientChannel) SendInitSyncCommand() (*protocol.TextRespo
 		return nil, rerr
 	}
 
-	text_client_command := result_command.(*protocol.TextResponseCommand)
-	if text_client_command.ErrorType != "" {
-		if text_client_command.ErrorType == "ERR_NOT_FOUND" {
+	call_result_command := result_command.(*protocol.CallResultCommand)
+	if call_result_command.Result != 0 || call_result_command.ErrType != "" {
+		if call_result_command.Result == 0 && call_result_command.ErrType == "ERR_NOT_FOUND" {
 			self.current_request_id = [16]byte{}
 			err := self.manager.Resync()
 			if err != nil {
@@ -230,19 +235,21 @@ func (self *ReplicationClientChannel) SendInitSyncCommand() (*protocol.TextRespo
 			self.recved_files = false
 			return self.SendInitSyncCommand()
 		}
-		return nil, errors.New(text_client_command.ErrorType + " " + text_client_command.Message)
+		return nil, errors.New(call_result_command.ErrType)
 	}
 
-	if len(text_client_command.Results) <= 0 {
+	response := protobuf.SyncResponse{}
+	err = response.Unmarshal(call_result_command.Data)
+	if err != nil {
 		return nil, errors.New("unknown lastest requestid")
 	}
 
-	self.manager.slock.logger.Infof("Replication Recv Start Sync %s", text_client_command.Results[0])
-	return text_client_command, nil
+	self.manager.slock.logger.Infof("Replication Recv Start Sync %s", response.AofId)
+	return &response, nil
 }
 
 func (self *ReplicationClientChannel) InitSync() error {
-	text_command, err := self.SendInitSyncCommand()
+	sync_response, err := self.SendInitSyncCommand()
 	if err != nil {
 		return err
 	}
@@ -257,7 +264,7 @@ func (self *ReplicationClientChannel) InitSync() error {
 		return nil
 	}
 
-	v, err := hex.DecodeString(text_command.Results[0])
+	v, err := hex.DecodeString(sync_response.AofId)
 	if err != nil {
 		return err
 	}
@@ -505,6 +512,7 @@ func (self *ReplicationClientChannel) SleepWhenRetryConnect() error {
 		self.wakeup_signal = nil
 		return nil
 	case <- time.After(5 * time.Second):
+		self.wakeup_signal = nil
 		return nil
 	}
 }
@@ -512,7 +520,7 @@ func (self *ReplicationClientChannel) SleepWhenRetryConnect() error {
 type ReplicationServerChannel struct {
 	manager 			*ReplicationManager
 	stream 				*Stream
-	protocol 			*TextServerProtocol
+	protocol 			*BinaryServerProtocol
 	aof 				*Aof
 	raof_lock 			*AofLock
 	waof_lock 			*AofLock
@@ -523,7 +531,7 @@ type ReplicationServerChannel struct {
 	sended_files		bool
 }
 
-func NewReplicationServerChannel(manager *ReplicationManager, server_protocol *TextServerProtocol) *ReplicationServerChannel {
+func NewReplicationServerChannel(manager *ReplicationManager, server_protocol *BinaryServerProtocol) *ReplicationServerChannel {
 	return &ReplicationServerChannel{manager, server_protocol.stream, server_protocol,
 		manager.slock.GetAof(), NewAofLock(), NewAofLock(),
 		[16]byte{}, 0, make(chan bool, 1),
@@ -543,12 +551,18 @@ func (self *ReplicationServerChannel) Close() error {
 	return nil
 }
 
-func (self *ReplicationServerChannel) InitSync(args []string) (bool, error) {
+func (self *ReplicationServerChannel) InitSync(command *protocol.CallCommand) (*protocol.CallResultCommand, error) {
 	if self.manager.slock.state != STATE_LEADER {
-		return false, self.protocol.stream.WriteBytes(self.protocol.parser.BuildResponse(false, "ERR state error", nil))
+		return protocol.NewCallResultCommand(command, 0, "ERR_STATE", nil), nil
 	}
 
-	if len(args) == 1 {
+	request := protobuf.SyncRequest{}
+	err := request.Unmarshal(command.Data)
+	if err != nil {
+		return protocol.NewCallResultCommand(command, 0,  "ERR_PROTO", nil), nil
+	}
+
+	if request.AofId == "" {
 		buffer_index, err := self.manager.buffer_queue.Head(self.waof_lock.buf)
 		if err != nil {
 			self.waof_lock.AofIndex = self.aof.aof_file_index
@@ -556,20 +570,25 @@ func (self *ReplicationServerChannel) InitSync(args []string) (bool, error) {
 		} else {
 			err := self.waof_lock.Decode()
 			if err != nil {
-				return false, self.protocol.stream.WriteBytes(self.protocol.parser.BuildResponse(false, "ERR Decode error", nil))
+				return protocol.NewCallResultCommand(command, 0, "ERR_DECODE", nil), nil
 			}
 		}
 		request_id := fmt.Sprintf("%x", self.waof_lock.GetRequestId())
-		err = self.protocol.stream.WriteBytes(self.protocol.parser.BuildResponse(true, "", []string{request_id}))
+		response := protobuf.SyncResponse{AofId:request_id}
+		data, err := response.Marshal()
 		if err != nil {
-			return false, err
+			return protocol.NewCallResultCommand(command, 0, "ERR_ENCODE", nil), nil
+		}
+		err = self.protocol.Write(protocol.NewCallResultCommand(command, 0,  "", data))
+		if err != nil {
+			return nil, err
 		}
 		self.buffer_index = buffer_index
 		self.manager.slock.logger.Infof("Replication Client Send Files Start %s %s", self.protocol.RemoteAddr().String(), request_id)
 
 		err = self.RecvStart()
 		if err != nil {
-			return false, err
+			return nil, err
 		}
 		go (func() {
 			err := self.SendFiles()
@@ -579,28 +598,34 @@ func (self *ReplicationServerChannel) InitSync(args []string) (bool, error) {
 				return
 			}
 		})()
-		return true, nil
+		return nil, nil
 	}
 
-	self.manager.slock.logger.Infof("Replication Client Require Start %s %s", self.protocol.RemoteAddr().String(), args[1])
-	v, err := hex.DecodeString(args[1])
+	self.manager.slock.logger.Infof("Replication Client Require Start %s %s", self.protocol.RemoteAddr().String(), request.AofId)
+	v, err := hex.DecodeString(request.AofId)
 	if err != nil {
-		return false, self.protocol.stream.WriteBytes(self.protocol.parser.BuildResponse(false, "ERR decode request id error", nil))
+		return protocol.NewCallResultCommand(command, 0, "ERR_AOF_ID", nil), nil
 	}
 	inited_aof_id := uint64(v[0]) | uint64(v[1])<<8 | uint64(v[2])<<16 | uint64(v[3])<<24 | uint64(v[4])<<32 | uint64(v[5])<<40 | uint64(v[6])<<48 | uint64(v[7])<<56
 	buffer_index, serr := self.manager.buffer_queue.Search(inited_aof_id, self.waof_lock.buf)
 	if serr != nil {
-		return false, self.protocol.stream.WriteBytes(self.protocol.parser.BuildResponse(false, "ERR_NOT_FOUND unknown request id", nil))
+		return protocol.NewCallResultCommand(command, 0, "ERR_NOT_FOUND", nil), nil
 	}
 
 	err = self.waof_lock.Decode()
 	if err != nil {
-		return false, self.protocol.stream.WriteBytes(self.protocol.parser.BuildResponse(false, "ERR Decode error", nil))
+		return protocol.NewCallResultCommand(command, 0, "ERR_ENCODE", nil), nil
 	}
 	request_id := fmt.Sprintf("%x", self.waof_lock.GetRequestId())
-	err = self.protocol.stream.WriteBytes(self.protocol.parser.BuildResponse(true, "", []string{request_id}))
+	response := protobuf.SyncResponse{AofId:request_id}
+	data, err := response.Marshal()
 	if err != nil {
-		return false, err
+		return protocol.NewCallResultCommand(command, 0, "ERR_ENCODE", nil), nil
+	}
+	err = self.protocol.Write(protocol.NewCallResultCommand(command, 0, "", data))
+
+	if err != nil {
+		return nil, err
 	}
 	self.buffer_index = buffer_index + 1
 	self.sended_files = true
@@ -608,9 +633,9 @@ func (self *ReplicationServerChannel) InitSync(args []string) (bool, error) {
 
 	err = self.RecvStart()
 	if err != nil {
-		return false, err
+		return nil, err
 	}
-	return true, nil
+	return nil, nil
 }
 
 func (self *ReplicationServerChannel) SendFiles() error {
@@ -1140,9 +1165,14 @@ func NewReplicationManager(address string) *ReplicationManager {
 		make(chan bool, 8), nil, make([]chan bool, 0), false}
 }
 
-func (self *ReplicationManager) GetHandlers() map[string]TextServerProtocolCommandHandler{
-	handlers := make(map[string]TextServerProtocolCommandHandler, 64)
+func (self *ReplicationManager) GetCallMethods() map[string]BinaryServerProtocolCallHandler{
+	handlers := make(map[string]BinaryServerProtocolCallHandler, 2)
 	handlers["SYNC"] = self.CommandHandleSyncCommand
+	return handlers
+}
+
+func (self *ReplicationManager) GetHandlers() map[string]TextServerProtocolCommandHandler{
+	handlers := make(map[string]TextServerProtocolCommandHandler, 2)
 	return handlers
 }
 
@@ -1200,27 +1230,26 @@ func (self *ReplicationManager) WaitServerChannelSynced() error {
 	return nil
 }
 
-func (self *ReplicationManager) CommandHandleSyncCommand(server_protocol *TextServerProtocol, args []string) error {
+func (self *ReplicationManager) CommandHandleSyncCommand(server_protocol *BinaryServerProtocol, command *protocol.CallCommand) (*protocol.CallResultCommand, error) {
 	if self.closed {
-		server_protocol.stream.WriteBytes(server_protocol.parser.BuildResponse(false, "ERR server closed", nil))
-		return io.EOF
+		return protocol.NewCallResultCommand(command, 0, "STATE_ERROR", nil), io.EOF
 	}
 
 	channel := NewReplicationServerChannel(self, server_protocol)
 	self.slock.logger.Infof("Replication Client Sync %s", server_protocol.RemoteAddr().String())
-	succed, err := channel.InitSync(args)
+	result, err := channel.InitSync(command)
 	if err != nil {
 		channel.closed = true
 		channel.closed_waiter <- true
 		if err != io.EOF {
 			self.slock.logger.Errorf("Replication Client Start Sync Error: %s %v", server_protocol.RemoteAddr().String(), err)
 		}
-		return err
-	} else if !succed {
+		return result, err
+	} else if result != nil {
 		channel.closed = true
 		channel.closed_waiter <- true
 		self.slock.logger.Infof("Replication Client Start Sync Fail")
-		return nil
+		return result, nil
 	}
 
 	self.AddServerChannel(channel)
@@ -1243,9 +1272,8 @@ func (self *ReplicationManager) CommandHandleSyncCommand(server_protocol *TextSe
 			self.slock.logger.Errorf("Replication Client Process Error: %s %v", server_protocol.RemoteAddr().String(), err)
 		}
 		self.slock.logger.Infof("Replication Client Close %s", server_protocol.RemoteAddr().String())
-		return io.EOF
 	}
-	return nil
+	return nil, io.EOF
 }
 
 func (self *ReplicationManager) AddServerChannel(channel *ReplicationServerChannel) error {
@@ -1322,7 +1350,6 @@ func (self *ReplicationManager) StartSync() error {
 
 			channel.Close()
 			self.glock.Lock()
-
 			for _, waiter := range self.inited_waters {
 				waiter <- false
 			}
