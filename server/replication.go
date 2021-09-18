@@ -106,7 +106,7 @@ func (self *ReplicationBufferQueue) Head(buf []byte) (uint64, error) {
 	}
 }
 
-func (self *ReplicationBufferQueue) Search(aof_id uint64, aof_buf []byte) (uint64, error) {
+func (self *ReplicationBufferQueue) Search(aof_id [16]byte, aof_buf []byte) (uint64, error) {
 	current_index := atomic.LoadUint64(&self.current_index)
 	if current_index == 0 {
 		return 0, errors.New("search error")
@@ -123,10 +123,10 @@ func (self *ReplicationBufferQueue) Search(aof_id uint64, aof_buf []byte) (uint6
 	for i := 0; i < segment_count; i++ {
 		current_size := int((start_index + uint64(i)) % uint64(self.segment_count)) * self.segment_size
 		buf := self.buf[current_size: current_size + self.segment_size]
-		current_aof_id := uint64(buf[3]) | uint64(buf[4])<<8 | uint64(buf[5])<<16 | uint64(buf[6])<<24 | uint64(buf[7])<<32 | uint64(buf[8])<<40 | uint64(buf[9])<<48 | uint64(buf[10])<<56
+		current_aof_id := [16]byte{buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18]}
 		if current_aof_id == aof_id {
 			copy(aof_buf, buf)
-			current_aof_id := uint64(aof_buf[3]) | uint64(aof_buf[4])<<8 | uint64(aof_buf[5])<<16 | uint64(aof_buf[6])<<24 | uint64(aof_buf[7])<<32 | uint64(aof_buf[8])<<40 | uint64(aof_buf[9])<<48 | uint64(aof_buf[10])<<56
+			current_aof_id := [16]byte{buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18]}
 			if current_aof_id == aof_id {
 				return start_index + uint64(i), nil
 			}
@@ -606,11 +606,11 @@ func (self *ReplicationServerChannel) InitSync(command *protocol.CallCommand) (*
 	}
 
 	self.manager.slock.logger.Infof("Replication Client Require Start %s %s", self.protocol.RemoteAddr().String(), request.AofId)
-	v, err := hex.DecodeString(request.AofId)
+	buf, err := hex.DecodeString(request.AofId)
 	if err != nil {
 		return protocol.NewCallResultCommand(command, 0, "ERR_AOF_ID", nil), nil
 	}
-	inited_aof_id := uint64(v[0]) | uint64(v[1])<<8 | uint64(v[2])<<16 | uint64(v[3])<<24 | uint64(v[4])<<32 | uint64(v[5])<<40 | uint64(v[6])<<48 | uint64(v[7])<<56
+	inited_aof_id := [16]byte{buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11], buf[12], buf[13], buf[14], buf[15]}
 	buffer_index, serr := self.manager.buffer_queue.Search(inited_aof_id, self.waof_lock.buf)
 	if serr != nil {
 		return protocol.NewCallResultCommand(command, 0, "ERR_NOT_FOUND", nil), nil
