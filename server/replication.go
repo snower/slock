@@ -1103,7 +1103,9 @@ func (self *ReplicationAckDB) SwitchToLeader() error {
 func (self *ReplicationAckDB) SwitchToFollower() error {
 	self.glock.Lock()
 	for _, ack_lock := range self.ack_locks {
-		self.manager.client_channel.HandleAcked(ack_lock)
+		if self.manager.client_channel != nil {
+			self.manager.client_channel.HandleAcked(ack_lock)
+		}
 		if self.free_ack_locks_index < REPLICATION_MAX_FREE_ACK_LOCK_QUEUE_SIZE {
 			self.free_ack_locks[self.free_ack_locks_index] = ack_lock
 			self.free_ack_locks_index++
@@ -1466,7 +1468,11 @@ func (self *ReplicationManager) SwitchToFollower() error {
 	}
 
 	self.slock.logger.Infof("Replication Start Change To Follower")
-	self.slock.UpdateState(STATE_SYNC)
+	if self.leader_address == "" {
+		self.slock.UpdateState(STATE_FOLLOWER)
+	} else {
+		self.slock.UpdateState(STATE_SYNC)
+	}
 	self.glock.Unlock()
 
 	self.WakeupServerChannel()
@@ -1481,6 +1487,11 @@ func (self *ReplicationManager) SwitchToFollower() error {
 		if db != nil {
 			db.SwitchToFollower()
 		}
+	}
+
+	if self.leader_address == "" {
+		self.slock.logger.Infof("Replication Finish Change To Follower")
+		return nil
 	}
 
 	err := self.StartSync()
@@ -1503,7 +1514,11 @@ func (self *ReplicationManager) ChangeLeader(address string) error {
 		return nil
 	}
 
-	self.slock.UpdateState(STATE_SYNC)
+	if self.leader_address == "" {
+		self.slock.UpdateState(STATE_FOLLOWER)
+	} else {
+		self.slock.UpdateState(STATE_SYNC)
+	}
 	self.glock.Unlock()
 
 	if self.client_channel != nil {
@@ -1512,6 +1527,10 @@ func (self *ReplicationManager) ChangeLeader(address string) error {
 		<- client_channel.closed_waiter
 		self.current_request_id = client_channel.current_request_id
 		self.client_channel = nil
+	}
+
+	if self.leader_address == "" {
+		self.slock.logger.Infof("Replication Change To Empty Leader")
 	}
 
 	err := self.StartSync()
