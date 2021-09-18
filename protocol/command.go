@@ -34,6 +34,14 @@ const (
     RESULT_ERROR
 )
 
+const (
+    CALL_COMMAND_ENCODING_TEXT uint8 = 1
+    CALL_COMMAND_ENCODING_JSON uint8 = 2
+    CALL_COMMAND_ENCODING_PROTOCOL uint8 = 3
+
+    CALL_COMMAND_CHARSET_UTF8 uint8 = 1
+)
+
 var ERROR_MSG []string = []string{
     "OK",
     "UNKNOWN_MAGIC",
@@ -875,7 +883,6 @@ func (self *QuitResultCommand) Encode(buf []byte) error {
 
     return nil
 }
-
 
 type CallCommand struct {
     Command

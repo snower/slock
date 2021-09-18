@@ -101,6 +101,20 @@ func (self *BinaryClientProtocol) Read() (protocol.CommandDecode, error) {
             return nil, err
         }
         return &command, nil
+    case protocol.COMMAND_CALL:
+        command := protocol.CallResultCommand{}
+        err := command.Decode(self.rbuf)
+        if err != nil {
+            return nil, err
+        }
+        command.Data = make([]byte, command.ContentLen)
+        if command.ContentLen > 0 {
+            _, err := self.stream.ReadBytes(command.Data)
+            if err != nil {
+                return nil, err
+            }
+        }
+        return &command, nil
     default:
         return nil, errors.New("unknown command")
     }

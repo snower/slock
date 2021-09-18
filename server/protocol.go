@@ -414,6 +414,13 @@ func (self *BinaryServerProtocol) Read() (protocol.CommandDecode, error) {
             if err != nil {
                 return nil, err
             }
+            call_command.Data = make([]byte, call_command.ContentLen)
+            if call_command.ContentLen > 0 {
+                _, err := self.stream.ReadBytes(call_command.Data)
+                if err != nil {
+                    return nil, err
+                }
+            }
             return call_command, nil
         }
     }
