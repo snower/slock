@@ -238,6 +238,8 @@ func (self *MemWaiterServerProtocol) SetResultCallback(callback MemWaiterServerP
     return nil
 }
 
+type BinaryServerProtocolCallHandler func(*BinaryServerProtocol, *protocol.CallCommand) (*protocol.CallResultCommand, error)
+
 type BinaryServerProtocol struct {
     slock                       *SLock
     glock                       *sync.Mutex
@@ -247,6 +249,7 @@ type BinaryServerProtocol struct {
     locked_free_commands        *LockCommandQueue
     rbuf                        []byte
     wbuf                        []byte
+    call_methods                map[string]BinaryServerProtocolCallHandler
     total_command_count         uint64
     inited                      bool
     closed                      bool
@@ -258,7 +261,8 @@ func NewBinaryServerProtocol(slock *SLock, stream *Stream) *BinaryServerProtocol
     wbuf[1] = byte(protocol.VERSION)
 
     server_protocol := &BinaryServerProtocol{slock, &sync.Mutex{}, stream, [16]byte{}, NewLockCommandQueue(4, 64, FREE_COMMAND_QUEUE_INIT_SIZE),
-        NewLockCommandQueue(4, 64, FREE_COMMAND_QUEUE_INIT_SIZE), make([]byte, 64), wbuf, 0, false, false}
+        NewLockCommandQueue(4, 64, FREE_COMMAND_QUEUE_INIT_SIZE), make([]byte, 64), wbuf,
+        make(map[string]BinaryServerProtocolCallHandler, 8), 0, false, false}
     server_protocol.InitLockCommand()
     stream.protocol = server_protocol
     return server_protocol
@@ -404,6 +408,13 @@ func (self *BinaryServerProtocol) Read() (protocol.CommandDecode, error) {
                 return nil, err
             }
             return quit_command, nil
+        case protocol.COMMAND_CALL:
+            call_command := &protocol.CallCommand{}
+            err := call_command.Decode(buf)
+            if err != nil {
+                return nil, err
+            }
+            return call_command, nil
         }
     }
     return nil, errors.New("Unknown Command")
@@ -578,6 +589,8 @@ func (self *BinaryServerProtocol) ProcessParse(buf []byte) error {
             command = &protocol.PingCommand{}
         case protocol.COMMAND_QUIT:
             command = &protocol.QuitCommand{}
+        case protocol.COMMAND_CALL:
+            command = &protocol.CallCommand{}
         default:
             command = &protocol.Command{}
         }
@@ -678,6 +691,31 @@ func (self *BinaryServerProtocol) ProcessCommad(command protocol.ICommand) error
                 return io.EOF
             }
             return err
+
+        case protocol.COMMAND_CALL:
+            call_command := command.(*protocol.CallCommand)
+            call_command.Data = make([]byte, call_command.ContentLen)
+            if call_command.ContentLen > 0 {
+                _, err := self.stream.ReadBytes(call_command.Data)
+                if err != nil {
+                    return err
+                }
+            }
+
+            if handler, ok := self.call_methods[call_command.MethodName]; ok {
+                result_command, err := handler(self, call_command)
+                if err != nil {
+                    return self.Write(protocol.NewCallResultCommand(call_command, protocol.RESULT_ERROR, 0, 0, 0, 0,""))
+                }
+
+                err = self.Write(result_command)
+                if err != nil || result_command.ContentLen == 0 {
+                    return err
+                }
+                return self.stream.WriteBytes(result_command.Data)
+            }
+
+            return self.Write(protocol.NewCallResultCommand(call_command, protocol.RESULT_UNKNOWN_COMMAND, 0, 0, 0, 0,""))
 
         default:
             return self.Write(protocol.NewResultCommand(command, protocol.RESULT_UNKNOWN_COMMAND))
@@ -903,7 +941,7 @@ type TextServerProtocol struct {
 func NewTextServerProtocol(slock *SLock, stream *Stream) *TextServerProtocol {
     parser := protocol.NewTextParser(make([]byte, 1024), make([]byte, 1024))
     server_protocol := &TextServerProtocol{slock, &sync.Mutex{}, stream, NewLockCommandQueue(4, 16, FREE_COMMAND_QUEUE_INIT_SIZE),
-        nil, parser, make(map[string]TextServerProtocolCommandHandler, 64), make(chan *protocol.LockResultCommand, 4),
+        nil, parser, make(map[string]TextServerProtocolCommandHandler, 16), make(chan *protocol.LockResultCommand, 4),
         [16]byte{}, [16]byte{}, 0, 0, false}
     server_protocol.InitLockCommand()
 
@@ -1252,6 +1290,17 @@ func (self *TextServerProtocol) ProcessCommad(command protocol.ICommand) error {
                 return io.EOF
             }
             return err
+
+        case protocol.COMMAND_CALL:
+            call_command := command.(*protocol.CallCommand)
+            call_command.Data = make([]byte, call_command.ContentLen)
+            if call_command.ContentLen > 0 {
+                _, err := self.stream.ReadBytes(call_command.Data)
+                if err != nil {
+                    return err
+                }
+            }
+            return self.Write(protocol.NewCallResultCommand(call_command, protocol.RESULT_UNKNOWN_COMMAND, 0, 0, 0, 0,""))
 
         default:
             return self.Write(protocol.NewResultCommand(command, protocol.RESULT_UNKNOWN_COMMAND))

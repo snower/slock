@@ -1,6 +1,9 @@
 package protocol
 
-import "errors"
+import (
+    "errors"
+    "strings"
+)
 
 const MAGIC uint8 = 0x56
 const VERSION uint8 = 0x01
@@ -13,6 +16,7 @@ const (
     COMMAND_ADMIN   uint8 = 4
     COMMAND_PING    uint8 = 5
     COMMAND_QUIT    uint8 = 6
+    COMMAND_CALL    uint8 = 7
 )
 
 const (
@@ -867,6 +871,140 @@ func (self *QuitResultCommand) Encode(buf []byte) error {
 
     for i :=0; i<44; i++ {
         buf[20 + i] = 0x00
+    }
+
+    return nil
+}
+
+
+type CallCommand struct {
+    Command
+    Flag        uint8
+    Encoding    uint8
+    Charset     uint8
+    ContentLen  uint32
+    MethodName  string
+    Data        []byte
+}
+
+func NewCallCommand(buf []byte) *CallCommand {
+    command := CallCommand{}
+    if command.Decode(buf) != nil {
+        return nil
+    }
+    return &command
+}
+
+func (self *CallCommand) Decode(buf []byte) error{
+    self.Magic = uint8(buf[0])
+    self.Version = uint8(buf[1])
+    self.CommandType = uint8(buf[2])
+
+    self.RequestId[0], self.RequestId[1], self.RequestId[2], self.RequestId[3], self.RequestId[4], self.RequestId[5], self.RequestId[6], self.RequestId[7],
+        self.RequestId[8], self.RequestId[9], self.RequestId[10], self.RequestId[11], self.RequestId[12], self.RequestId[13], self.RequestId[14], self.RequestId[15] =
+        buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
+        buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18]
+
+    self.Flag = uint8(buf[19])
+    self.Encoding = uint8(buf[20])
+    self.Charset = uint8(buf[21])
+    self.ContentLen = uint32(buf[22]) | uint32(buf[23])<<8 | uint32(buf[24])<<16 | uint32(buf[25])<<24
+    self.MethodName = strings.Trim(string(buf[26:]), string([]byte{0}))
+    return nil
+}
+
+func (self *CallCommand) Encode(buf []byte) error {
+    buf[0] = byte(self.Magic)
+    buf[1] = byte(self.Version)
+    buf[2] = byte(self.CommandType)
+
+    buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
+        buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18] =
+        self.RequestId[0], self.RequestId[1], self.RequestId[2], self.RequestId[3], self.RequestId[4], self.RequestId[5], self.RequestId[6], self.RequestId[7],
+        self.RequestId[8], self.RequestId[9], self.RequestId[10], self.RequestId[11], self.RequestId[12], self.RequestId[13], self.RequestId[14], self.RequestId[15]
+
+    buf[19] = byte(self.Flag)
+    buf[20] = byte(self.Encoding)
+    buf[21] = byte(self.Charset)
+
+    buf[22] = byte(self.ContentLen)
+    buf[23] = byte(self.ContentLen >> 8)
+    buf[24] = byte(self.ContentLen >> 16)
+    buf[25] = byte(self.ContentLen >> 24)
+
+    for i :=0; i < 38; i++ {
+        if i >= len(self.MethodName) {
+            buf[25 + i] = 0x00
+        } else {
+            buf[25 + i] = self.MethodName[i]
+        }
+    }
+
+    return nil
+}
+
+type CallResultCommand struct {
+    ResultCommand
+    Flag        uint8
+    Encoding    uint8
+    Charset     uint8
+    ContentLen  uint32
+    ErrType     string
+    Data        []byte
+}
+
+func NewCallResultCommand(command *CallCommand, result uint8, flag uint8, encoding uint8, charset uint8, content_len uint32, err_type string) *CallResultCommand {
+    result_command := ResultCommand{MAGIC, VERSION, command.CommandType, command.RequestId, result}
+    return &CallResultCommand{result_command, flag, encoding, charset, content_len, err_type, nil}
+}
+
+func (self *CallResultCommand) Decode(buf []byte) error{
+    self.Magic = uint8(buf[0])
+    self.Version = uint8(buf[1])
+    self.CommandType = uint8(buf[2])
+
+    self.RequestId[0], self.RequestId[1], self.RequestId[2], self.RequestId[3], self.RequestId[4], self.RequestId[5], self.RequestId[6], self.RequestId[7],
+        self.RequestId[8], self.RequestId[9], self.RequestId[10], self.RequestId[11], self.RequestId[12], self.RequestId[13], self.RequestId[14], self.RequestId[15] =
+        buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
+        buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18]
+
+    self.Result = uint8(buf[19])
+    self.Flag = uint8(buf[20])
+    self.Encoding = uint8(buf[21])
+    self.Charset = uint8(buf[22])
+    self.ContentLen = uint32(buf[23]) | uint32(buf[24])<<8 | uint32(buf[25])<<16 | uint32(buf[26])<<24
+    self.ErrType = strings.Trim(string(buf[27:]), string([]byte{0}))
+
+    return nil
+}
+
+func (self *CallResultCommand) Encode(buf []byte) error {
+    buf[0] = byte(self.Magic)
+    buf[1] = byte(self.Version)
+    buf[2] = byte(self.CommandType)
+
+    buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
+        buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18] =
+        self.RequestId[0], self.RequestId[1], self.RequestId[2], self.RequestId[3], self.RequestId[4], self.RequestId[5], self.RequestId[6], self.RequestId[7],
+        self.RequestId[8], self.RequestId[9], self.RequestId[10], self.RequestId[11], self.RequestId[12], self.RequestId[13], self.RequestId[14], self.RequestId[15]
+
+    buf[19] = uint8(self.Result)
+
+    buf[19] = byte(self.Flag)
+    buf[20] = byte(self.Encoding)
+    buf[21] = byte(self.Charset)
+
+    buf[22] = byte(self.ContentLen)
+    buf[23] = byte(self.ContentLen >> 8)
+    buf[24] = byte(self.ContentLen >> 16)
+    buf[25] = byte(self.ContentLen >> 24)
+
+    for i :=0; i < 38; i++ {
+        if i >= len(self.ErrType) {
+            buf[25 + i] = 0x00
+        } else {
+            buf[25 + i] = self.ErrType[i]
+        }
     }
 
     return nil
