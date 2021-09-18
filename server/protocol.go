@@ -262,13 +262,23 @@ func NewBinaryServerProtocol(slock *SLock, stream *Stream) *BinaryServerProtocol
 
     server_protocol := &BinaryServerProtocol{slock, &sync.Mutex{}, stream, [16]byte{}, NewLockCommandQueue(4, 64, FREE_COMMAND_QUEUE_INIT_SIZE),
         NewLockCommandQueue(4, 64, FREE_COMMAND_QUEUE_INIT_SIZE), make([]byte, 64), wbuf,
-        make(map[string]BinaryServerProtocolCallHandler, 8), 0, false, false}
+        nil, 0, false, false}
     server_protocol.InitLockCommand()
-    for name, handler := range slock.GetReplicationManager().GetCallMethods() {
-        server_protocol.call_methods[name] = handler
-    }
     stream.protocol = server_protocol
     return server_protocol
+}
+
+func (self *BinaryServerProtocol) FindCallMethod(method_name string) (BinaryServerProtocolCallHandler, error) {
+    if self.call_methods == nil {
+        self.call_methods = make(map[string]BinaryServerProtocolCallHandler, 8)
+        for name, handler := range self.slock.GetReplicationManager().GetCallMethods() {
+            self.call_methods[name] = handler
+        }
+    }
+    if call_method, ok := self.call_methods[method_name]; ok {
+        return call_method, nil
+    }
+    return nil, errors.New("unknown method")
 }
 
 func (self *BinaryServerProtocol) Init(client_id [16]byte) error {
@@ -741,7 +751,7 @@ func (self *BinaryServerProtocol) ProcessCommad(command protocol.ICommand) error
 
         case protocol.COMMAND_CALL:
             call_command := command.(*protocol.CallCommand)
-            if handler, ok := self.call_methods[call_command.MethodName]; ok {
+            if handler, err := self.FindCallMethod(call_command.MethodName); err == nil {
                 result_command, rerr := handler(self, call_command)
                 if result_command == nil {
                     return rerr
@@ -979,21 +989,31 @@ type TextServerProtocol struct {
 func NewTextServerProtocol(slock *SLock, stream *Stream) *TextServerProtocol {
     parser := protocol.NewTextParser(make([]byte, 1024), make([]byte, 1024))
     server_protocol := &TextServerProtocol{slock, &sync.Mutex{}, stream, NewLockCommandQueue(4, 16, FREE_COMMAND_QUEUE_INIT_SIZE),
-        nil, parser, make(map[string]TextServerProtocolCommandHandler, 16), make(chan *protocol.LockResultCommand, 4),
+        nil, parser, nil, make(chan *protocol.LockResultCommand, 4),
         [16]byte{}, [16]byte{}, 0, 0, false}
     server_protocol.InitLockCommand()
-
-    server_protocol.handlers["SELECT"] = server_protocol.CommandHandlerSelectDB
-    server_protocol.handlers["LOCK"] = server_protocol.CommandHandlerLock
-    server_protocol.handlers["UNLOCK"] = server_protocol.CommandHandlerUnlock
-    for name, handler := range slock.GetAdmin().GetHandlers() {
-        server_protocol.handlers[name] = handler
-    }
     stream.protocol = server_protocol
     return server_protocol
 }
 
-func (self *TextServerProtocol) Init(client_id [16]byte) error{
+func (self *TextServerProtocol) FindHandler(name string) (TextServerProtocolCommandHandler, error) {
+    if self.handlers == nil {
+        self.handlers = make(map[string]TextServerProtocolCommandHandler, 16)
+        self.handlers["SELECT"] = self.CommandHandlerSelectDB
+        self.handlers["LOCK"] = self.CommandHandlerLock
+        self.handlers["UNLOCK"] = self.CommandHandlerUnlock
+        for name, handler := range self.slock.GetAdmin().GetHandlers() {
+            self.handlers[name] = handler
+        }
+    }
+
+    if handler, ok := self.handlers[name]; ok {
+        return handler, nil
+    }
+    return nil, errors.New("unknown command")
+}
+
+func (self *TextServerProtocol) Init(client_id [16]byte) error {
     return nil
 }
 
@@ -1140,7 +1160,7 @@ func (self *TextServerProtocol) Process() error {
 
             self.total_command_count++
             command_name := self.parser.GetCommandType()
-            if command_handler, ok := self.handlers[command_name]; ok {
+            if command_handler, err := self.FindHandler(command_name); err == nil {
                 err := command_handler(self, self.parser.GetArgs())
                 if err != nil {
                     return err
@@ -1161,7 +1181,7 @@ func (self *TextServerProtocol) Process() error {
 func (self *TextServerProtocol) RunCommand() error {
     self.total_command_count++
     command_name := self.parser.GetCommandType()
-    if command_handler, ok := self.handlers[command_name]; ok {
+    if command_handler, err := self.FindHandler(command_name); err == nil {
         err := command_handler(self, self.parser.GetArgs())
         if err != nil {
             return err
@@ -1187,7 +1207,7 @@ func (self *TextServerProtocol) ProcessParse(buf []byte) error {
     if self.parser.IsParseFinish() {
         self.total_command_count++
         command_name := self.parser.GetCommandType()
-        if command_handler, ok := self.handlers[command_name]; ok {
+        if command_handler, err := self.FindHandler(command_name); err == nil {
             err := command_handler(self, self.parser.GetArgs())
             if err != nil {
                 return err

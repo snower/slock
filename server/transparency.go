@@ -504,12 +504,34 @@ func NewTransparencyTextServerProtocol(slock *SLock, stream *Stream, server_prot
 	client_protocol := &TransparencyBinaryClientProtocol{slock, nil, nil, false}
 	transparency_protocol := &TransparencyTextServerProtocol{slock, &sync.Mutex{}, stream, server_protocol, client_protocol,
 		make(chan *protocol.LockResultCommand, 4), false}
-	server_protocol.handlers["LOCK"] = transparency_protocol.CommandHandlerLock
-	server_protocol.handlers["UNLOCK"] = transparency_protocol.CommandHandlerUnlock
+	if server_protocol.handlers != nil {
+		server_protocol.handlers["LOCK"] = transparency_protocol.CommandHandlerLock
+		server_protocol.handlers["UNLOCK"] = transparency_protocol.CommandHandlerUnlock
+	}
 	return transparency_protocol
 }
 
-func (self *TransparencyTextServerProtocol) Init(client_id [16]byte) error{
+func (self *TransparencyTextServerProtocol) FindHandler(name string) (TextServerProtocolCommandHandler, error) {
+	if self.server_protocol.handlers == nil {
+		handler, err := self.server_protocol.FindHandler(name)
+		self.server_protocol.handlers["LOCK"] = self.CommandHandlerLock
+		self.server_protocol.handlers["UNLOCK"] = self.CommandHandlerUnlock
+
+		if name != "LOCK" && name != "UNLOCK" {
+			return handler, err
+		}
+	}
+
+	if name == "LOCK" {
+		return self.CommandHandlerLock, nil
+	}
+	if name == "UNLOCK" {
+		return self.CommandHandlerUnlock, nil
+	}
+	return self.server_protocol.FindHandler(name)
+}
+
+func (self *TransparencyTextServerProtocol) Init(client_id [16]byte) error {
 	return nil
 }
 
@@ -602,7 +624,7 @@ func (self *TransparencyTextServerProtocol) Process() error {
 		if self.server_protocol.parser.IsParseFinish() {
 			self.server_protocol.total_command_count++
 			command_name := self.server_protocol.parser.GetCommandType()
-			if command_handler, ok := self.server_protocol.handlers[command_name]; ok {
+			if command_handler, err := self.FindHandler(command_name); err == nil {
 				err := command_handler(self.server_protocol, self.server_protocol.parser.GetArgs())
 				if err != nil {
 					return err
@@ -627,7 +649,7 @@ func (self *TransparencyTextServerProtocol) Process() error {
 func (self *TransparencyTextServerProtocol) RunCommand() error {
 	self.server_protocol.total_command_count++
 	command_name := self.server_protocol.parser.GetCommandType()
-	if command_handler, ok := self.server_protocol.handlers[command_name]; ok {
+	if command_handler, err := self.FindHandler(command_name); err == nil {
 		err := command_handler(self.server_protocol, self.server_protocol.parser.GetArgs())
 		if err != nil {
 			return err
