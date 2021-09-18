@@ -391,6 +391,11 @@ func (self *TransparencyBinaryServerProtocol) ProcessParse(buf []byte) error {
 			command = &protocol.QuitCommand{}
 		case protocol.COMMAND_CALL:
 			call_command := protocol.CallCommand{}
+			err := call_command.Decode(buf)
+			if err != nil {
+				return err
+			}
+
 			call_command.Data = make([]byte, call_command.ContentLen)
 			if call_command.ContentLen > 0 {
 				_, err := self.stream.ReadBytes(call_command.Data)
@@ -398,7 +403,11 @@ func (self *TransparencyBinaryServerProtocol) ProcessParse(buf []byte) error {
 					return err
 				}
 			}
-			command = &call_command
+			err = self.ProcessCommad(&call_command)
+			if err != nil {
+				return err
+			}
+			return nil
 		default:
 			command = &protocol.Command{}
 		}
