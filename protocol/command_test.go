@@ -43,8 +43,9 @@ func TestLockCommand_Decode(t *testing.T) {
         1, 0, 0,
     }
 
-    lock_command := NewLockCommand(buf)
-    if lock_command == nil {
+    lock_command := LockCommand{}
+    err := lock_command.Decode(buf)
+    if err != nil {
         t.Error("TestLockCommand_Decode Test Return Nil Fail")
         return
     }
