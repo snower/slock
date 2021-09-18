@@ -226,11 +226,14 @@ func (self *Admin) CommandHandleInfoCommand(server_protocol *TextServerProtocol,
         infos = append(infos, "role:leader")
         infos = append(infos, fmt.Sprintf("connected_followers:%d", len(self.slock.replication_manager.server_channels)))
         infos = append(infos, fmt.Sprintf("current_aof_id:%x", self.slock.replication_manager.current_request_id))
+        infos = append(infos, fmt.Sprintf("current_offset:%d", self.slock.replication_manager.buffer_queue.current_index))
         for i, server_channel := range self.slock.replication_manager.server_channels {
             if server_channel.protocol == nil {
                 continue
             }
-            infos = append(infos, fmt.Sprintf("follower%d:host=%s,state=online,aof_id=%x", i + 1, server_channel.protocol.RemoteAddr().String(), server_channel.current_request_id))
+            infos = append(infos, fmt.Sprintf("follower%d:host=%s,state=online,aof_id=%x,behind_offset=%d", i + 1,
+                server_channel.protocol.RemoteAddr().String(), server_channel.current_request_id,
+                self.slock.replication_manager.buffer_queue.current_index - server_channel.buffer_index))
         }
     } else {
         infos = append(infos, "role:follower")
