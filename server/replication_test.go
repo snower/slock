@@ -106,7 +106,7 @@ func TestReplicationBufferQueue_Search(t *testing.T) {
 	aof_lock.Encode()
 	queue.Push(aof_lock.buf)
 
-	index, err := queue.Search(uint64(aof_lock.AofIndex) << 32 | uint64(aof_lock.AofId), obuf)
+	index, err := queue.Search(aof_lock.GetRequestId(), obuf)
 	if err != nil {
 		t.Errorf("ReplicationBufferQueue Pop Error Fail %v", err)
 	}
