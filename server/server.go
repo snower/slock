@@ -144,6 +144,8 @@ func (self *Server) CheckProtocol(stream *Stream) (ServerProtocol, error) {
         } else {
             server_protocol = NewTransparencyBinaryServerProtocol(self.slock, stream, NewBinaryServerProtocol(self.slock, stream))
         }
+        self.slock.Log().Infof("New Binary Protocol Connection %s", server_protocol.RemoteAddr().String())
+
         err := server_protocol.ProcessParse(buf)
         if err != nil {
             cerr := server_protocol.Close()
@@ -152,7 +154,6 @@ func (self *Server) CheckProtocol(stream *Stream) (ServerProtocol, error) {
             }
             return nil, err
         }
-        self.slock.Log().Infof("New Binary Protocol Connection %s", server_protocol.RemoteAddr().String())
         return server_protocol, nil
     }
 
@@ -162,6 +163,8 @@ func (self *Server) CheckProtocol(stream *Stream) (ServerProtocol, error) {
     } else {
         server_protocol = NewTransparencyTextServerProtocol(self.slock, stream, NewTextServerProtocol(self.slock, stream))
     }
+    self.slock.Log().Infof("New Text Protocol Connection %s", server_protocol.RemoteAddr().String())
+
     err = server_protocol.ProcessParse(buf[:n])
     if err != nil {
         cerr := server_protocol.Close()
@@ -170,7 +173,6 @@ func (self *Server) CheckProtocol(stream *Stream) (ServerProtocol, error) {
         }
         return nil, err
     }
-    self.slock.Log().Infof("New Text Protocol Connection %s", server_protocol.RemoteAddr().String())
     return server_protocol, nil
 }
 
