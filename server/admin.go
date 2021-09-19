@@ -18,7 +18,7 @@ var STATE_NAMES  = []string{"initing", "leader", "follower", "syncing"}
 type Admin struct {
     slock *SLock
     server *Server
-    is_stop bool
+    closed bool
 }
 
 func NewAdmin() *Admin{
@@ -45,7 +45,7 @@ func (self *Admin) GetHandlers() map[string]TextServerProtocolCommandHandler{
 }
 
 func (self *Admin) Close() {
-    self.is_stop = true
+    self.closed = true
 }
 
 func (self *Admin) CommandHandleShutdownCommand(server_protocol *TextServerProtocol, args []string) error {

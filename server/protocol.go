@@ -288,8 +288,8 @@ func (self *BinaryServerProtocol) Init(client_id [16]byte) error {
 }
 
 func (self *BinaryServerProtocol) Close() error {
-    self.glock.Lock()
     defer self.glock.Unlock()
+    self.glock.Lock()
 
     if self.closed {
         return nil
@@ -1030,8 +1030,8 @@ func (self *TextServerProtocol) Unlock() {
 }
 
 func (self *TextServerProtocol) Close() error {
-    self.glock.Lock()
     defer self.glock.Unlock()
+    self.glock.Lock()
 
     if self.closed {
         return nil

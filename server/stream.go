@@ -9,18 +9,26 @@ import (
 
 var client_id uint64 = 0
 
+const (
+    STREAM_TYPE_NORMAL uint8 = 0
+    STREAM_TYPE_AOF    uint8 = 1
+    STREAM_TYPE_ARBITER uint8 = 2
+)
+
 type Stream struct {
-    server      *Server
-    conn        net.Conn
-    protocol    ServerProtocol
-    start_time  *time.Time
-    stream_id   uint64
-    closed      bool
+    conn            net.Conn
+    protocol        ServerProtocol
+    start_time      *time.Time
+    stream_id       uint64
+    stream_type     uint8
+    closed          bool
+    closed_waiter   chan bool
 }
 
-func NewStream(server *Server, conn net.Conn) *Stream {
+func NewStream(conn net.Conn) *Stream {
     now := time.Now()
-    stream := &Stream{server, conn, nil,&now, atomic.AddUint64(&client_id, 1), false}
+    stream := &Stream{conn, nil,&now, atomic.AddUint64(&client_id, 1),
+        STREAM_TYPE_NORMAL, false, nil}
     if tcp_conn, ok := conn.(*net.TCPConn); ok {
         if tcp_conn.SetNoDelay(true) != nil {
             return nil
@@ -97,13 +105,6 @@ func (self *Stream) Close() error {
     }
 
     self.closed = true
-    if self.server != nil {
-        err := self.server.RemoveStream(self)
-        if err != nil {
-            self.server.slock.Log().Errorf("Stream Close Remove Stream Error %v", err)
-        }
-        self.server = nil
-    }
     return self.conn.Close()
 }
 

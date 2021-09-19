@@ -144,8 +144,8 @@ func (self *TransparencyBinaryServerProtocol) Init(client_id [16]byte) error {
 }
 
 func (self *TransparencyBinaryServerProtocol) Close() error {
-	self.glock.Lock()
 	defer self.glock.Unlock()
+	self.glock.Lock()
 
 	if self.closed {
 		return nil
@@ -513,6 +513,9 @@ func NewTransparencyTextServerProtocol(slock *SLock, stream *Stream, server_prot
 	client_protocol := &TransparencyBinaryClientProtocol{slock, nil, nil, false}
 	transparency_protocol := &TransparencyTextServerProtocol{slock, &sync.Mutex{}, stream, server_protocol, client_protocol,
 		make(chan *protocol.LockResultCommand, 4), false}
+	if server_protocol.handlers == nil {
+		server_protocol.FindHandler("LOCK")
+	}
 	if server_protocol.handlers != nil {
 		server_protocol.handlers["LOCK"] = transparency_protocol.CommandHandlerLock
 		server_protocol.handlers["UNLOCK"] = transparency_protocol.CommandHandlerUnlock
@@ -553,14 +556,15 @@ func (self *TransparencyTextServerProtocol) Unlock() {
 }
 
 func (self *TransparencyTextServerProtocol) Close() error {
-	self.glock.Lock()
 	defer self.glock.Unlock()
+	self.glock.Lock()
 
 	if self.closed {
 		return nil
 	}
 
 	self.closed = true
+	self.client_protocol.Close()
 	return self.server_protocol.Close()
 }
 

@@ -1269,6 +1269,7 @@ func (self *ReplicationManager) CommandHandleSyncCommand(server_protocol *Binary
 			channel.Close()
 		}
 	}()
+	server_protocol.stream.stream_type = STREAM_TYPE_AOF
 	err = channel.Process()
 	channel.closed = true
 	self.WakeupServerChannel()

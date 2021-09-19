@@ -17,8 +17,8 @@ type Server struct {
     glock                   *sync.Mutex
     connected_count         uint32
     connecting_count        uint32
-    is_stop                 bool
-    stop_waiter             chan bool
+    stoped                  bool
+    stoped_waiter           chan bool
 }
 
 func NewServer(slock *SLock) *Server {
@@ -39,7 +39,7 @@ func (self *Server) Listen() error {
 
 func (self *Server) Close() {
     self.glock.Lock()
-    self.is_stop = true
+    self.stoped = true
     err := self.server.Close()
     if err != nil {
         self.slock.Log().Errorf("Server Close Error: %v", err)
@@ -47,13 +47,20 @@ func (self *Server) Close() {
     self.glock.Unlock()
 
     for _, stream := range self.streams {
+        if stream.stream_type != STREAM_TYPE_NORMAL {
+            continue
+        }
+
+        stream.closed_waiter = make(chan bool, 1)
         err := stream.Close()
         if err != nil {
             self.slock.Log().Errorf("Stream Close Error: %v", err)
         }
+        <- stream.closed_waiter
+        stream.closed_waiter = nil
     }
     self.slock.Close()
-    self.stop_waiter <- true
+    self.stoped_waiter <- true
 }
 
 func (self *Server) AddStream(stream *Stream) error {
@@ -83,6 +90,9 @@ func (self *Server) RemoveStream(stream *Stream) error {
 
 func (self *Server) CloseStreams() error {
     for _, stream := range self.streams {
+        if stream.stream_type != STREAM_TYPE_NORMAL {
+            continue
+        }
         stream.Close()
     }
     return nil
@@ -98,13 +108,15 @@ func (self *Server) Loop() {
     }()
 
     self.slock.Log().Infof("Start Server %s", fmt.Sprintf("%s:%d", Config.Bind, Config.Port))
-    for ; !self.is_stop; {
+    for ; !self.stoped; {
         conn, err := self.server.Accept()
         if err != nil {
             continue
         }
-        stream := NewStream(self, conn)
-        if self.AddStream(stream) != nil {
+
+        stream := NewStream(conn)
+        err = self.AddStream(stream)
+        if err != nil {
             err := stream.Close()
             if err != nil {
                 self.slock.Log().Errorf("Stream Close Error: %v", err)
@@ -113,7 +125,7 @@ func (self *Server) Loop() {
         }
         go self.Handle(stream)
     }
-    <- self.stop_waiter
+    <- self.stoped_waiter
     self.slock.Log().Infof("Server has shutdown")
 }
 
@@ -163,6 +175,16 @@ func (self *Server) CheckProtocol(stream *Stream) (ServerProtocol, error) {
 }
 
 func (self *Server) Handle(stream *Stream) {
+    defer func() {
+        err := self.RemoveStream(stream)
+        if err != nil {
+            self.slock.Log().Errorf("Stream Close Remove Stream Error %v", err)
+        }
+        if stream.closed_waiter != nil {
+            stream.closed_waiter <- true
+        }
+    }()
+
     server_protocol, err := self.CheckProtocol(stream)
     if err != nil {
         cerr := stream.Close()
@@ -236,7 +258,7 @@ func (self *Server) Handle(stream *Stream) {
                 continue
             }
 
-            if err != io.EOF && !self.is_stop {
+            if err != io.EOF && !self.stoped {
                 self.slock.Log().Errorf("Protocol Process Error: %v", err)
             }
         }
