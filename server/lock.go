@@ -209,6 +209,11 @@ func (self *LockManager) GetWaitLock() *Lock {
 }
 
 func (self *LockManager) PushLockAof(lock *Lock)  {
+    if self.lock_db.status != STATE_LEADER {
+        lock.is_aof = true
+        return
+    }
+
     if self.lock_db.aof_channels[self.glock_index].Push(lock, protocol.COMMAND_LOCK) != nil {
         self.lock_db.slock.Log().Errorf("Lock Push Aof Lock Error DbId:%d LockKey:%x LockId:%x",
             lock.command.DbId, lock.command.LockKey, lock.command.LockId)
@@ -218,6 +223,11 @@ func (self *LockManager) PushLockAof(lock *Lock)  {
 }
 
 func (self *LockManager) PushUnLockAof(lock *Lock)  {
+    if self.lock_db.status != STATE_LEADER {
+        lock.is_aof = false
+        return
+    }
+
     if self.lock_db.aof_channels[self.glock_index].Push(lock, protocol.COMMAND_UNLOCK) != nil {
         self.lock_db.slock.Log().Errorf("Lock Push Aof Unlock Error DbId:%d LockKey:%x LockId:%x",
             lock.command.DbId, lock.command.LockKey, lock.command.LockId)

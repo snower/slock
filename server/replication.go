@@ -223,7 +223,7 @@ func (self *ReplicationClientChannel) Run() {
 			err = self.Handle()
 			if err != nil {
 				if err != io.EOF && !self.closed {
-					self.manager.slock.logger.Errorf("Replication Sync Error: %v", err)
+					self.manager.slock.logger.Errorf("Replication Sync Error %v", err)
 				}
 			}
 		}
@@ -239,7 +239,7 @@ func (self *ReplicationClientChannel) Run() {
 	self.closed_waiter <- true
 	self.manager.client_channel = nil
 	self.manager.current_request_id = self.current_request_id
-	self.manager.slock.logger.Infof("Replication Close Connection Leader: %s", self.manager.leader_address)
+	self.manager.slock.logger.Infof("Replication Close Connection Leader %s", self.manager.leader_address)
 }
 
 func (self *ReplicationClientChannel) SendInitSyncCommand() (*protobuf.SyncResponse, error) {

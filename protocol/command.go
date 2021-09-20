@@ -309,7 +309,7 @@ type LockCommand struct {
     /*
     |    15  |          14          |                13                   |  12 |        11      |       10       |      9      |        8         |7                                  0|
     |--------|----------------------|-------------------------------------|-----|----------------|----------------|-------------|------------------|------------------------------------|
-    |keeplive|unlimited_expried_time|update_no_reset_expried_checked_count|aofed|expried_is_error|millisecond_time|zeor_aof_time|unlimited_aof_time|                                    |
+    |keeplive|unlimited_expried_time|update_no_reset_expried_checked_count|     |expried_is_error|millisecond_time|zeor_aof_time|unlimited_aof_time|                                    |
     */
     Expried         uint16
     Count           uint16

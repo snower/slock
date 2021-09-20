@@ -1399,9 +1399,9 @@ func (self *LockDB) AddMillisecondExpried(lock *Lock) {
 func (self *LockDB) Lock(server_protocol ServerProtocol, command *protocol.LockCommand) error {
     /*
     protocol.LockCommand.Flag
-    |7                     |           1           |         0           |
-    |----------------------|-----------------------|---------------------|
-    |                      |when_locked_update_lock|when_locked_show_lock|
+    |7                    |    2   |           1           |         0           |
+    |---------------------|--------|-----------------------|---------------------|
+    |                     |from_aof|when_locked_update_lock|when_locked_show_lock|
     */
 
     lock_manager := self.GetOrNewLockManager(command)
@@ -1413,7 +1413,10 @@ func (self *LockDB) Lock(server_protocol ServerProtocol, command *protocol.LockC
     }
 
     if self.status != STATE_LEADER {
-        if self.status != STATE_FOLLOWER || command.ExpriedFlag & 0x1000 == 0 {
+        if command.Flag & 0x04 == 0 {
+            if lock_manager.ref_count == 0 {
+                self.RemoveLockManager(lock_manager)
+            }
             lock_manager.glock.Unlock()
             server_protocol.ProcessLockResultCommand(command, protocol.RESULT_STATE_ERROR, uint16(lock_manager.locked), 0)
             server_protocol.FreeLockCommand(command)
@@ -1601,9 +1604,9 @@ func (self *LockDB) Lock(server_protocol ServerProtocol, command *protocol.LockC
 func (self *LockDB) UnLock(server_protocol ServerProtocol, command *protocol.LockCommand) error {
     /*
     protocol.LockCommand.Flag
-    |7                        |               0               |
-    |-------------------------|-------------------------------|
-    |                         |when_unlocked_unlock_first_lock|
+    |7                  |    2   | 1 |               0               |
+    |-------------------|--------|---|-------------------------------|
+    |                   |from_aof|   |when_unlocked_unlock_first_lock|
     */
 
     lock_manager := self.GetLockManager(command)
@@ -1617,7 +1620,7 @@ func (self *LockDB) UnLock(server_protocol ServerProtocol, command *protocol.Loc
     lock_manager.glock.Lock()
 
     if self.status != STATE_LEADER {
-        if self.status != STATE_FOLLOWER || command.ExpriedFlag & 0x1000 == 0 {
+        if command.Flag & 0x04 == 0 {
             lock_manager.glock.Unlock()
 
             server_protocol.ProcessLockResultCommand(command, protocol.RESULT_STATE_ERROR, uint16(lock_manager.locked), 0)
@@ -1877,7 +1880,7 @@ func (self *LockDB) DoAckLock(lock *Lock, succed bool) {
 
     state_error := false
     if self.status != STATE_LEADER {
-        if self.status != STATE_FOLLOWER || lock.command.ExpriedFlag & 0x1000 == 0 {
+        if lock.command.Flag & 0x04 == 0 {
             state_error = true
         }
     }

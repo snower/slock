@@ -421,7 +421,7 @@ func (self *AofChannel) Push(lock *Lock, command_type uint8) error {
         } else {
             aof_lock.StartTime = uint16(aof_lock.CommandTime - uint64(lock.start_time))
         }
-        aof_lock.ExpriedFlag = lock.command.ExpriedFlag & 0xefff
+        aof_lock.ExpriedFlag = lock.command.ExpriedFlag
         if lock.command.ExpriedFlag & 0x4000 == 0 {
             aof_lock.ExpriedTime = uint16(uint64(lock.expried_time) - aof_lock.CommandTime)
         } else {
@@ -449,7 +449,7 @@ func (self *AofChannel) Push(lock *Lock, command_type uint8) error {
             expried_time = uint16(lock.expried_time - command_time)
         }
         aof_lock = &AofLock{command_type, 0, 0, uint64(command_time), lock.command.Flag, lock.manager.db_id,  lock.command.LockId,
-            lock.command.LockKey, lock.command.ExpriedFlag & 0xefff, 0, start_time, expried_time, lock.command.Count,
+            lock.command.LockKey, lock.command.ExpriedFlag, 0, start_time, expried_time, lock.command.Count,
             lock.command.Rcount, 0, self.buf, nil}
         if lock.command.TimeoutFlag & 0x1000 != 0 {
             aof_lock.AofFlag |= 0x1000
@@ -564,7 +564,7 @@ func (self *AofChannel) HandleLock(aof_lock *AofLock)  {
     lock_command := self.server_protocol.GetLockCommand()
     lock_command.CommandType = aof_lock.CommandType
     lock_command.RequestId = aof_lock.GetRequestId()
-    lock_command.Flag = aof_lock.Flag
+    lock_command.Flag = aof_lock.Flag | 0x04
     lock_command.DbId = aof_lock.DbId
     lock_command.LockId = aof_lock.LockId
     lock_command.LockKey = aof_lock.LockKey
@@ -574,7 +574,7 @@ func (self *AofChannel) HandleLock(aof_lock *AofLock)  {
         lock_command.TimeoutFlag = 0
     }
     lock_command.Timeout = 3
-    lock_command.ExpriedFlag = aof_lock.ExpriedFlag | 0x1000
+    lock_command.ExpriedFlag = aof_lock.ExpriedFlag
     lock_command.Expried = expried_time + 1
     lock_command.Count = aof_lock.Count
     lock_command.Rcount = aof_lock.Rcount
@@ -690,10 +690,10 @@ func (self *Aof) LoadAndInit() error {
     self.slock.Log().Infof("Aof File Load %v", aof_filenames)
 
     self.WaitFlushAofChannel()
-    self.inited = true
     if len(append_files) > 0 {
-        go self.RewriteAofFiles()
+        self.RewriteAofFiles()
     }
+    self.inited = true
     return nil
 }
 

@@ -312,7 +312,7 @@ func (self *ArbiterClient) Request(command *protocol.CallCommand) (*protocol.Cal
     }
 
     if self.protocol == nil {
-        return nil, errors.New("client unconnecd")
+        return nil, errors.New("client unconnected")
     }
 
     err := self.protocol.Write(command)

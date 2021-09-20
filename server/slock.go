@@ -72,11 +72,13 @@ func (self *SLock) Init(server *Server) error {
 }
 
 func (self *SLock) InitLeader() error {
+    self.UpdateState(STATE_INIT)
     err := self.aof.LoadAndInit()
     if err != nil {
         self.logger.Errorf("Aof LoadOrInit Error: %v", err)
         return err
     }
+
     self.UpdateState(STATE_LEADER)
     err = self.replication_manager.Init("")
     if err != nil {
@@ -87,6 +89,7 @@ func (self *SLock) InitLeader() error {
 }
 
 func (self *SLock) InitFollower(leader_address string) error {
+    self.UpdateState(STATE_INIT)
     err := self.aof.Init()
     if err != nil {
         self.logger.Errorf("Aof Init Error: %v", err)
