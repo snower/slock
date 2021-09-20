@@ -20,6 +20,7 @@ const ARBITER_ROLE_UNKNOWN = 0
 const ARBITER_ROLE_LEADER = 1
 const ARBITER_ROLE_FOLLOWER = 2
 const ARBITER_ROLE_ARBITER = 3
+const ARBITER_ROLE_DATA = 4
 
 const ARBITER_MEMBER_STATUS_UNOPEN = 1
 const ARBITER_MEMBER_STATUS_UNINIT = 2
@@ -1071,15 +1072,7 @@ func (self *ArbiterManager) Close() error {
         return nil
     }
 
-    if self.own_member.role == ARBITER_ROLE_LEADER && len(self.members) > 1 {
-        err := self.QuitLeader()
-        if err != nil {
-            self.glock.Unlock()
-            return err
-        }
-    } else {
-        self.store.Save(self)
-    }
+    self.store.Save(self)
     self.stoped = true
     self.glock.Unlock()
 
@@ -1256,7 +1249,7 @@ func (self *ArbiterManager) GetVoteHost() (*ArbiterMember, error) {
     var vote_member *ArbiterMember = nil
     for _, member := range self.members {
         if !member.isself {
-            if member.status != ARBITER_MEMBER_STATUS_ONLINE || member.arbiter != 0 {
+            if member.status != ARBITER_MEMBER_STATUS_ONLINE || member.arbiter != 0 || member.weight == 0 {
                 continue
             }
         } else {
@@ -1330,7 +1323,11 @@ func (self *ArbiterManager) VoteSucced() error {
                 self.voter.proposal_host = ""
             }
         } else {
-            member.role = ARBITER_ROLE_FOLLOWER
+            if member.arbiter != 0 {
+                member.role = ARBITER_ROLE_ARBITER
+            } else {
+                member.role = ARBITER_ROLE_FOLLOWER
+            }
         }
     }
 
@@ -1721,7 +1718,9 @@ func (self *ArbiterManager) CommandHandleAnnouncementCommand(server_protocol *Bi
         if member, ok := members[rplm.Host]; ok {
             member.weight = rplm.Weight
             member.arbiter = rplm.Arbiter
-            member.role = uint8(rplm.Role)
+            if rplm.Role != ARBITER_ROLE_UNKNOWN {
+                member.role = uint8(rplm.Role)
+            }
             delete(members, rplm.Host)
             if member.host == resquest.Replset.Owner {
                 own_member = member

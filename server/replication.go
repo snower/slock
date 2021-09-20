@@ -234,6 +234,7 @@ func (self *ReplicationClientChannel) Run() {
 		self.stream = nil
 		self.protocol = nil
 		self.manager.WakeupInitSyncedWaiters()
+		self.SleepWhenRetryConnect()
 	}
 
 	self.closed_waiter <- true
@@ -1297,17 +1298,22 @@ func (self *ReplicationManager) Close() {
 }
 
 func (self *ReplicationManager) WaitServerChannelSynced() error {
-	if self.server_channel_wait_count < uint32(len(self.server_channels)) {
-		self.server_flush_waiter = make(chan bool, 2)
-		go func() {
-			time.Sleep(30 * time.Second)
-			if self.server_flush_waiter != nil {
-				self.server_flush_waiter <- true
-			}
-		}()
-		<- self.server_flush_waiter
-		self.server_flush_waiter = nil
+	self.glock.Lock()
+	if self.server_channel_wait_count >= uint32(len(self.server_channels)) {
+		self.glock.Unlock()
+		return nil
 	}
+
+	self.server_flush_waiter = make(chan bool, 2)
+	go func() {
+		time.Sleep(30 * time.Second)
+		if self.server_flush_waiter != nil {
+			self.server_flush_waiter <- true
+		}
+	}()
+	self.glock.Unlock()
+	<- self.server_flush_waiter
+	self.server_flush_waiter = nil
 	return nil
 }
 

@@ -226,7 +226,7 @@ func (self *Admin) CommandHandleInfoCommand(server_protocol *TextServerProtocol,
         infos = append(infos, "\r\n# Arbiter")
         infos = append(infos, fmt.Sprintf("name:%s", self.slock.arbiter_manager.name))
         infos = append(infos, fmt.Sprintf("version:%d", self.slock.arbiter_manager.version))
-        roles := []string{"unknown", "leader", "follower", "arbiter"}
+        roles := []string{"unknown", "leader", "follower", "arbiter", "data"}
         for i, member := range self.slock.arbiter_manager.members {
             arbiter, isself, status, aof_id := "no", "no", "offline", member.aof_id
             if member.arbiter != 0 {
