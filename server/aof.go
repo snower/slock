@@ -164,6 +164,7 @@ func (self *AofFile) Open() error {
     mode := self.mode
     if mode == os.O_WRONLY {
         mode |= os.O_CREATE
+        mode |= os.O_TRUNC
     }
     file, err := os.OpenFile(self.filename, mode, 0644)
     if err != nil {
@@ -200,7 +201,7 @@ func (self *AofFile) ReadHeader() error {
         return errors.New("File is not AOF FIle")
     }
 
-    if string(self.buf[:8]) == "SLOCKAOF" {
+    if string(self.buf[:8]) != "SLOCKAOF" {
         return errors.New("File is not AOF File")
     }
 
@@ -230,11 +231,11 @@ func (self *AofFile) ReadHeader() error {
 }
 
 func (self *AofFile) WriteHeader() error {
-    self.buf[0], self.buf[1], self.buf[2], self.buf[3], self.buf[4], self.buf[5], self.buf[6], self.buf[6] = 'S', 'L', 'O', 'C', 'K', 'A', 'O', 'F'
+    self.buf[0], self.buf[1], self.buf[2], self.buf[3], self.buf[4], self.buf[5], self.buf[6], self.buf[7] = 'S', 'L', 'O', 'C', 'K', 'A', 'O', 'F'
     self.buf[8], self.buf[9], self.buf[10], self.buf[11] = 0x01, 0x00, 0x00, 0x00
     n, err := self.file.Write(self.buf[:12])
-    if n != 12 {
-        return err
+    if n != 12 || err != nil {
+        return errors.New("write header error")
     }
 
     self.size += 12
@@ -265,6 +266,37 @@ func (self *AofFile) ReadLock(lock *AofLock) error {
     }
 
     self.size += 2 + int(lock_len)
+    return nil
+}
+
+func (self *AofFile) ReadTail(lock *AofLock) error {
+    buf := lock.GetBuf()
+    if len(buf) < 64 {
+        return errors.New("Buffer Len error")
+    }
+
+    stat, err := self.file.Stat()
+    if err != nil {
+        return err
+    }
+
+    if stat.Size() < 76 {
+        return io.EOF
+    }
+
+    self.file.Seek(64, os.SEEK_END)
+    n, err := self.rbuf.Read(buf)
+    if err != nil {
+        self.file.Seek(12, os.SEEK_SET)
+        return err
+    }
+
+    lock_len := uint16(buf[0]) | uint16(buf[1])<<8
+    if n != int(lock_len) + 2 {
+        self.file.Seek(12, os.SEEK_SET)
+        return errors.New("Lock Len error")
+    }
+    self.file.Seek(12, os.SEEK_SET)
     return nil
 }
 
@@ -578,12 +610,14 @@ type Aof struct {
     aof_lock_count              uint64
     aof_id                      uint32
     is_rewriting                bool
+    inited                      bool
     closed                      bool
 }
 
 func NewAof() *Aof {
     return &Aof{nil, &sync.Mutex{}, "",0, nil, &sync.Mutex{}, make([]*AofChannel, 0),
-        0, 0, nil, nil, 0, 0, 0, false, false}
+        0, 0, nil, nil, 0, 0, 0,
+        false, false, false}
 }
 
 func (self *Aof) Init() error {
@@ -600,6 +634,7 @@ func (self *Aof) Init() error {
     self.slock.Log().Infof("Aof Data Dir %s", self.data_dir)
 
     self.WaitFlushAofChannel()
+    self.inited = true
     return nil
 }
 
@@ -655,10 +690,78 @@ func (self *Aof) LoadAndInit() error {
     self.slock.Log().Infof("Aof File Load %v", aof_filenames)
 
     self.WaitFlushAofChannel()
+    self.inited = true
     if len(append_files) > 0 {
         go self.RewriteAofFiles()
     }
     return nil
+}
+
+func (self *Aof) LoadMaxId() ([16]byte, error) {
+    data_dir, err := filepath.Abs(Config.DataDir)
+    if err != nil {
+        return [16]byte{}, err
+    }
+
+    self.data_dir = data_dir
+    if _, err := os.Stat(self.data_dir); os.IsNotExist(err) {
+        return [16]byte{}, err
+    }
+
+    append_files, rewrite_file, err := self.FindAofFiles()
+    if err != nil {
+        return [16]byte{}, err
+    }
+
+    aof_lock := NewAofLock()
+    aof_lock.AofIndex = 1
+    file_aof_id := aof_lock.GetRequestId()
+    if len(append_files) > 0 {
+        aof_file_index, err := strconv.Atoi(append_files[len(append_files) -1][11:])
+        if err == nil {
+            aof_lock.AofIndex = uint32(aof_file_index)
+            aof_lock.AofId = 0
+            file_aof_id = aof_lock.GetRequestId()
+        }
+    }
+
+    aof_filenames := make([]string, 0)
+    if rewrite_file != "" {
+        aof_filenames = append(aof_filenames, rewrite_file)
+    }
+    aof_filenames = append(aof_filenames, append_files...)
+    for i := len(aof_filenames) - 1; i >= 0; i-- {
+        aof_file := NewAofFile(self, filepath.Join(self.data_dir, aof_filenames[i]), os.O_RDONLY, int(Config.AofFileBufferSize))
+        err := aof_file.Open()
+        if err != nil {
+            return file_aof_id, err
+        }
+        err = aof_file.ReadTail(aof_lock)
+        if err != nil {
+            if err == io.EOF {
+                continue
+            }
+            return file_aof_id, err
+        }
+
+        err = aof_lock.Decode()
+        if err != nil {
+            return file_aof_id, err
+        }
+        return aof_lock.GetRequestId(), nil
+    }
+    return file_aof_id, nil
+}
+
+func (self *Aof) GetCurrentAofID() [16]byte {
+    if !self.inited {
+        return [16]byte{}
+    }
+
+    aof_lock := NewAofLock()
+    aof_lock.AofIndex = self.aof_file_index
+    aof_lock.AofId = self.aof_id
+    return aof_lock.GetRequestId()
 }
 
 func (self *Aof) FindAofFiles() ([]string, string, error) {

@@ -195,6 +195,53 @@ func (self *ReplicationClientChannel) Close() error {
 	return nil
 }
 
+func (self *ReplicationClientChannel) Run() {
+	self.current_request_id = self.manager.current_request_id
+	for ; !self.closed; {
+		self.manager.slock.logger.Infof("Replication Connect Leader: %s", self.manager.leader_address)
+		err := self.Open(self.manager.leader_address)
+		if err != nil {
+			self.manager.slock.logger.Errorf("Replication Reconnect Leader Error: %v", err)
+			if self.protocol != nil {
+				self.protocol.Close()
+			}
+			self.stream = nil
+			self.protocol = nil
+			self.manager.WakeupInitSyncedWaiters()
+			self.SleepWhenRetryConnect()
+			continue
+		}
+
+		err = self.InitSync()
+		if err != nil {
+			if err != io.EOF {
+				self.manager.slock.logger.Errorf("Replication Init Sync Error: %v", err)
+			}
+		} else {
+			self.manager.InitSynced()
+			self.manager.slock.logger.Infof("Replication Connected Leader: %s", self.manager.leader_address)
+			err = self.Handle()
+			if err != nil {
+				if err != io.EOF && !self.closed {
+					self.manager.slock.logger.Errorf("Replication Sync Error: %v", err)
+				}
+			}
+		}
+
+		if self.protocol != nil {
+			self.protocol.Close()
+		}
+		self.stream = nil
+		self.protocol = nil
+		self.manager.WakeupInitSyncedWaiters()
+	}
+
+	self.closed_waiter <- true
+	self.manager.client_channel = nil
+	self.manager.current_request_id = self.current_request_id
+	self.manager.slock.logger.Infof("Replication Close Connection Leader: %s", self.manager.leader_address)
+}
+
 func (self *ReplicationClientChannel) SendInitSyncCommand() (*protobuf.SyncResponse, error) {
 	request_id := fmt.Sprintf("%x", self.current_request_id)
 	if request_id != "00000000000000000000000000000000" {
@@ -269,11 +316,11 @@ func (self *ReplicationClientChannel) InitSync() error {
 		return nil
 	}
 
-	v, err := hex.DecodeString(sync_response.AofId)
+	buf, err := hex.DecodeString(sync_response.AofId)
 	if err != nil {
 		return err
 	}
-	aof_file_index := uint32(v[4]) | uint32(v[5])<<8 | uint32(v[6])<<16 | uint32(v[7])<<24
+	aof_file_index := uint32(buf[4]) | uint32(buf[5])<<8 | uint32(buf[6])<<16 | uint32(buf[7])<<24
 	if aof_file_index > 0 {
 		aof_file_index = aof_file_index - 1
 	}
@@ -287,19 +334,24 @@ func (self *ReplicationClientChannel) InitSync() error {
 	if err != nil {
 		return err
 	}
+
+	self.current_request_id[0], self.current_request_id[1], self.current_request_id[2], self.current_request_id[3], self.current_request_id[4], self.current_request_id[5], self.current_request_id[6], self.current_request_id[7],
+		self.current_request_id[8], self.current_request_id[9], self.current_request_id[10], self.current_request_id[11], self.current_request_id[12], self.current_request_id[13], self.current_request_id[14], self.current_request_id[15] = buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7],
+		buf[8], buf[9], buf[10], buf[11], buf[12], buf[13], buf[14], buf[15]
 	return self.HandleFiles()
 }
 
 func (self *ReplicationClientChannel) SendStart() error {
-	self.aof_lock.CommandType = protocol.COMMAND_INIT
-	self.aof_lock.AofIndex = 0xffffffff
-	self.aof_lock.AofId = 0xffffffff
-	err := self.aof_lock.Encode()
+	aof_lock := NewAofLock()
+	aof_lock.CommandType = protocol.COMMAND_INIT
+	aof_lock.AofIndex = 0xffffffff
+	aof_lock.AofId = 0xffffffff
+	err := aof_lock.Encode()
 	if err != nil {
 		return err
 	}
 	self.glock.Lock()
-	err = self.stream.WriteBytes(self.aof_lock.buf)
+	err = self.stream.WriteBytes(aof_lock.buf)
 	self.glock.Unlock()
 	if err != nil {
 		return err
@@ -324,7 +376,7 @@ func (self *ReplicationClientChannel) HandleFiles() error {
 			return err
 		}
 
-		if self.aof_lock.CommandType == protocol.COMMAND_INIT && self.aof_lock.AofIndex >= 0xffffffff && self.aof_lock.AofId >= 0xffffffff {
+		if self.aof_lock.CommandType == protocol.COMMAND_INIT && self.aof_lock.AofIndex == 0xffffffff && self.aof_lock.AofId == 0xffffffff {
 			if aof_file != nil {
 				aof_file.Flush()
 				err := aof_file.Close()
@@ -715,14 +767,15 @@ func (self *ReplicationServerChannel) RecvStart() error {
 }
 
 func (self *ReplicationServerChannel) SendFilesFinish() error {
-	self.waof_lock.CommandType = protocol.COMMAND_INIT
-	self.waof_lock.AofIndex = 0xffffffff
-	self.waof_lock.AofId = 0xffffffff
-	err := self.waof_lock.Encode()
+	aof_lock := NewAofLock()
+	aof_lock.CommandType = protocol.COMMAND_INIT
+	aof_lock.AofIndex = 0xffffffff
+	aof_lock.AofId = 0xffffffff
+	err := aof_lock.Encode()
 	if err != nil {
 		return err
 	}
-	err = self.stream.WriteBytes(self.waof_lock.buf)
+	err = self.stream.WriteBytes(aof_lock.buf)
 	if err != nil {
 		return err
 	}
@@ -1118,6 +1171,10 @@ func (self *ReplicationAckDB) ProcessAckAofed(request_id [16]byte, succed bool) 
 
 func (self *ReplicationAckDB) SwitchToLeader() error {
 	self.glock.Lock()
+	if self.locks == nil {
+		return nil
+	}
+
 	for _, lock := range self.locks {
 		lock_manager := lock.manager
 		lock_manager.lock_db.DoAckLock(lock, true)
@@ -1134,6 +1191,10 @@ func (self *ReplicationAckDB) SwitchToLeader() error {
 
 func (self *ReplicationAckDB) SwitchToFollower() error {
 	self.glock.Lock()
+	if self.ack_locks == nil {
+		return nil
+	}
+
 	for _, ack_lock := range self.ack_locks {
 		if self.manager.client_channel != nil {
 			self.manager.client_channel.HandleAcked(ack_lock)
@@ -1164,12 +1225,13 @@ type ReplicationManager struct {
 	server_flush_waiter			chan bool
 	inited_waters				[]chan bool
 	closed 						bool
+	is_leader 					bool
 }
 
-func NewReplicationManager(address string) *ReplicationManager {
+func NewReplicationManager() *ReplicationManager {
 	return &ReplicationManager{nil, &sync.Mutex{}, NewReplicationBufferQueue(), make([]*ReplicationAckDB, 256),
-		nil, make([]*ReplicationServerChannel, 0), [16]byte{}, address, 0,
-		make(chan bool, 8), nil, make([]chan bool, 0), false}
+		nil, make([]*ReplicationServerChannel, 0), [16]byte{}, "", 0,
+		make(chan bool, 8), nil, make([]chan bool, 0), false, true}
 }
 
 func (self *ReplicationManager) GetCallMethods() map[string]BinaryServerProtocolCallHandler{
@@ -1181,6 +1243,16 @@ func (self *ReplicationManager) GetCallMethods() map[string]BinaryServerProtocol
 func (self *ReplicationManager) GetHandlers() map[string]TextServerProtocolCommandHandler{
 	handlers := make(map[string]TextServerProtocolCommandHandler, 2)
 	return handlers
+}
+
+func (self *ReplicationManager) Init(leader_address string) error {
+	self.leader_address = leader_address
+	if self.slock.state == STATE_LEADER {
+		self.current_request_id = self.slock.aof.GetRequestId()
+	} else {
+		self.current_request_id = [16]byte{}
+	}
+	return nil
 }
 
 func (self *ReplicationManager) Close() {
@@ -1330,63 +1402,9 @@ func (self *ReplicationManager) StartSync() error {
 	}
 
 	channel := NewReplicationClientChannel(self)
-
-	self.slock.logger.Infof("Replication Connect Leader: %s", self.leader_address)
-	err := channel.Open(self.leader_address)
-	if err != nil {
-		return err
-	}
+	self.is_leader = false
 	self.client_channel = channel
-
-	go func() {
-		channel.current_request_id = self.current_request_id
-		for ; !self.closed && self.slock.state != STATE_LEADER; {
-			err = channel.InitSync()
-			if err != nil {
-				if err != io.EOF {
-					self.slock.logger.Errorf("Replication Init Sync Error: %v", err)
-				}
-			} else {
-				self.InitSynced()
-				err = channel.Handle()
-				if err != nil {
-					if err != io.EOF && !self.closed {
-						self.slock.logger.Errorf("Replication Sync Error: %v", err)
-					}
-				}
-			}
-
-			channel.Close()
-			self.glock.Lock()
-			for _, waiter := range self.inited_waters {
-				waiter <- false
-			}
-			self.inited_waters = self.inited_waters[:0]
-			self.glock.Unlock()
-
-			for ; !self.closed && self.slock.state != STATE_LEADER; {
-				self.slock.logger.Infof("Replication Connect Leader: %s", self.leader_address)
-				err := channel.Open(self.leader_address)
-				if err == nil {
-					break
-				}
-				self.slock.logger.Errorf("Replication Reconnect Leader Error: %v", err)
-				channel.Close()
-				self.glock.Lock()
-				for _, waiter := range self.inited_waters {
-					waiter <- false
-				}
-				self.inited_waters = self.inited_waters[:0]
-				self.glock.Unlock()
-
-				channel.SleepWhenRetryConnect()
-			}
-		}
-
-		channel.closed = true
-		channel.closed_waiter <- true
-		self.client_channel = nil
-	}()
+	go channel.Run()
 	return nil
 }
 
@@ -1458,6 +1476,15 @@ func (self *ReplicationManager) WaitInitSynced(waiter chan bool) {
 	self.glock.Unlock()
 }
 
+func (self *ReplicationManager) WakeupInitSyncedWaiters() {
+	self.glock.Lock()
+	for _, waiter := range self.inited_waters {
+		waiter <- false
+	}
+	self.inited_waters = self.inited_waters[:0]
+	self.glock.Unlock()
+}
+
 func (self *ReplicationManager) InitSynced() {
 	self.glock.Lock()
 	self.slock.UpdateState(STATE_FOLLOWER)
@@ -1470,13 +1497,14 @@ func (self *ReplicationManager) InitSynced() {
 
 func (self *ReplicationManager) SwitchToLeader() error {
 	self.glock.Lock()
-	if self.slock.state != STATE_FOLLOWER {
+	if self.slock.state == STATE_CLOSE {
 		self.glock.Unlock()
 		return errors.New("state error")
 	}
 
 	self.slock.logger.Infof("Replication Start Change To Leader")
 	self.slock.UpdateState(STATE_LEADER)
+	self.leader_address = ""
 	self.glock.Unlock()
 	for _, db := range self.ack_dbs {
 		if db != nil {
@@ -1491,19 +1519,27 @@ func (self *ReplicationManager) SwitchToLeader() error {
 		self.current_request_id = client_channel.current_request_id
 		self.client_channel = nil
 	}
+	self.is_leader = true
 	self.slock.logger.Infof("Replication Finish Change To Leader")
 	return nil
 }
 
-func (self *ReplicationManager) SwitchToFollower() error {
+func (self *ReplicationManager) SwitchToFollower(address string) error {
 	self.glock.Lock()
-	if self.slock.state != STATE_LEADER {
+	if self.slock.state == STATE_CLOSE {
 		self.glock.Unlock()
 		return errors.New("state error")
 	}
 
 	self.slock.logger.Infof("Replication Start Change To Follower")
-	if self.leader_address == "" {
+	if self.leader_address == address && !self.is_leader {
+		self.glock.Unlock()
+		self.slock.logger.Infof("Replication Finish Change To Follower")
+		return nil
+	}
+
+	self.leader_address = address
+	if address == "" {
 		self.slock.UpdateState(STATE_FOLLOWER)
 	} else {
 		self.slock.UpdateState(STATE_SYNC)
@@ -1524,7 +1560,16 @@ func (self *ReplicationManager) SwitchToFollower() error {
 		}
 	}
 
+	if self.client_channel != nil {
+		client_channel := self.client_channel
+		client_channel.Close()
+		<- client_channel.closed_waiter
+		self.current_request_id = client_channel.current_request_id
+		self.client_channel = nil
+	}
+
 	if self.leader_address == "" {
+		self.is_leader = false
 		self.slock.logger.Infof("Replication Finish Change To Follower")
 		return nil
 	}
@@ -1549,6 +1594,7 @@ func (self *ReplicationManager) ChangeLeader(address string) error {
 		return nil
 	}
 
+	self.leader_address = address
 	if self.leader_address == "" {
 		self.slock.UpdateState(STATE_FOLLOWER)
 	} else {
@@ -1565,7 +1611,9 @@ func (self *ReplicationManager) ChangeLeader(address string) error {
 	}
 
 	if self.leader_address == "" {
+		self.is_leader = false
 		self.slock.logger.Infof("Replication Change To Empty Leader")
+		return nil
 	}
 
 	err := self.StartSync()
@@ -1583,4 +1631,11 @@ func (self *ReplicationManager) Resync() error {
 		}
 	}
 	return nil
+}
+
+func (self *ReplicationManager) GetCurrentAofID() [16]byte {
+	if !self.is_leader && self.client_channel != nil {
+		return self.client_channel.current_request_id
+	}
+	return self.current_request_id
 }

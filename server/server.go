@@ -103,7 +103,7 @@ func (self *Server) Loop() {
     signal.Notify(stop_signal, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
     go func() {
         <-stop_signal
-        self.slock.Log().Infof("Server is shutdown start")
+        self.slock.Log().Infof("Server shutdown start")
         self.Close()
     }()
 
@@ -126,7 +126,7 @@ func (self *Server) Loop() {
         go self.Handle(stream)
     }
     <- self.stoped_waiter
-    self.slock.Log().Infof("Server has shutdown")
+    self.slock.Log().Infof("Server shutdown finish")
 }
 
 func (self *Server) CheckProtocol(stream *Stream) (ServerProtocol, error) {

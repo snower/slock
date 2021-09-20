@@ -1,0 +1,76 @@
+syntax = "proto3";
+
+package protobuf;
+
+message ReplSetMember {
+  string host = 1;
+  uint32 weight = 2;
+  uint32 arbiter = 3;
+  uint32 role = 4;
+}
+
+message ReplSet {
+  string name = 1;
+  uint32 version = 2;
+  string owner = 3;
+  repeated ReplSetMember members = 4;
+}
+
+message ArbiterConnectRequest {
+  string from_host = 1;
+  string to_host = 2;
+}
+
+message ArbiterConnectResponse {
+  string err_message = 1;
+}
+
+message ArbiterAnnouncementRequest {
+  string from_host = 1;
+  string to_host = 2;
+  ReplSet replset = 3;
+}
+
+message ArbiterAnnouncementResponse {
+  string err_message = 1;
+}
+
+message ArbiterVoteRequest {
+}
+
+message ArbiterVoteResponse {
+  string err_message = 1;
+  string vote_host = 2;
+  string vote_aof_id = 3;
+  string aof_id = 4;
+  uint32 role = 5;
+}
+
+message ArbiterProposalRequest {
+  uint64 proposal_id = 1;
+  string aof_id = 2;
+  string host = 3;
+}
+
+message ArbiterProposalResponse {
+  string err_message = 1;
+}
+
+message ArbiterCommitRequest {
+  uint64 proposal_id = 1;
+  string aof_id = 2;
+  string host = 3;
+}
+
+message ArbiterCommitResponse {
+  string err_message = 1;
+}
+
+message ArbiterStatusRequest {
+}
+
+message ArbiterStatusResponse {
+  string err_message = 1;
+  string aof_id = 2;
+  uint32 role = 3;
+}

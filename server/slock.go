@@ -22,7 +22,8 @@ type SLock struct {
     dbs                         []*LockDB
     glock                       *sync.Mutex
     aof                         *Aof
-    replication_manager          *ReplicationManager
+    replication_manager         *ReplicationManager
+    arbiter_manager             *ArbiterManager
     admin                       *Admin
     logger                      logging.Logger
     streams                     map[[16]byte]ServerProtocol
@@ -38,11 +39,11 @@ func NewSLock(config *ServerConfig) *SLock {
     SetConfig(config)
 
     aof := NewAof()
-    replication_manager := NewReplicationManager(Config.SlaveOf)
+    replication_manager := NewReplicationManager()
     admin := NewAdmin()
     now := time.Now()
     logger := InitLogger(Config.Log, Config.LogLevel)
-    slock := &SLock{nil,make([]*LockDB, 256), &sync.Mutex{}, aof,replication_manager, admin, logger,
+    slock := &SLock{nil,make([]*LockDB, 256), &sync.Mutex{}, aof,replication_manager, nil, admin, logger,
         make(map[[16]byte]ServerProtocol, STREAMS_INIT_COUNT), &now,NewLockCommandQueue(16, 64, FREE_COMMAND_QUEUE_INIT_SIZE * 16),
         &sync.Mutex{}, 0, 0, STATE_INIT}
     aof.slock = slock
@@ -53,36 +54,75 @@ func NewSLock(config *ServerConfig) *SLock {
 
 func (self *SLock) Init(server *Server) error {
     self.server = server
-    if Config.SlaveOf != "" {
-        err := self.aof.Init()
+    if Config.ReplSet != "" {
+        self.UpdateState(STATE_CONFIG)
+        self.arbiter_manager = NewArbiterManager(self, Config.ReplSet)
+        err := self.arbiter_manager.Load()
         if err != nil {
-            self.logger.Errorf("Aof Init Error: %v", err)
+            self.logger.Errorf("Arbiter Load Error: %v", err)
             return err
         }
 
-        self.UpdateState(STATE_SYNC)
-        err = self.replication_manager.StartSync()
+        err = self.arbiter_manager.Start()
         if err != nil {
-            self.logger.Errorf("Replication Start Sync Error: %v", err)
+            self.logger.Errorf("Arbiter Start Error: %v", err)
             return err
         }
-    } else {
-        err := self.aof.LoadAndInit()
-        if err != nil {
-            self.logger.Errorf("Aof LoadOrInit Error: %v", err)
-            return err
-        }
-        self.UpdateState(STATE_LEADER)
+        return nil
+    }
+
+    if Config.SlaveOf != "" {
+        return self.InitFollower(Config.SlaveOf)
+    }
+    return self.InitLeader()
+}
+
+func (self *SLock) InitLeader() error {
+    err := self.aof.LoadAndInit()
+    if err != nil {
+        self.logger.Errorf("Aof LoadOrInit Error: %v", err)
+        return err
+    }
+    self.UpdateState(STATE_LEADER)
+    err = self.replication_manager.Init("")
+    if err != nil {
+        self.logger.Errorf("Replication Init Error: %v", err)
+        return err
+    }
+    return nil
+}
+
+func (self *SLock) InitFollower(leader_address string) error {
+    err := self.aof.Init()
+    if err != nil {
+        self.logger.Errorf("Aof Init Error: %v", err)
+        return err
+    }
+
+    self.UpdateState(STATE_SYNC)
+    err = self.replication_manager.Init(leader_address)
+    if err != nil {
+        self.logger.Errorf("Replication Init Error: %v", err)
+        return err
+    }
+    err = self.replication_manager.StartSync()
+    if err != nil {
+        self.logger.Errorf("Replication Start Sync Error: %v", err)
+        return err
     }
     return nil
 }
 
 func (self *SLock) Close()  {
+    if self.arbiter_manager != nil {
+        self.arbiter_manager.Close()
+    }
     self.replication_manager.Close()
     self.glock.Lock()
-    for _, db := range self.dbs {
+    for i, db := range self.dbs {
         if db != nil {
             db.Close()
+            self.dbs[i] = nil
         }
     }
     self.glock.Unlock()
@@ -112,6 +152,10 @@ func (self *SLock) GetAof() *Aof {
 
 func (self *SLock) GetReplicationManager() *ReplicationManager {
     return self.replication_manager
+}
+
+func (self *SLock) GetArbiterManager() *ArbiterManager {
+    return self.arbiter_manager
 }
 
 func (self *SLock) GetAdmin() *Admin {

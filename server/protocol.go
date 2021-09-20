@@ -274,6 +274,12 @@ func (self *BinaryServerProtocol) FindCallMethod(method_name string) (BinaryServ
         for name, handler := range self.slock.GetReplicationManager().GetCallMethods() {
             self.call_methods[name] = handler
         }
+
+        if self.slock.arbiter_manager != nil {
+            for name, handler := range self.slock.GetArbiterManager().GetCallMethods() {
+                self.call_methods[name] = handler
+            }
+        }
     }
     if call_method, ok := self.call_methods[method_name]; ok {
         return call_method, nil

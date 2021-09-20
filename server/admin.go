@@ -13,7 +13,7 @@ import (
     "time"
 )
 
-var STATE_NAMES  = []string{"initing", "leader", "follower", "syncing"}
+var STATE_NAMES  = []string{"initing", "leader", "follower", "syncing", "config", "vote", "close"}
 
 type Admin struct {
     slock *SLock
@@ -41,6 +41,7 @@ func (self *Admin) GetHandlers() map[string]TextServerProtocolCommandHandler{
     handlers["FLUSHDB"] = self.CommandHandleFlushDBCommand
     handlers["FLUSHALL"] = self.CommandHandleFlushAllCommand
     handlers["SLAVEOF"] = self.CommandHandleClientSlaveOfCommand
+    handlers["REPLSET"] = self.CommandHandleReplsetCommand
     return handlers
 }
 
@@ -221,6 +222,28 @@ func (self *Admin) CommandHandleInfoCommand(server_protocol *TextServerProtocol,
         }
     }
 
+    if self.slock.arbiter_manager != nil {
+        infos = append(infos, "\r\n# Arbiter")
+        infos = append(infos, fmt.Sprintf("name:%s", self.slock.arbiter_manager.name))
+        infos = append(infos, fmt.Sprintf("version:%d", self.slock.arbiter_manager.version))
+        roles := []string{"unknown", "leader", "follower", "arbiter"}
+        for i, member := range self.slock.arbiter_manager.members {
+            arbiter, isself, status, aof_id := "no", "no", "offline", member.aof_id
+            if member.arbiter != 0 {
+                arbiter = "yes"
+            }
+            if member.isself {
+                isself = "yes"
+                aof_id = self.slock.replication_manager.GetCurrentAofID()
+            }
+            if member.status == ARBITER_MEMBER_STATUS_ONLINE {
+                status = "online"
+            }
+            infos = append(infos, fmt.Sprintf("member%d:host=%s,weight=%d,arbiter=%s,role=%s,status=%s,self=%s,aof_id=%x", i + 1, member.host, member.weight,
+                arbiter, roles[member.role], status, isself, aof_id))
+        }
+    }
+
     infos = append(infos, "\r\n# Replication")
     if self.slock.state == STATE_LEADER {
         infos = append(infos, "role:leader")
@@ -231,7 +254,7 @@ func (self *Admin) CommandHandleInfoCommand(server_protocol *TextServerProtocol,
             if server_channel.protocol == nil {
                 continue
             }
-            infos = append(infos, fmt.Sprintf("follower%d:host=%s,state=online,aof_id=%x,behind_offset=%d", i + 1,
+            infos = append(infos, fmt.Sprintf("follower%d:host=%s,aof_id=%x,behind_offset=%d", i + 1,
                 server_channel.protocol.RemoteAddr().String(), server_channel.current_request_id,
                 self.slock.replication_manager.buffer_queue.current_index - server_channel.buffer_index))
         }
@@ -262,8 +285,10 @@ func (self *Admin) CommandHandleInfoCommand(server_protocol *TextServerProtocol,
     infos = append(infos, fmt.Sprintf("aof_channel_count:%d", aof.channel_count))
     infos = append(infos, fmt.Sprintf("aof_channel_active:%d", aof.actived_channel_count))
     infos = append(infos, fmt.Sprintf("aof_count:%d", aof.aof_lock_count))
-    infos = append(infos, fmt.Sprintf("aof_file_name:%s", aof.aof_file.filename))
-    infos = append(infos, fmt.Sprintf("aof_file_size:%d", aof.aof_file.size))
+    if aof.aof_file != nil {
+        infos = append(infos, fmt.Sprintf("aof_file_name:%s", aof.aof_file.filename))
+        infos = append(infos, fmt.Sprintf("aof_file_size:%d", aof.aof_file.size))
+    }
 
     infos = append(infos, "\r\n# Keyspace")
     for db_id, db := range self.slock.dbs {
@@ -579,7 +604,6 @@ func (self *Admin) CommandHandleClientSlaveOfCommand(server_protocol *TextServer
             return server_protocol.stream.WriteBytes(server_protocol.parser.BuildResponse(true, "OK", nil))
         }
 
-        self.slock.replication_manager.leader_address = ""
         err := self.slock.replication_manager.SwitchToLeader()
         if err != nil {
             return server_protocol.stream.WriteBytes(server_protocol.parser.BuildResponse(false, "ERR Change Error", nil))
@@ -590,8 +614,7 @@ func (self *Admin) CommandHandleClientSlaveOfCommand(server_protocol *TextServer
             return server_protocol.stream.WriteBytes(server_protocol.parser.BuildResponse(true, "OK", nil))
         }
 
-        self.slock.replication_manager.leader_address = fmt.Sprintf("%s:%s", args[1], args[2])
-        err := self.slock.replication_manager.SwitchToFollower()
+        err := self.slock.replication_manager.SwitchToFollower(fmt.Sprintf("%s:%s", args[1], args[2]))
         if err != nil {
             return server_protocol.stream.WriteBytes(server_protocol.parser.BuildResponse(false, "ERR Change Error", nil))
         }
@@ -599,4 +622,75 @@ func (self *Admin) CommandHandleClientSlaveOfCommand(server_protocol *TextServer
     }
 
     return server_protocol.stream.WriteBytes(server_protocol.parser.BuildResponse(false, "ERR Command Arguments Error", nil))
+}
+
+func (self *Admin) CommandHandleReplsetCommand(server_protocol *TextServerProtocol, args []string) error {
+    if len(args) < 1 {
+        return server_protocol.stream.WriteBytes(server_protocol.parser.BuildResponse(false, "ERR Command Arguments Error", nil))
+    }
+
+    if self.slock.arbiter_manager == nil {
+        return server_protocol.stream.WriteBytes(server_protocol.parser.BuildResponse(false, "ERR Not Replset server", nil))
+    }
+
+    command_name := strings.ToUpper(args[1])
+    switch command_name {
+    case "CONFIG":
+        return self.CommandHandleReplsetConfigCommand(server_protocol, args)
+    case "ADD":
+        return self.CommandHandleReplsetAddCommand(server_protocol, args)
+    case "REMOVE":
+        return self.CommandHandleReplsetRemoveCommand(server_protocol, args)
+    case "SET":
+        return self.CommandHandleReplsetSetCommand(server_protocol, args)
+    }
+    return server_protocol.stream.WriteBytes(server_protocol.parser.BuildResponse(false, "ERR unkonwn command", nil))
+}
+
+func (self *Admin) CommandHandleReplsetConfigCommand(server_protocol *TextServerProtocol, args []string) error {
+    if len(args) < 3 {
+        return server_protocol.stream.WriteBytes(server_protocol.parser.BuildResponse(false, "ERR Command Arguments Error", nil))
+    }
+
+    err := self.slock.arbiter_manager.Config(args[2], 1, 0)
+    if err != nil {
+        return server_protocol.stream.WriteBytes(server_protocol.parser.BuildResponse(false, "ERR config error", nil))
+    }
+    return server_protocol.stream.WriteBytes(server_protocol.parser.BuildResponse(true, "OK", nil))
+}
+
+func (self *Admin) CommandHandleReplsetAddCommand(server_protocol *TextServerProtocol, args []string) error {
+    if len(args) < 3 {
+        return server_protocol.stream.WriteBytes(server_protocol.parser.BuildResponse(false, "ERR Command Arguments Error", nil))
+    }
+
+    err := self.slock.arbiter_manager.AddMember(args[2], 1, 0)
+    if err != nil {
+        return server_protocol.stream.WriteBytes(server_protocol.parser.BuildResponse(false, "ERR add error", nil))
+    }
+    return server_protocol.stream.WriteBytes(server_protocol.parser.BuildResponse(true, "OK", nil))
+}
+
+func (self *Admin) CommandHandleReplsetRemoveCommand(server_protocol *TextServerProtocol, args []string) error {
+    if len(args) < 3 {
+        return server_protocol.stream.WriteBytes(server_protocol.parser.BuildResponse(false, "ERR Command Arguments Error", nil))
+    }
+
+    err := self.slock.arbiter_manager.RemoveMember(args[2])
+    if err != nil {
+        return server_protocol.stream.WriteBytes(server_protocol.parser.BuildResponse(false, "ERR remove error", nil))
+    }
+    return server_protocol.stream.WriteBytes(server_protocol.parser.BuildResponse(true, "OK", nil))
+}
+
+func (self *Admin) CommandHandleReplsetSetCommand(server_protocol *TextServerProtocol, args []string) error {
+    if len(args) < 3 {
+        return server_protocol.stream.WriteBytes(server_protocol.parser.BuildResponse(false, "ERR Command Arguments Error", nil))
+    }
+
+    err := self.slock.arbiter_manager.UpdateMember(args[2], 1, 0)
+    if err != nil {
+        return server_protocol.stream.WriteBytes(server_protocol.parser.BuildResponse(false, "ERR update error", nil))
+    }
+    return server_protocol.stream.WriteBytes(server_protocol.parser.BuildResponse(true, "OK", nil))
 }
