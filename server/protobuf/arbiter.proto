@@ -12,8 +12,9 @@ message ReplSetMember {
 message ReplSet {
   string name = 1;
   uint32 version = 2;
-  string owner = 3;
-  repeated ReplSetMember members = 4;
+  uint64 vertime = 3;
+  string owner = 4;
+  repeated ReplSetMember members = 5;
 }
 
 message ArbiterConnectRequest {
