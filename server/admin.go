@@ -234,7 +234,7 @@ func (self *Admin) CommandHandleInfoCommand(server_protocol *TextServerProtocol,
             }
             if member.isself {
                 isself = "yes"
-                aof_id = self.slock.replication_manager.GetCurrentAofID()
+                aof_id = self.slock.arbiter_manager.GetCurrentAofID()
             }
             if member.status == ARBITER_MEMBER_STATUS_ONLINE {
                 status = "online"

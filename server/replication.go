@@ -312,7 +312,7 @@ func (self *ReplicationClientChannel) InitSync() error {
 			return err
 		}
 		self.recved_files = true
-		self.manager.slock.logger.Infof("Replication Recv Waiting")
+		self.manager.slock.logger.Infof("Replication Recv Waiting From %x", self.current_request_id)
 		return nil
 	}
 
@@ -385,7 +385,7 @@ func (self *ReplicationClientChannel) HandleFiles() error {
 				}
 			}
 			self.recved_files = true
-			self.manager.slock.logger.Infof("Replication Recv Files finish")
+			self.manager.slock.logger.Infof("Replication Recv Files finish When %x", self.current_request_id)
 			return nil
 		}
 
@@ -1248,9 +1248,11 @@ func (self *ReplicationManager) GetHandlers() map[string]TextServerProtocolComma
 func (self *ReplicationManager) Init(leader_address string) error {
 	self.leader_address = leader_address
 	if self.slock.state == STATE_LEADER {
-		self.current_request_id = self.slock.aof.GetRequestId()
+		self.current_request_id = self.slock.aof.GetCurrentAofID()
+		self.slock.Log().Infof("Replication Init Leader %x", self.current_request_id)
 	} else {
 		self.current_request_id = [16]byte{}
+		self.slock.Log().Infof("Replication Init Follower %s %x", leader_address, self.current_request_id)
 	}
 	return nil
 }
@@ -1331,6 +1333,7 @@ func (self *ReplicationManager) CommandHandleSyncCommand(server_protocol *Binary
 		return result, nil
 	}
 
+	self.slock.logger.Infof("Replication Accept Client Start Sync %s", server_protocol.RemoteAddr().String())
 	self.AddServerChannel(channel)
 	go func() {
 		err := channel.Handle()

@@ -771,6 +771,9 @@ func (self *ArbiterVoter) Close() error {
     if self.state != 0 {
         self.closed_waiter = make(chan bool, 1)
         self.glock.Unlock()
+        if self.wakeup_signal != nil {
+            self.wakeup_signal <- true
+        }
         <- self.closed_waiter
         self.glock.Lock()
         self.closed_waiter = nil
@@ -1028,6 +1031,7 @@ func (self *ArbiterManager) Close() error {
     if self.own_member == nil || len(self.members) == 0 {
         self.stoped = true
         self.glock.Unlock()
+        self.slock.logger.Infof("Arbiter Closed")
         return nil
     }
 
@@ -1078,6 +1082,7 @@ func (self *ArbiterManager) Config(host string, weight uint32, arbiter uint32) e
     if err != nil {
         self.slock.Log().Errorf("Arbiter Vote error: %v", err)
     }
+    self.slock.logger.Infof("Arbiter Config %s %d %d", host, weight, arbiter)
     return nil
 }
 
@@ -1108,6 +1113,7 @@ func (self *ArbiterManager) AddMember(host string, weight uint32, arbiter uint32
     self.store.Save(self)
     self.DoAnnouncement()
     self.UpdateStatus()
+    self.slock.logger.Infof("Arbiter Add Member %s %d %d", host, weight, arbiter)
     return nil
 }
 
@@ -1143,6 +1149,7 @@ func (self *ArbiterManager) RemoveMember(host string) error {
     self.store.Save(self)
     self.DoAnnouncement()
     self.UpdateStatus()
+    self.slock.logger.Infof("Arbiter Remove Member %s", host)
     return nil
 }
 
@@ -1173,6 +1180,7 @@ func (self *ArbiterManager) UpdateMember(host string, weight uint32, arbiter uin
     self.store.Save(self)
     self.DoAnnouncement()
     self.UpdateStatus()
+    self.slock.logger.Infof("Arbiter Update Member %s %d %d", host, weight, arbiter)
     return nil
 }
 
@@ -1344,6 +1352,7 @@ func (self *ArbiterManager) UpdateStatus() error {
             if self.own_member.arbiter == 0 {
                 if !self.loaded {
                     self.slock.InitLeader()
+                    self.slock.StartLeader()
                     self.loaded = true
                     return nil
                 }
@@ -1358,6 +1367,7 @@ func (self *ArbiterManager) UpdateStatus() error {
     if self.own_member.arbiter == 0 {
         if !self.loaded {
             self.slock.InitFollower(self.leader_member.host)
+            self.slock.StartFollower()
             self.loaded = true
             return nil
         }
@@ -1700,8 +1710,16 @@ func (self *ArbiterManager) CommandHandleAnnouncementCommand(server_protocol *Bi
     }
     self.version = resquest.Replset.Version
     self.store.Save(self)
-    self.UpdateStatus()
     self.glock.Unlock()
+
+    go func() {
+        self.glock.Lock()
+        err := self.UpdateStatus()
+        if err != nil {
+            self.slock.Log().Errorf("Arbiter Update Status Error %v", err)
+        }
+        self.glock.Unlock()
+    }()
 
     for _, member := range self.members {
         if member.host == resquest.FromHost && member.server == nil {

@@ -62,12 +62,6 @@ func (self *SLock) Init(server *Server) error {
             self.logger.Errorf("Arbiter Load Error: %v", err)
             return err
         }
-
-        err = self.arbiter_manager.Start()
-        if err != nil {
-            self.logger.Errorf("Arbiter Start Error: %v", err)
-            return err
-        }
         return nil
     }
 
@@ -105,12 +99,35 @@ func (self *SLock) InitFollower(leader_address string) error {
         self.logger.Errorf("Replication Init Error: %v", err)
         return err
     }
-    err = self.replication_manager.StartSync()
+    return nil
+}
+
+func (self *SLock) Start()  {
+    if Config.ReplSet != "" {
+        err := self.arbiter_manager.Start()
+        if err != nil {
+            self.logger.Errorf("Arbiter Start Error: %v", err)
+        }
+        return
+    }
+
+    if Config.SlaveOf != "" {
+        self.StartFollower()
+        return
+    }
+    self.StartLeader()
+}
+
+func (self *SLock) StartLeader()  {
+
+}
+
+func (self *SLock) StartFollower()  {
+    err := self.replication_manager.StartSync()
     if err != nil {
         self.logger.Errorf("Replication Start Sync Error: %v", err)
-        return err
     }
-    return nil
+    return
 }
 
 func (self *SLock) Close()  {

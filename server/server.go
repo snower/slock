@@ -108,6 +108,7 @@ func (self *Server) Loop() {
     }()
 
     self.slock.Log().Infof("Start Server %s", fmt.Sprintf("%s:%d", Config.Bind, Config.Port))
+    go self.slock.Start()
     for ; !self.stoped; {
         conn, err := self.server.Accept()
         if err != nil {
