@@ -239,8 +239,8 @@ func (self *Admin) CommandHandleInfoCommand(server_protocol *TextServerProtocol,
             if member.status == ARBITER_MEMBER_STATUS_ONLINE {
                 status = "online"
             }
-            infos = append(infos, fmt.Sprintf("member%d:host=%s,weight=%d,arbiter=%s,role=%s,status=%s,self=%s,aof_id=%x", i + 1, member.host, member.weight,
-                arbiter, roles[member.role], status, isself, aof_id))
+            infos = append(infos, fmt.Sprintf("member%d:host=%s,weight=%d,arbiter=%s,role=%s,status=%s,self=%s,aof_id=%x,update=%d,delay=%.2f", i + 1, member.host, member.weight,
+                arbiter, roles[member.role], status, isself, aof_id, member.last_updated / 1e6, float64(member.last_delay) / 1e6))
         }
     }
 

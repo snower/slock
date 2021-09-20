@@ -201,7 +201,7 @@ func (self *ArbiterClient) Open(addr string) error {
     }
 
     self.member.manager.slock.Log().Infof("Arbiter Client Connect %s", addr)
-    conn, err := net.DialTimeout("tcp", addr, 5 * time.Second)
+    conn, err := net.DialTimeout("tcp", addr, 2 * time.Second)
     if err != nil {
         return err
     }
@@ -445,6 +445,8 @@ type ArbiterMember struct {
     arbiter         uint32
     role            uint8
     status          uint8
+    last_updated    int64
+    last_delay      int64
     aof_id          [16]byte
     isself          bool
     closed          bool
@@ -454,7 +456,7 @@ type ArbiterMember struct {
 
 func NewArbiterMember(manager *ArbiterManager, host string, weight uint32, arbiter uint32) *ArbiterMember {
     return &ArbiterMember{manager, &sync.Mutex{}, nil, nil, host, weight, arbiter, ARBITER_ROLE_UNKNOWN,
-        ARBITER_MEMBER_STATUS_UNOPEN, [16]byte{}, false, false, make(chan bool, 1), nil}
+        ARBITER_MEMBER_STATUS_UNOPEN, 0, 0, [16]byte{}, false, false, make(chan bool, 1), nil}
 }
 
 func (self *ArbiterMember) Open() error {
@@ -502,14 +504,16 @@ func (self *ArbiterMember) Close() error {
 
 func (self *ArbiterMember) UpdateStatus() error {
     if self.isself {
-        self.aof_id = self.manager.slock.replication_manager.GetCurrentAofID()
+        self.aof_id = self.manager.GetCurrentAofID()
+        self.last_updated = time.Now().UnixNano()
         return nil
     }
 
     if self.status != ARBITER_MEMBER_STATUS_ONLINE {
         return errors.New("not online error")
     }
-    
+
+    now := time.Now().UnixNano()
     request := protobuf.ArbiterStatusRequest{}
     data, err := request.Marshal()
     if err != nil {
@@ -534,6 +538,8 @@ func (self *ArbiterMember) UpdateStatus() error {
 
     self.aof_id = self.manager.DecodeAofId(response.AofId)
     self.role = uint8(response.Role)
+    self.last_updated = time.Now().UnixNano()
+    self.last_delay = self.last_updated - now
     return nil
 }
 
@@ -562,6 +568,7 @@ func (self *ArbiterMember) Run() {
         go self.client.Run()
     } else {
         self.status = ARBITER_MEMBER_STATUS_ONLINE
+        self.last_updated = time.Now().UnixNano()
     }
 
     for ; !self.closed; {
@@ -586,7 +593,7 @@ func (self *ArbiterMember) DoVote() (*protobuf.ArbiterVoteResponse, error) {
         if err != nil {
             return nil, err
         }
-        aof_id := self.manager.EncodeAofId(self.manager.slock.replication_manager.GetCurrentAofID())
+        aof_id := self.manager.EncodeAofId(self.manager.GetCurrentAofID())
         return &protobuf.ArbiterVoteResponse{ErrMessage:"", VoteHost:member.host,
             VoteAofId:self.manager.EncodeAofId(member.aof_id), AofId:aof_id, Role:uint32(member.role)}, nil
     }
@@ -606,6 +613,15 @@ func (self *ArbiterMember) DoVote() (*protobuf.ArbiterVoteResponse, error) {
     if call_result_command.Result != 0 || call_result_command.ErrType != "" {
         if call_result_command.ErrType == "ERR_UNINIT" && self.manager.own_member != nil {
             self.manager.DoAnnouncement()
+        }
+
+        if call_result_command.ContentLen > 0 {
+            response := protobuf.ArbiterVoteResponse{}
+            err = response.Unmarshal(call_result_command.Data)
+            if err == nil {
+                self.aof_id = self.manager.DecodeAofId(response.AofId)
+                self.role = uint8(response.Role)
+            }
         }
         self.manager.slock.Log().Errorf("Arbiter Vote Error %s %d %s", self.host, call_result_command.Result, call_result_command.ErrType)
         return nil, errors.New(fmt.Sprintf("call error %d %s", call_result_command.Result, call_result_command.ErrType))
@@ -1171,10 +1187,15 @@ func (self *ArbiterManager) QuitLeader() error {
     self.version++
     self.store.Save(self)
     self.voter.DoAnnouncement()
-    err := self.slock.replication_manager.SwitchToFollower("")
-    if err != nil {
-        return err
+
+    if self.own_member.arbiter == 0 {
+        err := self.slock.replication_manager.SwitchToFollower("")
+        if err != nil {
+            return err
+        }
+        return nil
     }
+    self.slock.UpdateState(STATE_FOLLOWER)
     return nil
 }
 
@@ -1190,7 +1211,7 @@ func (self *ArbiterManager) GetVoteHost() (*ArbiterMember, error) {
                 continue
             }
         } else {
-            member.aof_id = self.slock.replication_manager.GetCurrentAofID()
+            member.aof_id = self.GetCurrentAofID()
         }
 
         if vote_member == nil {
@@ -1307,30 +1328,43 @@ func (self *ArbiterManager) UpdateStatus() error {
     if self.own_member == nil {
         return nil
     }
+
     if self.leader_member == nil {
-        self.slock.replication_manager.SwitchToFollower("")
+        if self.own_member.arbiter == 0 {
+            self.slock.replication_manager.SwitchToFollower("")
+        } else {
+            self.slock.UpdateState(STATE_FOLLOWER)
+        }
         self.StartVote()
         return nil
     }
 
     if self.leader_member.host == self.own_member.host {
         if self.slock.state != STATE_LEADER {
-            if !self.loaded {
-                self.slock.InitLeader()
-                self.loaded = true
-                return nil
+            if self.own_member.arbiter == 0 {
+                if !self.loaded {
+                    self.slock.InitLeader()
+                    self.loaded = true
+                    return nil
+                }
+                self.slock.replication_manager.SwitchToLeader()
+            } else {
+                self.slock.UpdateState(STATE_LEADER)
             }
-            self.slock.replication_manager.SwitchToLeader()
         }
         return nil
     }
 
-    if !self.loaded {
-        self.slock.InitFollower(self.leader_member.host)
-        self.loaded = true
+    if self.own_member.arbiter == 0 {
+        if !self.loaded {
+            self.slock.InitFollower(self.leader_member.host)
+            self.loaded = true
+            return nil
+        }
+        self.slock.replication_manager.SwitchToFollower(self.leader_member.host)
         return nil
     }
-    self.slock.replication_manager.SwitchToFollower(self.leader_member.host)
+    self.slock.UpdateState(STATE_FOLLOWER)
     return nil
 }
 
@@ -1376,6 +1410,26 @@ func (self *ArbiterManager) MemberStatusUpdated(member *ArbiterMember) error {
         }
     }
     return nil
+}
+
+func (self *ArbiterManager) GetCurrentAofID() [16]byte {
+    if self.own_member == nil {
+        return [16]byte{}
+    }
+
+    if self.own_member.arbiter != 0 {
+        aof_id := [16]byte{}
+        for _, member := range self.members {
+            if member.role != ARBITER_ROLE_ARBITER && member.status == ARBITER_MEMBER_STATUS_ONLINE {
+                if self.CompareAofId(member.aof_id, aof_id) > 0 {
+                    aof_id = member.aof_id
+                }
+            }
+        }
+        self.own_member.aof_id = aof_id
+        return aof_id
+    }
+    return self.slock.replication_manager.GetCurrentAofID()
 }
 
 func (self *ArbiterManager) EncodeAofId(aof_id [16]byte) string {
@@ -1455,27 +1509,44 @@ func (self *ArbiterManager) CommandHandleVoteCommand(server_protocol *BinaryServ
         return protocol.NewCallResultCommand(command, 0, "ERR_UNINIT", nil), nil
     }
 
+    go func() {
+        for _, member := range self.members {
+            if member.status == ARBITER_MEMBER_STATUS_ONLINE && !member.isself {
+                member.UpdateStatus()
+            }
+        }
+    }()
+
+    err_type := ""
     if self.own_member.role == ARBITER_ROLE_LEADER {
         self.DoAnnouncement()
-        return protocol.NewCallResultCommand(command, 0, "ERR_STATUS", nil), nil
-    }
-
-    for _, member := range self.members {
-        if member.role == ARBITER_ROLE_LEADER && member.status == ARBITER_MEMBER_STATUS_ONLINE {
-            return protocol.NewCallResultCommand(command, 0, "ERR_STATUS", nil), nil
+        err_type = "ERR_ROLE"
+    } else {
+        for _, member := range self.members {
+            if member.role == ARBITER_ROLE_LEADER && member.status == ARBITER_MEMBER_STATUS_ONLINE {
+                err_type = "ERR_STATUS"
+            }
         }
     }
 
     member, err := self.GetVoteHost()
     if err != nil {
-        return protocol.NewCallResultCommand(command, 0, "ERR_VOTE", nil), nil
+        response := protobuf.ArbiterVoteResponse{ErrMessage:"", VoteHost:"", VoteAofId:"",
+            AofId:self.EncodeAofId(self.GetCurrentAofID()), Role:uint32(self.own_member.role)}
+        data, err := response.Marshal()
+        if err != nil {
+            return protocol.NewCallResultCommand(command, 0, "ERR_VOTE", nil), nil
+        }
+        return protocol.NewCallResultCommand(command, 0, "ERR_VOTE", data), nil
     }
-    response := protobuf.ArbiterVoteResponse{ErrMessage:"", VoteHost:member.host, AofId:self.EncodeAofId(member.aof_id)}
+
+    response := protobuf.ArbiterVoteResponse{ErrMessage:"", VoteHost:member.host, VoteAofId:self.EncodeAofId(member.aof_id),
+        AofId:self.EncodeAofId(self.GetCurrentAofID()), Role:uint32(self.own_member.role)}
     data, err := response.Marshal()
     if err != nil {
         return protocol.NewCallResultCommand(command, 0, "ERR_ENCODE", nil), nil
     }
-    return protocol.NewCallResultCommand(command, 0, "", data), nil
+    return protocol.NewCallResultCommand(command, 0, err_type, data), nil
 }
 
 func (self *ArbiterManager) CommandHandleProposalCommand(server_protocol *BinaryServerProtocol, command *protocol.CallCommand) (*protocol.CallResultCommand, error) {
@@ -1659,7 +1730,7 @@ func (self *ArbiterManager) CommandHandleStatusCommand(server_protocol *BinarySe
         return protocol.NewCallResultCommand(command, 0, "ERR_CONFIG", nil), nil
     }
 
-    aof_id := self.EncodeAofId(self.slock.replication_manager.GetCurrentAofID())
+    aof_id := self.EncodeAofId(self.GetCurrentAofID())
     response := protobuf.ArbiterStatusResponse{ErrMessage:"", AofId:aof_id, Role:uint32(self.own_member.role)}
     data, err := response.Marshal()
     if err != nil {

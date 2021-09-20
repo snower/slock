@@ -170,7 +170,7 @@ func (self *ReplicationClientChannel) Open(addr string) error {
 		return errors.New("Client is Opened")
 	}
 
-	conn, err := net.DialTimeout("tcp", addr, 5 * time.Second)
+	conn, err := net.DialTimeout("tcp", addr, 2 * time.Second)
 	if err != nil {
 		return err
 	}
@@ -1531,13 +1531,12 @@ func (self *ReplicationManager) SwitchToFollower(address string) error {
 		return errors.New("state error")
 	}
 
-	self.slock.logger.Infof("Replication Start Change To Follower")
 	if self.leader_address == address && !self.is_leader {
 		self.glock.Unlock()
-		self.slock.logger.Infof("Replication Finish Change To Follower")
 		return nil
 	}
 
+	self.slock.logger.Infof("Replication Start Change To Follower")
 	self.leader_address = address
 	if address == "" {
 		self.slock.UpdateState(STATE_FOLLOWER)
