@@ -1173,11 +1173,7 @@ func (self *LockDB) DoTimeOut(lock *Lock){
         lock_manager.locked -= uint32(lock_locked)
         lock_manager.RemoveLock(lock)
         if lock.is_aof {
-            if lock_command.ExpriedFlag & 0x1000 == 0 {
-                lock_manager.PushUnLockAof(lock)
-            } else {
-                lock.is_aof = false
-            }
+            lock_manager.PushUnLockAof(lock)
         }
     } else {
         if lock_manager.GetWaitLock() == nil {
@@ -1339,11 +1335,7 @@ func (self *LockDB) DoExpried(lock *Lock){
     lock_protocol, lock_command := lock.protocol, lock.command
     lock_manager.RemoveLock(lock)
     if lock.is_aof {
-        if lock_command.ExpriedFlag & 0x1000 == 0 {
-            lock_manager.PushUnLockAof(lock)
-        } else {
-            lock.is_aof = false
-        }
+        lock_manager.PushUnLockAof(lock)
     }
 
     lock.ref_count--
@@ -1426,7 +1418,7 @@ func (self *LockDB) Lock(server_protocol ServerProtocol, command *protocol.LockC
 
     waited := lock_manager.waited
     if lock_manager.locked > 0 {
-        if command.Flag == 0x01 {
+        if command.Flag & 0x01 != 0 {
             lock_manager.glock.Unlock()
 
             current_lock := lock_manager.current_lock
@@ -1443,7 +1435,7 @@ func (self *LockDB) Lock(server_protocol ServerProtocol, command *protocol.LockC
 
         current_lock := lock_manager.GetLockedLock(command)
         if current_lock != nil {
-            if command.Flag == 0x02 {
+            if command.Flag & 0x02 != 0 {
                 if current_lock.long_wait_index > 0 {
                     self.RemoveLongExpried(current_lock)
                     lock_manager.UpdateLockedLock(current_lock, command.Timeout, command.TimeoutFlag, command.Expried, command.ExpriedFlag, command.Count, command.Rcount)
@@ -1457,7 +1449,7 @@ func (self *LockDB) Lock(server_protocol ServerProtocol, command *protocol.LockC
                 } else {
                     lock_manager.UpdateLockedLock(current_lock, command.TimeoutFlag, command.Timeout, command.Expried, command.ExpriedFlag, command.Count, command.Rcount)
                 }
-                if current_lock.is_aof && command.ExpriedFlag & 0x1000 == 0 {
+                if current_lock.is_aof {
                     lock_manager.PushLockAof(current_lock)
                 }
                 lock_manager.glock.Unlock()
@@ -1494,7 +1486,7 @@ func (self *LockDB) Lock(server_protocol ServerProtocol, command *protocol.LockC
                 } else {
                     lock_manager.UpdateLockedLock(current_lock, command.Timeout, command.TimeoutFlag, command.Expried, command.ExpriedFlag, command.Count, command.Rcount)
                 }
-                if current_lock.is_aof && command.ExpriedFlag & 0x1000 == 0 {
+                if current_lock.is_aof {
                     lock_manager.PushLockAof(current_lock)
                 }
                 lock_manager.glock.Unlock()
@@ -1641,7 +1633,7 @@ func (self *LockDB) UnLock(server_protocol ServerProtocol, command *protocol.Loc
 
     current_lock := lock_manager.GetLockedLock(command)
     if current_lock == nil {
-        if command.Flag == 0x01 {
+        if command.Flag & 0x01 != 0 {
             current_lock = lock_manager.current_lock
 
             if current_lock == nil {
@@ -1678,11 +1670,7 @@ func (self *LockDB) UnLock(server_protocol ServerProtocol, command *protocol.Loc
                 self.RemoveLongExpried(current_lock)
                 lock_manager.RemoveLock(current_lock)
                 if current_lock.is_aof {
-                    if command.ExpriedFlag & 0x1000 == 0 {
-                        lock_manager.PushUnLockAof(current_lock)
-                    } else {
-                        current_lock.is_aof = false
-                    }
+                    lock_manager.PushUnLockAof(current_lock)
                 }
                 lock_manager.locked -= uint32(lock_locked)
 
@@ -1695,11 +1683,7 @@ func (self *LockDB) UnLock(server_protocol ServerProtocol, command *protocol.Loc
             } else {
                 lock_manager.RemoveLock(current_lock)
                 if current_lock.is_aof {
-                    if command.ExpriedFlag & 0x1000 == 0 {
-                        lock_manager.PushUnLockAof(current_lock)
-                    } else {
-                        current_lock.is_aof = false
-                    }
+                    lock_manager.PushUnLockAof(current_lock)
                 }
                 lock_manager.locked -= uint32(lock_locked)
             }
@@ -1730,11 +1714,7 @@ func (self *LockDB) UnLock(server_protocol ServerProtocol, command *protocol.Loc
             self.RemoveLongExpried(current_lock)
             lock_manager.RemoveLock(current_lock)
             if current_lock.is_aof {
-                if command.ExpriedFlag & 0x1000 == 0 {
-                    lock_manager.PushUnLockAof(current_lock)
-                } else {
-                    current_lock.is_aof = false
-                }
+                lock_manager.PushUnLockAof(current_lock)
             }
             lock_manager.locked--
 
@@ -1747,11 +1727,7 @@ func (self *LockDB) UnLock(server_protocol ServerProtocol, command *protocol.Loc
         } else {
             lock_manager.RemoveLock(current_lock)
             if current_lock.is_aof {
-                if command.ExpriedFlag & 0x1000 == 0 {
-                    lock_manager.PushUnLockAof(current_lock)
-                } else {
-                    current_lock.is_aof = false
-                }
+                lock_manager.PushUnLockAof(current_lock)
             }
             lock_manager.locked--
         }
@@ -1910,11 +1886,7 @@ func (self *LockDB) DoAckLock(lock *Lock, succed bool) {
     lock_protocol, lock_command := lock.protocol, lock.command
     lock_manager.RemoveLock(lock)
     if lock.is_aof {
-        if lock_command.ExpriedFlag & 0x1000 == 0 {
-            lock_manager.PushUnLockAof(lock)
-        } else {
-            lock.is_aof = false
-        }
+        lock_manager.PushUnLockAof(lock)
     }
 
     lock.ref_count--

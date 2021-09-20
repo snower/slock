@@ -49,9 +49,6 @@ func (self *LockManager) AddLock(lock *Lock) *Lock {
         lock.aof_time = self.lock_db.aof_time
     }
 
-    if lock.command.ExpriedFlag & 0x1000 != 0 {
-        lock.is_aof = true
-    }
     lock.locked = 1
     lock.ref_count++
     lock.ack_count = 0
