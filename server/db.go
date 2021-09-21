@@ -1306,13 +1306,13 @@ func (self *LockDB) DoExpried(lock *Lock, forced_expried bool){
 
     if !forced_expried {
         if self.slock.state != STATE_LEADER {
-            if lock.command.ExpriedFlag&0x0400 == 0 {
+            if lock.command.ExpriedFlag & 0x0400 == 0 {
                 if lock.command.Expried > 30 {
                     lock.expried_time = self.current_time + 30
                 } else {
                     lock.expried_time = self.current_time + int64(lock.command.Expried) + 1
                 }
-            } else if lock.command.ExpriedFlag&0x4000 != 0 {
+            } else if lock.command.ExpriedFlag & 0x4000 != 0 {
                 lock.expried_time = 0x7fffffffffffffff
             }
             self.AddExpried(lock)
@@ -1320,7 +1320,7 @@ func (self *LockDB) DoExpried(lock *Lock, forced_expried bool){
             return
         }
 
-        if lock.command.ExpriedFlag&0x8000 != 0 {
+        if lock.command.ExpriedFlag & 0x8000 != 0 {
             stream := lock.protocol.GetStream()
             if stream != nil && !stream.closed {
                 lock.expried_time = self.current_time + int64(lock.command.Expried)
@@ -1400,7 +1400,6 @@ func (self *LockDB) Lock(server_protocol ServerProtocol, command *protocol.LockC
 
     lock_manager := self.GetOrNewLockManager(command)
     lock_manager.glock.Lock()
-
     if lock_manager.freed {
         lock_manager.glock.Unlock()
         return self.Lock(server_protocol, command)

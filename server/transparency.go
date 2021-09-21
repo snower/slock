@@ -13,17 +13,23 @@ import (
 
 type TransparencyBinaryClientProtocol struct {
 	slock                       *SLock
+	glock 						*sync.Mutex
 	stream 						*client.Stream
 	protocol 					*client.BinaryClientProtocol
+	leader_address				string
 	closed						bool
 }
 
-func (self *TransparencyBinaryClientProtocol) Open(addr string) error {
+func NewTransparencyBinaryClientProtocol(slock *SLock) *TransparencyBinaryClientProtocol {
+	return &TransparencyBinaryClientProtocol{slock, &sync.Mutex{}, nil, nil, "", false}
+}
+
+func (self *TransparencyBinaryClientProtocol) Open(leader_address string) error {
 	if self.protocol != nil {
 		return errors.New("Client is Opened")
 	}
 
-	conn, err := net.DialTimeout("tcp", addr, 5 * time.Second)
+	conn, err := net.DialTimeout("tcp", leader_address, 5 * time.Second)
 	if err != nil {
 		return err
 	}
@@ -31,6 +37,7 @@ func (self *TransparencyBinaryClientProtocol) Open(addr string) error {
 	client_protocol := client.NewBinaryClientProtocol(stream)
 	self.stream = stream
 	self.protocol = client_protocol
+	self.leader_address = leader_address
 	self.closed = false
 	return nil
 }
@@ -50,24 +57,53 @@ func (self *TransparencyBinaryClientProtocol) Close() error {
 	return nil
 }
 
-func (self *TransparencyBinaryClientProtocol) Lock(command *protocol.LockCommand) error {
+func (self *TransparencyBinaryClientProtocol) Write(command protocol.CommandEncode) error {
+	if self.leader_address != self.slock.replication_manager.leader_address {
+		self.glock.Lock()
+		if self.slock.replication_manager.leader_address != "" && self.leader_address != self.slock.replication_manager.leader_address {
+			self.protocol.Close()
+			err := self.Open(self.slock.replication_manager.leader_address)
+			if err != nil {
+				self.glock.Unlock()
+				return err
+			}
+		}
+		self.glock.Unlock()
+	}
 	return self.protocol.Write(command)
 }
 
-func (self *TransparencyBinaryClientProtocol) Unlock(command *protocol.LockCommand) error {
-	return self.protocol.Write(command)
+func (self *TransparencyBinaryClientProtocol) ProcessFinished(server_protocol ServerProtocol) error {
+	if self.slock.state == STATE_LEADER || self.closed {
+		return io.EOF
+	}
+
+	self.glock.Lock()
+	if self.leader_address != self.slock.replication_manager.leader_address {
+		if self.slock.replication_manager.leader_address == "" {
+			self.glock.Unlock()
+			server_protocol.Close()
+			return io.EOF
+		}
+
+		self.protocol.Close()
+		err := self.Open(self.slock.replication_manager.leader_address)
+		self.glock.Unlock()
+		return err
+	}
+
+	self.glock.Unlock()
+	server_protocol.Close()
+	return io.EOF
 }
 
 func (self *TransparencyBinaryClientProtocol) Process(server_protocol *TransparencyBinaryServerProtocol) {
 	for ; !self.closed; {
 		command, err := self.protocol.Read()
 		if err != nil {
-			if err == io.EOF {
-				if self.slock.state == STATE_LEADER {
-					self.Close()
-				} else {
-					server_protocol.Close()
-				}
+			err := self.ProcessFinished(server_protocol)
+			if err != nil {
+				self.Close()
 				return
 			}
 			continue
@@ -104,12 +140,9 @@ func (self *TransparencyBinaryClientProtocol) ProcessWaiter(server_protocol *Tra
 	for ; !self.closed; {
 		command, err := self.protocol.Read()
 		if err != nil {
-			if err == io.EOF {
-				if self.slock.state == STATE_LEADER {
-					self.Close()
-				} else {
-					server_protocol.Close()
-				}
+			err := self.ProcessFinished(server_protocol)
+			if err != nil {
+				self.Close()
 				return
 			}
 			continue
@@ -135,7 +168,7 @@ type TransparencyBinaryServerProtocol struct {
 }
 
 func NewTransparencyBinaryServerProtocol(slock *SLock, stream *Stream, server_protocol *BinaryServerProtocol) *TransparencyBinaryServerProtocol {
-	client_protocol := &TransparencyBinaryClientProtocol{slock, nil, nil, false}
+	client_protocol := NewTransparencyBinaryClientProtocol(slock)
 	return &TransparencyBinaryServerProtocol{slock, &sync.Mutex{}, stream, server_protocol, client_protocol, false}
 }
 
@@ -318,7 +351,7 @@ func (self *TransparencyBinaryServerProtocol) ProcessParse(buf []byte) error {
 		if err != nil {
 			return self.server_protocol.ProcessLockResultCommand(lock_command, protocol.RESULT_STATE_ERROR, 0, 0)
 		}
-		err = self.client_protocol.Lock(lock_command)
+		err = self.client_protocol.Write(lock_command)
 		if err != nil {
 			return err
 		}
@@ -371,7 +404,7 @@ func (self *TransparencyBinaryServerProtocol) ProcessParse(buf []byte) error {
 		if err != nil {
 			return self.server_protocol.ProcessLockResultCommand(lock_command, protocol.RESULT_STATE_ERROR, 0, 0)
 		}
-		err = self.client_protocol.Unlock(lock_command)
+		err = self.client_protocol.Write(lock_command)
 		if err != nil {
 			return err
 		}
@@ -446,7 +479,7 @@ func (self *TransparencyBinaryServerProtocol) ProcessCommad(command protocol.ICo
 		self.slock.glock.Lock()
 		self.slock.streams[init_command.ClientId] = self
 		self.slock.glock.Unlock()
-		return self.client_protocol.protocol.Write(init_command)
+		return self.client_protocol.Write(init_command)
 	}
 	return self.server_protocol.ProcessCommad(command)
 }
@@ -510,7 +543,7 @@ type TransparencyTextServerProtocol struct {
 }
 
 func NewTransparencyTextServerProtocol(slock *SLock, stream *Stream, server_protocol *TextServerProtocol) *TransparencyTextServerProtocol {
-	client_protocol := &TransparencyBinaryClientProtocol{slock, nil, nil, false}
+	client_protocol := NewTransparencyBinaryClientProtocol(slock)
 	transparency_protocol := &TransparencyTextServerProtocol{slock, &sync.Mutex{}, stream, server_protocol, client_protocol,
 		make(chan *protocol.LockResultCommand, 4), false}
 	if server_protocol.handlers == nil {
@@ -763,7 +796,7 @@ func (self *TransparencyTextServerProtocol) CommandHandlerLock(server_protocol *
 	}
 
 	self.server_protocol.lock_request_id = lock_command.RequestId
-	err = self.client_protocol.Lock(lock_command)
+	err = self.client_protocol.Write(lock_command)
 	if err != nil {
 		return self.stream.WriteBytes(self.server_protocol.parser.BuildResponse(false, "ERR Lock Error", nil))
 	}
@@ -837,7 +870,7 @@ func (self *TransparencyTextServerProtocol) CommandHandlerUnlock(server_protocol
 	}
 
 	self.server_protocol.lock_request_id = lock_command.RequestId
-	err = self.client_protocol.Unlock(lock_command)
+	err = self.client_protocol.Write(lock_command)
 	if err != nil {
 		return self.stream.WriteBytes(self.server_protocol.parser.BuildResponse(false, "ERR UnLock Error", nil))
 	}

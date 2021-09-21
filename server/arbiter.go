@@ -230,6 +230,8 @@ func (self *ArbiterClient) Open(addr string) error {
         self.glock.Unlock()
         return err
     }
+    close(self.rchannel)
+    self.rchannel = make(chan protocol.CommandDecode, 8)
     self.glock.Unlock()
     return nil
 }
@@ -299,13 +301,8 @@ func (self *ArbiterClient) Run() {
         self.member.ClientOnline(self)
         for ; !self.closed; {
             command, err := self.protocol.Read()
-            if err == nil {
-                self.rchannel <- command
-            } else {
-                self.rchannel <- nil
-            }
-
             if err != nil {
+                self.rchannel <- nil
                 if self.protocol != nil {
                     self.protocol.Close()
                 }
@@ -314,6 +311,7 @@ func (self *ArbiterClient) Run() {
                 self.member.ClientOffline(self)
                 break
             }
+            self.rchannel <- command
         }
     }
 
@@ -481,6 +479,7 @@ type ArbiterMember struct {
     status          uint8
     last_updated    int64
     last_delay      int64
+    last_error      int
     aof_id          [16]byte
     isself          bool
     abstianed       bool
@@ -491,7 +490,7 @@ type ArbiterMember struct {
 
 func NewArbiterMember(manager *ArbiterManager, host string, weight uint32, arbiter uint32) *ArbiterMember {
     return &ArbiterMember{manager, &sync.Mutex{}, nil, nil, host, weight, arbiter, ARBITER_ROLE_UNKNOWN,
-        ARBITER_MEMBER_STATUS_UNOPEN, 0, 0, [16]byte{}, false,
+        ARBITER_MEMBER_STATUS_UNOPEN, 0, 0, 0, [16]byte{}, false,
         false, false, make(chan bool, 1), nil}
 }
 
@@ -556,6 +555,11 @@ func (self *ArbiterMember) UpdateStatus() error {
     }
     
     if call_result_command.Result != 0 || call_result_command.ErrType != "" {
+        self.last_error++
+        if self.last_error >= 5 {
+            self.client.protocol.Close()
+            self.last_error = 0
+        }
         return errors.New(fmt.Sprintf("call error %d %s", call_result_command.Result, call_result_command.ErrType))
     }
     
@@ -569,6 +573,7 @@ func (self *ArbiterMember) UpdateStatus() error {
     self.role = uint8(response.Role)
     self.last_updated = time.Now().UnixNano()
     self.last_delay = self.last_updated - now
+    self.last_error = 0
     return nil
 }
 
