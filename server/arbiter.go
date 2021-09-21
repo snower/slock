@@ -701,6 +701,13 @@ func (self *ArbiterMember) DoProposal(proposal_id uint64, host string, aof_id [1
     }
 
     if call_result_command.Result != 0 || call_result_command.ErrType != "" {
+        if call_result_command.ErrType == "ERR_PROPOSALID" {
+            response := protobuf.ArbiterProposalResponse{}
+            err = response.Unmarshal(call_result_command.Data)
+            if err == nil {
+                self.manager.voter.proposal_id = response.ProposalId
+            }
+        }
         self.manager.slock.Log().Errorf("Arbiter Proposal Error %s %d %s", self.host, call_result_command.Result, call_result_command.ErrType)
         return nil, errors.New(fmt.Sprintf("call error %d %s", call_result_command.Result, call_result_command.ErrType))
     }
@@ -1716,9 +1723,15 @@ func (self *ArbiterManager) CommandHandleProposalCommand(server_protocol *Binary
     }
 
     if self.voter.proposal_id >= request.ProposalId || self.voter.proposal_host != "" {
-        return protocol.NewCallResultCommand(command, 0, "ERR_PROPOSALID", nil), nil
+        response := protobuf.ArbiterProposalResponse{ErrMessage:"", ProposalId:self.voter.proposal_id}
+        data, err := response.Marshal()
+        if err != nil {
+            return protocol.NewCallResultCommand(command, 0, "ERR_ENCODE", nil), nil
+        }
+        return protocol.NewCallResultCommand(command, 0, "ERR_PROPOSALID", data), nil
     }
-    response := protobuf.ArbiterProposalResponse{ErrMessage:""}
+
+    response := protobuf.ArbiterProposalResponse{ErrMessage:"", ProposalId:self.voter.proposal_id}
     data, err := response.Marshal()
     if err != nil {
         return protocol.NewCallResultCommand(command, 0, "ERR_ENCODE", nil), nil
@@ -1751,9 +1764,15 @@ func (self *ArbiterManager) CommandHandleCommitCommand(server_protocol *BinarySe
     }
 
     if self.voter.commit_id >= request.ProposalId {
-        return protocol.NewCallResultCommand(command, 0, "ERR_COMMITID", nil), nil
+        response := protobuf.ArbiterCommitResponse{ErrMessage:"", CommitId:self.voter.commit_id}
+        data, err := response.Marshal()
+        if err != nil {
+            return protocol.NewCallResultCommand(command, 0, "ERR_ENCODE", nil), nil
+        }
+        return protocol.NewCallResultCommand(command, 0, "ERR_COMMITID", data), nil
     }
-    response := protobuf.ArbiterCommitResponse{ErrMessage:""}
+
+    response := protobuf.ArbiterCommitResponse{ErrMessage:"", CommitId:self.voter.commit_id}
     data, err := response.Marshal()
     if err != nil {
         return protocol.NewCallResultCommand(command, 0, "ERR_ENCODE", nil), nil

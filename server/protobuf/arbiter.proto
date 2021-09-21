@@ -57,6 +57,7 @@ message ArbiterProposalRequest {
 
 message ArbiterProposalResponse {
   string err_message = 1;
+  uint64 proposal_id = 2;
 }
 
 message ArbiterCommitRequest {
@@ -67,6 +68,7 @@ message ArbiterCommitRequest {
 
 message ArbiterCommitResponse {
   string err_message = 1;
+  uint64 commit_id = 2;
 }
 
 message ArbiterStatusRequest {
