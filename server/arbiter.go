@@ -1004,6 +1004,7 @@ func (self *ArbiterVoter) DoCommit() error {
     })
 
     if len(responses) < len(self.manager.members) / 2 + 1 {
+        self.proposal_host = ""
         return errors.New("member accept proposal count too small")
     }
 
