@@ -1902,7 +1902,7 @@ func (self *ArbiterManager) CommandHandleAnnouncementCommand(server_protocol *Bi
     }
     self.glock.Unlock()
     self.slock.Log().Infof("Arbiter Replication Announcement From %s Leader %s Member Count %d Version %d CommitId %d",
-        leader_host, request.FromHost, len(new_members), request.Replset.Version, request.Replset.CommitId)
+        request.FromHost, leader_host, len(new_members), request.Replset.Version, request.Replset.CommitId)
     for _, member := range members {
         member.Close()
     }
