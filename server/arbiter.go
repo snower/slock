@@ -552,6 +552,11 @@ func (self *ArbiterMember) UpdateStatus() error {
     call_command := protocol.NewCallCommand("REPL_STATUS", data)
     call_result_command, err := self.client.Request(call_command)
     if err != nil {
+        self.last_error++
+        if self.last_error >= 5 {
+            self.client.protocol.Close()
+            self.last_error = 0
+        }
         return err
     }
     
@@ -1314,8 +1319,12 @@ func (self *ArbiterManager) UpdateMember(host string, weight uint32, arbiter uin
     self.version++
     self.vertime = uint64(time.Now().UnixNano()) / 1e6
     self.store.Save(self)
-    self.DoAnnouncement()
-    self.UpdateStatus()
+    if self.own_member.role == ARBITER_ROLE_LEADER && self.own_member.weight == 0 {
+        self.QuitLeader()
+    } else {
+        self.DoAnnouncement()
+        self.UpdateStatus()
+    }
     self.slock.logger.Infof("Arbiter Update Member %s %d %d", host, weight, arbiter)
     return nil
 }
@@ -1326,7 +1335,11 @@ func (self *ArbiterManager) GetMembers() []*ArbiterMember {
 
 func (self *ArbiterManager) QuitLeader() error {
     self.slock.Log().Infof("Arbiter Quit Leader Start")
-    self.slock.UpdateState(STATE_SYNC)
+    if self.own_member.arbiter == 0 {
+        self.slock.replication_manager.SwitchToFollower("")
+    } else {
+        self.slock.UpdateState(STATE_FOLLOWER)
+    }
     self.own_member.role = ARBITER_ROLE_FOLLOWER
     self.leader_member = nil
     self.version++
@@ -1335,25 +1348,22 @@ func (self *ArbiterManager) QuitLeader() error {
     self.glock.Unlock()
     self.voter.DoAnnouncement()
     self.glock.Lock()
-
     self.slock.Log().Infof("Arbiter Quit Leader")
-    if self.own_member.arbiter == 0 {
-        err := self.slock.replication_manager.SwitchToFollower("")
-        if err != nil {
-            return err
-        }
-        return nil
-    }
-    self.slock.UpdateState(STATE_FOLLOWER)
     return nil
 }
 
 func (self *ArbiterManager) QuitMember() error {
-    self.slock.UpdateState(STATE_SYNC)
+    if self.own_member.arbiter == 0 {
+        self.slock.replication_manager.SwitchToFollower("")
+    } else {
+        self.slock.UpdateState(STATE_FOLLOWER)
+    }
     for _, member := range self.members {
         member.Close()
         <- member.closed_waiter
     }
+
+    self.glock.Lock()
     self.members = make([]*ArbiterMember, 0)
     self.own_member = nil
     self.leader_member = nil
@@ -1363,12 +1373,8 @@ func (self *ArbiterManager) QuitMember() error {
     self.version = 1
     self.vertime = 0
     self.store.Save(self)
-
-    err := self.slock.replication_manager.SwitchToFollower("")
+    self.glock.Unlock()
     self.slock.Log().Infof("Arbiter Quit Member")
-    if err != nil {
-        return err
-    }
     return nil
 }
 
@@ -1684,6 +1690,10 @@ func (self *ArbiterManager) CommandHandleVoteCommand(server_protocol *BinaryServ
 
     if self.own_member == nil || len(self.members) == 0 {
         return protocol.NewCallResultCommand(command, 0, "ERR_UNINIT", nil), nil
+    }
+
+    if self.own_member.abstianed {
+        return protocol.NewCallResultCommand(command, 0, "ERR_ABSTIANED", nil), nil
     }
 
     response := protobuf.ArbiterVoteResponse{ErrMessage:"", Host:self.own_member.host, Weight:self.own_member.weight,
