@@ -283,10 +283,6 @@ func (self *ReplicationClientChannel) SendInitSyncCommand() (*protobuf.SyncRespo
 	if call_result_command.Result != 0 || call_result_command.ErrType != "" {
 		if call_result_command.Result == 0 && call_result_command.ErrType == "ERR_NOT_FOUND" {
 			self.current_request_id = [16]byte{}
-			err := self.manager.Resync()
-			if err != nil {
-				return nil, err
-			}
 			self.manager.slock.logger.Infof("Replication Resend File Sync")
 			self.aof_lock = nil
 			self.recved_files = false
@@ -300,7 +296,6 @@ func (self *ReplicationClientChannel) SendInitSyncCommand() (*protobuf.SyncRespo
 	if err != nil {
 		return nil, errors.New("unknown lastest requestid")
 	}
-
 	self.manager.slock.logger.Infof("Replication Recv Start Sync %s", response.AofId)
 	return &response, nil
 }
@@ -330,6 +325,10 @@ func (self *ReplicationClientChannel) InitSync() error {
 		aof_file_index = aof_file_index - 1
 	}
 	err = self.aof.Reset(aof_file_index)
+	if err != nil {
+		return err
+	}
+	err = self.manager.FlushDB()
 	if err != nil {
 		return err
 	}
@@ -1675,13 +1674,13 @@ func (self *ReplicationManager) ChangeLeader(address string) error {
 	return nil
 }
 
-func (self *ReplicationManager) Resync() error {
+func (self *ReplicationManager) FlushDB() error {
 	for _, db := range self.slock.dbs {
 		if db != nil {
 			db.FlushDB()
 		}
 	}
-	self.slock.Log().Infof("Replication Reset DB")
+	self.slock.Log().Infof("Replication Flush All DB")
 	return nil
 }
 

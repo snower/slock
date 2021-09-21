@@ -151,7 +151,13 @@ func (self *TransparencyBinaryClientProtocol) ProcessWaiter(server_protocol *Tra
 		switch command.(type) {
 		case *protocol.LockResultCommand:
 			lock_command := command.(*protocol.LockResultCommand)
-			if lock_command.RequestId == server_protocol.server_protocol.lock_request_id {
+			text_protocol := server_protocol.server_protocol
+			if lock_command.RequestId == text_protocol.lock_request_id {
+				text_protocol.lock_request_id[0], text_protocol.lock_request_id[1], text_protocol.lock_request_id[2], text_protocol.lock_request_id[3], text_protocol.lock_request_id[4], text_protocol.lock_request_id[5], text_protocol.lock_request_id[6], text_protocol.lock_request_id[7],
+					text_protocol.lock_request_id[8], text_protocol.lock_request_id[9], text_protocol.lock_request_id[10], text_protocol.lock_request_id[11], text_protocol.lock_request_id[12], text_protocol.lock_request_id[13], text_protocol.lock_request_id[14], text_protocol.lock_request_id[15] =
+					0, 0, 0, 0, 0, 0, 0, 0,
+					0, 0, 0, 0, 0, 0, 0, 0
+
 				server_protocol.lock_waiter <- lock_command
 			}
 		}
