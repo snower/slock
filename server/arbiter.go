@@ -97,6 +97,7 @@ func (self *ArbiterStore) Load(manager *ArbiterManager) error {
         return errors.New("unknown own member info")
     }
     manager.members = members
+    manager.gid = replset.Gid
     manager.version = replset.Version
     manager.vertime = replset.Vertime
     manager.voter.commit_id = replset.CommitId
@@ -133,7 +134,7 @@ func (self *ArbiterStore) Save(manager *ArbiterManager) error {
     if manager.own_member != nil {
         owner = manager.own_member.host
     }
-    replset := protobuf.ReplSet{Name:manager.name, Version:manager.version, Vertime:manager.vertime,
+    replset := protobuf.ReplSet{Name:manager.name, Gid:manager.gid, Version:manager.version, Vertime:manager.vertime,
         Owner:owner, Members:members, CommitId:manager.voter.commit_id}
     data, err := replset.Marshal()
     if err != nil {
@@ -775,7 +776,7 @@ func (self *ArbiterMember) DoAnnouncement() (*protobuf.ArbiterAnnouncementRespon
         members = append(members, rplm)
     }
 
-    replset := protobuf.ReplSet{Name:self.manager.name, Version:self.manager.version, Vertime:self.manager.vertime,
+    replset := protobuf.ReplSet{Name:self.manager.name, Gid:self.manager.gid, Version:self.manager.version, Vertime:self.manager.vertime,
         Owner:self.host, Members:members, CommitId:self.manager.voter.commit_id}
     request := protobuf.ArbiterAnnouncementRequest{FromHost:self.manager.own_member.host, ToHost:self.host, Replset:&replset}
     data, err := request.Marshal()
@@ -878,7 +879,7 @@ func (self *ArbiterVoter) StartVote() error {
             online_count := 0
             for _, member := range self.manager.members {
                 if member.status == ARBITER_MEMBER_STATUS_ONLINE {
-                    if member.host == self.proposal_host {
+                    if member.host == self.proposal_host && self.manager.own_member.host != self.proposal_host {
                         self.manager.slock.Log().Infof("Arbier Voter Wait Announcement, Current Leader %s", self.proposal_host)
                         return
                     }
@@ -1086,6 +1087,7 @@ type ArbiterManager struct {
     own_member      *ArbiterMember
     leader_member   *ArbiterMember
     name            string
+    gid             string
     version         uint32
     vertime         uint64
     stoped          bool
@@ -1096,7 +1098,7 @@ func NewArbiterManager(slock *SLock, name string) *ArbiterManager {
     store := NewArbiterStore()
     voter := NewArbiterVoter()
     manager := &ArbiterManager{slock, &sync.Mutex{}, store, voter,
-        make([]*ArbiterMember, 0), nil, nil, name, 1, 0,
+        make([]*ArbiterMember, 0), nil, nil, name, "", 1, 0,
         false, false}
     voter.manager = manager
     return manager
@@ -1199,6 +1201,7 @@ func (self *ArbiterManager) Config(host string, weight uint32, arbiter uint32) e
     self.members = append(self.members, member)
     self.slock.UpdateState(STATE_VOTE)
     go member.Run()
+    self.gid = self.EncodeAofId(protocol.GenRequestId())
     self.version++
     self.vertime = uint64(time.Now().UnixNano()) / 1e6
     self.voter.proposal_id = uint64(self.version)
@@ -1799,6 +1802,10 @@ func (self *ArbiterManager) CommandHandleAnnouncementCommand(server_protocol *Bi
         return protocol.NewCallResultCommand(command, 0, "ERR_NAME", nil), nil
     }
 
+    if self.own_member != nil && len(self.members) > 0 && request.Replset.Gid != self.gid {
+        return protocol.NewCallResultCommand(command, 0, "ERR_GID", nil), nil
+    }
+
     if request.Replset.CommitId == self.voter.commit_id && self.voter.proposal_host != "" {
         if self.version < request.Replset.Version {
             self.version = request.Replset.Version
@@ -1886,7 +1893,9 @@ func (self *ArbiterManager) CommandHandleAnnouncementCommand(server_protocol *Bi
     self.members = new_members
     self.own_member = own_member
     self.leader_member = leader_member
+    self.gid = request.Replset.Gid
     self.version = request.Replset.Version
+    self.vertime = request.Replset.Vertime
     self.store.Save(self)
     if self.own_member.role == ARBITER_ROLE_LEADER {
         self.UpdateStatus()

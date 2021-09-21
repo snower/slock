@@ -206,7 +206,7 @@ func (self *ReplicationClientChannel) Run() {
 			self.stream = nil
 			self.protocol = nil
 			self.manager.WakeupInitSyncedWaiters()
-			if !self.closed {
+			if self.closed {
 				break
 			}
 			self.SleepWhenRetryConnect()
@@ -235,7 +235,7 @@ func (self *ReplicationClientChannel) Run() {
 		self.stream = nil
 		self.protocol = nil
 		self.manager.WakeupInitSyncedWaiters()
-		if !self.closed {
+		if self.closed {
 			break
 		}
 		self.SleepWhenRetryConnect()
@@ -1220,7 +1220,7 @@ func (self *ReplicationAckDB) SwitchToLeader() error {
 		lock_manager := lock.manager
 		lock_manager.lock_db.DoAckLock(lock, true)
 	}
-	
+
 	if self.ack_locks == nil {
 		self.ack_locks = make(map[[16]byte]*ReplicationAckLock, REPLICATION_ACK_DB_INIT_SIZE)
 	}
