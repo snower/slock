@@ -989,6 +989,18 @@ func (self *ReplicationAckDB) Close() error {
 func (self *ReplicationAckDB) PushLock(lock *AofLock) error {
 	if lock.CommandType == protocol.COMMAND_LOCK {
 		self.glock.Lock()
+		if self.manager.slock.state != STATE_LEADER {
+			if lock.lock == nil {
+				self.glock.Unlock()
+				return nil
+			}
+
+			lock_manager := lock.lock.manager
+			lock_manager.lock_db.DoAckLock(lock.lock, false)
+			self.glock.Unlock()
+			return nil
+		}
+		
 		lock_key := [2][16]byte{lock.LockKey, lock.LockId}
 		if request_id, ok := self.requests[lock_key]; ok {
 			if _, ok := self.locks[request_id]; ok {
@@ -1040,8 +1052,8 @@ func (self *ReplicationAckDB) Process(lock_result *protocol.LockResultCommand) e
 				}
 				self.glock.Unlock()
 
-				lock_manger := lock.manager
-				lock_manger.lock_db.DoAckLock(lock, false)
+				lock_manager := lock.manager
+				lock_manager.lock_db.DoAckLock(lock, false)
 			} else {
 				lock.ack_count++
 				if lock.ack_count < self.ack_count {
@@ -1056,8 +1068,8 @@ func (self *ReplicationAckDB) Process(lock_result *protocol.LockResultCommand) e
 				}
 				self.glock.Unlock()
 
-				lock_manger := lock.manager
-				lock_manger.lock_db.DoAckLock(lock, true)
+				lock_manager := lock.manager
+				lock_manager.lock_db.DoAckLock(lock, true)
 			}
 		}
 
@@ -1090,8 +1102,8 @@ func (self *ReplicationAckDB) ProcessAofed(request_id [16]byte, succed bool) err
 				}
 				self.glock.Unlock()
 
-				lock_manger := lock.manager
-				lock_manger.lock_db.DoAckLock(lock, false)
+				lock_manager := lock.manager
+				lock_manager.lock_db.DoAckLock(lock, false)
 			} else {
 				lock.ack_count++
 				if lock.ack_count < self.ack_count {
@@ -1106,8 +1118,8 @@ func (self *ReplicationAckDB) ProcessAofed(request_id [16]byte, succed bool) err
 				}
 				self.glock.Unlock()
 
-				lock_manger := lock.manager
-				lock_manger.lock_db.DoAckLock(lock, true)
+				lock_manager := lock.manager
+				lock_manager.lock_db.DoAckLock(lock, true)
 			}
 		}
 
@@ -1683,6 +1695,7 @@ func (self *ReplicationManager) FlushDB() error {
 			db.FlushDB()
 		}
 	}
+	self.buffer_queue.current_index = 0
 	self.slock.Log().Infof("Replication Flush All DB")
 	return nil
 }

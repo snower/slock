@@ -1520,7 +1520,7 @@ func (self *LockDB) Lock(server_protocol ServerProtocol, command *protocol.LockC
             lock_manager.AddLock(lock)
             lock_manager.locked++
 
-            if command.TimeoutFlag & 0x1000 != 0 && !lock.is_aof && lock.aof_time != 0xff && self.status == STATE_LEADER {
+            if command.TimeoutFlag & 0x1000 != 0 && !lock.is_aof && lock.aof_time != 0xff && command.Flag & 0x04 == 0 {
                 if command.TimeoutFlag & 0x0400 == 0 {
                     self.AddTimeOut(lock)
                 } else {
@@ -1798,7 +1798,7 @@ func (self *LockDB) WakeUpWaitLock(lock_manager *LockManager, wait_lock *Lock, s
     if wait_lock.command.Expried > 0 {
         lock_manager.AddLock(wait_lock)
         lock_manager.locked++
-        if wait_lock.command.TimeoutFlag & 0x1000 != 0 && !wait_lock.is_aof && wait_lock.aof_time != 0xff && self.status == STATE_LEADER {
+        if wait_lock.command.TimeoutFlag & 0x1000 != 0 && !wait_lock.is_aof && wait_lock.aof_time != 0xff && wait_lock.command.Flag & 0x04 == 0 {
             lock_manager.PushLockAof(wait_lock)
             if wait_lock.is_aof {
                 wait_lock.ref_count++

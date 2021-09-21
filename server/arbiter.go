@@ -1419,11 +1419,15 @@ func (self *ArbiterManager) VoteSucced() error {
     self.version++
     self.vertime = uint64(time.Now().UnixNano()) / 1e6
     self.store.Save(self)
-    if self.own_member.role == ARBITER_ROLE_LEADER {
-        self.UpdateStatus()
+    if self.voter.proposal_host == self.own_member.host {
+        if self.slock.state == STATE_LEADER {
+            self.DoAnnouncement()
+        } else {
+            self.UpdateStatus()
+        }
     } else {
         if self.slock.state == STATE_LEADER {
-            self.slock.UpdateState(STATE_SYNC)
+            self.slock.replication_manager.SwitchToFollower("")
         }
         self.glock.Unlock()
         self.voter.DoAnnouncement()
