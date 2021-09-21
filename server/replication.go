@@ -1220,9 +1220,10 @@ func (self *ReplicationAckDB) SwitchToLeader() error {
 		lock_manager := lock.manager
 		lock_manager.lock_db.DoAckLock(lock, true)
 	}
-	self.locks = nil
-	self.requests = nil
-	self.ack_locks = make(map[[16]byte]*ReplicationAckLock, REPLICATION_ACK_DB_INIT_SIZE)
+	
+	if self.ack_locks == nil {
+		self.ack_locks = make(map[[16]byte]*ReplicationAckLock, REPLICATION_ACK_DB_INIT_SIZE)
+	}
 	if self.free_ack_locks == nil {
 		self.free_ack_locks = make([]*ReplicationAckLock, REPLICATION_MAX_FREE_ACK_LOCK_QUEUE_SIZE)
 	}
@@ -1245,9 +1246,11 @@ func (self *ReplicationAckDB) SwitchToFollower() error {
 			self.free_ack_locks_index++
 		}
 	}
-	self.ack_locks = nil
-	self.locks = make(map[[16]byte]*Lock, REPLICATION_ACK_DB_INIT_SIZE)
-	self.requests = make(map[[2][16]byte][16]byte, REPLICATION_ACK_DB_INIT_SIZE)
+
+	if self.locks == nil {
+		self.locks = make(map[[16]byte]*Lock, REPLICATION_ACK_DB_INIT_SIZE)
+		self.requests = make(map[[2][16]byte][16]byte, REPLICATION_ACK_DB_INIT_SIZE)
+	}
 	self.glock.Unlock()
 	return nil
 }
