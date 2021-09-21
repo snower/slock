@@ -1681,6 +1681,7 @@ func (self *ReplicationManager) Resync() error {
 			db.FlushDB()
 		}
 	}
+	self.slock.Log().Infof("Replication Reset DB")
 	return nil
 }
 

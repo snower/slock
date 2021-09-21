@@ -308,7 +308,7 @@ func (self *LockDB) CheckTimeTimeOut(check_timeout_time int64, now int64, do_tim
 
     lock := do_timeout_locks.Pop()
     for lock != nil {
-        self.DoTimeOut(lock)
+        self.DoTimeOut(lock, false)
         lock = do_timeout_locks.Pop()
     }
     do_timeout_locks.Rellac()
@@ -357,7 +357,7 @@ func (self *LockDB) CheckMillisecondTimeOut(ms int64, glock_index int8){
             node_queues := lock_queue.IterNodeQueues(int32(i))
             for j, lock := range node_queues {
                 if lock != nil {
-                    self.DoTimeOut(lock)
+                    self.DoTimeOut(lock, false)
                     node_queues[j] = nil
                 }
             }
@@ -510,7 +510,7 @@ func (self *LockDB) FlushTimeOut(glock_index int8, do_timeout bool)  {
     if do_timeout {
         self.manager_glocks[glock_index].Unlock()
         for _, lock := range do_timeout_locks {
-            self.DoTimeOut(lock)
+            self.DoTimeOut(lock, true)
         }
         self.manager_glocks[glock_index].Lock()
     }
@@ -635,7 +635,7 @@ func (self *LockDB) CheckTimeExpried(check_expried_time int64, now int64, do_exp
 
     lock := do_expried_locks.Pop()
     for lock != nil {
-        self.DoExpried(lock)
+        self.DoExpried(lock, false)
         lock = do_expried_locks.Pop()
     }
     do_expried_locks.Rellac()
@@ -684,7 +684,7 @@ func (self *LockDB) CheckMillisecondExpried(ms int64, glock_index int8){
             node_queues := lock_queue.IterNodeQueues(int32(i))
             for j, lock := range node_queues {
                 if lock != nil {
-                    self.DoExpried(lock)
+                    self.DoExpried(lock, false)
                     node_queues[j] = nil
                 }
             }
@@ -836,7 +836,7 @@ func (self *LockDB) FlushExpried(glock_index int8, do_expried bool)  {
     if do_expried {
         self.manager_glocks[glock_index].Unlock()
         for _, lock := range do_expried_locks {
-            self.DoExpried(lock)
+            self.DoExpried(lock, true)
         }
         self.manager_glocks[glock_index].Lock()
     } else {
@@ -1149,7 +1149,7 @@ func (self *LockDB) RemoveLongTimeOut(lock *Lock){
     lock.ref_count--
 }
 
-func (self *LockDB) DoTimeOut(lock *Lock){
+func (self *LockDB) DoTimeOut(lock *Lock, forced_expried bool){
     lock_manager := lock.manager
     lock_manager.glock.Lock()
     if lock.timeouted {
@@ -1287,7 +1287,7 @@ func (self *LockDB) RemoveLongExpried(lock *Lock){
     lock.ref_count--
 }
 
-func (self *LockDB) DoExpried(lock *Lock){
+func (self *LockDB) DoExpried(lock *Lock, forced_expried bool){
     lock_manager := lock.manager
     lock_manager.glock.Lock()
 
@@ -1304,28 +1304,30 @@ func (self *LockDB) DoExpried(lock *Lock){
         return
     }
 
-    if self.slock.state != STATE_LEADER {
-        if lock.command.ExpriedFlag & 0x0400 == 0 {
-            if lock.command.Expried > 30 {
-                lock.expried_time = self.current_time + 30
-            } else {
-                lock.expried_time = self.current_time + int64(lock.command.Expried) + 1
+    if !forced_expried {
+        if self.slock.state != STATE_LEADER {
+            if lock.command.ExpriedFlag&0x0400 == 0 {
+                if lock.command.Expried > 30 {
+                    lock.expried_time = self.current_time + 30
+                } else {
+                    lock.expried_time = self.current_time + int64(lock.command.Expried) + 1
+                }
+            } else if lock.command.ExpriedFlag&0x4000 != 0 {
+                lock.expried_time = 0x7fffffffffffffff
             }
-        } else if lock.command.ExpriedFlag & 0x4000 != 0 {
-            lock.expried_time = 0x7fffffffffffffff
-        }
-        self.AddExpried(lock)
-        lock_manager.glock.Unlock()
-        return
-    }
-
-    if lock.command.ExpriedFlag & 0x8000 != 0 {
-        stream := lock.protocol.GetStream()
-        if stream != nil && !stream.closed {
-            lock.expried_time = self.current_time + int64(lock.command.Expried)
             self.AddExpried(lock)
             lock_manager.glock.Unlock()
             return
+        }
+
+        if lock.command.ExpriedFlag&0x8000 != 0 {
+            stream := lock.protocol.GetStream()
+            if stream != nil && !stream.closed {
+                lock.expried_time = self.current_time + int64(lock.command.Expried)
+                self.AddExpried(lock)
+                lock_manager.glock.Unlock()
+                return
+            }
         }
     }
 
@@ -1519,7 +1521,7 @@ func (self *LockDB) Lock(server_protocol ServerProtocol, command *protocol.LockC
             lock_manager.AddLock(lock)
             lock_manager.locked++
 
-            if command.TimeoutFlag & 0x1000 != 0 && !lock.is_aof && lock.aof_time != 0xff  {
+            if command.TimeoutFlag & 0x1000 != 0 && !lock.is_aof && lock.aof_time != 0xff && self.status == STATE_LEADER {
                 if command.TimeoutFlag & 0x0400 == 0 {
                     self.AddTimeOut(lock)
                 } else {
@@ -1610,7 +1612,6 @@ func (self *LockDB) UnLock(server_protocol ServerProtocol, command *protocol.Loc
     }
 
     lock_manager.glock.Lock()
-
     if self.status != STATE_LEADER {
         if command.Flag & 0x04 == 0 {
             lock_manager.glock.Unlock()
@@ -1798,7 +1799,7 @@ func (self *LockDB) WakeUpWaitLock(lock_manager *LockManager, wait_lock *Lock, s
     if wait_lock.command.Expried > 0 {
         lock_manager.AddLock(wait_lock)
         lock_manager.locked++
-        if wait_lock.command.TimeoutFlag & 0x1000 != 0 && !wait_lock.is_aof && wait_lock.aof_time != 0xff  {
+        if wait_lock.command.TimeoutFlag & 0x1000 != 0 && !wait_lock.is_aof && wait_lock.aof_time != 0xff && self.status == STATE_LEADER {
             lock_manager.PushLockAof(wait_lock)
             if wait_lock.is_aof {
                 wait_lock.ref_count++
