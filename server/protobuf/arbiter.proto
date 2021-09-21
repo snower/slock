@@ -15,6 +15,7 @@ message ReplSet {
   uint64 vertime = 3;
   string owner = 4;
   repeated ReplSetMember members = 5;
+  uint64 commit_id = 6;
 }
 
 message ArbiterConnectRequest {
@@ -41,10 +42,11 @@ message ArbiterVoteRequest {
 
 message ArbiterVoteResponse {
   string err_message = 1;
-  string vote_host = 2;
-  string vote_aof_id = 3;
-  string aof_id = 4;
-  uint32 role = 5;
+  string host = 2;
+  uint32 weight = 3;
+  uint32 arbiter = 4;
+  string aof_id = 5;
+  uint32 role = 6;
 }
 
 message ArbiterProposalRequest {

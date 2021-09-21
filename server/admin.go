@@ -83,8 +83,8 @@ func (self *Admin) CommandHandleRewriteAofCommand(server_protocol *TextServerPro
 }
 
 func (self *Admin) CommandHandleFlushDBCommand(server_protocol *TextServerProtocol, args []string) error {
-    self.slock.glock.Lock()
     defer self.slock.glock.Unlock()
+    self.slock.glock.Lock()
 
     if len(args) < 2 {
         return server_protocol.stream.WriteBytes(server_protocol.parser.BuildResponse(false, "ERR Command Parse Len Error", nil))
@@ -107,8 +107,8 @@ func (self *Admin) CommandHandleFlushDBCommand(server_protocol *TextServerProtoc
 }
 
 func (self *Admin) CommandHandleFlushAllCommand(server_protocol *TextServerProtocol, args []string) error {
-    self.slock.glock.Lock()
     defer self.slock.glock.Unlock()
+    self.slock.glock.Lock()
 
     for db_id, db := range self.slock.dbs {
         err := db.FlushDB()

@@ -1,6 +1,7 @@
 package server
 
 import (
+    "crypto/rand"
     "encoding/hex"
     "errors"
     "fmt"
@@ -9,6 +10,7 @@ import (
     "github.com/snower/slock/server/protobuf"
     "io"
     "io/ioutil"
+    "math/big"
     "net"
     "os"
     "path/filepath"
@@ -97,6 +99,7 @@ func (self *ArbiterStore) Load(manager *ArbiterManager) error {
     manager.members = members
     manager.version = replset.Version
     manager.vertime = replset.Vertime
+    manager.voter.commit_id = replset.CommitId
     file.Close()
     return nil
 }
@@ -126,7 +129,12 @@ func (self *ArbiterStore) Save(manager *ArbiterManager) error {
         members = append(members, rplm)
     }
 
-    replset := protobuf.ReplSet{Name:manager.name, Version:manager.version, Vertime:manager.vertime, Owner:manager.own_member.host, Members:members}
+    owner := ""
+    if manager.own_member != nil {
+        owner = manager.own_member.host
+    }
+    replset := protobuf.ReplSet{Name:manager.name, Version:manager.version, Vertime:manager.vertime,
+        Owner:owner, Members:members, CommitId:manager.voter.commit_id}
     data, err := replset.Marshal()
     if err != nil {
         file.Close()
@@ -187,7 +195,7 @@ type ArbiterClient struct {
     glock           *sync.Mutex
     stream          *client.Stream
     protocol        *client.BinaryClientProtocol
-    rcommand        chan protocol.CommandDecode
+    rchannel       chan protocol.CommandDecode
     closed          bool
     closed_waiter   chan bool
     wakeup_signal	chan bool
@@ -195,7 +203,7 @@ type ArbiterClient struct {
 
 func NewArbiterClient(member *ArbiterMember) *ArbiterClient {
     return &ArbiterClient{member, &sync.Mutex{}, nil, nil,
-        nil, false, make(chan bool, 1),nil}
+        make(chan protocol.CommandDecode, 8), false, make(chan bool, 1),nil}
 }
 
 func (self *ArbiterClient) Open(addr string) error {
@@ -210,18 +218,19 @@ func (self *ArbiterClient) Open(addr string) error {
     }
     stream := client.NewStream(conn)
     client_protocol := client.NewBinaryClientProtocol(stream)
+
+    self.glock.Lock()
     self.stream = stream
     self.protocol = client_protocol
-
     err = self.HandleInit()
     if err != nil {
-        if self.protocol != nil {
-            self.protocol.Close()
-        }
+        client_protocol.Close()
         self.protocol = nil
         self.stream = nil
+        self.glock.Unlock()
         return err
     }
+    self.glock.Unlock()
     return nil
 }
 
@@ -232,9 +241,7 @@ func (self *ArbiterClient) Close() error {
     }
     self.stream = nil
     self.protocol = nil
-    if self.wakeup_signal != nil {
-        self.wakeup_signal <- true
-    }
+    self.WakeupRetryConnect()
     return nil
 }
 
@@ -261,6 +268,17 @@ func (self *ArbiterClient) HandleInit() error {
     }
     
     if call_result_command.Result != 0 || call_result_command.ErrType != "" {
+        if call_result_command.ErrType == "ERR_NOT_MEMBER" {
+            self.member.manager.slock.Log().Infof("Arbiter Client Init Recv NOT_MEMBER Error")
+            go func() {
+                self.member.manager.glock.Lock()
+                if self.member.role == ARBITER_ROLE_LEADER {
+                    self.member.manager.QuitLeader()
+                }
+                self.member.manager.glock.Unlock()
+                self.member.manager.QuitMember()
+            }()
+        }
         return errors.New("init error")
     }
     return nil
@@ -281,8 +299,10 @@ func (self *ArbiterClient) Run() {
         self.member.ClientOnline(self)
         for ; !self.closed; {
             command, err := self.protocol.Read()
-            if self.rcommand != nil {
-                self.rcommand <- command
+            if err == nil {
+                self.rchannel <- command
+            } else {
+                self.rchannel <- nil
             }
 
             if err != nil {
@@ -297,56 +317,75 @@ func (self *ArbiterClient) Run() {
         }
     }
 
-    if self.rcommand != nil {
-        self.rcommand <- nil
-    }
-    self.closed_waiter <- true
+    close(self.rchannel)
+    close(self.closed_waiter)
     self.protocol = nil
     self.stream = nil
     self.member.manager.slock.Log().Infof("Arbiter Client Close %s", self.member.host)
 }
 
 func (self *ArbiterClient) Request(command *protocol.CallCommand) (*protocol.CallResultCommand, error) {
-    defer self.glock.Unlock()
-    self.glock.Lock()
-
     if self.closed {
         return nil, errors.New("client closed")
     }
 
+    self.glock.Lock()
     if self.protocol == nil {
+        self.glock.Unlock()
         return nil, errors.New("client unconnected")
     }
 
     err := self.protocol.Write(command)
     if err != nil {
+        self.glock.Unlock()
         return nil, err
     }
 
-    self.rcommand = make(chan protocol.CommandDecode, 1)
-    result := <- self.rcommand
-    self.rcommand = nil
-    if result == nil {
-        return nil, errors.New("read command error")
-    }
+    for {
+        result := <- self.rchannel
+        if result == nil {
+            self.glock.Unlock()
+            return nil, errors.New("read command error")
+        }
 
-    call_result_command, ok := result.(*protocol.CallResultCommand)
-    if ok {
+        call_result_command, ok := result.(*protocol.CallResultCommand)
+        if !ok {
+            self.glock.Unlock()
+            return nil, errors.New("unknown command")
+        }
+
+        if call_result_command.RequestId != command.RequestId {
+            continue
+        }
+        self.glock.Unlock()
         return call_result_command, nil
     }
-    return nil, errors.New("unknown command")
 }
 
 func (self *ArbiterClient) SleepWhenRetryConnect() error {
+    self.member.glock.Lock()
     self.wakeup_signal = make(chan bool, 1)
+    self.member.glock.Unlock()
+
     select {
     case <- self.wakeup_signal:
-        self.wakeup_signal = nil
         return nil
     case <- time.After(5 * time.Second):
+        self.member.glock.Lock()
         self.wakeup_signal = nil
+        self.member.glock.Unlock()
         return nil
     }
+}
+
+func (self *ArbiterClient) WakeupRetryConnect() error {
+    self.member.glock.Lock()
+    if self.wakeup_signal != nil {
+        close(self.wakeup_signal)
+        self.wakeup_signal = nil
+    }
+    self.member.glock.Unlock()
+    return nil
 }
 
 type ArbiterServer struct {
@@ -413,29 +452,21 @@ func (self *ArbiterServer) Attach(manager *ArbiterManager, from_host string) err
     self.member = current_member
     go self.Run()
     if current_member.client != nil {
-        if current_member.client.wakeup_signal != nil {
-            current_member.client.wakeup_signal <- true
-        }
+        current_member.client.WakeupRetryConnect()
     }
-
-    if manager.voter.wakeup_signal != nil {
-        manager.voter.wakeup_signal <- true
-    }
+    manager.voter.WakeupRetryVote()
     self.member.manager.slock.Log().Infof("Arbiter Server Accept Client Connected %s", current_member.host)
     return nil
 }
 
 func (self *ArbiterServer) Run() {
     if !self.stream.closed {
-        self.stream.closed_waiter = make(chan bool, 1)
         <- self.stream.closed_waiter
     }
     self.protocol = nil
     self.stream = nil
     self.closed = true
-    if self.closed_waiter != nil {
-        self.closed_waiter <- true
-    }
+    close(self.closed_waiter)
 }
 
 type ArbiterMember struct {
@@ -452,6 +483,7 @@ type ArbiterMember struct {
     last_delay      int64
     aof_id          [16]byte
     isself          bool
+    abstianed       bool
     closed          bool
     closed_waiter   chan bool
     wakeup_signal	chan bool
@@ -459,7 +491,8 @@ type ArbiterMember struct {
 
 func NewArbiterMember(manager *ArbiterManager, host string, weight uint32, arbiter uint32) *ArbiterMember {
     return &ArbiterMember{manager, &sync.Mutex{}, nil, nil, host, weight, arbiter, ARBITER_ROLE_UNKNOWN,
-        ARBITER_MEMBER_STATUS_UNOPEN, 0, 0, [16]byte{}, false, false, make(chan bool, 1), nil}
+        ARBITER_MEMBER_STATUS_UNOPEN, 0, 0, [16]byte{}, false,
+        false, false, make(chan bool, 1), nil}
 }
 
 func (self *ArbiterMember) Open() error {
@@ -485,23 +518,16 @@ func (self *ArbiterMember) Close() error {
     self.closed = true
     if self.client != nil {
         self.client.Close()
-        if !self.client.closed {
-            <- self.client.closed_waiter
-        }
+        <- self.client.closed_waiter
         self.client = nil
     }
     
     if self.server != nil {
         self.server.Close()
-        if !self.server.closed {
-            <- self.server.closed_waiter
-        }
+        <- self.server.closed_waiter
         self.server = nil
     }
-
-    if self.wakeup_signal != nil {
-        self.wakeup_signal <- true
-    }
+    self.Wakeup()
     return nil
 }
 
@@ -553,6 +579,7 @@ func (self *ArbiterMember) ClientOnline(client  *ArbiterClient) error {
 
     self.status = ARBITER_MEMBER_STATUS_ONLINE
     self.manager.MemberStatusUpdated(self)
+    self.manager.voter.WakeupRetryVote()
     return nil
 }
 
@@ -568,37 +595,58 @@ func (self *ArbiterMember) ClientOffline(client  *ArbiterClient) error {
 
 func (self *ArbiterMember) Run() {
     if !self.isself {
-        go self.client.Run()
+        go func() {
+            if self.client == nil {
+                return
+            }
+            self.client.Run()
+        }()
     } else {
         self.status = ARBITER_MEMBER_STATUS_ONLINE
         self.last_updated = time.Now().UnixNano()
     }
 
     for ; !self.closed; {
+        self.glock.Lock()
         self.wakeup_signal = make(chan bool, 1)
+        self.glock.Unlock()
+
         select {
         case <-self.wakeup_signal:
-            self.wakeup_signal = nil
+            continue
         case <-time.After(5 * time.Second):
+            self.glock.Lock()
             self.wakeup_signal = nil
+            self.glock.Unlock()
             if self.client != nil {
                 self.UpdateStatus()
             }
         }
     }
+    close(self.closed_waiter)
+}
 
-    self.closed_waiter <- true
+func (self *ArbiterMember) Wakeup() {
+    self.glock.Lock()
+    if self.wakeup_signal != nil {
+        close(self.wakeup_signal)
+        self.wakeup_signal = nil
+    }
+    self.glock.Unlock()
 }
 
 func (self *ArbiterMember) DoVote() (*protobuf.ArbiterVoteResponse, error) {
-    if self.isself || self.status != ARBITER_MEMBER_STATUS_ONLINE {
-        member, err := self.manager.GetVoteHost()
-        if err != nil {
-            return nil, err
+    if self.isself {
+        if self.abstianed {
+            return nil, errors.New("stop vote")
         }
+
         aof_id := self.manager.EncodeAofId(self.manager.GetCurrentAofID())
-        return &protobuf.ArbiterVoteResponse{ErrMessage:"", VoteHost:member.host,
-            VoteAofId:self.manager.EncodeAofId(member.aof_id), AofId:aof_id, Role:uint32(member.role)}, nil
+        return &protobuf.ArbiterVoteResponse{ErrMessage:"", Host:self.host, Weight:self.weight,
+            Arbiter:self.arbiter, AofId:aof_id, Role:uint32(self.role)}, nil
+    }
+    if self.status != ARBITER_MEMBER_STATUS_ONLINE {
+        return nil, errors.New("not online")
     }
 
     request := protobuf.ArbiterVoteRequest{}
@@ -616,15 +664,6 @@ func (self *ArbiterMember) DoVote() (*protobuf.ArbiterVoteResponse, error) {
     if call_result_command.Result != 0 || call_result_command.ErrType != "" {
         if call_result_command.ErrType == "ERR_UNINIT" && self.manager.own_member != nil {
             self.manager.DoAnnouncement()
-        }
-
-        if call_result_command.ContentLen > 0 {
-            response := protobuf.ArbiterVoteResponse{}
-            err = response.Unmarshal(call_result_command.Data)
-            if err == nil {
-                self.aof_id = self.manager.DecodeAofId(response.AofId)
-                self.role = uint8(response.Role)
-            }
         }
         self.manager.slock.Log().Errorf("Arbiter Vote Error %s %d %s", self.host, call_result_command.Result, call_result_command.ErrType)
         return nil, errors.New(fmt.Sprintf("call error %d %s", call_result_command.Result, call_result_command.ErrType))
@@ -725,7 +764,7 @@ func (self *ArbiterMember) DoAnnouncement() (*protobuf.ArbiterAnnouncementRespon
     }
 
     replset := protobuf.ReplSet{Name:self.manager.name, Version:self.manager.version, Vertime:self.manager.vertime,
-        Owner:self.host, Members:members}
+        Owner:self.host, Members:members, CommitId:self.manager.voter.commit_id}
     request := protobuf.ArbiterAnnouncementRequest{FromHost:self.manager.own_member.host, ToHost:self.host, Replset:&replset}
     data, err := request.Marshal()
     if err != nil {
@@ -759,8 +798,7 @@ type ArbiterVoter struct {
     proposal_host   string
     vote_host       string
     vote_aof_id     [16]byte
-    request_waiter  chan bool
-    state           uint8
+    voting          bool
     closed          bool
     closed_waiter   chan bool
     wakeup_signal	chan bool
@@ -768,53 +806,56 @@ type ArbiterVoter struct {
 
 func NewArbiterVoter() *ArbiterVoter {
     return &ArbiterVoter{nil, &sync.Mutex{}, 0, 0, "", "", [16]byte{},
-        make(chan bool, 1), 0, false, nil, nil}
+        false, false, make(chan bool, 1), nil}
 }
 
 func (self *ArbiterVoter) Close() error {
     self.glock.Lock()
     self.closed = true
-    if self.state != 0 {
-        self.closed_waiter = make(chan bool, 1)
+    if !self.voting {
+        close(self.closed_waiter)
         self.glock.Unlock()
-        if self.wakeup_signal != nil {
-            self.wakeup_signal <- true
-        }
-        <- self.closed_waiter
-        self.glock.Lock()
-        self.closed_waiter = nil
+        return nil
     }
-    self.glock.Unlock()
 
     if self.wakeup_signal != nil {
-        self.wakeup_signal <- true
+        close(self.wakeup_signal)
+        self.wakeup_signal = nil
     }
+    self.glock.Unlock()
     return nil
 }
 
 func (self *ArbiterVoter) StartVote() error {
     self.glock.Lock()
-    if self.closed || self.state != 0 {
-        self.glock.Unlock()
+    if self.closed || self.voting {
         if self.wakeup_signal != nil {
-            self.wakeup_signal <- true
+            close(self.wakeup_signal)
+            self.wakeup_signal = nil
         }
-        return errors.New("state error")
+        self.glock.Unlock()
+        return errors.New("already voting")
     }
-    self.state = 1
+    self.voting = true
     self.glock.Unlock()
-    
+
     go func() {
+        self.manager.slock.Log().Infof("Arbiter Voter Start Vote")
         defer func() {
             self.glock.Lock()
-            self.state = 0
-            if self.closed_waiter != nil {
-                self.closed_waiter <- true
+            self.voting = false
+            if self.closed {
+                close(self.closed_waiter)
             }
             self.glock.Unlock()
+            self.manager.slock.Log().Infof("Arbiter Voter Exit Vote")
         }()
 
         for ; !self.closed; {
+            if self.manager.own_member == nil || len(self.manager.members) == 0 {
+                return
+            }
+
             if self.manager.leader_member != nil {
                 if self.manager.leader_member.status == ARBITER_MEMBER_STATUS_ONLINE {
                     self.manager.slock.Log().Infof("Arbier Voter Vote Finish, Current Leader %s", self.manager.leader_member.host)
@@ -822,13 +863,21 @@ func (self *ArbiterVoter) StartVote() error {
                 }
             }
 
-            if self.proposal_host != "" {
-                for _, member := range self.manager.members {
-                    if member.host == self.proposal_host && member.status == ARBITER_MEMBER_STATUS_ONLINE {
+            online_count := 0
+            for _, member := range self.manager.members {
+                if member.status == ARBITER_MEMBER_STATUS_ONLINE {
+                    if member.host == self.proposal_host {
                         self.manager.slock.Log().Infof("Arbier Voter Wait Announcement, Current Leader %s", self.proposal_host)
                         return
                     }
+                    online_count++
                 }
+            }
+
+            if online_count < len(self.manager.members) / 2 + 1 {
+                self.manager.slock.Log().Infof("Arbier Voter Online Member Not Enough Total %d Online %d", len(self.manager.members), online_count)
+                self.SleepWhenRetryVote()
+                continue
             }
 
             err := self.DoVote()
@@ -843,7 +892,7 @@ func (self *ArbiterVoter) StartVote() error {
                 }
             }
 
-            self.SleepWhenRetryConnect()
+            self.SleepWhenRetryVote()
         }
         return
     }()
@@ -851,28 +900,29 @@ func (self *ArbiterVoter) StartVote() error {
 }
 
 func (self *ArbiterVoter) DoRequests(name string, handler func(*ArbiterMember) (interface{}, error)) []interface{} {
-    count, finish_count := 0, 0
-    responses := make([]interface{}, 0)
-    self.glock.Lock()
-    for _, member := range self.manager.members {
+    members, finish_count := self.manager.members, 0
+    responses, request_waiter := make([]interface{}, 0), make(chan bool, 1)
+    for _, member := range members {
         go func(member *ArbiterMember) {
             response, err := handler(member)
-            self.glock.Lock()
             if err == nil {
                 responses = append(responses, response)
             } else {
                 self.manager.slock.Log().Errorf("Arbier Voter Request Error %s %v %v", member.host, name, err)
             }
+
+            self.glock.Lock()
             finish_count++
-            if finish_count >= count {
-                self.request_waiter <- true
+            if finish_count >= len(members) {
+                close(request_waiter)
             }
             self.glock.Unlock()
         }(member)
-        count++
     }
-    self.glock.Unlock()
-    <- self.request_waiter
+
+    if len(members) > 0 {
+        <- request_waiter
+    }
     return responses
 }
 
@@ -881,40 +931,46 @@ func (self *ArbiterVoter) DoVote() error {
     responses := self.DoRequests("DoVote", func(member *ArbiterMember) (interface{}, error) {
         return member.DoVote()
     })
-    
-    require_vote_count := len(self.manager.members) / 2 + 1
-    if len(responses) < require_vote_count {
-        return errors.New("member vote count too small")
+
+    if len(responses) < len(self.manager.members) / 2 + 1 {
+        return errors.New("vote error")
     }
-    
-    votes, max_vote := make(map[string]int, 4), 0
-    for i := 0; i < len(responses); i++ {
-        response := responses[i].(*protobuf.ArbiterVoteResponse)
-        if vi, ok := votes[response.VoteHost]; ok {
-            votes[response.VoteHost]++
-            if max_vote < vi + 1 {
-                max_vote = vi + 1
+
+    var select_vote_response *protobuf.ArbiterVoteResponse = nil
+    for _, response := range responses {
+        vote_response := response.(*protobuf.ArbiterVoteResponse)
+        if vote_response.Arbiter != 0 || vote_response.Weight == 0 {
+            continue
+        }
+
+        if select_vote_response == nil {
+            select_vote_response = vote_response
+            continue
+        }
+
+        if select_vote_response.AofId == vote_response.AofId {
+            if select_vote_response.Weight < vote_response.Weight {
+                select_vote_response = vote_response
             }
-        } else {
-            votes[response.VoteHost] = 1
-            if max_vote < 1 {
-                max_vote = 1
+            if select_vote_response.Weight == vote_response.Weight {
+                if select_vote_response.Host < vote_response.Host {
+                    select_vote_response = vote_response
+                }
             }
+            continue
         }
-        if self.manager.CompareAofId(self.manager.DecodeAofId(response.VoteAofId), self.vote_aof_id) > 0 {
-            self.vote_aof_id = self.manager.DecodeAofId(response.VoteAofId)
-        }
-    }
-    
-    if max_vote < require_vote_count {
-        return errors.New("member vote count too small")
-    }
-    
-    for host, vc := range votes {
-        if vc >= max_vote {
-            self.vote_host = host
+
+        if self.manager.CompareAofId(self.manager.DecodeAofId(vote_response.AofId), self.manager.DecodeAofId(select_vote_response.AofId)) > 0 {
+            select_vote_response = vote_response
         }
     }
+
+    if select_vote_response == nil {
+        return errors.New("not found")
+    }
+
+    self.vote_host = select_vote_response.Host
+    self.vote_aof_id = self.manager.DecodeAofId(select_vote_response.AofId)
     self.manager.slock.Log().Infof("Arbier Voter Vote Succed %s %x %d", self.vote_host, self.vote_aof_id, self.proposal_id)
     return nil
 }
@@ -949,6 +1005,7 @@ func (self *ArbiterVoter) DoCommit() error {
 }
 
 func (self *ArbiterVoter) DoAnnouncement() error {
+    self.manager.slock.Log().Infof("Arbiter Replication Announcement Start")
     for _, member := range self.manager.members {
         if member.role == ARBITER_ROLE_LEADER {
             _, err := member.DoAnnouncement()
@@ -971,19 +1028,40 @@ func (self *ArbiterVoter) DoAnnouncement() error {
             }
         }
     }
+    self.manager.slock.Log().Infof("Arbiter Replication Announcement Finish")
     return nil
 }
 
-func (self *ArbiterVoter) SleepWhenRetryConnect() error {
+func (self *ArbiterVoter) SleepWhenRetryVote() error {
+    self.glock.Lock()
     self.wakeup_signal = make(chan bool, 1)
+    self.glock.Unlock()
+
+    delay_time := int64(5000)
+    n, err := rand.Int(rand.Reader, big.NewInt(5000))
+    if err == nil {
+        delay_time = 100 + n.Int64()
+    }
+
     select {
     case <- self.wakeup_signal:
-        self.wakeup_signal = nil
         return nil
-    case <- time.After(5 * time.Second):
+    case <- time.After(time.Duration(delay_time) * time.Millisecond):
+        self.glock.Lock()
         self.wakeup_signal = nil
+        self.glock.Unlock()
         return nil
     }
+}
+
+func (self *ArbiterVoter) WakeupRetryVote() error {
+    self.glock.Lock()
+    if self.wakeup_signal != nil {
+        close(self.wakeup_signal)
+        self.wakeup_signal = nil
+    }
+    self.glock.Unlock()
+    return nil
 }
 
 type ArbiterManager struct {
@@ -1027,7 +1105,7 @@ func (self *ArbiterManager) Load() error {
         self.slock.Log().Infof("Arbiter Load Aof File MaxID %x", aof_id)
     }
     self.slock.replication_manager.current_request_id = aof_id
-    self.voter.proposal_id = uint64(self.version)
+    self.voter.proposal_id = self.voter.commit_id
     return nil
 }
 
@@ -1059,29 +1137,33 @@ func (self *ArbiterManager) Start() error {
 }
 
 func (self *ArbiterManager) Close() error {
-    self.glock.Lock()
     if self.stoped {
-        self.glock.Unlock()
         return nil
     }
 
     if self.own_member == nil || len(self.members) == 0 {
         self.stoped = true
-        self.glock.Unlock()
         self.slock.logger.Infof("Arbiter Closed")
         return nil
     }
 
-    self.store.Save(self)
+    self.glock.Lock()
+    if self.own_member.role == ARBITER_ROLE_LEADER && len(self.members) > 1 {
+        self.own_member.abstianed = true
+        self.QuitLeader()
+    } else {
+        self.store.Save(self)
+    }
     self.stoped = true
     self.glock.Unlock()
 
     self.voter.Close()
+    <- self.voter.closed_waiter
+    self.slock.logger.Infof("Arbiter Closed")
     for _, member := range self.members {
         member.Close()
         <- member.closed_waiter
     }
-    self.slock.logger.Infof("Arbiter Closed")
     return nil
 }
 
@@ -1149,14 +1231,14 @@ func (self *ArbiterManager) AddMember(host string, weight uint32, arbiter uint32
 }
 
 func (self *ArbiterManager) RemoveMember(host string) error {
-    defer self.glock.Unlock()
     self.glock.Lock()
-
     if self.own_member == nil || len(self.members) == 0 {
+        self.glock.Unlock()
         return errors.New("member info error")
     }
 
     if self.own_member.host == host {
+        self.glock.Unlock()
         return errors.New("can not remove self error")
     }
 
@@ -1171,16 +1253,21 @@ func (self *ArbiterManager) RemoveMember(host string) error {
     }
 
     if current_member == nil {
+        self.glock.Unlock()
         return errors.New("not found member")
     }
+
     self.members = members
-    current_member.Close()
-    <- current_member.closed_waiter
     self.version++
     self.vertime = uint64(time.Now().UnixNano()) / 1e6
     self.store.Save(self)
     self.DoAnnouncement()
     self.UpdateStatus()
+    self.glock.Unlock()
+
+    current_member.DoAnnouncement()
+    current_member.Close()
+    <- current_member.closed_waiter
     self.slock.logger.Infof("Arbiter Remove Member %s", host)
     return nil
 }
@@ -1222,14 +1309,18 @@ func (self *ArbiterManager) GetMembers() []*ArbiterMember {
 }
 
 func (self *ArbiterManager) QuitLeader() error {
+    self.slock.Log().Infof("Arbiter Quit Leader Start")
     self.slock.UpdateState(STATE_SYNC)
     self.own_member.role = ARBITER_ROLE_FOLLOWER
     self.leader_member = nil
     self.version++
     self.vertime = uint64(time.Now().UnixNano()) / 1e6
     self.store.Save(self)
+    self.glock.Unlock()
     self.voter.DoAnnouncement()
+    self.glock.Lock()
 
+    self.slock.Log().Infof("Arbiter Quit Leader")
     if self.own_member.arbiter == 0 {
         err := self.slock.replication_manager.SwitchToFollower("")
         if err != nil {
@@ -1241,47 +1332,28 @@ func (self *ArbiterManager) QuitLeader() error {
     return nil
 }
 
-func (self *ArbiterManager) GetVoteHost() (*ArbiterMember, error) {
-    if self.own_member == nil || len(self.members) == 0 {
-        return nil, errors.New("not members")
-    }
-
-    var vote_member *ArbiterMember = nil
+func (self *ArbiterManager) QuitMember() error {
+    self.slock.UpdateState(STATE_SYNC)
     for _, member := range self.members {
-        if !member.isself {
-            if member.status != ARBITER_MEMBER_STATUS_ONLINE || member.arbiter != 0 || member.weight == 0 {
-                continue
-            }
-        } else {
-            member.aof_id = self.GetCurrentAofID()
-        }
-
-        if vote_member == nil {
-            vote_member = member
-            continue
-        }
-
-        if vote_member.aof_id == member.aof_id {
-            if vote_member.weight < member.weight {
-                vote_member = member
-            }
-            if vote_member.weight == member.weight {
-                if vote_member.host < member.host {
-                    vote_member = member
-                }
-            }
-            continue
-        }
-
-        if self.CompareAofId(member.aof_id, vote_member.aof_id) > 0 {
-            vote_member = member
-        }
+        member.Close()
+        <- member.closed_waiter
     }
+    self.members = make([]*ArbiterMember, 0)
+    self.own_member = nil
+    self.leader_member = nil
+    self.voter.proposal_id = 0
+    self.voter.proposal_host = ""
+    self.voter.commit_id = 0
+    self.version = 1
+    self.vertime = 0
+    self.store.Save(self)
 
-    if vote_member == nil {
-        return nil, errors.New("not found")
+    err := self.slock.replication_manager.SwitchToFollower("")
+    self.slock.Log().Infof("Arbiter Quit Member")
+    if err != nil {
+        return err
     }
-    return vote_member, nil
+    return nil
 }
 
 func (self *ArbiterManager) DoAnnouncement() {
@@ -1290,7 +1362,6 @@ func (self *ArbiterManager) DoAnnouncement() {
     }
 
     go func() {
-        self.slock.Log().Infof("Arbiter Replication Announcement")
         err := self.voter.DoAnnouncement()
         if err != nil {
             self.slock.Log().Errorf("Arbiter Announcement Error %v", err)
@@ -1303,18 +1374,16 @@ func (self *ArbiterManager) StartVote() error {
         return nil
     }
 
-    self.slock.Log().Infof("Arbiter Start Vote")
-    return self.voter.StartVote()
+    self.voter.StartVote()
+    return nil
 }
 
 func (self *ArbiterManager) VoteSucced() error {
-    defer self.glock.Unlock()
-    self.glock.Lock()
-
     if self.stoped {
         return nil
     }
 
+    self.glock.Lock()
     for _, member := range self.members {
         if member.host == self.voter.proposal_host {
             member.role = ARBITER_ROLE_LEADER
@@ -1340,7 +1409,9 @@ func (self *ArbiterManager) VoteSucced() error {
         if self.slock.state == STATE_LEADER {
             self.slock.UpdateState(STATE_SYNC)
         }
+        self.glock.Unlock()
         self.voter.DoAnnouncement()
+        self.glock.Lock()
         self.UpdateStatus()
     }
 
@@ -1348,6 +1419,7 @@ func (self *ArbiterManager) VoteSucced() error {
     if self.leader_member != nil {
         self.slock.Log().Infof("Arbiter Current Leader: %s", self.leader_member.host)
     }
+    self.glock.Unlock()
     return nil
 }
 
@@ -1466,16 +1538,18 @@ func (self *ArbiterManager) MemberStatusUpdated(member *ArbiterMember) error {
         }
 
         if online_count < len(self.members) / 2 + 1 {
-            self.glock.Lock()
-            err := self.QuitLeader()
-            self.glock.Unlock()
-            if err != nil {
-                self.slock.Log().Errorf("Arbiter Quit Leader error: %v", err)
-            }
-            err = self.StartVote()
-            if err != nil {
-                self.slock.Log().Errorf("Arbiter Vote error: %v", err)
-            }
+            go func() {
+                self.glock.Lock()
+                err := self.QuitLeader()
+                self.glock.Unlock()
+                if err != nil {
+                    self.slock.Log().Errorf("Arbiter Quit Leader error: %v", err)
+                }
+                err = self.StartVote()
+                if err != nil {
+                    self.slock.Log().Errorf("Arbiter Vote error: %v", err)
+                }
+            }()
         }
     }
     return nil
@@ -1548,14 +1622,28 @@ func (self *ArbiterManager) GetCallMethods() map[string]BinaryServerProtocolCall
 }
 
 func (self *ArbiterManager) CommandHandleConnectCommand(server_protocol *BinaryServerProtocol, command *protocol.CallCommand) (*protocol.CallResultCommand, error) {
-    resquest := protobuf.ArbiterConnectRequest{}
-    err := resquest.Unmarshal(command.Data)
+    request := protobuf.ArbiterConnectRequest{}
+    err := request.Unmarshal(command.Data)
     if err != nil {
         return protocol.NewCallResultCommand(command, 0, "ERR_DECODE", nil), nil
     }
 
+    if self.own_member != nil && len(self.members) > 0 {
+        var current_member *ArbiterMember = nil
+        for _, member := range self.members {
+            if member.host == request.FromHost {
+                current_member = member
+                break
+            }
+        }
+
+        if current_member == nil {
+            return protocol.NewCallResultCommand(command, 0, "ERR_NOT_MEMBER", nil), nil
+        }
+    }
+
     server := NewArbiterServer(server_protocol)
-    response, err := server.HandleInit(self, &resquest)
+    response, err := server.HandleInit(self, &request)
     if err != nil {
         return protocol.NewCallResultCommand(command, 0, "ERR_CALL", nil), nil
     }
@@ -1568,8 +1656,8 @@ func (self *ArbiterManager) CommandHandleConnectCommand(server_protocol *BinaryS
 }
 
 func (self *ArbiterManager) CommandHandleVoteCommand(server_protocol *BinaryServerProtocol, command *protocol.CallCommand) (*protocol.CallResultCommand, error) {
-    resquest := protobuf.ArbiterVoteRequest{}
-    err := resquest.Unmarshal(command.Data)
+    request := protobuf.ArbiterVoteRequest{}
+    err := request.Unmarshal(command.Data)
     if err != nil {
         return protocol.NewCallResultCommand(command, 0, "ERR_DECODE", nil), nil
     }
@@ -1578,51 +1666,29 @@ func (self *ArbiterManager) CommandHandleVoteCommand(server_protocol *BinaryServ
         return protocol.NewCallResultCommand(command, 0, "ERR_UNINIT", nil), nil
     }
 
-    go func() {
-        for _, member := range self.members {
-            if member.status == ARBITER_MEMBER_STATUS_ONLINE && !member.isself {
-                member.UpdateStatus()
-            }
-        }
-    }()
-
-    err_type := ""
-    if self.own_member.role == ARBITER_ROLE_LEADER {
-        self.DoAnnouncement()
-        err_type = "ERR_ROLE"
-    } else {
-        for _, member := range self.members {
-            if member.role == ARBITER_ROLE_LEADER && member.status == ARBITER_MEMBER_STATUS_ONLINE {
-                err_type = "ERR_STATUS"
-            }
-        }
-    }
-
-    member, err := self.GetVoteHost()
-    if err != nil {
-        response := protobuf.ArbiterVoteResponse{ErrMessage:"", VoteHost:"", VoteAofId:"",
-            AofId:self.EncodeAofId(self.GetCurrentAofID()), Role:uint32(self.own_member.role)}
-        data, err := response.Marshal()
-        if err != nil {
-            return protocol.NewCallResultCommand(command, 0, "ERR_VOTE", nil), nil
-        }
-        return protocol.NewCallResultCommand(command, 0, "ERR_VOTE", data), nil
-    }
-
-    response := protobuf.ArbiterVoteResponse{ErrMessage:"", VoteHost:member.host, VoteAofId:self.EncodeAofId(member.aof_id),
-        AofId:self.EncodeAofId(self.GetCurrentAofID()), Role:uint32(self.own_member.role)}
+    response := protobuf.ArbiterVoteResponse{ErrMessage:"", Host:self.own_member.host, Weight:self.own_member.weight,
+        Arbiter:self.own_member.arbiter, AofId:self.EncodeAofId(self.GetCurrentAofID()), Role:uint32(self.own_member.role)}
     data, err := response.Marshal()
     if err != nil {
         return protocol.NewCallResultCommand(command, 0, "ERR_ENCODE", nil), nil
     }
-    return protocol.NewCallResultCommand(command, 0, err_type, data), nil
+    return protocol.NewCallResultCommand(command, 0, "", data), nil
 }
 
 func (self *ArbiterManager) CommandHandleProposalCommand(server_protocol *BinaryServerProtocol, command *protocol.CallCommand) (*protocol.CallResultCommand, error) {
-    resquest := protobuf.ArbiterProposalRequest{}
-    err := resquest.Unmarshal(command.Data)
+    request := protobuf.ArbiterProposalRequest{}
+    err := request.Unmarshal(command.Data)
     if err != nil {
         return protocol.NewCallResultCommand(command, 0, "ERR_DECODE", nil), nil
+    }
+
+    if self.own_member == nil || len(self.members) == 0 {
+        return protocol.NewCallResultCommand(command, 0, "ERR_UNINIT", nil), nil
+    }
+
+    if self.own_member.role == ARBITER_ROLE_LEADER {
+        self.DoAnnouncement()
+        return protocol.NewCallResultCommand(command, 0, "ERR_ROLE", nil), nil
     }
 
     var vote_member *ArbiterMember = nil
@@ -1632,11 +1698,11 @@ func (self *ArbiterManager) CommandHandleProposalCommand(server_protocol *Binary
             return protocol.NewCallResultCommand(command, 0, "ERR_STATUS", nil), nil
         }
 
-        if member.host == resquest.Host {
+        if member.host == request.Host {
             vote_member = member
         }
 
-        if self.CompareAofId(member.aof_id, self.DecodeAofId(resquest.AofId)) > 0 {
+        if self.CompareAofId(member.aof_id, self.DecodeAofId(request.AofId)) > 0 {
             return protocol.NewCallResultCommand(command, 0, "ERR_AOFID", nil), nil
         }
     }
@@ -1649,7 +1715,7 @@ func (self *ArbiterManager) CommandHandleProposalCommand(server_protocol *Binary
         return protocol.NewCallResultCommand(command, 0, "ERR_OFFLINE", nil), nil
     }
 
-    if self.voter.proposal_id >= resquest.ProposalId || self.voter.proposal_host != "" {
+    if self.voter.proposal_id >= request.ProposalId || self.voter.proposal_host != "" {
         return protocol.NewCallResultCommand(command, 0, "ERR_PROPOSALID", nil), nil
     }
     response := protobuf.ArbiterProposalResponse{ErrMessage:""}
@@ -1658,20 +1724,24 @@ func (self *ArbiterManager) CommandHandleProposalCommand(server_protocol *Binary
         return protocol.NewCallResultCommand(command, 0, "ERR_ENCODE", nil), nil
     }
 
-    self.voter.proposal_id = resquest.ProposalId
+    self.voter.proposal_id = request.ProposalId
     return protocol.NewCallResultCommand(command, 0, "", data), nil
 }
 
 func (self *ArbiterManager) CommandHandleCommitCommand(server_protocol *BinaryServerProtocol, command *protocol.CallCommand) (*protocol.CallResultCommand, error) {
-    resquest := protobuf.ArbiterCommitRequest{}
-    err := resquest.Unmarshal(command.Data)
+    request := protobuf.ArbiterCommitRequest{}
+    err := request.Unmarshal(command.Data)
     if err != nil {
         return protocol.NewCallResultCommand(command, 0, "ERR_DECODE", nil), nil
     }
 
+    if self.own_member == nil || len(self.members) == 0 {
+        return protocol.NewCallResultCommand(command, 0, "ERR_UNINIT", nil), nil
+    }
+
     var vote_member *ArbiterMember = nil
     for _, member := range self.members {
-        if member.host == resquest.Host {
+        if member.host == request.Host {
             vote_member = member
         }
     }
@@ -1680,7 +1750,7 @@ func (self *ArbiterManager) CommandHandleCommitCommand(server_protocol *BinarySe
         return protocol.NewCallResultCommand(command, 0, "ERR_HOST", nil), nil
     }
 
-    if self.voter.commit_id >= resquest.ProposalId {
+    if self.voter.commit_id >= request.ProposalId {
         return protocol.NewCallResultCommand(command, 0, "ERR_COMMITID", nil), nil
     }
     response := protobuf.ArbiterCommitResponse{ErrMessage:""}
@@ -1688,24 +1758,35 @@ func (self *ArbiterManager) CommandHandleCommitCommand(server_protocol *BinarySe
     if err != nil {
         return protocol.NewCallResultCommand(command, 0, "ERR_ENCODE", nil), nil
     }
-    self.voter.proposal_host = resquest.Host
-    self.voter.commit_id = resquest.ProposalId
+    self.voter.proposal_host = request.Host
+    self.voter.commit_id = request.ProposalId
     return protocol.NewCallResultCommand(command, 0, "", data), nil
 }
 
 func (self *ArbiterManager) CommandHandleAnnouncementCommand(server_protocol *BinaryServerProtocol, command *protocol.CallCommand) (*protocol.CallResultCommand, error) {
-    resquest := protobuf.ArbiterAnnouncementRequest{}
-    err := resquest.Unmarshal(command.Data)
+    request := protobuf.ArbiterAnnouncementRequest{}
+    err := request.Unmarshal(command.Data)
     if err != nil {
         return protocol.NewCallResultCommand(command, 0, "ERR_DECODE", nil), nil
     }
 
-    if resquest.Replset.Name != self.name {
+    if request.Replset.Name != self.name {
         return protocol.NewCallResultCommand(command, 0, "ERR_NAME", nil), nil
     }
 
-    if resquest.Replset.Version < self.version || (resquest.Replset.Version == self.version && resquest.Replset.Vertime > self.vertime) {
-        return protocol.NewCallResultCommand(command, 0, "ERR_VERSION", nil), nil
+    if request.Replset.CommitId == self.voter.commit_id && self.voter.proposal_host != "" {
+        if self.version < request.Replset.Version {
+            self.version = request.Replset.Version
+        }
+        if self.vertime < request.Replset.Vertime {
+            self.vertime = request.Replset.Vertime
+        }
+    } else {
+        if request.Replset.Version < self.version || (request.Replset.Version == self.version && request.Replset.Vertime < self.vertime) {
+            self.slock.Log().Infof("Arbiter Announcement Version Waring CommitId %d %d Version %d %d Vertime %d %d", request.Replset.CommitId,
+                self.voter.commit_id, request.Replset.Version, self.version, request.Replset.Vertime, self.vertime)
+            return protocol.NewCallResultCommand(command, 0, "ERR_VERSION", nil), nil
+        }
     }
 
     members, new_members := make(map[string]*ArbiterMember, 4), make([]*ArbiterMember, 0)
@@ -1714,7 +1795,7 @@ func (self *ArbiterManager) CommandHandleAnnouncementCommand(server_protocol *Bi
     }
 
     var own_member, leader_member *ArbiterMember = nil, nil
-    for _, rplm := range resquest.Replset.Members {
+    for _, rplm := range request.Replset.Members {
         if member, ok := members[rplm.Host]; ok {
             member.weight = rplm.Weight
             member.arbiter = rplm.Arbiter
@@ -1722,7 +1803,7 @@ func (self *ArbiterManager) CommandHandleAnnouncementCommand(server_protocol *Bi
                 member.role = uint8(rplm.Role)
             }
             delete(members, rplm.Host)
-            if member.host == resquest.Replset.Owner {
+            if member.host == request.Replset.Owner {
                 own_member = member
                 own_member.isself = true
             }
@@ -1734,7 +1815,7 @@ func (self *ArbiterManager) CommandHandleAnnouncementCommand(server_protocol *Bi
             member = NewArbiterMember(self, rplm.Host, rplm.Weight, rplm.Arbiter)
             member.role = uint8(rplm.Role)
             self.members = append(self.members, member)
-            if member.host == resquest.Replset.Owner {
+            if member.host == request.Replset.Owner {
                 own_member = member
                 own_member.isself = true
             }
@@ -1745,8 +1826,17 @@ func (self *ArbiterManager) CommandHandleAnnouncementCommand(server_protocol *Bi
         }
     }
 
+    leader_host := ""
     if own_member == nil {
-        return protocol.NewCallResultCommand(command, 0, "ERR_OWN", nil), nil
+        go func() {
+            self.glock.Lock()
+            if self.own_member.role == ARBITER_ROLE_LEADER {
+                self.QuitLeader()
+            }
+            self.glock.Unlock()
+            self.QuitMember()
+        }()
+        return protocol.NewCallResultCommand(command, 0, "", nil), nil
     }
 
     if leader_member != nil {
@@ -1760,7 +1850,9 @@ func (self *ArbiterManager) CommandHandleAnnouncementCommand(server_protocol *Bi
             }
         }
 
-        if leader_member.host == self.voter.proposal_host {
+        leader_host = leader_member.host
+        if request.Replset.CommitId >= self.voter.commit_id {
+            self.slock.Log().Infof("Arbiter Voter Accept Leader %s", self.voter.proposal_host)
             self.voter.proposal_host = ""
         }
     }
@@ -1769,16 +1861,17 @@ func (self *ArbiterManager) CommandHandleAnnouncementCommand(server_protocol *Bi
     self.members = new_members
     self.own_member = own_member
     self.leader_member = leader_member
-
-    for _, member := range members {
-        member.Close()
-    }
-    self.version = resquest.Replset.Version
+    self.version = request.Replset.Version
     self.store.Save(self)
     if self.own_member.role == ARBITER_ROLE_LEADER {
         self.UpdateStatus()
     }
     self.glock.Unlock()
+    self.slock.Log().Infof("Arbiter Replication Announcement From %s Leader %s Member Count %d Version %d CommitId %d",
+        leader_host, request.FromHost, len(new_members), request.Replset.Version, request.Replset.CommitId)
+    for _, member := range members {
+        member.Close()
+    }
 
     if self.own_member.role != ARBITER_ROLE_LEADER {
         go func() {
@@ -1792,9 +1885,9 @@ func (self *ArbiterManager) CommandHandleAnnouncementCommand(server_protocol *Bi
     }
 
     for _, member := range self.members {
-        if member.host == resquest.FromHost && member.server == nil {
+        if member.host == request.FromHost && member.server == nil {
             server := NewArbiterServer(server_protocol)
-            server.Attach(self, resquest.FromHost)
+            server.Attach(self, request.FromHost)
             break
         }
     }
@@ -1808,14 +1901,14 @@ func (self *ArbiterManager) CommandHandleAnnouncementCommand(server_protocol *Bi
 }
 
 func (self *ArbiterManager) CommandHandleStatusCommand(server_protocol *BinaryServerProtocol, command *protocol.CallCommand) (*protocol.CallResultCommand, error) {
-    resquest := protobuf.ArbiterStatusRequest{}
-    err := resquest.Unmarshal(command.Data)
+    request := protobuf.ArbiterStatusRequest{}
+    err := request.Unmarshal(command.Data)
     if err != nil {
         return protocol.NewCallResultCommand(command, 0, "ERR_DECODE", nil), nil
     }
 
-    if self.own_member == nil {
-        return protocol.NewCallResultCommand(command, 0, "ERR_CONFIG", nil), nil
+    if self.own_member == nil || len(self.members) == 0 {
+        return protocol.NewCallResultCommand(command, 0, "ERR_UNINIT", nil), nil
     }
 
     aof_id := self.EncodeAofId(self.GetCurrentAofID())

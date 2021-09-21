@@ -51,16 +51,14 @@ func (self *Server) Close() {
             continue
         }
 
-        stream.closed_waiter = make(chan bool, 1)
         err := stream.Close()
         if err != nil {
             self.slock.Log().Errorf("Stream Close Error: %v", err)
         }
         <- stream.closed_waiter
-        stream.closed_waiter = nil
     }
     self.slock.Close()
-    self.stoped_waiter <- true
+    close(self.stoped_waiter)
 }
 
 func (self *Server) AddStream(stream *Stream) error {
@@ -102,7 +100,7 @@ func (self *Server) Loop() {
     stop_signal := make(chan os.Signal, 1)
     signal.Notify(stop_signal, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
     go func() {
-        <-stop_signal
+        <- stop_signal
         self.slock.Log().Infof("Server shutdown start")
         self.Close()
     }()
@@ -122,6 +120,7 @@ func (self *Server) Loop() {
             if err != nil {
                 self.slock.Log().Errorf("Stream Close Error: %v", err)
             }
+            close(stream.closed_waiter)
             continue
         }
         go self.Handle(stream)
@@ -183,9 +182,7 @@ func (self *Server) Handle(stream *Stream) {
         if err != nil {
             self.slock.Log().Errorf("Stream Close Remove Stream Error %v", err)
         }
-        if stream.closed_waiter != nil {
-            stream.closed_waiter <- true
-        }
+        close(stream.closed_waiter)
     }()
 
     server_protocol, err := self.CheckProtocol(stream)
