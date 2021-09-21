@@ -995,9 +995,9 @@ func (self *ReplicationAckDB) PushLock(lock *AofLock) error {
 				return nil
 			}
 
+			self.glock.Unlock()
 			lock_manager := lock.lock.manager
 			lock_manager.lock_db.DoAckLock(lock.lock, false)
-			self.glock.Unlock()
 			return nil
 		}
 		
@@ -1071,6 +1071,8 @@ func (self *ReplicationAckDB) Process(lock_result *protocol.LockResultCommand) e
 				lock_manager := lock.manager
 				lock_manager.lock_db.DoAckLock(lock, true)
 			}
+		} else {
+			self.glock.Unlock()
 		}
 
 		lock_manager := lock.manager
@@ -1121,6 +1123,8 @@ func (self *ReplicationAckDB) ProcessAofed(request_id [16]byte, succed bool) err
 				lock_manager := lock.manager
 				lock_manager.lock_db.DoAckLock(lock, true)
 			}
+		} else {
+			self.glock.Unlock()
 		}
 
 		lock_manager := lock.manager
@@ -1225,6 +1229,7 @@ func (self *ReplicationAckDB) ProcessAckAofed(request_id [16]byte, succed bool) 
 func (self *ReplicationAckDB) SwitchToLeader() error {
 	self.glock.Lock()
 	if self.locks == nil {
+		self.glock.Unlock()
 		return nil
 	}
 
@@ -1246,6 +1251,7 @@ func (self *ReplicationAckDB) SwitchToLeader() error {
 func (self *ReplicationAckDB) SwitchToFollower() error {
 	self.glock.Lock()
 	if self.ack_locks == nil {
+		self.glock.Unlock()
 		return nil
 	}
 

@@ -614,6 +614,7 @@ type Aof struct {
     aof_file_index              uint32
     aof_file                    *AofFile
     aof_file_glock              *sync.Mutex
+    aof_push_glock              *sync.Mutex
     channels                    []*AofChannel
     channel_count               uint32
     actived_channel_count       uint32
@@ -628,8 +629,8 @@ type Aof struct {
 }
 
 func NewAof() *Aof {
-    return &Aof{nil, &sync.Mutex{}, "",0, nil, &sync.Mutex{}, make([]*AofChannel, 0),
-        0, 0, nil, nil, 0, 0, 0,
+    return &Aof{nil, &sync.Mutex{}, "",0, nil, &sync.Mutex{}, &sync.Mutex{},
+        make([]*AofChannel, 0), 0, 0, nil, nil, 0, 0, 0,
         false, false, false}
 }
 
@@ -988,10 +989,17 @@ func (self *Aof) PushLock(lock *AofLock) {
     if werr != nil {
         self.slock.Log().Errorf("Aof File Write Error %v", werr)
     }
+    if uint32(self.aof_file.GetSize()) >= self.rewrite_size {
+        self.RewriteAofFile()
+    }
+    self.aof_file_glock.Unlock()
+
+    self.aof_push_glock.Lock()
     perr := self.slock.replication_manager.PushLock(lock)
     if perr != nil {
         self.slock.Log().Errorf("Aof File Push Error %v", perr)
     }
+    self.aof_push_glock.Unlock()
 
     if werr != nil || perr != nil {
         if lock.AofFlag & 0x1000 != 0 && lock.lock != nil {
@@ -999,11 +1007,7 @@ func (self *Aof) PushLock(lock *AofLock) {
             lock_manager.lock_db.DoAckLock(lock.lock, false)
         }
     }
-    self.aof_lock_count++
-    if uint32(self.aof_file.GetSize()) >= self.rewrite_size {
-        self.RewriteAofFile()
-    }
-    self.aof_file_glock.Unlock()
+    atomic.AddUint64(&self.aof_lock_count, 1)
 }
 
 func (self *Aof) AppendLock(lock *AofLock) {
@@ -1019,8 +1023,8 @@ func (self *Aof) AppendLock(lock *AofLock) {
         self.slock.Log().Errorf("Aof File Write Error %v", err)
     }
     self.aof_id = lock.AofId
-    self.aof_lock_count++
     self.aof_file_glock.Unlock()
+    atomic.AddUint64(&self.aof_lock_count, 1)
 }
 
 func (self *Aof) AofFileFlushRequested(ack_request *AofFileAckRequest, succed bool) error {
@@ -1085,8 +1089,8 @@ func (self *Aof) OpenAofFile(aof_index uint32) (*AofFile, error) {
 }
 
 func (self *Aof) Reset(aof_file_index uint32) error {
-    self.aof_file_glock.Lock()
     defer self.aof_file_glock.Unlock()
+    self.aof_file_glock.Lock()
     if self.is_rewriting {
         return errors.New("Aof Rewriting")
     }
