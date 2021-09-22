@@ -8,10 +8,10 @@ import (
     "flag"
 )
 
-func run(slock_client *client.Client, count *int, max_count int, end_count *int, clock *sync.Mutex) {
+func run(slock_client *client.Client, count *int, max_count int, end_count *int, clock *sync.Mutex, timeout_flag int, expried_flag int) {
     for ;; {
         lock_key := slock_client.SelectDB(0).GenLockId()
-        lock := slock_client.Lock(lock_key, 5, 5)
+        lock := slock_client.Lock(lock_key, (uint32(timeout_flag) << 16) | 5, (uint32(expried_flag) << 16) | 5)
 
         err := lock.Lock()
         if err != nil {
@@ -35,7 +35,7 @@ func run(slock_client *client.Client, count *int, max_count int, end_count *int,
     }
 }
 
-func bench(client_count int, concurrentc int, max_count int, port int, host string)  {
+func bench(client_count int, concurrentc int, max_count int, port int, host string, timeout_flag int, expried_flag int)  {
     clock := sync.Mutex{}
 
     fmt.Printf("Run %d Client, %d concurrentc, %d Count Lock and Unlock\n", client_count, concurrentc, max_count)
@@ -65,7 +65,7 @@ func bench(client_count int, concurrentc int, max_count int, port int, host stri
     var end_count int
     start_time := time.Now().UnixNano()
     for i:=0; i < concurrentc; i++{
-        go run(clients[i % client_count], &count, max_count, &end_count, &clock)
+        go run(clients[i % client_count], &count, max_count, &end_count, &clock, timeout_flag, expried_flag)
     }
     for ;; {
         if end_count >= concurrentc {
@@ -84,6 +84,8 @@ func main()  {
     client := flag.Int("client", 0, "client count")
     conc := flag.Int("conc", 0, "concurrentc")
     count := flag.Int("count", 0, "lock and unlock count")
+    timeout_flag := flag.Int("timeout_flag", 0, "timeout_flag")
+    expried_flag := flag.Int("expried_flag", 0, "expried_flag")
 
     flag.Parse()
 
@@ -100,30 +102,30 @@ func main()  {
             *count = 500000
         }
 
-        bench(*client, *conc, *count, *port, *host)
+        bench(*client, *conc, *count, *port, *host, *timeout_flag, *expried_flag)
         fmt.Println("Succed")
         return
     }
 
-    bench(1, 1, 200000, *port, *host)
+    bench(1, 1, 200000, *port, *host, *timeout_flag, *expried_flag)
 
-    bench(1, 64, 300000, *port, *host)
+    bench(1, 64, 300000, *port, *host, *timeout_flag, *expried_flag)
 
-    bench(64, 64, 500000, *port, *host)
+    bench(64, 64, 500000, *port, *host, *timeout_flag, *expried_flag)
 
-    bench(8, 64, 500000, *port, *host)
+    bench(8, 64, 500000, *port, *host, *timeout_flag, *expried_flag)
 
-    bench(16, 64, 500000, *port, *host)
+    bench(16, 64, 500000, *port, *host, *timeout_flag, *expried_flag)
 
-    bench(16, 256, 500000, *port, *host)
+    bench(16, 256, 500000, *port, *host, *timeout_flag, *expried_flag)
 
-    bench(64, 512, 500000, *port, *host)
+    bench(64, 512, 500000, *port, *host, *timeout_flag, *expried_flag)
 
-    bench(512, 512, 500000, *port, *host)
+    bench(512, 512, 500000, *port, *host, *timeout_flag, *expried_flag)
 
-    bench(64, 4096, 500000, *port, *host)
+    bench(64, 4096, 500000, *port, *host, *timeout_flag, *expried_flag)
 
-    bench(4096, 4096, 500000, *port, *host)
+    bench(4096, 4096, 500000, *port, *host, *timeout_flag, *expried_flag)
 
     fmt.Println("Succed")
 }

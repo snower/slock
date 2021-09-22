@@ -1854,14 +1854,7 @@ func (self *LockDB) DoAckLock(lock *Lock, succed bool) {
         }
     }
 
-    state_error := false
-    if self.status != STATE_LEADER {
-        if lock.command.Flag & 0x04 == 0 {
-            state_error = true
-        }
-    }
-
-    if succed || state_error {
+    if succed {
         lock.ack_count = 0xff
         if lock.command.ExpriedFlag & 0x0400 == 0 {
             self.AddExpried(lock)
@@ -1871,11 +1864,7 @@ func (self *LockDB) DoAckLock(lock *Lock, succed bool) {
         lock_protocol, lock_command := lock.protocol, lock.command
         lock_manager.glock.Unlock()
 
-        if state_error {
-            lock_protocol.ProcessLockResultCommandLocked(lock_command, protocol.RESULT_STATE_ERROR, uint16(lock_manager.locked), lock.locked)
-        } else {
-            lock_protocol.ProcessLockResultCommandLocked(lock_command, protocol.RESULT_SUCCED, uint16(lock_manager.locked), lock.locked)
-        }
+        lock_protocol.ProcessLockResultCommandLocked(lock_command, protocol.RESULT_SUCCED, uint16(lock_manager.locked), lock.locked)
         atomic.AddUint64(&self.state.LockCount, 1)
         atomic.AddUint32(&self.state.LockedCount, 1)
         return

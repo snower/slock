@@ -1650,6 +1650,10 @@ func (self *TextServerProtocol) CommandHandlerLock(server_protocol *TextServerPr
     self.lock_request_id = lock_command.RequestId
     err = db.Lock(self, lock_command)
     if err != nil {
+        self.lock_request_id[0], self.lock_request_id[1], self.lock_request_id[2], self.lock_request_id[3], self.lock_request_id[4], self.lock_request_id[5], self.lock_request_id[6], self.lock_request_id[7],
+            self.lock_request_id[8], self.lock_request_id[9], self.lock_request_id[10], self.lock_request_id[11], self.lock_request_id[12], self.lock_request_id[13], self.lock_request_id[14], self.lock_request_id[15] =
+            0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0
         return self.stream.WriteBytes(self.parser.BuildResponse(false, "ERR Lock Error", nil))
     }
     lock_command_result := <- self.lock_waiter
@@ -1720,6 +1724,10 @@ func (self *TextServerProtocol) CommandHandlerUnlock(server_protocol *TextServer
     self.lock_request_id = lock_command.RequestId
     err = db.UnLock(self, lock_command)
     if err != nil {
+        self.lock_request_id[0], self.lock_request_id[1], self.lock_request_id[2], self.lock_request_id[3], self.lock_request_id[4], self.lock_request_id[5], self.lock_request_id[6], self.lock_request_id[7],
+            self.lock_request_id[8], self.lock_request_id[9], self.lock_request_id[10], self.lock_request_id[11], self.lock_request_id[12], self.lock_request_id[13], self.lock_request_id[14], self.lock_request_id[15] =
+            0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0
         return self.stream.WriteBytes(self.parser.BuildResponse(false, "ERR UnLock Error", nil))
     }
     lock_command_result := <- self.lock_waiter

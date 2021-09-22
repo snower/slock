@@ -128,17 +128,17 @@ func (self *BinaryClientProtocol) Read() (protocol.CommandDecode, error) {
 }
 
 func (self *BinaryClientProtocol) Write(command protocol.CommandEncode) error {
-    defer self.wglock.Unlock()
     self.wglock.Lock()
-
     wbuf := self.wbuf
     err := command.Encode(wbuf)
     if err != nil {
+        self.wglock.Unlock()
         return err
     }
 
     err = self.stream.WriteBytes(wbuf)
     if err != nil {
+        self.wglock.Unlock()
         return err
     }
 
@@ -149,6 +149,7 @@ func (self *BinaryClientProtocol) Write(command protocol.CommandEncode) error {
             err = self.stream.WriteBytes(call_command.Data)
         }
     }
+    self.wglock.Unlock()
     return err
 }
 

@@ -552,7 +552,7 @@ func (self *AofChannel) HandleLock(aof_lock *AofLock)  {
         err := aof_lock.Encode()
         if err != nil {
             self.slock.Log().Errorf("Aof Push Encode Error %v", err)
-            if aof_lock.AofFlag & 0x1000 != 0 && aof_lock.lock != nil {
+            if aof_lock.AofFlag & 0x1000 != 0 && aof_lock.CommandType == protocol.COMMAND_LOCK && aof_lock.lock != nil {
                 lock_manager := aof_lock.lock.manager
                 lock_manager.lock_db.DoAckLock(aof_lock.lock, false)
             }
@@ -1002,7 +1002,7 @@ func (self *Aof) PushLock(lock *AofLock) {
     self.aof_push_glock.Unlock()
 
     if werr != nil || perr != nil {
-        if lock.AofFlag & 0x1000 != 0 && lock.lock != nil {
+        if lock.AofFlag & 0x1000 != 0 && lock.CommandType == protocol.COMMAND_LOCK && lock.lock != nil {
             lock_manager := lock.lock.manager
             lock_manager.lock_db.DoAckLock(lock.lock, false)
         }

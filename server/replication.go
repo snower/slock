@@ -24,7 +24,7 @@ type ReplicationBufferQueue struct {
 }
 
 func NewReplicationBufferQueue() *ReplicationBufferQueue  {
-	buf_size := 1024 * 1024
+	buf_size := int(Config.AofRingBufferSize)
 	max_index := uint64(0xffffffffffffffff) - uint64(0xffffffffffffffff) % uint64(buf_size / 64)
 	return &ReplicationBufferQueue{make([]byte, buf_size), buf_size / 64, 64, 0, max_index, false}
 }
@@ -75,16 +75,17 @@ func (self *ReplicationBufferQueue) Pop(segment_index uint64, buf []byte) error 
 			return io.EOF
 		}
 
-		if segment_index/uint64(self.segment_count) != current_index/uint64(self.segment_count) {
+		if current_index - segment_index > uint64(self.segment_count) {
 			return errors.New("segment out of buf")
 		}
 
-		current_size := int(segment_index%uint64(self.segment_count)) * self.segment_size
-		copy(buf, self.buf[current_size:current_size+self.segment_size])
+		current_size := int(segment_index % uint64(self.segment_count)) * self.segment_size
+		copy(buf, self.buf[current_size:current_size + self.segment_size])
 
-		if self.current_index-current_index <= uint64(self.segment_count) {
+		if self.current_index - segment_index <= uint64(self.segment_count)  {
 			return nil
 		}
+
 		current_index = atomic.LoadUint64(&self.current_index)
 	}
 }
@@ -96,10 +97,10 @@ func (self *ReplicationBufferQueue) Head(buf []byte) (uint64, error) {
 			return 0, errors.New("buffer is empty")
 		}
 
-		current_size := int((current_index-1)%uint64(self.segment_count)) * self.segment_size
+		current_size := int((current_index-1) % uint64(self.segment_count)) * self.segment_size
 		copy(buf, self.buf[current_size:current_size+self.segment_size])
 
-		if self.current_index-current_index <= uint64(self.segment_count) {
+		if self.current_index - current_index <= uint64(self.segment_count) {
 			return current_index-1, nil
 		}
 		current_index = atomic.LoadUint64(&self.current_index)
@@ -560,6 +561,11 @@ func (self *ReplicationClientChannel) ProcessRead() {
 
 func (self *ReplicationClientChannel) HandleAcked(ack_lock *ReplicationAckLock) error {
 	self.glock.Lock()
+	if self.stream == nil {
+		self.glock.Unlock()
+		return errors.New("stream closed")
+	}
+
 	if !ack_lock.aof_result && ack_lock.lock_result.Result == 0 {
 		ack_lock.lock_result.Result = protocol.RESULT_ERROR
 	}
@@ -1054,6 +1060,7 @@ func (self *ReplicationAckDB) Process(lock_result *protocol.LockResultCommand) e
 
 				lock_manager := lock.manager
 				lock_manager.lock_db.DoAckLock(lock, false)
+				return nil
 			} else {
 				lock.ack_count++
 				if lock.ack_count < self.ack_count {
@@ -1070,8 +1077,13 @@ func (self *ReplicationAckDB) Process(lock_result *protocol.LockResultCommand) e
 
 				lock_manager := lock.manager
 				lock_manager.lock_db.DoAckLock(lock, true)
+				return nil
 			}
 		} else {
+			lock_key := [2][16]byte{lock_result.LockKey, lock_result.LockId}
+			if _, ok := self.requests[lock_key]; ok {
+				delete(self.requests, lock_key)
+			}
 			self.glock.Unlock()
 		}
 
@@ -1106,6 +1118,7 @@ func (self *ReplicationAckDB) ProcessAofed(request_id [16]byte, succed bool) err
 
 				lock_manager := lock.manager
 				lock_manager.lock_db.DoAckLock(lock, false)
+				return nil
 			} else {
 				lock.ack_count++
 				if lock.ack_count < self.ack_count {
@@ -1122,8 +1135,13 @@ func (self *ReplicationAckDB) ProcessAofed(request_id [16]byte, succed bool) err
 
 				lock_manager := lock.manager
 				lock_manager.lock_db.DoAckLock(lock, true)
+				return nil
 			}
 		} else {
+			lock_key := [2][16]byte{lock.command.LockKey, lock.command.LockId}
+			if _, ok := self.requests[lock_key]; ok {
+				delete(self.requests, lock_key)
+			}
 			self.glock.Unlock()
 		}
 
@@ -1228,21 +1246,22 @@ func (self *ReplicationAckDB) ProcessAckAofed(request_id [16]byte, succed bool) 
 
 func (self *ReplicationAckDB) SwitchToLeader() error {
 	self.glock.Lock()
-	if self.locks == nil {
-		self.glock.Unlock()
-		return nil
-	}
-
-	for _, lock := range self.locks {
-		lock_manager := lock.manager
-		lock_manager.lock_db.DoAckLock(lock, true)
-	}
-
-	if self.ack_locks == nil {
+	if self.ack_locks != nil {
+		for _, ack_lock := range self.ack_locks {
+			if self.manager.client_channel != nil {
+				self.manager.client_channel.HandleAcked(ack_lock)
+			}
+			if self.free_ack_locks_index < REPLICATION_MAX_FREE_ACK_LOCK_QUEUE_SIZE {
+				self.free_ack_locks[self.free_ack_locks_index] = ack_lock
+				self.free_ack_locks_index++
+			}
+		}
 		self.ack_locks = make(map[[16]byte]*ReplicationAckLock, REPLICATION_ACK_DB_INIT_SIZE)
 	}
-	if self.free_ack_locks == nil {
-		self.free_ack_locks = make([]*ReplicationAckLock, REPLICATION_MAX_FREE_ACK_LOCK_QUEUE_SIZE)
+
+	if self.locks == nil {
+		self.locks = make(map[[16]byte]*Lock, REPLICATION_ACK_DB_INIT_SIZE)
+		self.requests = make(map[[2][16]byte][16]byte, REPLICATION_ACK_DB_INIT_SIZE)
 	}
 	self.glock.Unlock()
 	return nil
@@ -1250,24 +1269,20 @@ func (self *ReplicationAckDB) SwitchToLeader() error {
 
 func (self *ReplicationAckDB) SwitchToFollower() error {
 	self.glock.Lock()
-	if self.ack_locks == nil {
-		self.glock.Unlock()
-		return nil
-	}
-
-	for _, ack_lock := range self.ack_locks {
-		if self.manager.client_channel != nil {
-			self.manager.client_channel.HandleAcked(ack_lock)
-		}
-		if self.free_ack_locks_index < REPLICATION_MAX_FREE_ACK_LOCK_QUEUE_SIZE {
-			self.free_ack_locks[self.free_ack_locks_index] = ack_lock
-			self.free_ack_locks_index++
-		}
-	}
-
 	if self.locks == nil {
+		for _, lock := range self.locks {
+			lock_manager := lock.manager
+			lock_manager.lock_db.DoAckLock(lock, true)
+		}
 		self.locks = make(map[[16]byte]*Lock, REPLICATION_ACK_DB_INIT_SIZE)
 		self.requests = make(map[[2][16]byte][16]byte, REPLICATION_ACK_DB_INIT_SIZE)
+	}
+
+	if self.ack_locks == nil {
+		self.ack_locks = make(map[[16]byte]*ReplicationAckLock, REPLICATION_ACK_DB_INIT_SIZE)
+	}
+	if self.free_ack_locks == nil {
+		self.free_ack_locks = make([]*ReplicationAckLock, REPLICATION_MAX_FREE_ACK_LOCK_QUEUE_SIZE)
 	}
 	self.glock.Unlock()
 	return nil
@@ -1576,14 +1591,14 @@ func (self *ReplicationManager) SwitchToLeader() error {
 	}
 
 	self.slock.logger.Infof("Replication Start Change To Leader")
-	self.slock.UpdateState(STATE_LEADER)
-	self.leader_address = ""
-	self.glock.Unlock()
 	for _, db := range self.ack_dbs {
 		if db != nil {
 			db.SwitchToLeader()
 		}
 	}
+	self.slock.UpdateState(STATE_LEADER)
+	self.leader_address = ""
+	self.glock.Unlock()
 
 	if self.client_channel != nil {
 		client_channel := self.client_channel
