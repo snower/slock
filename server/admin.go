@@ -256,9 +256,14 @@ func (self *Admin) CommandHandleInfoCommand(server_protocol *TextServerProtocol,
             if server_channel.protocol == nil {
                 continue
             }
-            infos = append(infos, fmt.Sprintf("follower%d:host=%s,aof_id=%x,behind_offset=%d", i + 1,
+
+            status := "sending"
+            if server_channel.pulled {
+                status = "pending"
+            }
+            infos = append(infos, fmt.Sprintf("follower%d:host=%s,aof_id=%x,behind_offset=%d,status=%s", i + 1,
                 server_channel.protocol.RemoteAddr().String(), server_channel.current_request_id,
-                self.slock.replication_manager.buffer_queue.current_index - server_channel.buffer_index))
+                self.slock.replication_manager.buffer_queue.current_index - server_channel.buffer_index, status))
         }
     } else {
         infos = append(infos, "role:follower")

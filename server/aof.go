@@ -19,6 +19,11 @@ import (
 var LETTERS = []byte("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
 var request_id_index uint64 = 0
 
+const AOF_LOCK_TYPE_FILE = 0
+const AOF_LOCK_TYPE_LOAD = 1
+const AOF_LOCK_TYPE_ACK_SUCCED  = 2
+const AOF_LOCK_TYPE_ACK_FAIL = 3
+
 type AofLock struct {
     CommandType     uint8
     AofIndex        uint32
@@ -132,11 +137,6 @@ func (self *AofLock) GetRequestId() [16]byte {
     return request_id
 }
 
-type AofFileAckRequest struct {
-    db_id       uint8
-    request_id  [16]byte
-}
-
 type AofFile struct {
     slock           *SLock
     aof             *Aof
@@ -149,13 +149,13 @@ type AofFile struct {
     wbuf            []byte
     windex          int
     size            int
-    ack_requests    []AofFileAckRequest
+    ack_requests    [][]byte
     ack_index       int
 }
 
 func NewAofFile(aof *Aof, filename string, mode int, buf_size int) *AofFile{
     buf_size = buf_size - buf_size % 64
-    ack_requests := make([]AofFileAckRequest, buf_size / 64)
+    ack_requests := make([][]byte, buf_size / 64)
     return &AofFile{aof.slock, aof, filename, nil, mode, buf_size,
         make([]byte, 64), nil, nil, 0, 0, ack_requests, 0}
 }
@@ -319,6 +319,10 @@ func (self *AofFile) WriteLock(lock *AofLock) error {
     buf[0], buf[1] = 62, 0
 
     copy(self.wbuf[self.windex:], buf)
+    if lock.AofFlag & 0x1000 != 0 {
+        self.ack_requests[self.ack_index] = self.wbuf[self.windex: self.windex + 64]
+        self.ack_index++
+    }
     self.windex += 64
     if self.windex >= len(self.wbuf) {
         err := self.Flush()
@@ -326,17 +330,14 @@ func (self *AofFile) WriteLock(lock *AofLock) error {
             return err
         }
     }
-
     self.size += 64
-    if lock.AofFlag & 0x1000 != 0 {
-        self.ack_requests[self.ack_index].db_id = lock.DbId
-        self.ack_requests[self.ack_index].request_id = lock.GetRequestId()
-        self.ack_index++
-    }
     return nil
 }
 
 func (self *AofFile) Flush() error {
+    if self.windex == 0 {
+        return nil
+    }
     if self.file == nil {
         return errors.New("File Unopen")
     }
@@ -345,6 +346,8 @@ func (self *AofFile) Flush() error {
     for ; tn < self.windex; {
         n, err := self.file.Write(self.wbuf[tn:self.windex])
         if err != nil {
+            self.windex = 0
+            self.ack_index = 0
             return err
         }
         tn += n
@@ -353,11 +356,12 @@ func (self *AofFile) Flush() error {
 
     err := self.file.Sync()
     if err != nil {
+        self.ack_index = 0
         return err
     }
 
     for i:= 0; i < self.ack_index; i++ {
-        self.aof.AofFileFlushRequested(&self.ack_requests[i], true)
+        self.aof.LockAcked(self.ack_requests[i], true)
     }
     self.ack_index = 0
     return nil
@@ -366,7 +370,7 @@ func (self *AofFile) Flush() error {
 func (self *AofFile) Close() error {
     if self.ack_index > 0 {
         for i:= 0; i < self.ack_index; i++ {
-            self.aof.AofFileFlushRequested(&self.ack_requests[i], false)
+            self.aof.LockAcked(self.ack_requests[i], false)
         }
         self.ack_index = 0
     }
@@ -405,11 +409,10 @@ type AofChannel struct {
 
 func (self *AofChannel) Push(lock *Lock, command_type uint8) error {
     if self.closed {
-        return errors.New("Aof Channel Closed")
+        return io.EOF
     }
 
     var aof_lock *AofLock = nil
-
     self.glock.Lock()
     if self.free_lock_index > 0 {
         self.free_lock_index--
@@ -479,7 +482,7 @@ func (self *AofChannel) Push(lock *Lock, command_type uint8) error {
 
 func (self *AofChannel) Load(lock *AofLock) error {
     if self.closed {
-        return errors.New("Aof Channel Closed")
+        return io.EOF
     }
 
     var aof_lock *AofLock = nil
@@ -490,43 +493,53 @@ func (self *AofChannel) Load(lock *AofLock) error {
     }
     self.glock.Unlock()
 
-    if aof_lock != nil {
-        aof_lock.CommandType = lock.CommandType
-        aof_lock.AofIndex = lock.AofIndex
-        aof_lock.AofId = lock.AofId
-        aof_lock.CommandTime = lock.CommandTime
-        aof_lock.Flag = lock.Flag
-        aof_lock.DbId = lock.DbId
-        aof_lock.LockId = lock.LockId
-        aof_lock.LockKey = lock.LockKey
-        aof_lock.AofFlag = lock.AofFlag
-        aof_lock.StartTime = lock.StartTime
-        aof_lock.ExpriedFlag = lock.ExpriedFlag
-        aof_lock.ExpriedTime = lock.ExpriedTime
-        aof_lock.Count = lock.Count
-        aof_lock.Rcount = lock.Rcount
-    } else {
-        aof_lock = &AofLock{lock.CommandType, lock.AofIndex, lock.AofId, lock.CommandTime, lock.Flag, lock.DbId,  lock.LockId,
-            lock.LockKey, lock.AofFlag, lock.StartTime, lock.ExpriedFlag, lock.ExpriedTime, lock.Count,
-            lock.Rcount, 0, self.buf, nil}
+    if aof_lock == nil {
+        aof_lock = NewAofLock()
     }
-
-    aof_lock.LockType = 1
+    copy(aof_lock.buf, lock.buf)
+    aof_lock.LockType = AOF_LOCK_TYPE_LOAD
     self.channel <- aof_lock
     return nil
 }
 
-func (self *AofChannel) Handle() {
+
+func (self *AofChannel) Acked(buf []byte, succed bool) error {
+    if self.closed {
+        return io.EOF
+    }
+
+    var aof_lock *AofLock = nil
+    self.glock.Lock()
+    if self.free_lock_index > 0 {
+        self.free_lock_index--
+        aof_lock = self.free_locks[self.free_lock_index]
+    }
+    self.glock.Unlock()
+
+    if aof_lock == nil {
+        aof_lock = NewAofLock()
+    }
+    copy(aof_lock.buf, buf)
+    if succed {
+        aof_lock.LockType = AOF_LOCK_TYPE_ACK_SUCCED
+    } else {
+        aof_lock.LockType = AOF_LOCK_TYPE_ACK_FAIL
+    }
+    self.channel <- aof_lock
+    return nil
+}
+
+func (self *AofChannel) Run() {
     exited := false
     self.aof.ActiveAofChannel(self)
     for {
         select {
         case aof_lock := <- self.channel:
             if aof_lock != nil {
-                self.HandleLock(aof_lock)
-            } else {
-                exited = self.closed
+                self.Handle(aof_lock)
+                continue
             }
+            exited = self.closed
         default:
             self.aof.UnActiveAofChannel(self)
             if exited {
@@ -539,33 +552,50 @@ func (self *AofChannel) Handle() {
             aof_lock := <- self.channel
             self.aof.ActiveAofChannel(self)
             if aof_lock != nil {
-                self.HandleLock(aof_lock)
-            } else {
-                exited = self.closed
+                self.Handle(aof_lock)
+                continue
             }
+            exited = self.closed
         }
     }
 }
 
-func (self *AofChannel) HandleLock(aof_lock *AofLock)  {
-    if aof_lock.LockType == 0 {
-        err := aof_lock.Encode()
-        if err != nil {
-            self.slock.Log().Errorf("Aof Push Encode Error %v", err)
-            if aof_lock.AofFlag & 0x1000 != 0 && aof_lock.CommandType == protocol.COMMAND_LOCK && aof_lock.lock != nil {
-                lock_manager := aof_lock.lock.manager
-                lock_manager.lock_db.DoAckLock(aof_lock.lock, false)
-            }
-        } else {
-            self.aof.PushLock(aof_lock)
-        }
+func (self *AofChannel) Handle(aof_lock *AofLock)  {
+    switch aof_lock.LockType {
+    case AOF_LOCK_TYPE_FILE:
+        self.HandleLock(aof_lock)
+    case AOF_LOCK_TYPE_LOAD:
+        self.HandleLoad(aof_lock)
+    case AOF_LOCK_TYPE_ACK_SUCCED:
+        self.HandleAcked(aof_lock, true)
+    case AOF_LOCK_TYPE_ACK_FAIL:
+        self.HandleAcked(aof_lock, false)
+    }
 
-        self.glock.Lock()
-        if self.free_lock_index < self.free_lock_max {
-            self.free_locks[self.free_lock_index] = aof_lock
-            self.free_lock_index++
+    self.glock.Lock()
+    if self.free_lock_index < self.free_lock_max {
+        self.free_locks[self.free_lock_index] = aof_lock
+        self.free_lock_index++
+    }
+    self.glock.Unlock()
+}
+
+func (self *AofChannel) HandleLock(aof_lock *AofLock)  {
+    err := aof_lock.Encode()
+    if err != nil {
+        self.slock.Log().Errorf("Aof Push Encode Error %v", err)
+        if aof_lock.AofFlag & 0x1000 != 0 && aof_lock.CommandType == protocol.COMMAND_LOCK && aof_lock.lock != nil {
+            lock_manager := aof_lock.lock.manager
+            lock_manager.lock_db.DoAckLock(aof_lock.lock, false)
         }
-        self.glock.Unlock()
+        return
+    }
+    self.aof.PushLock(aof_lock)
+}
+
+func (self *AofChannel) HandleLoad(aof_lock *AofLock) {
+    err := aof_lock.Decode()
+    if err != nil {
         return
     }
 
@@ -591,20 +621,35 @@ func (self *AofChannel) HandleLock(aof_lock *AofLock)  {
     lock_command.Expried = expried_time + 1
     lock_command.Count = aof_lock.Count
     lock_command.Rcount = aof_lock.Rcount
-    err := self.server_protocol.ProcessLockCommand(lock_command)
+
+    err = self.server_protocol.ProcessLockCommand(lock_command)
+    if err == nil {
+        return
+    }
+    self.slock.Log().Errorf("Aof Load ProcessLockCommand Error %v", err)
+    if aof_lock.AofFlag & 0x1000 != 0 {
+        self.aof.LockLoaded(self.server_protocol.(*MemWaiterServerProtocol), lock_command, protocol.RESULT_ERROR, 0, 0)
+    }
+}
+
+func (self *AofChannel) HandleAcked(aof_lock *AofLock, succed bool) {
+    err := aof_lock.Decode()
     if err != nil {
-        self.slock.Log().Errorf("Aof Load ProcessLockCommand Error %v", err)
-        if aof_lock.AofFlag & 0x1000 != 0 {
-            self.aof.LockLoaded(self.server_protocol.(*MemWaiterServerProtocol), lock_command, protocol.RESULT_ERROR, 0, 0)
-        }
+        return
     }
 
-    self.glock.Lock()
-    if self.free_lock_index < self.free_lock_max {
-        self.free_locks[self.free_lock_index] = aof_lock
-        self.free_lock_index++
+    if self.slock.state == STATE_LEADER {
+        db := self.slock.replication_manager.GetAckDB(aof_lock.DbId)
+        if db != nil {
+            db.ProcessAofed(aof_lock.GetRequestId(), succed)
+        }
+        return
     }
-    self.glock.Unlock()
+
+    db := self.slock.replication_manager.GetOrNewAckDB(aof_lock.DbId)
+    if db != nil {
+        db.ProcessAckAofed(aof_lock.GetRequestId(), succed)
+    }
 }
 
 type Aof struct {
@@ -613,8 +658,7 @@ type Aof struct {
     data_dir                    string
     aof_file_index              uint32
     aof_file                    *AofFile
-    aof_file_glock              *sync.Mutex
-    aof_push_glock              *sync.Mutex
+    aof_glock                   *sync.Mutex
     channels                    []*AofChannel
     channel_count               uint32
     actived_channel_count       uint32
@@ -629,7 +673,7 @@ type Aof struct {
 }
 
 func NewAof() *Aof {
-    return &Aof{nil, &sync.Mutex{}, "",0, nil, &sync.Mutex{}, &sync.Mutex{},
+    return &Aof{nil, &sync.Mutex{}, "",0, nil, &sync.Mutex{},
         make([]*AofChannel, 0), 0, 0, nil, nil, 0, 0, 0,
         false, false, false}
 }
@@ -882,18 +926,12 @@ func (self *Aof) Close()  {
 
     self.WaitFlushAofChannel()
     self.WaitRewriteAofFiles()
-    for _, channel := range self.channels {
-        if !channel.closed {
-            self.CloseAofChannel(channel)
-        }
-        <- channel.closed_waiter
-    }
 
     if self.aof_file != nil {
-        self.aof_file_glock.Lock()
+        self.aof_glock.Lock()
         self.aof_file.Close()
         self.aof_file = nil
-        self.aof_file_glock.Unlock()
+        self.aof_glock.Unlock()
     }
     self.slock.logger.Infof("Aof Closed")
 }
@@ -908,7 +946,7 @@ func (self *Aof) NewAofChannel(lock_db *LockDB) *AofChannel {
     self.channels = append(self.channels, aof_channel)
     self.channel_count++
     self.glock.Unlock()
-    go aof_channel.Handle()
+    go aof_channel.Run()
     return aof_channel
 }
 
@@ -944,25 +982,25 @@ func (self *Aof) UnActiveAofChannel(channel *AofChannel) {
         return
     }
 
-    self.aof_file_glock.Lock()
+    self.aof_glock.Lock()
     self.Flush()
     if self.channel_flush_waiter != nil {
         close(self.channel_flush_waiter)
         self.channel_flush_waiter = nil
     }
-    self.aof_file_glock.Unlock()
+    self.aof_glock.Unlock()
 }
 
 func (self *Aof) WaitFlushAofChannel() error {
-    self.aof_file_glock.Lock()
+    self.aof_glock.Lock()
     self.channel_flush_waiter = make(chan bool, 1)
     if atomic.CompareAndSwapUint32(&self.actived_channel_count, 0, 0) {
         self.channel_flush_waiter = nil
-        self.aof_file_glock.Unlock()
+        self.aof_glock.Unlock()
         return nil
     }
     <- self.channel_flush_waiter
-    self.aof_file_glock.Unlock()
+    self.aof_glock.Unlock()
     return nil
 }
 
@@ -981,7 +1019,7 @@ func (self *Aof) LoadLock(lock *AofLock) error {
 }
 
 func (self *Aof) PushLock(lock *AofLock) {
-    self.aof_file_glock.Lock()
+    self.aof_glock.Lock()
     self.aof_id++
     lock.UpdateAofIndexId(self.aof_file_index, self.aof_id)
 
@@ -989,17 +1027,15 @@ func (self *Aof) PushLock(lock *AofLock) {
     if werr != nil {
         self.slock.Log().Errorf("Aof File Write Error %v", werr)
     }
-    if uint32(self.aof_file.GetSize()) >= self.rewrite_size {
-        self.RewriteAofFile()
-    }
-    self.aof_file_glock.Unlock()
-
-    self.aof_push_glock.Lock()
     perr := self.slock.replication_manager.PushLock(lock)
     if perr != nil {
         self.slock.Log().Errorf("Aof File Push Error %v", perr)
     }
-    self.aof_push_glock.Unlock()
+
+    if uint32(self.aof_file.GetSize()) >= self.rewrite_size {
+        self.RewriteAofFile()
+    }
+    self.aof_glock.Unlock()
 
     if werr != nil || perr != nil {
         if lock.AofFlag & 0x1000 != 0 && lock.CommandType == protocol.COMMAND_LOCK && lock.lock != nil {
@@ -1011,7 +1047,7 @@ func (self *Aof) PushLock(lock *AofLock) {
 }
 
 func (self *Aof) AppendLock(lock *AofLock) {
-    self.aof_file_glock.Lock()
+    self.aof_glock.Lock()
     if lock.AofIndex != self.aof_file_index || self.aof_file == nil {
         self.aof_file_index = lock.AofIndex - 1
         self.aof_id = lock.AofId
@@ -1023,25 +1059,21 @@ func (self *Aof) AppendLock(lock *AofLock) {
         self.slock.Log().Errorf("Aof File Write Error %v", err)
     }
     self.aof_id = lock.AofId
-    self.aof_file_glock.Unlock()
+    self.aof_glock.Unlock()
     atomic.AddUint64(&self.aof_lock_count, 1)
 }
 
-func (self *Aof) AofFileFlushRequested(ack_request *AofFileAckRequest, succed bool) error {
-    if self.slock.state == STATE_LEADER {
-        db := self.slock.replication_manager.GetAckDB(ack_request.db_id)
-        if db != nil {
-            return db.ProcessAofed(ack_request.request_id, succed)
-        }
+func (self *Aof) LockAcked(buf []byte, succed bool) error {
+    aof_id := uint32(buf[3]) | uint32(buf[4])<<8 | uint32(buf[5])<<16 | uint32(buf[6])<<24
+    db := self.slock.dbs[buf[20]]
+    if db == nil {
         return nil
     }
-
-
-    db := self.slock.replication_manager.GetOrNewAckDB(ack_request.db_id)
-    if db != nil {
-        return db.ProcessAckAofed(ack_request.request_id, succed)
+    aof_channel := db.aof_channels[aof_id % uint32(db.manager_max_glocks)]
+    if aof_channel.closed {
+        return nil
     }
-    return nil
+    return aof_channel.Acked(buf, succed)
 }
 
 func (self *Aof) LockLoaded(server_protocol *MemWaiterServerProtocol, command *protocol.LockCommand, result uint8, lcount uint16, lrcount uint8) error {
@@ -1089,8 +1121,8 @@ func (self *Aof) OpenAofFile(aof_index uint32) (*AofFile, error) {
 }
 
 func (self *Aof) Reset(aof_file_index uint32) error {
-    defer self.aof_file_glock.Unlock()
-    self.aof_file_glock.Lock()
+    defer self.aof_glock.Unlock()
+    self.aof_glock.Lock()
     if self.is_rewriting {
         return errors.New("Aof Rewriting")
     }
