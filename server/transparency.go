@@ -1089,22 +1089,30 @@ func (self *TransparencyManager) CloseClient(binary_client *TransparencyBinaryCl
 	defer self.glock.Unlock()
 	self.glock.Lock()
 
-	current_client := self.clients
-	for ; current_client != nil; {
-		if current_client.next_client == binary_client {
-			current_client.next_client = binary_client.next_client
-			break
+	if self.clients == binary_client {
+		self.clients = binary_client.next_client
+	} else {
+		current_client := self.clients
+		for ; current_client != nil; {
+			if current_client.next_client == binary_client {
+				current_client.next_client = binary_client.next_client
+				break
+			}
+			current_client = current_client.next_client
 		}
-		current_client = current_client.next_client
 	}
 
-	current_client = self.idle_clients
-	for ; current_client != nil; {
-		if current_client.next_client == binary_client {
-			current_client.next_client = binary_client.next_client
-			break
+	if self.idle_clients == binary_client {
+		self.idle_clients = binary_client.next_client
+	} else {
+		current_client := self.idle_clients
+		for ; current_client != nil; {
+			if current_client.next_client == binary_client {
+				current_client.next_client = binary_client.next_client
+				break
+			}
+			current_client = current_client.next_client
 		}
-		current_client = current_client.next_client
 	}
 	return nil
 }

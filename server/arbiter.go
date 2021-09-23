@@ -339,8 +339,9 @@ func (self *ArbiterClient) Request(command *protocol.CallCommand) (*protocol.Cal
         return nil, err
     }
 
+    rchannel := self.rchannel
     for {
-        result := <- self.rchannel
+        result := <- rchannel
         if result == nil {
             self.glock.Unlock()
             return nil, errors.New("read command error")
@@ -1349,12 +1350,9 @@ func (self *ArbiterManager) QuitLeader() error {
 
 func (self *ArbiterManager) QuitMember() error {
     self.slock.replication_manager.SwitchToFollower("")
-    for _, member := range self.members {
-        member.Close()
-        <- member.closed_waiter
-    }
 
     self.glock.Lock()
+    members := self.members
     self.members = make([]*ArbiterMember, 0)
     self.own_member = nil
     self.leader_member = nil
@@ -1365,6 +1363,11 @@ func (self *ArbiterManager) QuitMember() error {
     self.vertime = 0
     self.store.Save(self)
     self.glock.Unlock()
+
+    for _, member := range members {
+        member.Close()
+        <- member.closed_waiter
+    }
     self.slock.Log().Infof("Arbiter Quit Member")
     return nil
 }
@@ -1828,8 +1831,6 @@ func (self *ArbiterManager) CommandHandleAnnouncementCommand(server_protocol *Bi
             return protocol.NewCallResultCommand(command, 0, "ERR_VERSION", nil), nil
         }
     }
-    version, vertime := self.version, self.vertime
-    self.glock.Unlock()
 
     members, new_members := make(map[string]*ArbiterMember, 4), make([]*ArbiterMember, 0)
     for _, member := range self.members {
@@ -1877,16 +1878,19 @@ func (self *ArbiterManager) CommandHandleAnnouncementCommand(server_protocol *Bi
             self.glock.Unlock()
             self.QuitMember()
         }()
+        self.glock.Unlock()
         return protocol.NewCallResultCommand(command, 0, "", nil), nil
     }
 
     if leader_member != nil {
         if own_member.role == ARBITER_ROLE_LEADER && leader_member.host != own_member.host {
+            self.glock.Unlock()
             return protocol.NewCallResultCommand(command, 0, "ERR_LEADER", nil), nil
         }
 
         if self.leader_member != nil {
             if self.leader_member.status == ARBITER_MEMBER_STATUS_ONLINE && leader_member.host != self.leader_member.host {
+                self.glock.Unlock()
                 return protocol.NewCallResultCommand(command, 0, "ERR_LEADER", nil), nil
             }
         }
@@ -1896,12 +1900,6 @@ func (self *ArbiterManager) CommandHandleAnnouncementCommand(server_protocol *Bi
             self.slock.Log().Infof("Arbiter Voter Accept Leader %s", self.voter.proposal_host)
             self.voter.proposal_host = ""
         }
-    }
-
-    self.glock.Lock()
-    if self.version != version || self.vertime != vertime {
-        self.glock.Unlock()
-        return protocol.NewCallResultCommand(command, 0, "ERR_VERSION", nil), nil
     }
 
     self.members = new_members
