@@ -40,11 +40,13 @@ func (self *LockManager) AddLock(lock *Lock) *Lock {
         lock.expried_time = 0x7fffffffffffffff
     }
 
-    switch lock.command.ExpriedFlag & 0x0300 {
+    switch lock.command.ExpriedFlag & 0x1300 {
     case 0x0100:
         lock.aof_time = 0
     case 0x0200:
         lock.aof_time = 0xff
+    case 0x1000:
+        lock.aof_time = uint8(float64(lock.command.Expried) * Config.DBLockAofParcentTime)
     default:
         lock.aof_time = self.lock_db.aof_time
     }
@@ -159,11 +161,13 @@ func (self *LockManager) UpdateLockedLock(lock *Lock, timeout uint16, timeout_fl
         lock.expried_checked_count = 1
     }
 
-    switch lock.command.ExpriedFlag & 0x0300 {
+    switch lock.command.ExpriedFlag & 0x1300 {
     case 0x0100:
         lock.aof_time = 0
     case 0x0200:
         lock.aof_time = 0xff
+    case 0x1000:
+        lock.aof_time = uint8(float64(lock.command.Expried) * Config.DBLockAofParcentTime)
     default:
         lock.aof_time = self.lock_db.aof_time
     }

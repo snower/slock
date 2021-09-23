@@ -1874,6 +1874,12 @@ func (self *LockDB) DoAckLock(lock *Lock, succed bool) {
     if succed {
         lock.ack_count = 0xff
         if lock.command.ExpriedFlag & 0x0400 == 0 {
+            lock.expried_time = self.current_time + int64(lock.command.Expried) + 1
+        } else if lock.command.ExpriedFlag & 0x4000 != 0 {
+            lock.expried_time = 0x7fffffffffffffff
+        }
+
+        if lock.command.ExpriedFlag & 0x0400 == 0 {
             self.AddExpried(lock)
         } else {
             self.AddMillisecondExpried(lock)

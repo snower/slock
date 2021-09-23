@@ -307,9 +307,9 @@ type LockCommand struct {
     Timeout         uint16
     ExpriedFlag     uint16
     /*
-    |    15  |          14          |                13                   |  12 |        11      |       10       |      9      |        8         |7                                  0|
-    |--------|----------------------|-------------------------------------|-----|----------------|----------------|-------------|------------------|------------------------------------|
-    |keeplive|unlimited_expried_time|update_no_reset_expried_checked_count|     |expried_is_error|millisecond_time|zeor_aof_time|unlimited_aof_time|                                    |
+    |    15  |          14          |                13                   |                12         |        11      |       10       |      9      |        8         |7                                  0|
+    |--------|----------------------|-------------------------------------|---------------------------|----------------|----------------|-------------|------------------|------------------------------------|
+    |keeplive|unlimited_expried_time|update_no_reset_expried_checked_count|aof_time_of_expried_parcent|expried_is_error|millisecond_time|zeor_aof_time|unlimited_aof_time|                                    |
     */
     Expried         uint16
     Count           uint16

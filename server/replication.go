@@ -1221,6 +1221,7 @@ type ReplicationManager struct {
 	ack_dbs						[]*ReplicationAckDB
 	client_channel 				*ReplicationClient
 	server_channels 			[]*ReplicationServer
+	transparency_manager		*TransparencyManager
 	current_request_id			[16]byte
 	leader_address				string
 	server_count				uint32
@@ -1232,8 +1233,9 @@ type ReplicationManager struct {
 }
 
 func NewReplicationManager() *ReplicationManager {
+	transparency_manager := NewTransparencyManager()
 	manager := &ReplicationManager{nil, &sync.Mutex{}, nil, make([]*ReplicationAckDB, 256),
-		nil, make([]*ReplicationServer, 0), [16]byte{}, "", 0,
+		nil, make([]*ReplicationServer, 0), transparency_manager,[16]byte{}, "", 0,
 		0, nil, make([]chan bool, 0), false, true}
 	manager.buffer_queue = NewReplicationBufferQueue(manager, int(Config.AofRingBufferSize))
 	return manager
@@ -1296,6 +1298,7 @@ func (self *ReplicationManager) Close() {
 			self.ack_dbs[i] = nil
 		}
 	}
+	self.transparency_manager.Close()
 	self.glock.Unlock()
 	self.slock.logger.Infof("Replication Closed")
 }

@@ -1033,8 +1033,8 @@ func (self *Aof) WaitFlushAofChannel() error {
         self.aof_glock.Unlock()
         return nil
     }
-    <- self.channel_flush_waiter
     self.aof_glock.Unlock()
+    <- self.channel_flush_waiter
     return nil
 }
 

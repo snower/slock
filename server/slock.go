@@ -48,6 +48,7 @@ func NewSLock(config *ServerConfig) *SLock {
         &sync.Mutex{}, 0, 0, STATE_INIT}
     aof.slock = slock
     replication_manager.slock = slock
+    replication_manager.transparency_manager.slock = slock
     admin.slock = slock
     return slock
 }

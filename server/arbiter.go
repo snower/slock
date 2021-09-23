@@ -97,7 +97,7 @@ func (self *ArbiterStore) Load(manager *ArbiterManager) error {
     }
     manager.members = members
     manager.gid = replset.Gid
-    manager.version = replset.Version
+    manager.version = replset.Version - 1
     manager.vertime = replset.Vertime
     manager.voter.commit_id = replset.CommitId
     file.Close()
@@ -1334,11 +1334,7 @@ func (self *ArbiterManager) GetMembers() []*ArbiterMember {
 
 func (self *ArbiterManager) QuitLeader() error {
     self.slock.Log().Infof("Arbiter Quit Leader Start")
-    if self.own_member.arbiter == 0 {
-        self.slock.replication_manager.SwitchToFollower("")
-    } else {
-        self.slock.UpdateState(STATE_FOLLOWER)
-    }
+    self.slock.replication_manager.SwitchToFollower("")
     self.own_member.role = ARBITER_ROLE_FOLLOWER
     self.leader_member = nil
     self.version++
@@ -1352,11 +1348,7 @@ func (self *ArbiterManager) QuitLeader() error {
 }
 
 func (self *ArbiterManager) QuitMember() error {
-    if self.own_member.arbiter == 0 {
-        self.slock.replication_manager.SwitchToFollower("")
-    } else {
-        self.slock.UpdateState(STATE_FOLLOWER)
-    }
+    self.slock.replication_manager.SwitchToFollower("")
     for _, member := range self.members {
         member.Close()
         <- member.closed_waiter
@@ -1404,7 +1396,9 @@ func (self *ArbiterManager) VoteSucced() error {
         return nil
     }
 
+    self.slock.Log().Infof("Arbiter Vote Succed Current Leader: %s", self.voter.proposal_host)
     self.glock.Lock()
+    proposal_host := self.voter.proposal_host
     for _, member := range self.members {
         if member.host == self.voter.proposal_host {
             member.role = ARBITER_ROLE_LEADER
@@ -1424,7 +1418,7 @@ func (self *ArbiterManager) VoteSucced() error {
     self.version++
     self.vertime = uint64(time.Now().UnixNano()) / 1e6
     self.store.Save(self)
-    if self.voter.proposal_host == self.own_member.host {
+    if proposal_host == self.own_member.host {
         if self.slock.state == STATE_LEADER {
             self.DoAnnouncement()
         } else {
@@ -1433,6 +1427,7 @@ func (self *ArbiterManager) VoteSucced() error {
     } else {
         if self.slock.state == STATE_LEADER {
             self.slock.replication_manager.SwitchToFollower("")
+            self.slock.replication_manager.transparency_manager.ChangeLeader("")
         }
         self.glock.Unlock()
         self.voter.DoAnnouncement()
@@ -1440,10 +1435,7 @@ func (self *ArbiterManager) VoteSucced() error {
         self.UpdateStatus()
     }
 
-    self.slock.Log().Infof("Arbiter Vote Succed")
-    if self.leader_member != nil {
-        self.slock.Log().Infof("Arbiter Current Leader: %s", self.leader_member.host)
-    }
+    self.slock.Log().Infof("Arbiter Vote Succed Change Status Finish")
     self.glock.Unlock()
     return nil
 }
@@ -1475,11 +1467,8 @@ func (self *ArbiterManager) UpdateStatus() error {
     }
 
     if self.leader_member == nil {
-        if self.own_member.arbiter == 0 {
-            self.slock.replication_manager.SwitchToFollower("")
-        } else {
-            self.slock.UpdateState(STATE_FOLLOWER)
-        }
+        self.slock.replication_manager.SwitchToFollower("")
+        self.slock.replication_manager.transparency_manager.ChangeLeader("")
         self.StartVote()
         return nil
     }
@@ -1507,13 +1496,17 @@ func (self *ArbiterManager) UpdateStatus() error {
         if !self.loaded {
             self.slock.InitFollower(self.leader_member.host)
             self.slock.StartFollower()
+            self.slock.replication_manager.transparency_manager.ChangeLeader(self.leader_member.host)
             self.loaded = true
             return nil
         }
         self.slock.replication_manager.SwitchToFollower(self.leader_member.host)
+        self.slock.replication_manager.transparency_manager.ChangeLeader(self.leader_member.host)
         return nil
     }
-    self.slock.UpdateState(STATE_FOLLOWER)
+
+    self.slock.replication_manager.SwitchToFollower("")
+    self.slock.replication_manager.transparency_manager.ChangeLeader(self.leader_member.host)
     return nil
 }
 
@@ -1819,6 +1812,7 @@ func (self *ArbiterManager) CommandHandleAnnouncementCommand(server_protocol *Bi
         return protocol.NewCallResultCommand(command, 0, "ERR_GID", nil), nil
     }
 
+    self.glock.Lock()
     if request.Replset.CommitId == self.voter.commit_id && self.voter.proposal_host != "" {
         if self.version < request.Replset.Version {
             self.version = request.Replset.Version
@@ -1830,9 +1824,12 @@ func (self *ArbiterManager) CommandHandleAnnouncementCommand(server_protocol *Bi
         if request.Replset.Version < self.version || (request.Replset.Version == self.version && request.Replset.Vertime < self.vertime) {
             self.slock.Log().Infof("Arbiter Announcement Version Waring CommitId %d %d Version %d %d Vertime %d %d", request.Replset.CommitId,
                 self.voter.commit_id, request.Replset.Version, self.version, request.Replset.Vertime, self.vertime)
+            self.glock.Unlock()
             return protocol.NewCallResultCommand(command, 0, "ERR_VERSION", nil), nil
         }
     }
+    version, vertime := self.version, self.vertime
+    self.glock.Unlock()
 
     members, new_members := make(map[string]*ArbiterMember, 4), make([]*ArbiterMember, 0)
     for _, member := range self.members {
@@ -1859,7 +1856,6 @@ func (self *ArbiterManager) CommandHandleAnnouncementCommand(server_protocol *Bi
         } else {
             member = NewArbiterMember(self, rplm.Host, rplm.Weight, rplm.Arbiter)
             member.role = uint8(rplm.Role)
-            self.members = append(self.members, member)
             if member.host == request.Replset.Owner {
                 own_member = member
                 own_member.isself = true
@@ -1903,6 +1899,11 @@ func (self *ArbiterManager) CommandHandleAnnouncementCommand(server_protocol *Bi
     }
 
     self.glock.Lock()
+    if self.version != version || self.vertime != vertime {
+        self.glock.Unlock()
+        return protocol.NewCallResultCommand(command, 0, "ERR_VERSION", nil), nil
+    }
+
     self.members = new_members
     self.own_member = own_member
     self.leader_member = leader_member
