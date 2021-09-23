@@ -7,7 +7,7 @@ import (
 )
 
 func TestReplicationBufferQueue_Push(t *testing.T) {
-	queue := NewReplicationBufferQueue(1024 * 1024)
+	queue := NewReplicationBufferQueue(nil,1024 * 1024)
 
 	buf := make([]byte, 64)
 	buf[0] = 0xa5
@@ -29,7 +29,7 @@ func TestReplicationBufferQueue_Push(t *testing.T) {
 }
 
 func TestReplicationBufferQueue_Pop(t *testing.T) {
-	queue := NewReplicationBufferQueue(1024 * 1024)
+	queue := NewReplicationBufferQueue(nil, 1024 * 1024)
 
 	obuf := make([]byte, 64)
 	buf := make([]byte, 64)
@@ -58,7 +58,7 @@ func TestReplicationBufferQueue_Pop(t *testing.T) {
 }
 
 func TestReplicationBufferQueue_Head(t *testing.T) {
-	queue := NewReplicationBufferQueue(1024 * 1024)
+	queue := NewReplicationBufferQueue(nil, 1024 * 1024)
 
 	obuf := make([]byte, 64)
 	buf := make([]byte, 64)
@@ -93,7 +93,7 @@ func TestReplicationBufferQueue_Head(t *testing.T) {
 }
 
 func TestReplicationBufferQueue_Search(t *testing.T) {
-	queue := NewReplicationBufferQueue(1024 * 1024)
+	queue := NewReplicationBufferQueue(nil, 1024 * 1024)
 
 	obuf := make([]byte, 64)
 	buf := make([]byte, 64)
@@ -127,12 +127,12 @@ func TestReplicationBufferQueue_Search(t *testing.T) {
 }
 
 func TestReplicationBufferQueue_Run(t *testing.T) {
-	queue := NewReplicationBufferQueue(1024 * 1024)
+	queue := NewReplicationBufferQueue(nil, 1024 * 1024)
 
 	go func() {
 		index := uint32(0)
 		buf := make([]byte, 64)
-		for i := 0; i < 500000; i++ {
+		for i := 0; i < 100000; i++ {
 			buf[0], buf[1], buf[2], buf[3] = uint8(index), uint8(index >> 8), uint8(index >> 16), uint8(index >> 24)
 			index ++
 			queue.Push(buf)
@@ -162,7 +162,7 @@ func TestReplicationBufferQueue_Run(t *testing.T) {
 		}
 
 		rindex++
-		if rindex >= 500000 {
+		if rindex >= 100000 {
 			break
 		}
 	}
