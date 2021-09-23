@@ -1293,8 +1293,9 @@ func (self *ReplicationManager) Close() {
 			self.ack_dbs[i] = nil
 		}
 	}
-	self.transparency_manager.Close()
 	self.glock.Unlock()
+	self.transparency_manager.Close()
+	<- self.transparency_manager.closed_waiter
 	self.slock.logger.Infof("Replication Closed")
 }
 
@@ -1558,6 +1559,15 @@ func (self *ReplicationManager) SwitchToFollower(address string) error {
 		self.slock.UpdateState(STATE_SYNC)
 	}
 	self.glock.Unlock()
+
+	for _, db := range self.slock.dbs {
+		if db != nil {
+			for i := int8(0); i < db.manager_max_glocks; i++ {
+				db.manager_glocks[i].Lock()
+				db.manager_glocks[i].Unlock()
+			}
+		}
+	}
 	self.slock.aof.WaitFlushAofChannel()
 	self.WakeupServerChannel()
 	self.WaitServerSynced()

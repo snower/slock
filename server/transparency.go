@@ -991,16 +991,23 @@ type TransparencyManager struct {
 	idle_clients 		*TransparencyBinaryClientProtocol
 	leader_address		string
 	closed				bool
+	closed_waiter   	chan bool
+	wakeup_signal		chan bool
 }
 
 func NewTransparencyManager() *TransparencyManager {
-	return &TransparencyManager{nil, &sync.Mutex{}, nil, nil, "", false}
+	manager := &TransparencyManager{nil, &sync.Mutex{}, nil, nil, "",
+		false, make(chan bool, 1), nil}
+	go manager.Run()
+	return manager
 }
 
 func (self *TransparencyManager) Close() error {
-	defer self.glock.Unlock()
-	self.glock.Lock()
+	if self.closed {
+		return nil
+	}
 
+	self.glock.Lock()
 	self.closed = true
 	current_client := self.clients
 	for ; current_client != nil; {
@@ -1017,12 +1024,65 @@ func (self *TransparencyManager) Close() error {
 		}
 		current_client = current_client.next_client
 	}
+	self.glock.Unlock()
+	self.Wakeup()
 	return nil
+}
+
+func (self *TransparencyManager) Run() {
+	for ; !self.closed; {
+		self.glock.Lock()
+		self.wakeup_signal = make(chan bool, 1)
+		self.glock.Unlock()
+
+		select {
+		case <-self.wakeup_signal:
+			continue
+		case <-time.After(120 * time.Second):
+			self.glock.Lock()
+			self.wakeup_signal = nil
+			self.glock.Unlock()
+			self.CheckIdleTimeout()
+		}
+	}
+	close(self.closed_waiter)
+}
+
+func (self *TransparencyManager) Wakeup() {
+	self.glock.Lock()
+	if self.wakeup_signal != nil {
+		close(self.wakeup_signal)
+		self.wakeup_signal = nil
+	}
+	self.glock.Unlock()
+}
+
+func (self *TransparencyManager) CheckIdleTimeout() {
+	defer self.glock.Unlock()
+	self.glock.Lock()
+
+	now, idle_count := time.Now(), uint(0)
+	current_client := self.idle_clients
+	self.idle_clients = nil
+	for ; current_client != nil; {
+		if now.Unix() - current_client.idle_time.Unix() > int64(Config.TransparencyIdleTime) || idle_count > Config.TransparencyIdleCount {
+			current_client.Close()
+		} else {
+			current_client.next_client = self.idle_clients
+			self.idle_clients = current_client
+			idle_count++
+		}
+		current_client = current_client.next_client
+	}
 }
 
 func (self *TransparencyManager) AcquireClient(server_protocol ServerProtocol) (*TransparencyBinaryClientProtocol, error) {
 	defer self.glock.Unlock()
 	self.glock.Lock()
+
+	if self.closed {
+		return nil, errors.New("server closed")
+	}
 
 	if self.idle_clients == nil {
 		binary_client, err := self.OpenClient()
@@ -1048,7 +1108,7 @@ func (self *TransparencyManager) ReleaseClient(binary_client *TransparencyBinary
 	defer self.glock.Unlock()
 	self.glock.Lock()
 
-	if binary_client.closed {
+	if binary_client.closed || self.closed {
 		self.CloseClient(binary_client)
 		return nil
 	}
@@ -1118,7 +1178,7 @@ func (self *TransparencyManager) CloseClient(binary_client *TransparencyBinaryCl
 }
 
 func (self *TransparencyManager) ProcessFinish(binary_client *TransparencyBinaryClientProtocol) error {
-	if self.closed || self.slock.state == STATE_LEADER || self.leader_address == "" {
+	if self.closed || self.slock.state == STATE_LEADER || self.leader_address == "" || binary_client.closed {
 		return io.EOF
 	}
 

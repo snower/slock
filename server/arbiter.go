@@ -1138,13 +1138,7 @@ func (self *ArbiterManager) Start() error {
     }
 
     for _, member := range self.members {
-        err := member.Open()
-        if err != nil {
-            return err
-        }
-    }
-
-    for _, member := range self.members {
+        member.Open()
         go member.Run()
     }
 
@@ -1204,8 +1198,8 @@ func (self *ArbiterManager) Config(host string, weight uint32, arbiter uint32) e
     
     self.own_member = member
     self.members = append(self.members, member)
-    self.slock.UpdateState(STATE_VOTE)
     go member.Run()
+    self.slock.UpdateState(STATE_VOTE)
     self.gid = self.EncodeAofId(protocol.GenRequestId())
     self.version++
     self.vertime = uint64(time.Now().UnixNano()) / 1e6
@@ -1455,13 +1449,6 @@ func (self *ArbiterManager) UpdateStatus() error {
         }
         if member.role == ARBITER_ROLE_LEADER {
             self.leader_member = member
-        }
-
-        if member.status == ARBITER_MEMBER_STATUS_UNOPEN {
-            err := member.Open()
-            if err == nil {
-                go member.Run()
-            }
         }
     }
 
@@ -1868,7 +1855,6 @@ func (self *ArbiterManager) CommandHandleAnnouncementCommand(server_protocol *Bi
         }
     }
 
-    leader_host := ""
     if own_member == nil {
         go func() {
             self.glock.Lock()
@@ -1882,16 +1868,19 @@ func (self *ArbiterManager) CommandHandleAnnouncementCommand(server_protocol *Bi
         return protocol.NewCallResultCommand(command, 0, "", nil), nil
     }
 
+    leader_host := ""
     if leader_member != nil {
-        if own_member.role == ARBITER_ROLE_LEADER && leader_member.host != own_member.host {
-            self.glock.Unlock()
-            return protocol.NewCallResultCommand(command, 0, "ERR_LEADER", nil), nil
-        }
-
-        if self.leader_member != nil {
-            if self.leader_member.status == ARBITER_MEMBER_STATUS_ONLINE && leader_member.host != self.leader_member.host {
+        if request.Replset.CommitId != self.voter.commit_id || self.voter.proposal_host == "" {
+            if own_member.role == ARBITER_ROLE_LEADER && leader_member.host != own_member.host {
                 self.glock.Unlock()
                 return protocol.NewCallResultCommand(command, 0, "ERR_LEADER", nil), nil
+            }
+
+            if self.leader_member != nil {
+                if self.leader_member.status == ARBITER_MEMBER_STATUS_ONLINE && leader_member.host != self.leader_member.host {
+                    self.glock.Unlock()
+                    return protocol.NewCallResultCommand(command, 0, "ERR_LEADER", nil), nil
+                }
             }
         }
 
@@ -1909,6 +1898,12 @@ func (self *ArbiterManager) CommandHandleAnnouncementCommand(server_protocol *Bi
     self.version = request.Replset.Version
     self.vertime = request.Replset.Vertime
     self.store.Save(self)
+    for _, member := range self.members {
+        if member.status == ARBITER_MEMBER_STATUS_UNOPEN {
+            member.Open()
+            go member.Run()
+        }
+    }
     if self.own_member.role == ARBITER_ROLE_LEADER {
         self.UpdateStatus()
     }
