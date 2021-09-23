@@ -624,11 +624,6 @@ func (self *ReplicationServer) Close() error {
 	if self.protocol != nil {
 		self.protocol.Close()
 	}
-	self.stream = nil
-	self.protocol = nil
-	self.aof = nil
-	self.raof_lock = nil
-	self.waof_lock = nil
 	return nil
 }
 

@@ -167,3 +167,45 @@ func TestReplicationBufferQueue_Run(t *testing.T) {
 		}
 	}
 }
+
+
+func TestReplicationBufferQueue_Reduplicated(t *testing.T) {
+	queue := NewReplicationBufferQueue(nil, 640)
+
+	buf := make([]byte, 64)
+	for i := 0; i < 16; i++ {
+		queue.Push(buf)
+	}
+	buf[0] = 0xa5
+	buf[10] = 0x34
+	buf[54] = 0x56
+	queue.Push(buf)
+
+	obuf := make([]byte, 64)
+	err := queue.Pop(16, obuf)
+	if err != nil {
+		t.Errorf("ReplicationBufferQueue Pop Error Fail %v", err)
+	}
+
+	if obuf[0] != buf[0] || obuf[10] != buf[10] || obuf[54] != buf[54] {
+		t.Errorf("ReplicationBufferQueue Pop Buf Error Fail %v", obuf)
+	}
+
+	buf_size := queue.segment_count * 2 * queue.segment_size
+	new_buf := make([]byte, buf_size)
+	copy(new_buf, queue.buf)
+	copy(new_buf[queue.segment_count * queue.segment_size:], queue.buf)
+	queue.buf = new_buf
+	queue.segment_count = buf_size / 64
+	queue.max_index = uint64(0xffffffffffffffff) - uint64(0xffffffffffffffff) % uint64(buf_size / 64)
+	queue.require_duplicated = false
+
+	err = queue.Pop(16, obuf)
+	if err != nil {
+		t.Errorf("ReplicationBufferQueue Pop Error Fail %v", err)
+	}
+
+	if obuf[0] != buf[0] || obuf[10] != buf[10] || obuf[54] != buf[54] {
+		t.Errorf("ReplicationBufferQueue Pop Buf Error Fail %v", obuf)
+	}
+}
