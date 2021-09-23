@@ -258,7 +258,7 @@ func (self *Admin) CommandHandleInfoCommand(server_protocol *TextServerProtocol,
             }
 
             status := "sending"
-            if server_channel.pulled {
+            if server_channel.pulled == 1 {
                 status = "pending"
             }
             infos = append(infos, fmt.Sprintf("follower%d:host=%s,aof_id=%x,behind_offset=%d,status=%s", i + 1,

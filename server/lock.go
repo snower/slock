@@ -211,7 +211,11 @@ func (self *LockManager) PushLockAof(lock *Lock)  {
         return
     }
 
-    if self.lock_db.aof_channels[self.glock_index].Push(lock, protocol.COMMAND_LOCK) != nil {
+    fash_hash := (uint32(self.lock_key[0]) << 24 | uint32(self.lock_key[1]) << 16 | uint32(self.lock_key[2]) << 8 | uint32(self.lock_key[3])) ^ (
+        uint32(self.lock_key[4]) << 24 | uint32(self.lock_key[5]) << 16 | uint32(self.lock_key[6]) << 8 | uint32(self.lock_key[7])) ^ (
+        uint32(self.lock_key[8]) << 24 | uint32(self.lock_key[9]) << 16 | uint32(self.lock_key[10]) << 8 | uint32(self.lock_key[11])) ^ (
+        uint32(self.lock_key[12]) << 24 | uint32(self.lock_key[13]) << 16 | uint32(self.lock_key[14]) << 8 | uint32(self.lock_key[15]))
+    if self.lock_db.aof_channels[fash_hash % uint32(self.lock_db.manager_max_glocks)].Push(lock, protocol.COMMAND_LOCK) != nil {
         self.lock_db.slock.Log().Errorf("Lock Push Aof Lock Error DbId:%d LockKey:%x LockId:%x",
             lock.command.DbId, lock.command.LockKey, lock.command.LockId)
         return
@@ -225,7 +229,11 @@ func (self *LockManager) PushUnLockAof(lock *Lock)  {
         return
     }
 
-    if self.lock_db.aof_channels[self.glock_index].Push(lock, protocol.COMMAND_UNLOCK) != nil {
+    fash_hash := (uint32(self.lock_key[0]) << 24 | uint32(self.lock_key[1]) << 16 | uint32(self.lock_key[2]) << 8 | uint32(self.lock_key[3])) ^ (
+        uint32(self.lock_key[4]) << 24 | uint32(self.lock_key[5]) << 16 | uint32(self.lock_key[6]) << 8 | uint32(self.lock_key[7])) ^ (
+        uint32(self.lock_key[8]) << 24 | uint32(self.lock_key[9]) << 16 | uint32(self.lock_key[10]) << 8 | uint32(self.lock_key[11])) ^ (
+        uint32(self.lock_key[12]) << 24 | uint32(self.lock_key[13]) << 16 | uint32(self.lock_key[14]) << 8 | uint32(self.lock_key[15]))
+    if self.lock_db.aof_channels[fash_hash % uint32(self.lock_db.manager_max_glocks)].Push(lock, protocol.COMMAND_UNLOCK) != nil {
         self.lock_db.slock.Log().Errorf("Lock Push Aof Unlock Error DbId:%d LockKey:%x LockId:%x",
             lock.command.DbId, lock.command.LockKey, lock.command.LockId)
     }

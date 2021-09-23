@@ -1526,12 +1526,14 @@ func (self *LockDB) Lock(server_protocol ServerProtocol, command *protocol.LockC
                 } else {
                     self.AddMillisecondTimeOut(lock)
                 }
-                lock.ref_count++
                 lock_manager.PushLockAof(lock)
+                lock.ref_count += 2
                 if lock.is_aof {
-                    lock.ref_count++
+                    lock_manager.glock.Unlock()
+                } else {
+                    lock_manager.glock.Unlock()
+                    self.DoAckLock(lock, false)
                 }
-                lock_manager.glock.Unlock()
                 return nil
             }
 
@@ -1790,6 +1792,18 @@ func (self *LockDB) WakeUpWaitLocks(lock_manager *LockManager, server_protocol S
 
 func (self *LockDB) WakeUpWaitLock(lock_manager *LockManager, wait_lock *Lock, server_protocol ServerProtocol) {
     //self.RemoveTimeOut(wait_lock)
+    if wait_lock.command.TimeoutFlag & 0x1000 != 0 && !wait_lock.is_aof && wait_lock.aof_time != 0xff && wait_lock.command.Flag & 0x04 == 0 {
+        lock_manager.PushLockAof(wait_lock)
+        wait_lock.ref_count++
+        if wait_lock.is_aof {
+            lock_manager.glock.Unlock()
+        } else {
+            lock_manager.glock.Unlock()
+            self.DoAckLock(wait_lock, false)
+        }
+        return
+    }
+
     wait_lock.timeouted = true
     if wait_lock.long_wait_index > 0 {
         self.RemoveLongTimeOut(wait_lock)
@@ -1798,15 +1812,6 @@ func (self *LockDB) WakeUpWaitLock(lock_manager *LockManager, wait_lock *Lock, s
     if wait_lock.command.Expried > 0 {
         lock_manager.AddLock(wait_lock)
         lock_manager.locked++
-        if wait_lock.command.TimeoutFlag & 0x1000 != 0 && !wait_lock.is_aof && wait_lock.aof_time != 0xff && wait_lock.command.Flag & 0x04 == 0 {
-            lock_manager.PushLockAof(wait_lock)
-            if wait_lock.is_aof {
-                wait_lock.ref_count++
-            }
-            lock_manager.glock.Unlock()
-            atomic.AddUint32(&self.state.WaitCount, 0xffffffff)
-            return
-        }
 
         if wait_lock.command.ExpriedFlag & 0x0400 == 0 {
             self.AddExpried(wait_lock)
@@ -1852,6 +1857,18 @@ func (self *LockDB) DoAckLock(lock *Lock, succed bool) {
         if lock.long_wait_index > 0 {
             self.RemoveLongTimeOut(lock)
         }
+    }
+
+    if lock.ack_count == 0xff {
+        lock.ref_count--
+        if lock.ref_count == 0 {
+            lock_manager.FreeLock(lock)
+            if lock_manager.ref_count == 0 {
+                self.RemoveLockManager(lock_manager)
+            }
+        }
+        lock_manager.glock.Unlock()
+        return
     }
 
     if succed {

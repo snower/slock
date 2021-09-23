@@ -1,9 +1,13 @@
 package server
 
-import "testing"
+import (
+	"io"
+	"testing"
+	"time"
+)
 
 func TestReplicationBufferQueue_Push(t *testing.T) {
-	queue := NewReplicationBufferQueue()
+	queue := NewReplicationBufferQueue(1024 * 1024)
 
 	buf := make([]byte, 64)
 	buf[0] = 0xa5
@@ -25,7 +29,7 @@ func TestReplicationBufferQueue_Push(t *testing.T) {
 }
 
 func TestReplicationBufferQueue_Pop(t *testing.T) {
-	queue := NewReplicationBufferQueue()
+	queue := NewReplicationBufferQueue(1024 * 1024)
 
 	obuf := make([]byte, 64)
 	buf := make([]byte, 64)
@@ -54,7 +58,7 @@ func TestReplicationBufferQueue_Pop(t *testing.T) {
 }
 
 func TestReplicationBufferQueue_Head(t *testing.T) {
-	queue := NewReplicationBufferQueue()
+	queue := NewReplicationBufferQueue(1024 * 1024)
 
 	obuf := make([]byte, 64)
 	buf := make([]byte, 64)
@@ -89,7 +93,7 @@ func TestReplicationBufferQueue_Head(t *testing.T) {
 }
 
 func TestReplicationBufferQueue_Search(t *testing.T) {
-	queue := NewReplicationBufferQueue()
+	queue := NewReplicationBufferQueue(1024 * 1024)
 
 	obuf := make([]byte, 64)
 	buf := make([]byte, 64)
@@ -119,5 +123,47 @@ func TestReplicationBufferQueue_Search(t *testing.T) {
 	aof_lock.Decode()
 	if aof_lock.AofIndex != 43 || aof_lock.AofId != 343294329 {
 		t.Errorf("ReplicationBufferQueue Pop Buf Error Fail %v", aof_lock)
+	}
+}
+
+func TestReplicationBufferQueue_Run(t *testing.T) {
+	queue := NewReplicationBufferQueue(1024 * 1024)
+
+	go func() {
+		index := uint32(0)
+		buf := make([]byte, 64)
+		for i := 0; i < 500000; i++ {
+			buf[0], buf[1], buf[2], buf[3] = uint8(index), uint8(index >> 8), uint8(index >> 16), uint8(index >> 24)
+			index ++
+			queue.Push(buf)
+			if index % 1000 == 0 {
+				time.Sleep(2 * time.Millisecond)
+			}
+		}
+	}()
+
+	rindex := uint64(0)
+	for {
+		buf := make([]byte, 64)
+		for {
+			err := queue.Pop(rindex, buf)
+			if err == io.EOF {
+				time.Sleep(10 * time.Microsecond)
+				continue
+			}
+			if err != nil {
+				t.Errorf("ReplicationBufferQueue Run Pop Error Fail %v", err)
+			}
+			break
+		}
+		bindex := uint64(buf[0]) | uint64(buf[1])<<8 | uint64(buf[2])<<16 | uint64(buf[3])<<24
+		if rindex != bindex {
+			t.Errorf("ReplicationBufferQueue Run Data Error Fail %d %d", rindex, bindex)
+		}
+
+		rindex++
+		if rindex >= 500000 {
+			break
+		}
 	}
 }
