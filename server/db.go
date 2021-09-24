@@ -1507,6 +1507,14 @@ func (self *LockDB) Lock(server_protocol ServerProtocol, command *protocol.LockC
         }
     } else {
         if command.TimeoutFlag & 0x0200 != 0 {
+            if lock_manager.waited {
+                lock_manager.glock.Unlock()
+
+                server_protocol.ProcessLockResultCommand(command, protocol.RESULT_UNOWN_ERROR, uint16(lock_manager.locked), 0)
+                server_protocol.FreeLockCommand(command)
+                return nil
+            }
+
             waited = true
         } else {
             waited = false
