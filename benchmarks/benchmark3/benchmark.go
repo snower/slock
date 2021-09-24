@@ -1,16 +1,16 @@
 package main
 
 import (
-    "github.com/snower/slock/client"
-    "fmt"
-    "time"
-    "sync"
     "flag"
+    "fmt"
+    "github.com/snower/slock/client"
+    "sync/atomic"
+    "time"
 )
 
 var lock_key [16]byte
 
-func run(slock_client *client.Client, count *int, max_count int, end_count *int, clock *sync.Mutex) {
+func run(slock_client *client.Client, count *uint32, max_count uint32, waiter chan bool) {
     for ;; {
         lock := client.NewLock(slock_client.SelectDB(0), lock_key, 60, 60, 31, 0)
         //lock := slock_client.Lock(lock_key, 5, 5)
@@ -27,22 +27,19 @@ func run(slock_client *client.Client, count *int, max_count int, end_count *int,
             continue
         }
 
-        *count++
+        atomic.AddUint32(count, 1)
         if *count > max_count {
-            clock.Lock()
-            *end_count++
-            clock.Unlock()
+            close(waiter)
             return
         }
     }
 }
 
 func bench(client_count int, concurrentc int, max_count int, port int, host string)  {
-    clock := sync.Mutex{}
-
     fmt.Printf("Run %d Client, %d concurrentc, %d Count Lock and Unlock\n", client_count, concurrentc, max_count)
 
     clients := make([]*client.Client, client_count)
+    waiters := make([]chan bool, concurrentc)
     defer func() {
         for _, c := range clients {
             if c == nil {
@@ -66,17 +63,14 @@ func bench(client_count int, concurrentc int, max_count int, port int, host stri
     }
     fmt.Printf("Client Opened %d\n", len(clients))
 
-    var count int
-    var end_count int
+    var count uint32
     start_time := time.Now().UnixNano()
     for i:=0; i < concurrentc; i++{
-        go run(clients[i % client_count], &count, max_count, &end_count, &clock)
+        waiters[i] = make(chan bool, 1)
+        go run(clients[i % client_count], &count, uint32(max_count), waiters[i])
     }
-    for ;; {
-        if end_count >= concurrentc {
-            break
-        }
-        time.Sleep(1e9)
+    for _, waiter := range waiters {
+        <- waiter
     }
     end_time := time.Now().UnixNano()
     pt := float64(end_time - start_time) / 1000000000.0

@@ -5,7 +5,7 @@ import (
     "fmt"
     "io"
     "net"
-    "sync"
+    "sync/atomic"
     "time"
 )
 
@@ -37,7 +37,7 @@ func readAll(client net.Conn, buf []byte, data_len int) error{
     return nil
 }
 
-func run2(client net.Conn, count *int, wcount *int, max_count int, end_count *int, clock *sync.Mutex, index uint32) {
+func run2(client net.Conn, count *uint32, wcount *uint32, max_count uint32, waiter chan bool, index uint32) {
     rcount := uint32(0)
     wbuf := make([]byte, 4096)
     rbuf := make([]byte, 4096)
@@ -78,7 +78,7 @@ func run2(client net.Conn, count *int, wcount *int, max_count int, end_count *in
         if err != nil {
             return
         }
-        *wcount += 64
+        atomic.AddUint32(wcount, 64)
     }
 
     for ;; {
@@ -96,26 +96,20 @@ func run2(client net.Conn, count *int, wcount *int, max_count int, end_count *in
 
         err := writeAll(client, wbuf, 4096)
         if err != nil {
-            clock.Lock()
-            *end_count++
-            clock.Unlock()
+            close(waiter)
             return
         }
-        *wcount += 64
+        atomic.AddUint32(wcount, 64)
 
         err = readAll(client, rbuf, 4096)
         if(err != nil) {
-            clock.Lock()
-            *end_count++
-            clock.Unlock()
+            close(waiter)
             return
         }
 
-        *count += 64
+        atomic.AddUint32(count, 64)
         if *count > max_count {
-            clock.Lock()
-            *end_count++
-            clock.Unlock()
+            close(waiter)
             return
         }
     }
@@ -123,12 +117,12 @@ func run2(client net.Conn, count *int, wcount *int, max_count int, end_count *in
 
 func bench2(client_count int, concurrentc int, max_count int, port int, host string)  {
     bench_count ++
-    clock := sync.Mutex{}
 
     fmt.Printf("Run %d Client, %d concurrentc, %d Count Lock and Unlock\n", client_count, concurrentc, max_count)
 
     addr := fmt.Sprintf("%s:%d", host, port)
     clients := make([]net.Conn, client_count)
+    waiters := make([]chan bool, concurrentc)
     defer func() {
         for _, c := range clients {
             c.Close()
@@ -139,25 +133,22 @@ func bench2(client_count int, concurrentc int, max_count int, port int, host str
         conn, err := net.Dial("tcp", addr)
         if(err != nil) {
             fmt.Printf("Client open error %v\n", err)
-            return;
+            return
         }
         clients[c] = conn
     }
     fmt.Printf("Client Opened %d\n", len(clients))
 
-    var count int
-    var wcount int
-    var end_count int
+    var count uint32
+    var wcount uint32
     start_time := time.Now().UnixNano()
     for i:=0; i < concurrentc; i++{
-        go run2(clients[i % client_count], &count, &wcount, max_count, &end_count, &clock, uint32(i))
+        waiters[i] = make(chan bool, 1)
+        go run2(clients[i % client_count], &count, &wcount, uint32(max_count), waiters[i], uint32(i))
     }
 
-    for ;; {
-        if end_count >= concurrentc {
-            break
-        }
-        time.Sleep(1e9)
+    for _, waiter := range waiters {
+        <- waiter
     }
     end_time := time.Now().UnixNano()
     pt := float64(end_time - start_time) / 1000000000.0
