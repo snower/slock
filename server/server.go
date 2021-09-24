@@ -205,7 +205,17 @@ func (self *Server) Handle(stream *Stream) {
                 if err == AGAIN {
                     binary_server_protocol := server_protocol.(*BinaryServerProtocol)
                     server_protocol = NewTransparencyBinaryServerProtocol(self.slock, stream, binary_server_protocol)
-                    err = server_protocol.ProcessParse(binary_server_protocol.rbuf)
+                    for binary_server_protocol.rlen - binary_server_protocol.rindex >= 64 {
+                        err = server_protocol.ProcessParse(binary_server_protocol.rbuf[binary_server_protocol.rindex:])
+                        if err != nil {
+                            break
+                        }
+
+                        binary_server_protocol.rindex += 64
+                        if binary_server_protocol.rindex == binary_server_protocol.rlen {
+                            binary_server_protocol.rindex, binary_server_protocol.rlen = 0, 0
+                        }
+                    }
                     if err == nil {
                         err = server_protocol.Process()
                     }
@@ -238,7 +248,25 @@ func (self *Server) Handle(stream *Stream) {
         case *TransparencyBinaryServerProtocol:
             if self.slock.state == STATE_LEADER {
                 transparency_server_protocol := server_protocol.(*TransparencyBinaryServerProtocol)
-                err = transparency_server_protocol.server_protocol.Process()
+                binary_server_protocol := transparency_server_protocol.server_protocol
+                if err == AGAIN {
+                    for binary_server_protocol.rlen - binary_server_protocol.rindex >= 64 {
+                        err = binary_server_protocol.ProcessParse(binary_server_protocol.rbuf[binary_server_protocol.rindex:])
+                        if err != nil {
+                            break
+                        }
+
+                        binary_server_protocol.rindex += 64
+                        if binary_server_protocol.rindex == binary_server_protocol.rlen {
+                            binary_server_protocol.rindex, binary_server_protocol.rlen = 0, 0
+                        }
+                    }
+                    if err == nil {
+                        err = binary_server_protocol.Process()
+                    }
+                } else{
+                    err = binary_server_protocol.Process()
+                }
             } else {
                 err = server_protocol.Process()
             }

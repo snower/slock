@@ -287,28 +287,27 @@ func (self *TransparencyBinaryServerProtocol) CheckClient() error {
 func (self *TransparencyBinaryServerProtocol) Process() error {
 	buf := self.server_protocol.rbuf
 	for ; !self.closed; {
-		n, err := self.stream.conn.Read(buf)
-		if err != nil {
-			return err
-		}
-
-		if n < 64 {
-			for ; n < 64; {
-				nn, nerr := self.stream.conn.Read(buf[n:])
-				if nerr != nil {
-					return nerr
-				}
-				n += nn
+		for self.server_protocol.rlen - self.server_protocol.rindex < 64 {
+			n, err := self.stream.conn.Read(buf[self.server_protocol.rlen:])
+			if err != nil {
+				return err
 			}
-		}
-
-		err = self.ProcessParse(buf)
-		if err != nil {
-			return err
+			self.server_protocol.rlen += n
 		}
 
 		if self.slock.state == STATE_LEADER {
 			return AGAIN
+		}
+
+		for self.server_protocol.rlen - self.server_protocol.rindex >= 64 {
+			err := self.ProcessParse(buf[self.server_protocol.rindex:])
+			if err != nil {
+				return err
+			}
+			self.server_protocol.rindex += 64
+			if self.server_protocol.rindex == self.server_protocol.rlen {
+				self.server_protocol.rindex, self.server_protocol.rlen = 0, 0
+			}
 		}
 	}
 	return io.EOF
@@ -469,9 +468,22 @@ func (self *TransparencyBinaryServerProtocol) ProcessParse(buf []byte) error {
 
 			call_command.Data = make([]byte, call_command.ContentLen)
 			if call_command.ContentLen > 0 {
-				_, err := self.stream.ReadBytes(call_command.Data)
-				if err != nil {
-					return err
+				rindex, content_len := self.server_protocol.rindex + 64, int(call_command.ContentLen)
+				if self.server_protocol.rlen - rindex >= content_len {
+					copy(call_command.Data, self.server_protocol.rbuf[rindex: rindex + content_len])
+					self.server_protocol.rindex += content_len
+					content_len = 0
+				} else if self.server_protocol.rlen - rindex > 0 {
+					copy(call_command.Data, self.server_protocol.rbuf[rindex: self.server_protocol.rlen])
+					content_len -= self.server_protocol.rlen - rindex
+					self.server_protocol.rindex += self.server_protocol.rlen - rindex
+				}
+
+				if content_len > 0 {
+					_, err := self.stream.ReadBytes(call_command.Data[int(call_command.ContentLen) - content_len:])
+					if err != nil {
+						return err
+					}
 				}
 			}
 			err = self.ProcessCommad(&call_command)

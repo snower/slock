@@ -919,7 +919,7 @@ func (self *CallCommand) Decode(buf []byte) error{
     self.Encoding = uint8(buf[20])
     self.Charset = uint8(buf[21])
     self.ContentLen = uint32(buf[22]) | uint32(buf[23])<<8 | uint32(buf[24])<<16 | uint32(buf[25])<<24
-    self.MethodName = strings.Trim(string(buf[26:]), string([]byte{0}))
+    self.MethodName = strings.Trim(string(buf[26:64]), string([]byte{0}))
     return nil
 }
 
@@ -991,7 +991,7 @@ func (self *CallResultCommand) Decode(buf []byte) error{
     self.Encoding = uint8(buf[21])
     self.Charset = uint8(buf[22])
     self.ContentLen = uint32(buf[23]) | uint32(buf[24])<<8 | uint32(buf[25])<<16 | uint32(buf[26])<<24
-    self.ErrType = strings.Trim(string(buf[27:]), string([]byte{0}))
+    self.ErrType = strings.Trim(string(buf[27:64]), string([]byte{0}))
 
     return nil
 }
