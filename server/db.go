@@ -1199,10 +1199,10 @@ func (self *LockDB) DoTimeOut(lock *Lock, forced_expried bool){
     atomic.AddUint32(&self.state.TimeoutedCount, 1)
 
     if timeout_flag & 0x0800 != 0 {
-        self.slock.Log().Errorf("LockTimeout DbId:%d LockKey:%x LockId:%x RequestId:%x RemoteAddr:%s", lock_command.DbId,
+        self.slock.Log().Errorf("Database LockTimeout DbId:%d LockKey:%x LockId:%x RequestId:%x RemoteAddr:%s", lock_command.DbId,
             lock_command.LockKey, lock_command.LockId, lock_command.RequestId, lock_protocol.RemoteAddr().String())
     } else {
-        self.slock.Log().Debugf("LockTimeout DbId:%d LockKey:%x LockId:%x RequestId:%x RemoteAddr:%s", lock_command.DbId,
+        self.slock.Log().Debugf("Database LockTimeout DbId:%d LockKey:%x LockId:%x RequestId:%x RemoteAddr:%s", lock_command.DbId,
             lock_command.LockKey, lock_command.LockId, lock_command.RequestId, lock_protocol.RemoteAddr().String())
     }
 
@@ -1305,7 +1305,7 @@ func (self *LockDB) DoExpried(lock *Lock, forced_expried bool){
     }
 
     if !forced_expried {
-        if self.slock.state != STATE_LEADER {
+        if self.status != STATE_LEADER {
             if lock.command.ExpriedFlag & 0x0400 == 0 {
                 if lock.command.Expried > 30 {
                     lock.expried_time = self.current_time + 30
@@ -1356,10 +1356,10 @@ func (self *LockDB) DoExpried(lock *Lock, forced_expried bool){
     atomic.AddUint32(&self.state.ExpriedCount, uint32(lock_locked))
 
     if expried_flag & 0x0800 != 0 {
-        self.slock.Log().Errorf("LockExpried DbId:%d LockKey:%x LockId:%x RequestId:%x RemoteAddr:%s", lock_command.DbId,
+        self.slock.Log().Errorf("Database LockExpried DbId:%d LockKey:%x LockId:%x RequestId:%x RemoteAddr:%s", lock_command.DbId,
             lock_command.LockKey, lock_command.LockId, lock_command.RequestId, lock_protocol.RemoteAddr().String())
     }else{
-        self.slock.Log().Debugf("LockExpried DbId:%d LockKey:%x LockId:%x RequestId:%x RemoteAddr:%s", lock_command.DbId,
+        self.slock.Log().Debugf("Database LockExpried DbId:%d LockKey:%x LockId:%x RequestId:%x RemoteAddr:%s", lock_command.DbId,
             lock_command.LockKey, lock_command.LockId, lock_command.RequestId, lock_protocol.RemoteAddr().String())
     }
 
@@ -1534,9 +1534,8 @@ func (self *LockDB) Lock(server_protocol ServerProtocol, command *protocol.LockC
                 } else {
                     self.AddMillisecondTimeOut(lock)
                 }
-                lock_manager.PushLockAof(lock)
                 lock.ref_count += 2
-                if lock.is_aof {
+                if lock_manager.PushLockAof(lock) == nil {
                     lock_manager.glock.Unlock()
                 } else {
                     lock_manager.glock.Unlock()
@@ -1801,9 +1800,10 @@ func (self *LockDB) WakeUpWaitLocks(lock_manager *LockManager, server_protocol S
 func (self *LockDB) WakeUpWaitLock(lock_manager *LockManager, wait_lock *Lock, server_protocol ServerProtocol) {
     //self.RemoveTimeOut(wait_lock)
     if wait_lock.command.TimeoutFlag & 0x1000 != 0 && !wait_lock.is_aof && wait_lock.aof_time != 0xff && wait_lock.command.Flag & 0x04 == 0 {
-        lock_manager.PushLockAof(wait_lock)
+        lock_manager.AddLock(wait_lock)
+        lock_manager.locked++
         wait_lock.ref_count++
-        if wait_lock.is_aof {
+        if lock_manager.PushLockAof(wait_lock) == nil {
             lock_manager.glock.Unlock()
         } else {
             lock_manager.glock.Unlock()

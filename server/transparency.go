@@ -70,12 +70,13 @@ func (self *TransparencyBinaryClientProtocol) Close() error {
 
 	self.closed = true
 	var result_command protocol.CommandDecode = nil
-	if self.latest_command != nil {
-		switch self.latest_command.(type) {
+	latest_command := self.latest_command
+	if latest_command != nil {
+		switch latest_command.(type) {
 		case *protocol.LockCommand:
-			result_command = protocol.NewLockResultCommand(self.latest_command.(*protocol.LockCommand), protocol.RESULT_ERROR, 0, 0, 0, 0, 0)
+			result_command = protocol.NewLockResultCommand(latest_command.(*protocol.LockCommand), protocol.RESULT_ERROR, 0, 0, 0, 0, 0)
 		case *protocol.InitCommand:
-			result_command = protocol.NewInitResultCommand(self.latest_command.(*protocol.InitCommand), protocol.RESULT_ERROR, 0)
+			result_command = protocol.NewInitResultCommand(latest_command.(*protocol.InitCommand), protocol.RESULT_ERROR, 0)
 		}
 	}
 
@@ -155,8 +156,9 @@ func (self *TransparencyBinaryClientProtocol) ProcessBinaryProcotol(command prot
 	switch command.(type) {
 	case *protocol.LockResultCommand:
 		lock_result_command := command.(*protocol.LockResultCommand)
-		if self.latest_command != nil {
-			if lock_command, ok := self.latest_command.(*protocol.LockCommand); ok {
+		latest_command := self.latest_command
+		if latest_command != nil {
+			if lock_command, ok := latest_command.(*protocol.LockCommand); ok {
 				if lock_command.RequestId == lock_result_command.RequestId {
 					self.latest_command = nil
 				}
@@ -165,8 +167,9 @@ func (self *TransparencyBinaryClientProtocol) ProcessBinaryProcotol(command prot
 		return server_protocol.Write(lock_result_command)
 	case *protocol.InitResultCommand:
 		init_result_command := command.(*protocol.InitResultCommand)
-		if self.latest_command != nil {
-			if lock_command, ok := self.latest_command.(*protocol.InitCommand); ok {
+		latest_command := self.latest_command
+		if latest_command != nil {
+			if lock_command, ok := latest_command.(*protocol.InitCommand); ok {
 				if lock_command.RequestId == init_result_command.RequestId {
 					self.latest_command = nil
 				}
@@ -183,8 +186,9 @@ func (self *TransparencyBinaryClientProtocol) ProcessTextProcotol(command protoc
 	switch command.(type) {
 	case *protocol.LockResultCommand:
 		lock_result_command := command.(*protocol.LockResultCommand)
-		if self.latest_command != nil {
-			if lock_command, ok := self.latest_command.(*protocol.LockCommand); ok {
+		latest_command := self.latest_command
+		if latest_command != nil {
+			if lock_command, ok := latest_command.(*protocol.LockCommand); ok {
 				if lock_command.RequestId == lock_result_command.RequestId {
 					self.latest_command = nil
 				}
@@ -1238,6 +1242,9 @@ func (self *TransparencyManager) ChangeLeader(address string) error {
 			current_client = current_client.next_client
 		}
 	}
-	self.slock.Log().Infof("Transparency Change Leader To %s", address)
+
+	if changed {
+		self.slock.Log().Infof("Transparency Change Leader To %s", address)
+	}
 	return nil
 }
