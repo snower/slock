@@ -333,13 +333,13 @@ func (self *ArbiterClient) Request(command *protocol.CallCommand) (*protocol.Cal
         return nil, errors.New("client unconnected")
     }
 
+    rchannel := self.rchannel
     err := self.protocol.Write(command)
     if err != nil {
         self.glock.Unlock()
         return nil, err
     }
 
-    rchannel := self.rchannel
     for {
         result := <- rchannel
         if result == nil {
@@ -841,6 +841,7 @@ func (self *ArbiterVoter) Close() error {
         self.wakeup_signal = nil
     }
     self.glock.Unlock()
+    self.manager.slock.Log().Infof("Arbiter Voter Close")
     return nil
 }
 
@@ -894,7 +895,7 @@ func (self *ArbiterVoter) StartVote() error {
 
             if online_count < len(self.manager.members) / 2 + 1 {
                 self.manager.slock.Log().Infof("Arbier Voter Online Member Not Enough Total %d Online %d", len(self.manager.members), online_count)
-                self.SleepWhenRetryVote()
+                _ = self.SleepWhenRetryVote()
                 continue
             }
 
@@ -904,13 +905,13 @@ func (self *ArbiterVoter) StartVote() error {
                 if err == nil {
                     err = self.DoCommit()
                     if err == nil {
-                        self.manager.VoteSucced()
+                        _ = self.manager.VoteSucced()
                         return
                     }
                 }
             }
 
-            self.SleepWhenRetryVote()
+            _ = self.SleepWhenRetryVote()
         }
         return
     }()
@@ -1630,6 +1631,10 @@ func (self *ArbiterManager) GetCallMethods() map[string]BinaryServerProtocolCall
 }
 
 func (self *ArbiterManager) CommandHandleConnectCommand(server_protocol *BinaryServerProtocol, command *protocol.CallCommand) (*protocol.CallResultCommand, error) {
+    if self.stoped {
+        return protocol.NewCallResultCommand(command, 0, "ERR_STOPED", nil), nil
+    }
+
     request := protobuf.ArbiterConnectRequest{}
     err := request.Unmarshal(command.Data)
     if err != nil {
@@ -1664,6 +1669,10 @@ func (self *ArbiterManager) CommandHandleConnectCommand(server_protocol *BinaryS
 }
 
 func (self *ArbiterManager) CommandHandleVoteCommand(server_protocol *BinaryServerProtocol, command *protocol.CallCommand) (*protocol.CallResultCommand, error) {
+    if self.stoped {
+        return protocol.NewCallResultCommand(command, 0, "ERR_STOPED", nil), nil
+    }
+
     request := protobuf.ArbiterVoteRequest{}
     err := request.Unmarshal(command.Data)
     if err != nil {
@@ -1688,6 +1697,10 @@ func (self *ArbiterManager) CommandHandleVoteCommand(server_protocol *BinaryServ
 }
 
 func (self *ArbiterManager) CommandHandleProposalCommand(server_protocol *BinaryServerProtocol, command *protocol.CallCommand) (*protocol.CallResultCommand, error) {
+    if self.stoped {
+        return protocol.NewCallResultCommand(command, 0, "ERR_STOPED", nil), nil
+    }
+
     request := protobuf.ArbiterProposalRequest{}
     err := request.Unmarshal(command.Data)
     if err != nil {
@@ -1747,6 +1760,10 @@ func (self *ArbiterManager) CommandHandleProposalCommand(server_protocol *Binary
 }
 
 func (self *ArbiterManager) CommandHandleCommitCommand(server_protocol *BinaryServerProtocol, command *protocol.CallCommand) (*protocol.CallResultCommand, error) {
+    if self.stoped {
+        return protocol.NewCallResultCommand(command, 0, "ERR_STOPED", nil), nil
+    }
+
     request := protobuf.ArbiterCommitRequest{}
     err := request.Unmarshal(command.Data)
     if err != nil {
@@ -1788,6 +1805,10 @@ func (self *ArbiterManager) CommandHandleCommitCommand(server_protocol *BinarySe
 }
 
 func (self *ArbiterManager) CommandHandleAnnouncementCommand(server_protocol *BinaryServerProtocol, command *protocol.CallCommand) (*protocol.CallResultCommand, error) {
+    if self.stoped {
+        return protocol.NewCallResultCommand(command, 0, "ERR_STOPED", nil), nil
+    }
+
     request := protobuf.ArbiterAnnouncementRequest{}
     err := request.Unmarshal(command.Data)
     if err != nil {
@@ -1942,6 +1963,10 @@ func (self *ArbiterManager) CommandHandleAnnouncementCommand(server_protocol *Bi
 }
 
 func (self *ArbiterManager) CommandHandleStatusCommand(server_protocol *BinaryServerProtocol, command *protocol.CallCommand) (*protocol.CallResultCommand, error) {
+    if self.stoped {
+        return protocol.NewCallResultCommand(command, 0, "ERR_STOPED", nil), nil
+    }
+
     request := protobuf.ArbiterStatusRequest{}
     err := request.Unmarshal(command.Data)
     if err != nil {
