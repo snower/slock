@@ -300,9 +300,9 @@ type LockCommand struct {
     LockKey         [16]byte
     TimeoutFlag     uint16
     /*
-    |15      |                13                   |  12 |        11      |       10       |      9       | 8 |7                                  0|
-    |--------|-------------------------------------|-----|----------------|----------------|--------------|---|------------------------------------|
-    |        |update_no_reset_timeout_checked_count|acked|timeout_is_error|millisecond_time|unlock_to_wait|   |                                    |
+    |15      |                13                   |  12 |        11      |       10       |      9       |            8           |7                                  0|
+    |--------|-------------------------------------|-----|----------------|----------------|--------------|------------------------|------------------------------------|
+    |        |update_no_reset_timeout_checked_count|acked|timeout_is_error|millisecond_time|unlock_to_wait|timeout_reverse_key_lock|                                    |
     */
     Timeout         uint16
     ExpriedFlag     uint16

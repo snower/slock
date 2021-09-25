@@ -363,7 +363,6 @@ func (self *Admin) CommandHandleShowCommand(server_protocol *TextServerProtocol,
 }
 
 func (self *Admin) CommandHandleShowDBCommand(server_protocol *TextServerProtocol, args []string, db *LockDB) error {
-    db.glock.Lock()
     lock_managers := make([]*LockManager, 0)
     for _, value := range db.fast_locks {
         lock_manager := value.manager
@@ -371,6 +370,8 @@ func (self *Admin) CommandHandleShowDBCommand(server_protocol *TextServerProtoco
             lock_managers = append(lock_managers, lock_manager)
         }
     }
+
+    db.glock.Lock()
     for _, lock_manager := range db.locks {
         if lock_manager.locked > 0 {
             lock_managers = append(lock_managers, lock_manager)

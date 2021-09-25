@@ -1192,9 +1192,13 @@ func (self *LockDB) DoTimeOut(lock *Lock, forced_expried bool){
 
     timeout_flag := lock_command.TimeoutFlag
     _ = lock_protocol.ProcessLockResultCommandLocked(lock_command, protocol.RESULT_TIMEOUT, uint16(lock_manager.locked), lock.locked)
-    _ = lock_protocol.FreeLockCommandLocked(lock_command)
     if lock_locked == 0 {
+        if lock_command.TimeoutFlag & 0x0100 == 0 {
+            _ = lock_protocol.FreeLockCommandLocked(lock_command)
+        }
         atomic.AddUint32(&self.state.WaitCount, 0xffffffff)
+    } else {
+        _ = lock_protocol.FreeLockCommandLocked(lock_command)
     }
     atomic.AddUint32(&self.state.TimeoutedCount, 1)
 
@@ -1208,6 +1212,17 @@ func (self *LockDB) DoTimeOut(lock *Lock, forced_expried bool){
 
     if lock_locked > 0 {
         self.WakeUpWaitLocks(lock_manager, nil)
+    } else {
+        if lock_command.TimeoutFlag & 0x0100 != 0 {
+            lock_command.TimeoutFlag = 0
+            lock_key := lock_command.LockKey
+            lock_command.LockKey[0], lock_command.LockKey[1], lock_command.LockKey[2], lock_command.LockKey[3], lock_command.LockKey[4], lock_command.LockKey[5], lock_command.LockKey[6], lock_command.LockKey[7],
+                lock_command.LockKey[8], lock_command.LockKey[9], lock_command.LockKey[10], lock_command.LockKey[11], lock_command.LockKey[12], lock_command.LockKey[13], lock_command.LockKey[14], lock_command.LockKey[15] =
+                lock_key[15], lock_key[14], lock_key[13], lock_key[12], lock_key[11], lock_key[10], lock_key[9], lock_key[8],
+                lock_key[7], lock_key[6], lock_key[5], lock_key[4], lock_key[3], lock_key[2], lock_key[1], lock_key[0]
+
+            _ = self.Lock(lock_protocol, lock_command)
+        }
     }
 }
 
