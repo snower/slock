@@ -300,6 +300,7 @@ func (self *BinaryServerProtocol) Close() error {
         self.glock.Unlock()
         return nil
     }
+    self.glock.Unlock()
 
     self.slock.glock.Lock()
     if self.inited {
@@ -313,6 +314,7 @@ func (self *BinaryServerProtocol) Close() error {
     self.slock.stats_total_command_count += self.total_command_count
     self.slock.glock.Unlock()
 
+    self.glock.Lock()
     if self.stream != nil {
         err := self.stream.Close()
         if err != nil {
