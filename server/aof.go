@@ -415,7 +415,7 @@ type AofChannel struct {
     closed_waiter   chan bool
 }
 
-func (self *AofChannel) Push(lock *Lock, command_type uint8) error {
+func (self *AofChannel) Push(lock *Lock, command_type uint8, command *protocol.LockCommand) error {
     if self.closed {
         return io.EOF
     }
@@ -455,8 +455,13 @@ func (self *AofChannel) Push(lock *Lock, command_type uint8) error {
     } else {
         aof_lock.ExpriedTime = 0
     }
-    aof_lock.Count = lock.command.Count
-    aof_lock.Rcount = lock.command.Rcount
+    if command == nil {
+        aof_lock.Count = lock.command.Count
+        aof_lock.Rcount = lock.command.Rcount
+    } else {
+        aof_lock.Count = command.Count
+        aof_lock.Rcount = command.Rcount
+    }
     if lock.command.TimeoutFlag & 0x1000 != 0 {
         aof_lock.AofFlag |= 0x1000
         aof_lock.lock = lock

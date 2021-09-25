@@ -1173,7 +1173,7 @@ func (self *LockDB) DoTimeOut(lock *Lock, forced_expried bool){
         lock_manager.locked -= uint32(lock_locked)
         lock_manager.RemoveLock(lock)
         if lock.is_aof {
-            _ = lock_manager.PushUnLockAof(lock)
+            _ = lock_manager.PushUnLockAof(lock, nil)
         }
     } else {
         if lock_manager.GetWaitLock() == nil {
@@ -1337,7 +1337,7 @@ func (self *LockDB) DoExpried(lock *Lock, forced_expried bool){
     lock_protocol, lock_command := lock.protocol, lock.command
     lock_manager.RemoveLock(lock)
     if lock.is_aof {
-        _ = lock_manager.PushUnLockAof(lock)
+        _ = lock_manager.PushUnLockAof(lock, nil)
     }
 
     lock.ref_count--
@@ -1679,7 +1679,7 @@ func (self *LockDB) UnLock(server_protocol ServerProtocol, command *protocol.Loc
                 self.RemoveLongExpried(current_lock)
                 lock_manager.RemoveLock(current_lock)
                 if current_lock.is_aof {
-                    _ = lock_manager.PushUnLockAof(current_lock)
+                    _ = lock_manager.PushUnLockAof(current_lock, command)
                 }
                 lock_manager.locked -= uint32(lock_locked)
 
@@ -1692,7 +1692,7 @@ func (self *LockDB) UnLock(server_protocol ServerProtocol, command *protocol.Loc
             } else {
                 lock_manager.RemoveLock(current_lock)
                 if current_lock.is_aof {
-                    _ = lock_manager.PushUnLockAof(current_lock)
+                    _ = lock_manager.PushUnLockAof(current_lock, command)
                 }
                 lock_manager.locked -= uint32(lock_locked)
             }
@@ -1723,7 +1723,7 @@ func (self *LockDB) UnLock(server_protocol ServerProtocol, command *protocol.Loc
             self.RemoveLongExpried(current_lock)
             lock_manager.RemoveLock(current_lock)
             if current_lock.is_aof {
-                _ = lock_manager.PushUnLockAof(current_lock)
+                _ = lock_manager.PushUnLockAof(current_lock, command)
             }
             lock_manager.locked--
 
@@ -1736,7 +1736,7 @@ func (self *LockDB) UnLock(server_protocol ServerProtocol, command *protocol.Loc
         } else {
             lock_manager.RemoveLock(current_lock)
             if current_lock.is_aof {
-                _ = lock_manager.PushUnLockAof(current_lock)
+                _ = lock_manager.PushUnLockAof(current_lock, command)
             }
             lock_manager.locked--
         }
@@ -1906,7 +1906,7 @@ func (self *LockDB) DoAckLock(lock *Lock, succed bool) {
     lock_protocol, lock_command := lock.protocol, lock.command
     lock_manager.RemoveLock(lock)
     if lock.is_aof {
-        _ = lock_manager.PushUnLockAof(lock)
+        _ = lock_manager.PushUnLockAof(lock, nil)
     }
 
     lock.ref_count--
