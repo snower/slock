@@ -253,7 +253,7 @@ func (self *LockQueue) Restructuring() error {
             lock := self.queues[j][k]
             if lock != nil {
                 self.queues[j][k] = nil
-                self.Push(lock)
+                _ = self.Push(lock)
             }
         }
     }
@@ -262,7 +262,7 @@ func (self *LockQueue) Restructuring() error {
         lock := self.queues[tail_node_index][k]
         if lock != nil {
             self.queues[tail_node_index][k] = nil
-            self.Push(lock)
+            _ = self.Push(lock)
         }
     }
 
@@ -553,7 +553,7 @@ func (self *LockCommandQueue) Restructuring() error {
             lock := self.queues[j][k]
             if lock != nil {
                 self.queues[j][k] = nil
-                self.Push(lock)
+                _ = self.Push(lock)
             }
         }
     }
@@ -562,7 +562,7 @@ func (self *LockCommandQueue) Restructuring() error {
         lock := self.queues[tail_node_index][k]
         if lock != nil {
             self.queues[tail_node_index][k] = nil
-            self.Push(lock)
+            _ = self.Push(lock)
         }
     }
 

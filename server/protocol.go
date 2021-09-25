@@ -157,9 +157,9 @@ func (self *MemWaiterServerProtocol) InitLockCommand() {
     lock_command := self.slock.free_lock_commands.PopRight()
     if lock_command != nil {
         self.slock.free_lock_command_count--
-        self.free_commands.Push(lock_command)
+        _ = self.free_commands.Push(lock_command)
     } else {
-        self.free_commands.Push(&protocol.LockCommand{Command: protocol.Command{Magic:protocol.MAGIC, Version:protocol.VERSION}})
+        _ = self.free_commands.Push(&protocol.LockCommand{Command: protocol.Command{Magic:protocol.MAGIC, Version:protocol.VERSION}})
     }
     self.slock.free_lock_command_lock.Unlock()
 }
@@ -171,7 +171,7 @@ func (self *MemWaiterServerProtocol) UnInitLockCommand() {
         if command == nil {
             break
         }
-        self.slock.free_lock_commands.Push(command)
+        _ = self.slock.free_lock_commands.Push(command)
         self.slock.free_lock_command_count++
     }
     self.slock.free_lock_command_lock.Unlock()
@@ -195,7 +195,7 @@ func (self *MemWaiterServerProtocol) GetLockCommand() *protocol.LockCommand {
 
 func (self *MemWaiterServerProtocol) FreeLockCommand(command *protocol.LockCommand) error {
     self.glock.Lock()
-    self.free_commands.Push(command)
+    _ = self.free_commands.Push(command)
     self.glock.Unlock()
     return nil
 }
@@ -204,11 +204,11 @@ func (self *MemWaiterServerProtocol) FreeLockCommandLocked(command *protocol.Loc
     self.glock.Lock()
     if self.closed {
         self.slock.free_lock_command_lock.Lock()
-        self.slock.free_lock_commands.Push(command)
+        _ = self.slock.free_lock_commands.Push(command)
         self.slock.free_lock_command_count++
         self.slock.free_lock_command_lock.Unlock()
     } else {
-        self.free_commands.Push(command)
+        _ = self.free_commands.Push(command)
     }
     self.glock.Unlock()
     return nil
@@ -1000,10 +1000,10 @@ func (self *BinaryServerProtocol) InitLockCommand() {
         lock_command := self.slock.free_lock_commands.PopRight()
         if lock_command != nil {
             self.slock.free_lock_command_count--
-            self.free_commands.Push(lock_command)
+            _ = self.free_commands.Push(lock_command)
             continue
         }
-        self.free_commands.Push(&protocol.LockCommand{Command: protocol.Command{Magic:protocol.MAGIC, Version:protocol.VERSION}})
+        _ = self.free_commands.Push(&protocol.LockCommand{Command: protocol.Command{Magic:protocol.MAGIC, Version:protocol.VERSION}})
     }
     self.slock.free_lock_command_lock.Unlock()
 }
@@ -1015,7 +1015,7 @@ func (self *BinaryServerProtocol) UnInitLockCommand() {
         if command == nil {
             break
         }
-        self.slock.free_lock_commands.Push(command)
+        _ = self.slock.free_lock_commands.Push(command)
         self.slock.free_lock_command_count++
     }
 
@@ -1024,7 +1024,7 @@ func (self *BinaryServerProtocol) UnInitLockCommand() {
         if command == nil {
             break
         }
-        self.slock.free_lock_commands.Push(command)
+        _ = self.slock.free_lock_commands.Push(command)
         self.slock.free_lock_command_count++
     }
     self.slock.free_lock_command_lock.Unlock()
@@ -1047,7 +1047,7 @@ func (self *BinaryServerProtocol) GetLockCommandLocked() *protocol.LockCommand {
             if flock_command == nil {
                 break
             }
-            self.free_commands.Push(flock_command)
+            _ = self.free_commands.Push(flock_command)
         }
         self.glock.Unlock()
         return lock_command
@@ -1064,7 +1064,7 @@ func (self *BinaryServerProtocol) GetLockCommandLocked() *protocol.LockCommand {
                 break
             }
             self.slock.free_lock_command_count--
-            self.free_commands.Push(flock_command)
+            _ = self.free_commands.Push(flock_command)
         }
         self.slock.free_lock_command_lock.Unlock()
         return lock_command
@@ -1081,11 +1081,11 @@ func (self *BinaryServerProtocol) FreeLockCommandLocked(command *protocol.LockCo
     self.glock.Lock()
     if self.closed {
         self.slock.free_lock_command_lock.Lock()
-        self.slock.free_lock_commands.Push(command)
+        _ = self.slock.free_lock_commands.Push(command)
         self.slock.free_lock_command_count++
         self.slock.free_lock_command_lock.Unlock()
     } else {
-        self.locked_free_commands.Push(command)
+        _ = self.locked_free_commands.Push(command)
     }
     self.glock.Unlock()
     return nil
@@ -1555,9 +1555,9 @@ func (self *TextServerProtocol) InitLockCommand() {
     lock_command := self.slock.free_lock_commands.PopRight()
     if lock_command != nil {
         self.slock.free_lock_command_count--
-        self.free_commands.Push(lock_command)
+        _ = self.free_commands.Push(lock_command)
     } else {
-        self.free_commands.Push(&protocol.LockCommand{Command: protocol.Command{Magic:protocol.MAGIC, Version:protocol.VERSION}})
+        _ = self.free_commands.Push(&protocol.LockCommand{Command: protocol.Command{Magic:protocol.MAGIC, Version:protocol.VERSION}})
     }
     self.slock.free_lock_command_lock.Unlock()
 }
@@ -1569,7 +1569,7 @@ func (self *TextServerProtocol) UnInitLockCommand() {
         if command == nil {
             break
         }
-        self.slock.free_lock_commands.Push(command)
+        _ = self.slock.free_lock_commands.Push(command)
         self.slock.free_lock_command_count++
     }
     self.slock.free_lock_command_lock.Unlock()
@@ -1593,7 +1593,7 @@ func (self *TextServerProtocol) GetLockCommand() *protocol.LockCommand {
 
 func (self *TextServerProtocol) FreeLockCommand(command *protocol.LockCommand) error {
     self.glock.Lock()
-    self.free_commands.Push(command)
+    _ = self.free_commands.Push(command)
     self.glock.Unlock()
     return nil
 }
@@ -1602,11 +1602,11 @@ func (self *TextServerProtocol) FreeLockCommandLocked(command *protocol.LockComm
     self.glock.Lock()
     if self.closed {
         self.slock.free_lock_command_lock.Lock()
-        self.slock.free_lock_commands.Push(command)
+        _ = self.slock.free_lock_commands.Push(command)
         self.slock.free_lock_command_count++
         self.slock.free_lock_command_lock.Unlock()
     } else {
-        self.free_commands.Push(command)
+        _ = self.free_commands.Push(command)
     }
     self.glock.Unlock()
     return nil

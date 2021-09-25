@@ -91,7 +91,7 @@ func (self *Server) CloseStreams() error {
         if stream.stream_type != STREAM_TYPE_NORMAL {
             continue
         }
-        stream.Close()
+        _ = stream.Close()
     }
     return nil
 }

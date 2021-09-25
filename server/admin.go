@@ -3,6 +3,7 @@ package server
 import (
     "fmt"
     "github.com/hhkbp2/go-logging"
+    "github.com/snower/slock/protocol"
     "io"
     "net"
     "os"
@@ -72,13 +73,13 @@ func (self *Admin) CommandHandleBgRewritAaofCommand(server_protocol *TextServerP
 
     go func() {
         self.slock.Log().Infof("Aof Rewrite")
-        self.slock.GetAof().RewriteAofFile()
+        _ = self.slock.GetAof().RewriteAofFile()
     }()
     return nil
 }
 
 func (self *Admin) CommandHandleRewriteAofCommand(server_protocol *TextServerProtocol, args []string) error {
-    self.slock.GetAof().RewriteAofFile()
+    _ = self.slock.GetAof().RewriteAofFile()
     return server_protocol.stream.WriteBytes(server_protocol.parser.BuildResponse(true, "OK", nil))
 }
 
@@ -364,6 +365,12 @@ func (self *Admin) CommandHandleShowCommand(server_protocol *TextServerProtocol,
 func (self *Admin) CommandHandleShowDBCommand(server_protocol *TextServerProtocol, args []string, db *LockDB) error {
     db.glock.Lock()
     lock_managers := make([]*LockManager, 0)
+    for _, value := range db.fast_locks {
+        lock_manager := value.manager
+        if lock_manager != nil && lock_manager.locked > 0 {
+            lock_managers = append(lock_managers, lock_manager)
+        }
+    }
     for _, lock_manager := range db.locks {
         if lock_manager.locked > 0 {
             lock_managers = append(lock_managers, lock_manager)
@@ -380,14 +387,11 @@ func (self *Admin) CommandHandleShowDBCommand(server_protocol *TextServerProtoco
 }
 
 func (self *Admin) CommandHandleShowLockCommand(server_protocol *TextServerProtocol, args []string, db *LockDB) error {
-    lock_key := [16]byte{}
-    server_protocol.ArgsToLockComandParseId(args[2], &lock_key)
+    command := protocol.LockCommand{}
+    server_protocol.ArgsToLockComandParseId(args[2], &command.LockKey)
 
-    db.glock.Lock()
-    lock_manager, ok := db.locks[lock_key]
-    db.glock.Unlock()
-
-    if !ok || lock_manager.locked <= 0 {
+    lock_manager := db.GetLockManager(&command)
+    if lock_manager == nil || lock_manager.locked <= 0 {
         return server_protocol.stream.WriteBytes(server_protocol.parser.BuildResponse(false, "ERR Unknown Lock Manager Error", nil))
     }
 
@@ -535,9 +539,9 @@ func (self *Admin) CommandHandleConfigSetCommand(server_protocol *TextServerProt
         }
         Config.LogLevel = args[2]
         for _, handler := range logger.GetHandlers() {
-            handler.SetLevel(logging_level)
+            _ = handler.SetLevel(logging_level)
         }
-        logger.SetLevel(logging_level)
+        _ = logger.SetLevel(logging_level)
     default:
         return server_protocol.stream.WriteBytes(server_protocol.parser.BuildResponse(false, "ERR UnSupport Config Set Parameter", nil))
     }

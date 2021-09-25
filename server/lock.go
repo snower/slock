@@ -60,7 +60,7 @@ func (self *LockManager) AddLock(lock *Lock) *Lock {
         return lock
     }
 
-    self.locks.Push(lock)
+    _ = self.locks.Push(lock)
     self.lock_maps[lock.command.LockId] = lock
     return lock
 }
@@ -89,7 +89,7 @@ func (self *LockManager) RemoveLock(lock *Lock) *Lock {
         }
 
         if self.locks.head_node_index >= 8 {
-            self.locks.Resize()
+            _ = self.locks.Resize()
         }
         return lock
     }
@@ -110,7 +110,7 @@ func (self *LockManager) RemoveLock(lock *Lock) *Lock {
     }
 
     if self.locks.head_node_index >= 8 {
-        self.locks.Resize()
+        _ = self.locks.Resize()
     }
     return lock
 }
@@ -173,12 +173,12 @@ func (self *LockManager) UpdateLockedLock(lock *Lock, timeout uint16, timeout_fl
     }
 
     if lock.is_aof {
-        self.PushLockAof(lock)
+        _ = self.PushLockAof(lock)
     }
 }
 
 func (self *LockManager) AddWaitLock(lock *Lock) *Lock {
-    self.wait_locks.Push(lock)
+    _ = self.wait_locks.Push(lock)
     lock.ref_count++
     self.waited = true
     return lock
@@ -198,13 +198,13 @@ func (self *LockManager) GetWaitLock() *Lock {
         }
 
         if self.wait_locks.head_node_index >= 6 {
-            self.wait_locks.Resize()
+            _ = self.wait_locks.Resize()
         }
         return lock
     }
 
     if self.wait_locks.head_node_index >= 6 {
-        self.wait_locks.Resize()
+        _ = self.wait_locks.Resize()
     }
     return nil
 }
@@ -254,7 +254,7 @@ func (self *LockManager) FreeLock(lock *Lock) *Lock {
     lock.manager = nil
     lock.protocol = nil
     lock.command = nil
-    self.free_locks.Push(lock)
+    _ = self.free_locks.Push(lock)
     return lock
 }
 
@@ -265,7 +265,7 @@ func (self *LockManager) GetOrNewLock(protocol ServerProtocol, command *protocol
         lock = &locks[0]
 
         for i := 1; i < 8; i++ {
-            self.free_locks.Push(&locks[i])
+            _ = self.free_locks.Push(&locks[i])
         }
     }
 

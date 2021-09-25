@@ -44,14 +44,14 @@ func InitLogger(log_file string, log_level string) logging.Logger {
 
     if log_file == "" || log_file == "-" {
         handler := InitConsoleLogger(formatter)
-        handler.SetLevel(logging_level)
-        logger.SetLevel(logging_level)
+        _ = handler.SetLevel(logging_level)
+        _ = logger.SetLevel(logging_level)
         logger.AddHandler(handler)
         logger.Infof("Start ConsoleLogger %s %s", log_level, log_file)
     } else {
         handler := InitFileLogger(log_file, formatter)
-        handler.SetLevel(logging_level)
-        logger.SetLevel(logging_level)
+        _ = handler.SetLevel(logging_level)
+        _ = logger.SetLevel(logging_level)
         logger.AddHandler(handler)
         logger.Infof("Start FileLogger %s %s", log_level, log_file)
     }
