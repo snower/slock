@@ -52,7 +52,7 @@ func (self *TransparencyBinaryClientProtocol) Open(leader_address string) error 
 	return nil
 }
 
-func (self *TransparencyBinaryClientProtocol) ReOpen(leader_address string) error {
+func (self *TransparencyBinaryClientProtocol) RetryOpen(leader_address string) error {
 	self.manager.slock.Log().Infof("Transparency client reconnect %s, leader %s", self.local_address, self.leader_address)
 	if self.client_protocol != nil {
 		_ = self.client_protocol.Close()
@@ -73,35 +73,6 @@ func (self *TransparencyBinaryClientProtocol) Close() error {
 	}
 
 	self.closed = true
-	var result_command protocol.CommandDecode = nil
-	latest_command := self.latest_command
-	if latest_command != nil {
-		switch latest_command.(type) {
-		case *protocol.LockCommand:
-			result_command = protocol.NewLockResultCommand(latest_command.(*protocol.LockCommand), protocol.RESULT_ERROR, 0, 0, 0, 0, 0)
-		case *protocol.InitCommand:
-			result_command = protocol.NewInitResultCommand(latest_command.(*protocol.InitCommand), protocol.RESULT_ERROR, 0)
-		}
-	}
-
-	if self.server_protocol != nil {
-		switch self.server_protocol.(type) {
-		case *TransparencyBinaryServerProtocol:
-			if result_command != nil {
-				_ = self.ProcessBinaryProcotol(result_command)
-			}
-			server_protocol := self.server_protocol.(*TransparencyBinaryServerProtocol)
-			server_protocol.client_protocol = nil
-		case *TransparencyTextServerProtocol:
-			if result_command != nil {
-				_ = self.ProcessTextProcotol(result_command)
-			}
-			server_protocol := self.server_protocol.(*TransparencyTextServerProtocol)
-			server_protocol.client_protocol = nil
-		}
-		self.server_protocol = nil
-	}
-	self.latest_command = nil
 	self.manager.slock.Log().Infof("Transparency client close %s, leader %s", self.local_address, self.leader_address)
 	return nil
 }
@@ -131,6 +102,7 @@ func (self *TransparencyBinaryClientProtocol) Process() {
 	for ; !self.closed; {
 		command, err := self.client_protocol.Read()
 		if err != nil {
+			self.RollbackLatestCommand()
 			err := self.manager.ProcessFinish(self)
 			if err != nil {
 				return
@@ -214,8 +186,41 @@ func (self *TransparencyBinaryClientProtocol) ProcessTextProcotol(command protoc
 	return nil
 }
 
+func (self *TransparencyBinaryClientProtocol) RollbackLatestCommand()  {
+	var result_command protocol.CommandDecode = nil
+	latest_command := self.latest_command
+	if latest_command != nil {
+		switch latest_command.(type) {
+		case *protocol.LockCommand:
+			result_command = protocol.NewLockResultCommand(latest_command.(*protocol.LockCommand), protocol.RESULT_ERROR, 0, 0, 0, 0, 0)
+		case *protocol.InitCommand:
+			result_command = protocol.NewInitResultCommand(latest_command.(*protocol.InitCommand), protocol.RESULT_ERROR, 0)
+		}
+	}
+
+	if self.server_protocol != nil {
+		switch self.server_protocol.(type) {
+		case *TransparencyBinaryServerProtocol:
+			if result_command != nil {
+				_ = self.ProcessBinaryProcotol(result_command)
+			}
+			server_protocol := self.server_protocol.(*TransparencyBinaryServerProtocol)
+			server_protocol.client_protocol = nil
+		case *TransparencyTextServerProtocol:
+			if result_command != nil {
+				_ = self.ProcessTextProcotol(result_command)
+			}
+			server_protocol := self.server_protocol.(*TransparencyTextServerProtocol)
+			server_protocol.client_protocol = nil
+		}
+		self.server_protocol = nil
+	}
+	self.latest_command = nil
+}
+
 type TransparencyBinaryServerProtocol struct {
 	slock                       *SLock
+	manager						*TransparencyManager
 	glock                       *sync.Mutex
 	stream 						*Stream
 	server_protocol				*BinaryServerProtocol
@@ -224,7 +229,8 @@ type TransparencyBinaryServerProtocol struct {
 }
 
 func NewTransparencyBinaryServerProtocol(slock *SLock, stream *Stream, server_protocol *BinaryServerProtocol) *TransparencyBinaryServerProtocol {
-	return &TransparencyBinaryServerProtocol{slock, &sync.Mutex{}, stream, server_protocol, nil, false}
+	return &TransparencyBinaryServerProtocol{slock, slock.replication_manager.transparency_manager, &sync.Mutex{}, stream,
+		server_protocol, nil, false}
 }
 
 func (self *TransparencyBinaryServerProtocol) Init(client_id [16]byte) error {
@@ -241,7 +247,7 @@ func (self *TransparencyBinaryServerProtocol) Close() error {
 
 	self.closed = true
 	if self.client_protocol != nil {
-		_ = self.slock.replication_manager.transparency_manager.ReleaseClient(self.client_protocol)
+		_ = self.manager.ReleaseClient(self.client_protocol)
 	}
 	return self.server_protocol.Close()
 }
@@ -271,6 +277,11 @@ func (self *TransparencyBinaryServerProtocol) WriteCommand(result protocol.Comma
 }
 
 func (self *TransparencyBinaryServerProtocol) CheckClient() error {
+	arbiter_waiter := self.manager.arbiter_waiter
+	if arbiter_waiter != nil {
+		<- arbiter_waiter
+	}
+
 	if self.client_protocol != nil {
 		if self.client_protocol.client_protocol != nil {
 			return nil
@@ -291,7 +302,7 @@ func (self *TransparencyBinaryServerProtocol) CheckClient() error {
 		return io.EOF
 	}
 
-	client_protocol, err := self.slock.replication_manager.transparency_manager.AcquireClient(self)
+	client_protocol, err := self.manager.AcquireClient(self)
 	if err != nil {
 		return err
 	}
@@ -597,6 +608,7 @@ func (self *TransparencyBinaryServerProtocol) FreeLockCommandLocked(command *pro
 
 type TransparencyTextServerProtocol struct {
 	slock                       *SLock
+	manager						*TransparencyManager
 	glock                       *sync.Mutex
 	stream                      *Stream
 	server_protocol				*TextServerProtocol
@@ -606,8 +618,8 @@ type TransparencyTextServerProtocol struct {
 }
 
 func NewTransparencyTextServerProtocol(slock *SLock, stream *Stream, server_protocol *TextServerProtocol) *TransparencyTextServerProtocol {
-	transparency_protocol := &TransparencyTextServerProtocol{slock, &sync.Mutex{}, stream, server_protocol, nil,
-		make(chan *protocol.LockResultCommand, 4), false}
+	transparency_protocol := &TransparencyTextServerProtocol{slock, slock.replication_manager.transparency_manager, &sync.Mutex{},
+		stream, server_protocol, nil, make(chan *protocol.LockResultCommand, 4), false}
 	if server_protocol.handlers == nil {
 		_, _ = server_protocol.FindHandler("LOCK")
 	}
@@ -660,7 +672,7 @@ func (self *TransparencyTextServerProtocol) Close() error {
 
 	self.closed = true
 	if self.client_protocol != nil {
-		_ = self.slock.replication_manager.transparency_manager.ReleaseClient(self.client_protocol)
+		_ = self.manager.ReleaseClient(self.client_protocol)
 	}
 	return self.server_protocol.Close()
 }
@@ -686,6 +698,11 @@ func (self *TransparencyTextServerProtocol) WriteCommand(result protocol.Command
 }
 
 func (self *TransparencyTextServerProtocol) CheckClient() error {
+	arbiter_waiter := self.manager.arbiter_waiter
+	if arbiter_waiter != nil {
+		<- arbiter_waiter
+	}
+
 	if self.client_protocol != nil {
 		if self.client_protocol.client_protocol != nil {
 			return nil
@@ -706,7 +723,7 @@ func (self *TransparencyTextServerProtocol) CheckClient() error {
 		return io.EOF
 	}
 
-	client_protocol, err := self.slock.replication_manager.transparency_manager.AcquireClient(self)
+	client_protocol, err := self.manager.AcquireClient(self)
 	if err != nil {
 		return err
 	}
@@ -866,7 +883,7 @@ func (self *TransparencyTextServerProtocol) CommandHandlerLock(server_protocol *
 			0, 0, 0, 0, 0, 0, 0, 0,
 			0, 0, 0, 0, 0, 0, 0, 0
 		if self.client_protocol != nil {
-			_ = self.slock.replication_manager.transparency_manager.ReleaseClient(self.client_protocol)
+			_ = self.manager.ReleaseClient(self.client_protocol)
 		}
 		return self.stream.WriteBytes(self.server_protocol.parser.BuildResponse(false, "ERR Lock Error", nil))
 	}
@@ -875,7 +892,7 @@ func (self *TransparencyTextServerProtocol) CommandHandlerLock(server_protocol *
 		self.server_protocol.lock_id = lock_command.LockId
 	}
 	if self.client_protocol != nil {
-		_ = self.slock.replication_manager.transparency_manager.ReleaseClient(self.client_protocol)
+		_ = self.manager.ReleaseClient(self.client_protocol)
 	}
 
 	buf_index := 0
@@ -949,7 +966,7 @@ func (self *TransparencyTextServerProtocol) CommandHandlerUnlock(server_protocol
 			0, 0, 0, 0, 0, 0, 0, 0,
 			0, 0, 0, 0, 0, 0, 0, 0
 		if self.client_protocol != nil {
-			_ = self.slock.replication_manager.transparency_manager.ReleaseClient(self.client_protocol)
+			_ = self.manager.ReleaseClient(self.client_protocol)
 		}
 		return self.stream.WriteBytes(self.server_protocol.parser.BuildResponse(false, "ERR UnLock Error", nil))
 	}
@@ -963,7 +980,7 @@ func (self *TransparencyTextServerProtocol) CommandHandlerUnlock(server_protocol
 			0, 0, 0, 0, 0, 0, 0, 0
 	}
 	if self.client_protocol != nil {
-		_ = self.slock.replication_manager.transparency_manager.ReleaseClient(self.client_protocol)
+		_ = self.manager.ReleaseClient(self.client_protocol)
 	}
 
 	buf_index := 0
@@ -1021,11 +1038,12 @@ type TransparencyManager struct {
 	closed				bool
 	closed_waiter   	chan bool
 	wakeup_signal		chan bool
+	arbiter_waiter		chan bool
 }
 
 func NewTransparencyManager() *TransparencyManager {
 	manager := &TransparencyManager{nil, &sync.Mutex{}, nil, nil, "",
-		false, make(chan bool, 1), nil}
+		false, make(chan bool, 1), nil, nil}
 	go manager.Run()
 	return manager
 }
@@ -1058,6 +1076,7 @@ func (self *TransparencyManager) Close() error {
 }
 
 func (self *TransparencyManager) Run() {
+	timeout := 120
 	for ; !self.closed; {
 		self.glock.Lock()
 		self.wakeup_signal = make(chan bool, 1)
@@ -1065,10 +1084,13 @@ func (self *TransparencyManager) Run() {
 
 		select {
 		case <-self.wakeup_signal:
-			continue
-		case <-time.After(120 * time.Second):
+			self.glock.Lock()
+			timeout = self.CheckArbiterWaiter()
+			self.glock.Unlock()
+		case <-time.After(time.Duration(timeout) * time.Second):
 			self.glock.Lock()
 			self.wakeup_signal = nil
+			timeout = self.CheckArbiterWaiter()
 			self.glock.Unlock()
 			self.CheckIdleTimeout()
 		}
@@ -1083,6 +1105,18 @@ func (self *TransparencyManager) Wakeup() {
 		self.wakeup_signal = nil
 	}
 	self.glock.Unlock()
+}
+
+func (self *TransparencyManager) CheckArbiterWaiter() int {
+	if self.arbiter_waiter != nil {
+		close(self.arbiter_waiter)
+		self.arbiter_waiter = nil
+	}
+	if self.leader_address == "" && self.slock.state != STATE_LEADER && !self.closed {
+		self.arbiter_waiter = make(chan bool, 1)
+		return 2
+	}
+	return 120
 }
 
 func (self *TransparencyManager) CheckIdleTimeout() {
@@ -1214,7 +1248,7 @@ func (self *TransparencyManager) ProcessFinish(binary_client *TransparencyBinary
 		return io.EOF
 	}
 
-	err := binary_client.ReOpen(self.leader_address)
+	err := binary_client.RetryOpen(self.leader_address)
 	if err != nil {
 		return err
 	}
@@ -1251,6 +1285,10 @@ func (self *TransparencyManager) ChangeLeader(address string) error {
 	}
 
 	if changed {
+		if self.wakeup_signal != nil {
+			close(self.wakeup_signal)
+			self.wakeup_signal = nil
+		}
 		self.slock.Log().Infof("Transparency finish change leader to %s", address)
 	}
 	return nil

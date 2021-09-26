@@ -1384,7 +1384,14 @@ func (self *ArbiterManager) GetMembers() []*ArbiterMember {
 
 func (self *ArbiterManager) QuitLeader() error {
     self.slock.Log().Infof("Arbiter quit leader start")
-    _ = self.slock.replication_manager.SwitchToFollower("")
+    err := self.slock.replication_manager.transparency_manager.ChangeLeader("")
+    if err != nil {
+        self.slock.Log().Errorf("Arbiter quit leader change transparency address error %v", err)
+    }
+    err = self.slock.replication_manager.SwitchToFollower("")
+    if err != nil {
+        self.slock.Log().Errorf("Arbiter equit leader change to follower error %v", err)
+    }
     self.own_member.role = ARBITER_ROLE_FOLLOWER
     self.leader_member = nil
     self.version++
@@ -1479,13 +1486,13 @@ func (self *ArbiterManager) VoteSucced() error {
         }
     } else {
         if self.slock.state == STATE_LEADER {
-            err := self.slock.replication_manager.SwitchToFollower("")
-            if err != nil {
-                self.slock.Log().Errorf("Arbiter election succed change to follower error %v", err)
-            }
-            err = self.slock.replication_manager.transparency_manager.ChangeLeader("")
+            err := self.slock.replication_manager.transparency_manager.ChangeLeader("")
             if err != nil {
                 self.slock.Log().Errorf("Arbiter election succed change transparency address error %v", err)
+            }
+            err = self.slock.replication_manager.SwitchToFollower("")
+            if err != nil {
+                self.slock.Log().Errorf("Arbiter election succed change to follower error %v", err)
             }
         }
         self.glock.Unlock()
@@ -1519,13 +1526,13 @@ func (self *ArbiterManager) UpdateStatus() error {
     }
 
     if self.leader_member == nil {
-        err := self.slock.replication_manager.SwitchToFollower("")
-        if err != nil {
-            self.slock.Log().Errorf("Arbiter update status reset follower error %v", err)
-        }
-        err = self.slock.replication_manager.transparency_manager.ChangeLeader("")
+        err := self.slock.replication_manager.transparency_manager.ChangeLeader("")
         if err != nil {
             self.slock.Log().Errorf("Arbiter update status reset transparency address error %v", err)
+        }
+        err = self.slock.replication_manager.SwitchToFollower("")
+        if err != nil {
+            self.slock.Log().Errorf("Arbiter update status reset follower error %v", err)
         }
         _ = self.StartVote()
         return nil
@@ -1547,6 +1554,10 @@ func (self *ArbiterManager) UpdateStatus() error {
                 err := self.slock.replication_manager.SwitchToLeader()
                 if err != nil {
                     self.slock.Log().Errorf("Arbiter update status change leader error %v", err)
+                }
+                err = self.slock.replication_manager.transparency_manager.ChangeLeader("")
+                if err != nil {
+                    self.slock.Log().Errorf("Arbiter update status change transparency address error %v", err)
                 }
                 self.DoAnnouncement()
             } else {
@@ -1571,13 +1582,13 @@ func (self *ArbiterManager) UpdateStatus() error {
             return nil
         }
 
-        err := self.slock.replication_manager.SwitchToFollower(self.leader_member.host)
-        if err != nil {
-            self.slock.Log().Errorf("Arbiter update status change follower error %v", err)
-        }
-        err = self.slock.replication_manager.transparency_manager.ChangeLeader(self.leader_member.host)
+        err := self.slock.replication_manager.transparency_manager.ChangeLeader(self.leader_member.host)
         if err != nil {
             self.slock.Log().Errorf("Arbiter update status change transparency address error %v", err)
+        }
+        err = self.slock.replication_manager.SwitchToFollower(self.leader_member.host)
+        if err != nil {
+            self.slock.Log().Errorf("Arbiter update status change follower error %v", err)
         }
         return nil
     }

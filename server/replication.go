@@ -1261,6 +1261,7 @@ func (self *ReplicationManager) Init(leader_address string) error {
 		self.slock.Log().Infof("Replication init leader %x", self.current_request_id)
 	} else {
 		self.current_request_id = [16]byte{}
+		_ = self.transparency_manager.ChangeLeader(leader_address)
 		self.slock.Log().Infof("Replication init follower %s %x", leader_address, self.current_request_id)
 	}
 	return nil
