@@ -47,13 +47,13 @@ func InitLogger(log_file string, log_level string) logging.Logger {
         _ = handler.SetLevel(logging_level)
         _ = logger.SetLevel(logging_level)
         logger.AddHandler(handler)
-        logger.Infof("Start ConsoleLogger %s %s", log_level, log_file)
+        logger.Infof("Logger start consolelogger %s %s", log_level, log_file)
     } else {
         handler := InitFileLogger(log_file, formatter)
         _ = handler.SetLevel(logging_level)
         _ = logger.SetLevel(logging_level)
         logger.AddHandler(handler)
-        logger.Infof("Start FileLogger %s %s", log_level, log_file)
+        logger.Infof("Logger start filelogger %s %s", log_level, log_file)
     }
     return logger
 }

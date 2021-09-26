@@ -19,6 +19,7 @@ type ClientProtocol interface {
     ReadCommand() (protocol.CommandDecode, error)
     WriteCommand(protocol.CommandEncode) error
     RemoteAddr() net.Addr
+    LocalAddr() net.Addr
 }
 
 type BinaryClientProtocol struct {
@@ -163,6 +164,10 @@ func (self *BinaryClientProtocol) WriteCommand(command protocol.CommandEncode) e
 
 func (self *BinaryClientProtocol) RemoteAddr() net.Addr {
     return self.stream.RemoteAddr()
+}
+
+func (self *BinaryClientProtocol) LocalAddr() net.Addr {
+    return self.stream.LocalAddr()
 }
 
 type TextClientProtocol struct {
@@ -389,4 +394,8 @@ func (self *TextClientProtocol) WriteCommand(result protocol.CommandEncode) erro
 
 func (self *TextClientProtocol) RemoteAddr() net.Addr {
     return self.stream.RemoteAddr()
+}
+
+func (self *TextClientProtocol) LocalAddr() net.Addr {
+    return self.stream.LocalAddr()
 }

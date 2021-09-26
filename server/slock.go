@@ -60,9 +60,10 @@ func (self *SLock) Init(server *Server) error {
         self.arbiter_manager = NewArbiterManager(self, Config.ReplSet)
         err := self.arbiter_manager.Load()
         if err != nil {
-            self.logger.Errorf("Arbiter Load Error: %v", err)
+            self.logger.Errorf("Arbiter load error %v", err)
             return err
         }
+        self.logger.Infof("Slock init by replset")
         return nil
     }
 
@@ -76,16 +77,17 @@ func (self *SLock) InitLeader() error {
     self.UpdateState(STATE_INIT)
     err := self.aof.LoadAndInit()
     if err != nil {
-        self.logger.Errorf("Aof LoadOrInit Error: %v", err)
+        self.logger.Errorf("Aof LoadOrInit error %v", err)
         return err
     }
 
     self.UpdateState(STATE_LEADER)
     err = self.replication_manager.Init("")
     if err != nil {
-        self.logger.Errorf("Replication Init Error: %v", err)
+        self.logger.Errorf("Replication init error %v", err)
         return err
     }
+    self.logger.Infof("Slock init by leader")
     return nil
 }
 
@@ -93,16 +95,17 @@ func (self *SLock) InitFollower(leader_address string) error {
     self.UpdateState(STATE_INIT)
     err := self.aof.Init()
     if err != nil {
-        self.logger.Errorf("Aof Init Error: %v", err)
+        self.logger.Errorf("Aof init error %v", err)
         return err
     }
 
     self.UpdateState(STATE_SYNC)
     err = self.replication_manager.Init(leader_address)
     if err != nil {
-        self.logger.Errorf("Replication Init Error: %v", err)
+        self.logger.Errorf("Replication init error %v", err)
         return err
     }
+    self.logger.Infof("Slock init by follower")
     return nil
 }
 
@@ -110,8 +113,10 @@ func (self *SLock) Start()  {
     if Config.ReplSet != "" {
         err := self.arbiter_manager.Start()
         if err != nil {
-            self.logger.Errorf("Arbiter Start Error: %v", err)
+            self.logger.Errorf("Arbiter start error %v", err)
+            return
         }
+        self.logger.Infof("Slock start by replset")
         return
     }
 
@@ -123,14 +128,16 @@ func (self *SLock) Start()  {
 }
 
 func (self *SLock) StartLeader()  {
-
+    self.logger.Infof("Slock start by leader")
 }
 
 func (self *SLock) StartFollower()  {
     err := self.replication_manager.StartSync()
     if err != nil {
-        self.logger.Errorf("Replication Start Sync Error: %v", err)
+        self.logger.Errorf("Replication start sync error %v", err)
+        return
     }
+    self.logger.Infof("Slock start by follower")
     return
 }
 
@@ -150,6 +157,7 @@ func (self *SLock) Close()  {
     self.admin.Close()
     self.aof.Close()
     self.server = nil
+    self.logger.Infof("Slock closed")
 }
 
 func (self *SLock) UpdateState(state uint8)  {

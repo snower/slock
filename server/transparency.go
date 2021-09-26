@@ -21,13 +21,14 @@ type TransparencyBinaryClientProtocol struct {
 	init_command				*protocol.LockResultCommand
 	latest_command				protocol.CommandEncode
 	leader_address				string
+	local_address				string
 	closed						bool
 	idle_time					time.Time
 }
 
 func NewTransparencyBinaryClientProtocol(manager *TransparencyManager) *TransparencyBinaryClientProtocol {
 	return &TransparencyBinaryClientProtocol{manager, &sync.Mutex{}, nil, nil,
-		nil, nil, nil, nil, "", false, time.Now()}
+		nil, nil, nil, nil, "", "",false, time.Now()}
 }
 
 func (self *TransparencyBinaryClientProtocol) Open(leader_address string) error {
@@ -40,16 +41,19 @@ func (self *TransparencyBinaryClientProtocol) Open(leader_address string) error 
 	self.stream = stream
 	self.client_protocol = client_protocol
 	self.leader_address = leader_address
+	self.local_address = conn.LocalAddr().String()
 	if self.init_command != nil {
 		err := self.Write(self.init_command)
 		if err != nil {
 			return err
 		}
 	}
+	self.manager.slock.Log().Infof("Transparency client connected %s, leader %s", self.local_address, self.leader_address)
 	return nil
 }
 
 func (self *TransparencyBinaryClientProtocol) ReOpen(leader_address string) error {
+	self.manager.slock.Log().Infof("Transparency client reconnect %s, leader %s", self.local_address, self.leader_address)
 	if self.client_protocol != nil {
 		_ = self.client_protocol.Close()
 		self.client_protocol = nil
@@ -98,6 +102,7 @@ func (self *TransparencyBinaryClientProtocol) Close() error {
 		self.server_protocol = nil
 	}
 	self.latest_command = nil
+	self.manager.slock.Log().Infof("Transparency client close %s, leader %s", self.local_address, self.leader_address)
 	return nil
 }
 
@@ -120,6 +125,7 @@ func (self *TransparencyBinaryClientProtocol) Process() {
 		_ = self.manager.CloseClient(self)
 		self.stream = nil
 		self.client_protocol = nil
+		self.manager.slock.Log().Infof("Transparency client closed %s, leader %s", self.local_address, self.leader_address)
 	}()
 
 	for ; !self.closed; {
@@ -1221,6 +1227,7 @@ func (self *TransparencyManager) ChangeLeader(address string) error {
 
 	changed := false
 	if self.leader_address != address {
+		self.slock.Log().Infof("Transparency start change leader to %s", address)
 		changed = true
 	}
 	self.leader_address = address
@@ -1244,7 +1251,7 @@ func (self *TransparencyManager) ChangeLeader(address string) error {
 	}
 
 	if changed {
-		self.slock.Log().Infof("Transparency Change Leader To %s", address)
+		self.slock.Log().Infof("Transparency finish change leader to %s", address)
 	}
 	return nil
 }

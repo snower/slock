@@ -318,7 +318,7 @@ func (self *BinaryServerProtocol) Close() error {
     if self.stream != nil {
         err := self.stream.Close()
         if err != nil {
-            self.slock.Log().Errorf("Connection Close Error: %s %v", self.RemoteAddr().String(), err)
+            self.slock.Log().Errorf("Protocol binary connection close error %s %v", self.RemoteAddr().String(), err)
         }
         self.stream.protocol = nil
     }
@@ -807,7 +807,7 @@ func (self *BinaryServerProtocol) ProcessCommad(command protocol.ICommand) error
             err = server_protocol.Process()
             if err != nil {
                 if err != io.EOF {
-                    self.slock.Log().Errorf("Protocol Process Error: %v", err)
+                    self.slock.Log().Errorf("Protocol binary connection process error %s %v", self.RemoteAddr().String(), err)
                 }
             }
 
@@ -964,7 +964,7 @@ func (self *BinaryServerProtocol) FlushWrite() {
             self.flush_index, self.windex = 0, 0
             self.flush_wlock.Unlock()
             _ = self.Close()
-            self.slock.Log().Infof("BinaryProtocol Flush Write Error %v", err)
+            self.slock.Log().Infof("Protocol binary connection flush write error %s %v", self.RemoteAddr().String(), err)
             return
         }
 
@@ -1165,7 +1165,7 @@ func (self *TextServerProtocol) Close() error {
     if self.stream != nil {
         err := self.stream.Close()
         if err != nil {
-            self.slock.Log().Errorf("Connection Close Error: %s %v", self.RemoteAddr().String(), err)
+            self.slock.Log().Errorf("Protocol text connection close error %s %v", self.RemoteAddr().String(), err)
         }
         self.stream.protocol = nil
     }
@@ -1447,7 +1447,7 @@ func (self *TextServerProtocol) ProcessCommad(command protocol.ICommand) error {
             err = server_protocol.Process()
             if err != nil {
                 if err != io.EOF {
-                    self.slock.Log().Errorf("Protocol Process Error: %v", err)
+                    self.slock.Log().Errorf("Protocol text connection process error %s %v", self.RemoteAddr().String(), err)
                 }
             }
 

@@ -57,7 +57,7 @@ func (self *Admin) CommandHandleShutdownCommand(server_protocol *TextServerProto
     }
 
     go func() {
-        self.slock.Log().Infof("Admin Shutdown Server")
+        self.slock.Log().Infof("Admin command execute shutdown server")
         if self.server != nil {
             self.server.Close()
         }
@@ -72,7 +72,7 @@ func (self *Admin) CommandHandleBgRewritAaofCommand(server_protocol *TextServerP
     }
 
     go func() {
-        self.slock.Log().Infof("Aof Rewrite")
+        self.slock.Log().Infof("Admin command execute aof files rewrite")
         _ = self.slock.GetAof().RewriteAofFile()
     }()
     return nil

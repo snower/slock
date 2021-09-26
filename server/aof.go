@@ -614,7 +614,7 @@ func (self *AofChannel) Handle(aof_lock *AofLock)  {
 func (self *AofChannel) HandleLock(aof_lock *AofLock)  {
     err := aof_lock.Encode()
     if err != nil {
-        self.slock.Log().Errorf("Aof Push Encode Error %v", err)
+        self.slock.Log().Errorf("Aof push lock encode error %v", err)
         if aof_lock.AofFlag & 0x1000 != 0 && aof_lock.CommandType == protocol.COMMAND_LOCK && aof_lock.lock != nil {
             lock_manager := aof_lock.lock.manager
             lock_manager.lock_db.DoAckLock(aof_lock.lock, false)
@@ -657,7 +657,7 @@ func (self *AofChannel) HandleLoad(aof_lock *AofLock) {
     if err == nil {
         return
     }
-    self.slock.Log().Errorf("Aof Load ProcessLockCommand Error %v", err)
+    self.slock.Log().Errorf("Aof load lock Processlockcommand error %v", err)
     if aof_lock.AofFlag & 0x1000 != 0 {
         _ = self.aof.LockLoaded(self.server_protocol.(*MemWaiterServerProtocol), lock_command, protocol.RESULT_ERROR, 0, 0)
     }
@@ -728,10 +728,11 @@ func (self *Aof) Init() error {
     if _, err := os.Stat(self.data_dir); os.IsNotExist(err) {
         return err
     }
-    self.slock.Log().Infof("Aof Data Dir %s", self.data_dir)
+    self.slock.Log().Infof("Aof config data dir %s", self.data_dir)
 
     _ = self.WaitFlushAofChannel()
     self.inited = true
+    self.slock.Log().Infof("Aof init finish")
     return nil
 }
 
@@ -746,7 +747,7 @@ func (self *Aof) LoadAndInit() error {
     if _, err := os.Stat(self.data_dir); os.IsNotExist(err) {
         return err
     }
-    self.slock.Log().Infof("Aof Data Dir %s", self.data_dir)
+    self.slock.Log().Infof("Aof config data dir %s", self.data_dir)
 
     append_files, rewrite_file, err := self.FindAofFiles()
     if err != nil {
@@ -767,7 +768,7 @@ func (self *Aof) LoadAndInit() error {
         return err
     }
     self.aof_file_index++
-    self.slock.Log().Infof("Aof File Create %s.%d", "append.aof", self.aof_file_index)
+    self.slock.Log().Infof("Aof create current file %s.%d", "append.aof", self.aof_file_index)
 
     aof_filenames := make([]string, 0)
     if rewrite_file != "" {
@@ -784,13 +785,14 @@ func (self *Aof) LoadAndInit() error {
     if err != nil {
         return err
     }
-    self.slock.Log().Infof("Aof File Load %v", aof_filenames)
+    self.slock.Log().Infof("Aof loaded files %v", aof_filenames)
 
     _ = self.WaitFlushAofChannel()
     if len(append_files) > 0 {
         go self.RewriteAofFiles()
     }
     self.inited = true
+    self.slock.Log().Infof("Aof init finish")
     return nil
 }
 
@@ -972,7 +974,7 @@ func (self *Aof) Close()  {
         self.aof_file = nil
         self.aof_glock.Unlock()
     }
-    self.slock.logger.Infof("Aof Closed")
+    self.slock.logger.Infof("Aof closed")
 }
 
 func (self *Aof) NewAofChannel(lock_db *LockDB) *AofChannel {
@@ -1078,7 +1080,7 @@ func (self *Aof) PushLock(lock *AofLock) {
 
     werr := self.aof_file.WriteLock(lock)
     if werr != nil {
-        self.slock.Log().Errorf("Aof File Write Error %v", werr)
+        self.slock.Log().Errorf("Aof append file write error %v", werr)
     }
     if uint32(self.aof_file.GetSize()) >= self.rewrite_size {
         _ = self.RewriteAofFile()
@@ -1087,7 +1089,7 @@ func (self *Aof) PushLock(lock *AofLock) {
     self.aof_glock.Unlock()
     perr := self.slock.replication_manager.PushLock(lock)
     if perr != nil {
-        self.slock.Log().Errorf("Aof File Push Error %v", perr)
+        self.slock.Log().Errorf("Aof push ring buffer queue error %v", perr)
     }
     self.repl_glock.Unlock()
 
@@ -1110,7 +1112,7 @@ func (self *Aof) AppendLock(lock *AofLock) {
 
     err := self.aof_file.WriteLock(lock)
     if err != nil {
-        self.slock.Log().Errorf("Aof File Write Error %v", err)
+        self.slock.Log().Errorf("Aof append file write error %v", err)
     }
     self.aof_id = lock.AofId
     self.aof_glock.Unlock()
@@ -1149,7 +1151,7 @@ func (self *Aof) Flush() {
     for ; !self.closed; {
         err := self.aof_file.Flush()
         if err != nil {
-            self.slock.Log().Errorf("Aof File Flush Error %v", err)
+            self.slock.Log().Errorf("Aof flush file error %v", err)
             time.Sleep(1e10)
         }
         break
@@ -1186,7 +1188,7 @@ func (self *Aof) Reset(aof_file_index uint32) error {
 
         err := self.aof_file.Close()
         if err != nil {
-            self.slock.Log().Errorf("Aof File Close Error %s.%d %v", "append.aof", self.aof_file_index, err)
+            self.slock.Log().Errorf("Aof close file %s.%d error %v", "append.aof", self.aof_file_index, err)
             return err
         }
         self.aof_file = nil
@@ -1200,7 +1202,7 @@ func (self *Aof) Reset(aof_file_index uint32) error {
     if rewrite_file != "" {
         err := os.Remove(filepath.Join(self.data_dir, rewrite_file))
         if err != nil {
-            self.slock.Log().Errorf("Aof Reset Rename Error %v", err)
+            self.slock.Log().Errorf("Aof clear files remove %s error %v", rewrite_file, err)
             return err
         }
     }
@@ -1208,7 +1210,7 @@ func (self *Aof) Reset(aof_file_index uint32) error {
     for _, append_file := range append_files {
         err := os.Remove(filepath.Join(self.data_dir, append_file))
         if err != nil {
-            self.slock.Log().Errorf("Aof Reset Rename Error %v", err)
+            self.slock.Log().Errorf("Aof clear files remove %s error %v", append_file, err)
             return err
         }
     }
@@ -1221,7 +1223,7 @@ func (self *Aof) Reset(aof_file_index uint32) error {
         return err
     }
     self.aof_file_index++
-    self.slock.Log().Infof("Aof File Create %s.%d", "append.aof", self.aof_file_index)
+    self.slock.Log().Infof("Aof create current file %s.%d", "append.aof", self.aof_file_index)
     return nil
 }
 
@@ -1231,7 +1233,7 @@ func (self *Aof) RewriteAofFile() error {
 
         err := self.aof_file.Close()
         if err != nil {
-            self.slock.Log().Errorf("Aof File Close Error %s.%d %v", "append.aof", self.aof_file_index, err)
+            self.slock.Log().Errorf("Aof close file %s.%d error %v", "append.aof", self.aof_file_index, err)
         }
         self.aof_file = nil
     }
@@ -1243,12 +1245,13 @@ func (self *Aof) RewriteAofFile() error {
     aof_file := NewAofFile(self, filepath.Join(self.data_dir, aof_filename), os.O_WRONLY, int(Config.AofFileBufferSize))
     err := aof_file.Open()
     if err != nil {
+        self.slock.Log().Infof("Aof open current file %s.%d error %v", "append.aof", self.aof_file_index, err)
         return err
     }
     self.aof_file = aof_file
     self.aof_file_index++
     self.aof_id = 0
-    self.slock.Log().Infof("Aof File Create %s.%d", "append.aof", self.aof_file_index)
+    self.slock.Log().Infof("Aof create current file %s.%d", "append.aof", self.aof_file_index)
 
     go self.RewriteAofFiles()
     return nil
@@ -1305,7 +1308,7 @@ func (self *Aof) RewriteAofFiles() {
     for _, aof_file := range aof_files {
         total_aof_size += aof_file.GetSize()
     }
-    self.slock.Log().Infof("Aof Rewrite %d to %d", total_aof_size, rewrite_aof_file.GetSize())
+    self.slock.Log().Infof("Aof rewrite file size %d to %d", total_aof_size, rewrite_aof_file.GetSize())
 }
 
 func (self *Aof) FindRewriteAofFiles() ([]string, error) {
@@ -1336,6 +1339,7 @@ func (self *Aof) LoadRewriteAofFiles(aof_filenames []string) (*AofFile, []*AofFi
     rewrite_aof_file := NewAofFile(self, filepath.Join(self.data_dir, "rewrite.aof.tmp"), os.O_WRONLY, int(Config.AofFileBufferSize))
     err := rewrite_aof_file.Open()
     if err != nil {
+        self.slock.Log().Infof("Aof open current file rewrite.aof.tmp error %v", err)
         return nil, nil, err
     }
 
@@ -1370,17 +1374,17 @@ func (self *Aof) LoadRewriteAofFiles(aof_filenames []string) (*AofFile, []*AofFi
         return true, nil
     })
     if lerr != nil {
-        self.slock.Log().Errorf("Aof Rewrite Load Rewrite File Error %v", err)
+        self.slock.Log().Errorf("Aof load and rewrite file error %v", err)
     }
 
     err = rewrite_aof_file.Flush()
     if err != nil {
-        self.slock.Log().Errorf("Aof Rewrite Flush File Error %v", err)
+        self.slock.Log().Errorf("Aof rewrite flush file error %v", err)
     }
 
     err = rewrite_aof_file.Close()
     if err != nil {
-        self.slock.Log().Errorf("Aof Rewrite Close File Error %v", err)
+        self.slock.Log().Errorf("Aof rewrite close file error %v", err)
     }
     return rewrite_aof_file, aof_files, lerr
 }
@@ -1389,14 +1393,14 @@ func (self *Aof) ClearRewriteAofFiles(aof_filenames []string) {
     for _, aof_filename := range aof_filenames {
         err := os.Remove(filepath.Join(self.data_dir, aof_filename))
         if err != nil {
-            self.slock.Log().Errorf("Aof Rewrite Remove File Error %s %v", aof_filename, err)
+            self.slock.Log().Errorf("Aof rewrite remove file error %s %v", aof_filename, err)
             continue
         }
-        self.slock.Log().Infof("Aof Rewrite Remove File %s", aof_filename)
+        self.slock.Log().Infof("Aof rewrite remove file %s", aof_filename)
     }
     err := os.Rename(filepath.Join(self.data_dir, "rewrite.aof.tmp"), filepath.Join(self.data_dir, "rewrite.aof"))
     if err != nil {
-        self.slock.Log().Errorf("Aof Rewrite Rename Error %v", err)
+        self.slock.Log().Errorf("Aof rewrite rename rewrite.aof.tmp to rewrite.aof error %v", err)
     }
 }
 
@@ -1428,7 +1432,7 @@ func (self *Aof) ClearAofFiles() error {
 
         err = os.Remove(filepath.Join(self.data_dir, file_name))
         if err != nil {
-            self.slock.Log().Errorf("Aof Clear Remove File Error %s %v", file_name, err)
+            self.slock.Log().Errorf("Aof clear remove file error %s %v", file_name, err)
         }
         return nil
     })

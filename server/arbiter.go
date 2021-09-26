@@ -40,15 +40,17 @@ func NewArbiterStore() *ArbiterStore {
 func (self *ArbiterStore) Init(manager *ArbiterManager) error {
     data_dir, err := filepath.Abs(Config.DataDir)
     if err != nil {
+        manager.slock.Log().Errorf("Arbiter config meta data dir error %v", err)
         return err
     }
 
     if _, err := os.Stat(data_dir); os.IsNotExist(err) {
+        manager.slock.Log().Errorf("Arbiter config meta data dir error %v", err)
         return err
     }
     
     self.filename = filepath.Join(data_dir, "meta.pb")
-    manager.slock.Log().Infof("Arbiter Meta File %s", self.filename)
+    manager.slock.Log().Infof("Arbiter config meta file %s", self.filename)
     return nil
 }
 
@@ -62,15 +64,18 @@ func (self *ArbiterStore) Load(manager *ArbiterManager) error {
     
     file, err := os.OpenFile(self.filename, os.O_RDONLY, 0644)
     if err != nil {
+        manager.slock.Log().Errorf("Arbiter open meta file error %v", err)
         return err
     }
     data, err := ioutil.ReadAll(file)
     if err != nil {
+        manager.slock.Log().Errorf("Arbiter read meta file error %v", err)
         _ = file.Close()
         return err
     }
     data, err = self.ReadHeader(data)
     if err != nil {
+        manager.slock.Log().Errorf("Arbiter read meta file header error %v", err)
         _ = file.Close()
         return err
     }
@@ -78,6 +83,7 @@ func (self *ArbiterStore) Load(manager *ArbiterManager) error {
     replset := protobuf.ReplSet{}
     err = replset.Unmarshal(data)
     if err != nil {
+        manager.slock.Log().Errorf("Arbiter read meta file decode data error %v", err)
         _ = file.Close()
         return err
     }
@@ -101,6 +107,8 @@ func (self *ArbiterStore) Load(manager *ArbiterManager) error {
     manager.vertime = replset.Vertime
     manager.voter.commit_id = replset.CommitId
     _ = file.Close()
+    manager.slock.Log().Infof("Arbiter load meta file Name:%s Gid:%s Version:%d CommitId:%d MemberCount:%d", replset.Name,
+        replset.Gid, replset.Version, replset.CommitId, len(replset.Members))
     return nil
 }
 
@@ -114,11 +122,13 @@ func (self *ArbiterStore) Save(manager *ArbiterManager) error {
 
     file, err := os.OpenFile(self.filename, os.O_WRONLY | os.O_CREATE | os.O_TRUNC, 0644)
     if err != nil {
+        manager.slock.Log().Errorf("Arbiter open meta file error %v", err)
         return err
     }
 
     err = self.WriteHeader(file)
     if err != nil {
+        manager.slock.Log().Errorf("Arbiter write meta file header error %v", err)
         _ = file.Close()
         return err
     }
@@ -137,20 +147,26 @@ func (self *ArbiterStore) Save(manager *ArbiterManager) error {
         Owner:owner, Members:members, CommitId:manager.voter.commit_id}
     data, err := replset.Marshal()
     if err != nil {
+        manager.slock.Log().Errorf("Arbiter write meta file encode data error %v", err)
         _ = file.Close()
         return err
     }
 
     n, werr := file.Write(data)
     if werr != nil {
+        manager.slock.Log().Errorf("Arbiter write meta file error %v", err)
         _ = file.Close()
         return werr
     }
     if n != len(data) {
+        manager.slock.Log().Errorf("Arbiter write meta file data length error")
         _ = file.Close()
         return errors.New("write data error")
     }
-    _ = file.Close()
+    err = file.Close()
+    if err != nil {
+        manager.slock.Log().Errorf("Arbiter close meta file error %v", err)
+    }
     return nil
 }
 
@@ -211,9 +227,10 @@ func (self *ArbiterClient) Open(addr string) error {
         return errors.New("Client is Opened")
     }
 
-    self.member.manager.slock.Log().Infof("Arbiter Client Connect %s", addr)
+    self.member.manager.slock.Log().Infof("Arbiter client connect %s", addr)
     conn, err := net.DialTimeout("tcp", addr, 2 * time.Second)
     if err != nil {
+        self.member.manager.slock.Log().Warnf("Arbiter client connect %s error %v", addr, err)
         return err
     }
     stream := client.NewStream(conn)
@@ -244,6 +261,7 @@ func (self *ArbiterClient) Close() error {
     self.stream = nil
     self.protocol = nil
     _ = self.WakeupRetryConnect()
+    self.member.manager.slock.Log().Warnf("Arbiter client connect %s close", self.member.host)
     return nil
 }
 
@@ -271,7 +289,8 @@ func (self *ArbiterClient) HandleInit() error {
     
     if call_result_command.Result != 0 || call_result_command.ErrType != "" {
         if call_result_command.ErrType == "ERR_NOT_MEMBER" {
-            self.member.manager.slock.Log().Infof("Arbiter Client Init Recv NOT_MEMBER Error")
+            self.member.manager.slock.Log().Warnf("Arbiter client connect %s init recv NOT_MEMBER error, will quit the members",
+                self.member.host)
             go func() {
                 self.member.manager.glock.Lock()
                 if self.member.role == ARBITER_ROLE_LEADER {
@@ -280,9 +299,14 @@ func (self *ArbiterClient) HandleInit() error {
                 self.member.manager.glock.Unlock()
                 _ = self.member.manager.QuitMember()
             }()
+            return errors.New("init error")
         }
+        self.member.manager.slock.Log().Warnf("Arbiter client connect %s init error %d:%s", self.member.host,
+            call_result_command.Result, call_result_command.ErrType)
         return errors.New("init error")
     }
+
+    self.member.manager.slock.Log().Infof("Arbiter client connect %s init succed", self.member.host)
     return nil
 }
 
@@ -297,7 +321,7 @@ func (self *ArbiterClient) Run() {
             }
         }
 
-        self.member.manager.slock.Log().Infof("Arbiter Client Connected %s", self.member.host)
+        self.member.manager.slock.Log().Infof("Arbiter client connect %s connected", self.member.host)
         _ = self.member.ClientOnline(self)
         for ; !self.closed; {
             command, err := self.protocol.Read()
@@ -319,7 +343,7 @@ func (self *ArbiterClient) Run() {
     close(self.closed_waiter)
     self.protocol = nil
     self.stream = nil
-    self.member.manager.slock.Log().Infof("Arbiter Client Close %s", self.member.host)
+    self.member.manager.slock.Log().Infof("Arbiter client connect %s closed", self.member.host)
     if self.member != nil {
         self.member.client = nil
     }
@@ -409,6 +433,9 @@ func (self *ArbiterServer) Close() error {
     }
     self.stream = nil
     self.protocol = nil
+    if self.member != nil {
+        self.member.manager.slock.Log().Infof("Arbiter server connect from %s close", self.member.host)
+    }
     return nil
 }
 
@@ -456,7 +483,7 @@ func (self *ArbiterServer) Attach(manager *ArbiterManager, from_host string) err
         _ = current_member.client.WakeupRetryConnect()
     }
     _ = manager.voter.WakeupRetryVote()
-    self.member.manager.slock.Log().Infof("Arbiter Server Accept Client Connected %s", current_member.host)
+    self.member.manager.slock.Log().Infof("Arbiter server accept client %s connected", current_member.host)
     return nil
 }
 
@@ -468,8 +495,8 @@ func (self *ArbiterServer) Run() {
     self.stream = nil
     self.closed = true
     close(self.closed_waiter)
-    self.member.manager.slock.Log().Infof("Arbiter Server Close %s", self.member.host)
     if self.member != nil {
+        self.member.manager.slock.Log().Infof("Arbiter server connect from %s closed", self.member.host)
         self.member.server = nil
     }
 }
@@ -546,7 +573,7 @@ func (self *ArbiterMember) Close() error {
         self.server = nil
     }
     self.Wakeup()
-    self.manager.slock.Log().Infof("Arbiter Member Close %s", self.host)
+    self.manager.slock.Log().Infof("Arbiter member %s close", self.host)
     return nil
 }
 
@@ -585,6 +612,7 @@ func (self *ArbiterMember) UpdateStatus() error {
             _ = self.client.protocol.Close()
             self.last_error = 0
         }
+        self.manager.slock.Log().Warnf("Arbiter member %s update status error %v", self.host, err)
         return errors.New(fmt.Sprintf("call error %d %s", call_result_command.Result, call_result_command.ErrType))
     }
     
@@ -654,6 +682,7 @@ func (self *ArbiterMember) Run() {
         }
     }
     close(self.closed_waiter)
+    self.manager.slock.Log().Infof("Arbiter member %s closed", self.host)
 }
 
 func (self *ArbiterMember) Wakeup() {
@@ -695,8 +724,7 @@ func (self *ArbiterMember) DoVote() (*protobuf.ArbiterVoteResponse, error) {
         if call_result_command.ErrType == "ERR_UNINIT" && self.manager.own_member != nil {
             self.manager.DoAnnouncement()
         }
-        self.manager.slock.Log().Errorf("Arbiter Vote Error %s %d %s", self.host, call_result_command.Result, call_result_command.ErrType)
-        return nil, errors.New(fmt.Sprintf("call error %d %s", call_result_command.Result, call_result_command.ErrType))
+        return nil, errors.New(fmt.Sprintf("except code %d:%s", call_result_command.Result, call_result_command.ErrType))
     }
 
     response := protobuf.ArbiterVoteResponse{}
@@ -707,6 +735,7 @@ func (self *ArbiterMember) DoVote() (*protobuf.ArbiterVoteResponse, error) {
 
     self.aof_id = self.manager.DecodeAofId(response.AofId)
     self.role = uint8(response.Role)
+    self.manager.slock.Log().Infof("Arbiter member %s do vote succed", self.host)
     return &response, nil
 }
 
@@ -738,8 +767,7 @@ func (self *ArbiterMember) DoProposal(proposal_id uint64, host string, aof_id [1
                 self.manager.voter.proposal_id = response.ProposalId
             }
         }
-        self.manager.slock.Log().Errorf("Arbiter Proposal Error %s %d %s", self.host, call_result_command.Result, call_result_command.ErrType)
-        return nil, errors.New(fmt.Sprintf("call error %d %s", call_result_command.Result, call_result_command.ErrType))
+        return nil, errors.New(fmt.Sprintf("except code %d:%s", call_result_command.Result, call_result_command.ErrType))
     }
 
     response := protobuf.ArbiterProposalResponse{}
@@ -748,6 +776,7 @@ func (self *ArbiterMember) DoProposal(proposal_id uint64, host string, aof_id [1
         return nil, err
     }
 
+    self.manager.slock.Log().Infof("Arbiter member %s do vote succed", self.host)
     return &response, nil
 }
 
@@ -772,8 +801,7 @@ func (self *ArbiterMember) DoCommit(proposal_id uint64, host string, aof_id [16]
     }
 
     if call_result_command.Result != 0 || call_result_command.ErrType != "" {
-        self.manager.slock.Log().Errorf("Arbiter Commit Error %s %d %s", self.host, call_result_command.Result, call_result_command.ErrType)
-        return nil, errors.New(fmt.Sprintf("call error %d %s", call_result_command.Result, call_result_command.ErrType))
+        return nil, errors.New(fmt.Sprintf("except code %d:%s", call_result_command.Result, call_result_command.ErrType))
     }
 
     response := protobuf.ArbiterCommitResponse{}
@@ -781,6 +809,8 @@ func (self *ArbiterMember) DoCommit(proposal_id uint64, host string, aof_id [16]
     if err != nil {
         return nil, err
     }
+
+    self.manager.slock.Log().Infof("Arbiter member %s do commit succed", self.host)
     return &response, nil
 }
 
@@ -815,8 +845,8 @@ func (self *ArbiterMember) DoAnnouncement() (*protobuf.ArbiterAnnouncementRespon
     }
 
     if call_result_command.Result != 0 || call_result_command.ErrType != "" {
-        self.manager.slock.Log().Errorf("Arbiter Announcement Error %s %d %s", self.host, call_result_command.Result, call_result_command.ErrType)
-        return nil, errors.New(fmt.Sprintf("call error %d %s", call_result_command.Result, call_result_command.ErrType))
+        self.manager.slock.Log().Errorf("Arbiter member %s do announcement error %d:%s", self.host, call_result_command.Result, call_result_command.ErrType)
+        return nil, errors.New(fmt.Sprintf("except code %d:%s", call_result_command.Result, call_result_command.ErrType))
     }
 
     response := protobuf.ArbiterAnnouncementResponse{}
@@ -824,6 +854,8 @@ func (self *ArbiterMember) DoAnnouncement() (*protobuf.ArbiterAnnouncementRespon
     if err != nil {
         return nil, err
     }
+
+    self.manager.slock.Log().Infof("Arbiter member %s do announcement succed", self.host)
     return &response, nil
 }
 
@@ -860,7 +892,7 @@ func (self *ArbiterVoter) Close() error {
         self.wakeup_signal = nil
     }
     self.glock.Unlock()
-    self.manager.slock.Log().Infof("Arbiter Voter Close")
+    self.manager.slock.Log().Infof("Arbiter voter close")
     return nil
 }
 
@@ -878,7 +910,7 @@ func (self *ArbiterVoter) StartVote() error {
     self.glock.Unlock()
 
     go func() {
-        self.manager.slock.Log().Infof("Arbiter Voter Start Vote")
+        self.manager.slock.Log().Infof("Arbiter voter start election")
         defer func() {
             self.glock.Lock()
             self.voting = false
@@ -886,7 +918,7 @@ func (self *ArbiterVoter) StartVote() error {
                 close(self.closed_waiter)
             }
             self.glock.Unlock()
-            self.manager.slock.Log().Infof("Arbiter Voter Exit Vote")
+            self.manager.slock.Log().Infof("Arbiter voter election finish")
         }()
 
         for ; !self.closed; {
@@ -896,7 +928,7 @@ func (self *ArbiterVoter) StartVote() error {
 
             if self.manager.leader_member != nil {
                 if self.manager.leader_member.status == ARBITER_MEMBER_STATUS_ONLINE {
-                    self.manager.slock.Log().Infof("Arbier Voter Vote Finish, Current Leader %s", self.manager.leader_member.host)
+                    self.manager.slock.Log().Infof("Arbier voter election finish, current leader %s", self.manager.leader_member.host)
                     return
                 }
             }
@@ -905,7 +937,7 @@ func (self *ArbiterVoter) StartVote() error {
             for _, member := range self.manager.members {
                 if member.status == ARBITER_MEMBER_STATUS_ONLINE {
                     if member.host == self.proposal_host && self.manager.own_member.host != self.proposal_host {
-                        self.manager.slock.Log().Infof("Arbier Voter Wait Announcement, Current Leader %s", self.proposal_host)
+                        self.manager.slock.Log().Infof("Arbier voter wait announcement, current leader %s", self.proposal_host)
                         return
                     }
                     online_count++
@@ -913,7 +945,7 @@ func (self *ArbiterVoter) StartVote() error {
             }
 
             if online_count < len(self.manager.members) / 2 + 1 {
-                self.manager.slock.Log().Infof("Arbier Voter Online Member Not Enough Total %d Online %d", len(self.manager.members), online_count)
+                self.manager.slock.Log().Infof("Arbier voter online member not enough, total %d online %d", len(self.manager.members), online_count)
                 _ = self.SleepWhenRetryVote()
                 continue
             }
@@ -946,7 +978,7 @@ func (self *ArbiterVoter) DoRequests(name string, handler func(*ArbiterMember) (
             if err == nil {
                 responses = append(responses, response)
             } else {
-                self.manager.slock.Log().Errorf("Arbier Voter Request Error %s %v %v", member.host, name, err)
+                self.manager.slock.Log().Errorf("Arbier voter member %s request %s error %v", member.host, name, err)
             }
 
             self.glock.Lock()
@@ -966,7 +998,7 @@ func (self *ArbiterVoter) DoRequests(name string, handler func(*ArbiterMember) (
 
 func (self *ArbiterVoter) DoVote() error {
     self.vote_host, self.vote_aof_id = "", [16]byte{}
-    responses := self.DoRequests("DoVote", func(member *ArbiterMember) (interface{}, error) {
+    responses := self.DoRequests("do vote", func(member *ArbiterMember) (interface{}, error) {
         return member.DoVote()
     })
 
@@ -1009,20 +1041,20 @@ func (self *ArbiterVoter) DoVote() error {
 
     self.vote_host = select_vote_response.Host
     self.vote_aof_id = self.manager.DecodeAofId(select_vote_response.AofId)
-    self.manager.slock.Log().Infof("Arbier Voter Vote Succed %s %x %d", self.vote_host, self.vote_aof_id, self.proposal_id)
+    self.manager.slock.Log().Infof("Arbier voter do vote succed,  host %s aof_id %x proposal_id %d", self.vote_host, self.vote_aof_id, self.proposal_id)
     return nil
 }
 
 func (self *ArbiterVoter) DoProposal() error {
     self.proposal_id++
-    responses := self.DoRequests("DoProposal", func(member *ArbiterMember) (interface{}, error) {
+    responses := self.DoRequests("do proposal", func(member *ArbiterMember) (interface{}, error) {
         return member.DoProposal(self.proposal_id, self.vote_host, self.vote_aof_id)
     })
     
     if len(responses) < len(self.manager.members) / 2 + 1 {
         return errors.New("member accept proposal count too small")
     }
-    self.manager.slock.Log().Infof("Arbier Voter Proposal Succed %s %x %d", self.vote_host, self.vote_aof_id, self.proposal_id)
+    self.manager.slock.Log().Infof("Arbier voter do proposal succed, host %s aof_id %x proposal_id %d", self.vote_host, self.vote_aof_id, self.proposal_id)
     return nil
 }
 
@@ -1030,7 +1062,7 @@ func (self *ArbiterVoter) DoCommit() error {
     self.proposal_host = self.vote_host
     self.commit_id = self.proposal_id
 
-    responses := self.DoRequests("DoCommit", func(member *ArbiterMember) (interface{}, error) {
+    responses := self.DoRequests("do commit", func(member *ArbiterMember) (interface{}, error) {
         return member.DoCommit(self.proposal_id, self.proposal_host, self.vote_aof_id)
     })
 
@@ -1039,12 +1071,12 @@ func (self *ArbiterVoter) DoCommit() error {
         return errors.New("member accept proposal count too small")
     }
 
-    self.manager.slock.Log().Infof("Arbier Voter Commit Succed %s %x %d", self.vote_host, self.vote_aof_id, self.proposal_id)
+    self.manager.slock.Log().Infof("Arbier voter do commit succed, host %s aof_id %x commit_id %d", self.vote_host, self.vote_aof_id, self.commit_id)
     return nil
 }
 
 func (self *ArbiterVoter) DoAnnouncement() error {
-    self.manager.slock.Log().Infof("Arbiter Replication Announcement Start")
+    self.manager.slock.Log().Infof("Arbiter replication do announcement start")
     for _, member := range self.manager.members {
         if member.role == ARBITER_ROLE_LEADER {
             _, err := member.DoAnnouncement()
@@ -1052,8 +1084,10 @@ func (self *ArbiterVoter) DoAnnouncement() error {
                 if member.host == self.proposal_host && !member.isself && self.voting {
                     self.proposal_host = ""
                     _ = self.manager.StartVote()
+                    self.manager.slock.Log().Infof("Arbiter voter do announcement to leader %s error %v, will restart election", member.host, err)
+                    return err
                 }
-                self.manager.slock.Log().Infof("Arbiter Voter Announcement Error %s %v", member.host, err)
+                self.manager.slock.Log().Infof("Arbiter voter do announcement to leader %s error %v", member.host, err)
                 return err
             }
         }
@@ -1063,11 +1097,11 @@ func (self *ArbiterVoter) DoAnnouncement() error {
         if member.role != ARBITER_ROLE_LEADER {
             _, err := member.DoAnnouncement()
             if err != nil {
-                self.manager.slock.Log().Infof("Arbiter Voter Announcement Error %s %v", member.host, err)
+                self.manager.slock.Log().Infof("Arbiter voter announcement to follower %s error %v", member.host, err)
             }
         }
     }
-    self.manager.slock.Log().Infof("Arbiter Replication Announcement Finish")
+    self.manager.slock.Log().Infof("Arbiter replication do announcement finish")
     return nil
 }
 
@@ -1135,14 +1169,14 @@ func (self *ArbiterManager) Load() error {
     
     err := self.store.Load(self)
     if err != nil {
-        self.slock.Log().Errorf("Arbiter Load Meta File error: %v", err)
+        self.slock.Log().Errorf("Arbiter load meta file error %v", err)
     }
 
     aof_id, err := self.slock.aof.LoadMaxId()
     if err != nil {
-        self.slock.Log().Errorf("Arbiter Load Aof File MaxID error: %v", err)
+        self.slock.Log().Errorf("Arbiter load aof file maxid error %v", err)
     } else {
-        self.slock.Log().Infof("Arbiter Load Aof File MaxID %x", aof_id)
+        self.slock.Log().Infof("Arbiter load aof file maxid %x", aof_id)
     }
     self.slock.replication_manager.current_request_id = aof_id
     self.voter.proposal_id = self.voter.commit_id
@@ -1165,8 +1199,9 @@ func (self *ArbiterManager) Start() error {
     self.slock.UpdateState(STATE_VOTE)
     err := self.StartVote()
     if err != nil {
-        self.slock.Log().Errorf("Arbiter Vote error: %v", err)
+        self.slock.Log().Errorf("Arbiter start election error %v", err)
     }
+    self.slock.Log().Infof("Arbiter start")
     return nil
 }
 
@@ -1177,7 +1212,7 @@ func (self *ArbiterManager) Close() error {
 
     if self.own_member == nil || len(self.members) == 0 {
         self.stoped = true
-        self.slock.logger.Infof("Arbiter Closed")
+        self.slock.logger.Infof("Arbiter closed")
         return nil
     }
 
@@ -1193,11 +1228,11 @@ func (self *ArbiterManager) Close() error {
 
     _ = self.voter.Close()
     <- self.voter.closed_waiter
-    self.slock.logger.Infof("Arbiter Closed")
     for _, member := range self.members {
         _ = member.Close()
         <- member.closed_waiter
     }
+    self.slock.logger.Infof("Arbiter closed")
     return nil
 }
 
@@ -1227,9 +1262,9 @@ func (self *ArbiterManager) Config(host string, weight uint32, arbiter uint32) e
     _ = self.store.Save(self)
     err = self.StartVote()
     if err != nil {
-        self.slock.Log().Errorf("Arbiter Vote error: %v", err)
+        self.slock.Log().Errorf("Arbiter config error %v", err)
     }
-    self.slock.logger.Infof("Arbiter Config %s %d %d", host, weight, arbiter)
+    self.slock.logger.Infof("Arbiter config host %s weight %d arbiter %d", host, weight, arbiter)
     return nil
 }
 
@@ -1261,7 +1296,7 @@ func (self *ArbiterManager) AddMember(host string, weight uint32, arbiter uint32
     _ = self.store.Save(self)
     self.DoAnnouncement()
     _ = self.UpdateStatus()
-    self.slock.logger.Infof("Arbiter Add Member %s %d %d", host, weight, arbiter)
+    self.slock.logger.Infof("Arbiter add member host %s weight %d arbiter %d", host, weight, arbiter)
     return nil
 }
 
@@ -1303,7 +1338,7 @@ func (self *ArbiterManager) RemoveMember(host string) error {
     _, _ = current_member.DoAnnouncement()
     _ = current_member.Close()
     <- current_member.closed_waiter
-    self.slock.logger.Infof("Arbiter Remove Member %s", host)
+    self.slock.logger.Infof("Arbiter remove member host %s", host)
     return nil
 }
 
@@ -1339,7 +1374,7 @@ func (self *ArbiterManager) UpdateMember(host string, weight uint32, arbiter uin
         self.DoAnnouncement()
         _ = self.UpdateStatus()
     }
-    self.slock.logger.Infof("Arbiter Update Member %s %d %d", host, weight, arbiter)
+    self.slock.logger.Infof("Arbiter update member host %s weight %d arbiter %d", host, weight, arbiter)
     return nil
 }
 
@@ -1348,7 +1383,7 @@ func (self *ArbiterManager) GetMembers() []*ArbiterMember {
 }
 
 func (self *ArbiterManager) QuitLeader() error {
-    self.slock.Log().Infof("Arbiter Quit Leader Start")
+    self.slock.Log().Infof("Arbiter quit leader start")
     _ = self.slock.replication_manager.SwitchToFollower("")
     self.own_member.role = ARBITER_ROLE_FOLLOWER
     self.leader_member = nil
@@ -1358,11 +1393,12 @@ func (self *ArbiterManager) QuitLeader() error {
     self.glock.Unlock()
     _ = self.voter.DoAnnouncement()
     self.glock.Lock()
-    self.slock.Log().Infof("Arbiter Quit Leader")
+    self.slock.Log().Infof("Arbiter quit leader finish")
     return nil
 }
 
 func (self *ArbiterManager) QuitMember() error {
+    self.slock.Log().Infof("Arbiter quit members start")
     _ = self.slock.replication_manager.SwitchToFollower("")
 
     self.glock.Lock()
@@ -1382,7 +1418,7 @@ func (self *ArbiterManager) QuitMember() error {
         _ = member.Close()
         <- member.closed_waiter
     }
-    self.slock.Log().Infof("Arbiter Quit Member")
+    self.slock.Log().Infof("Arbiter quit members finish")
     return nil
 }
 
@@ -1394,7 +1430,7 @@ func (self *ArbiterManager) DoAnnouncement() {
     go func() {
         err := self.voter.DoAnnouncement()
         if err != nil {
-            self.slock.Log().Errorf("Arbiter Announcement Error %v", err)
+            self.slock.Log().Errorf("Arbiter announcement error %v", err)
         }
     }()
 }
@@ -1413,7 +1449,7 @@ func (self *ArbiterManager) VoteSucced() error {
         return nil
     }
 
-    self.slock.Log().Infof("Arbiter Vote Succed Current Leader: %s", self.voter.proposal_host)
+    self.slock.Log().Infof("Arbiter election succed, current leader %s", self.voter.proposal_host)
     self.glock.Lock()
     proposal_host := self.voter.proposal_host
     for _, member := range self.members {
@@ -1443,8 +1479,14 @@ func (self *ArbiterManager) VoteSucced() error {
         }
     } else {
         if self.slock.state == STATE_LEADER {
-            _ = self.slock.replication_manager.SwitchToFollower("")
-            _ = self.slock.replication_manager.transparency_manager.ChangeLeader("")
+            err := self.slock.replication_manager.SwitchToFollower("")
+            if err != nil {
+                self.slock.Log().Errorf("Arbiter election succed change to follower error %v", err)
+            }
+            err = self.slock.replication_manager.transparency_manager.ChangeLeader("")
+            if err != nil {
+                self.slock.Log().Errorf("Arbiter election succed change transparency address error %v", err)
+            }
         }
         self.glock.Unlock()
         _ = self.voter.DoAnnouncement()
@@ -1452,7 +1494,7 @@ func (self *ArbiterManager) VoteSucced() error {
         _ = self.UpdateStatus()
     }
 
-    self.slock.Log().Infof("Arbiter Vote Succed Change Status Finish")
+    self.slock.Log().Infof("Arbiter election succed change status finish")
     self.glock.Unlock()
     return nil
 }
@@ -1477,8 +1519,14 @@ func (self *ArbiterManager) UpdateStatus() error {
     }
 
     if self.leader_member == nil {
-        _ = self.slock.replication_manager.SwitchToFollower("")
-        _ = self.slock.replication_manager.transparency_manager.ChangeLeader("")
+        err := self.slock.replication_manager.SwitchToFollower("")
+        if err != nil {
+            self.slock.Log().Errorf("Arbiter update status reset follower error %v", err)
+        }
+        err = self.slock.replication_manager.transparency_manager.ChangeLeader("")
+        if err != nil {
+            self.slock.Log().Errorf("Arbiter update status reset transparency address error %v", err)
+        }
         _ = self.StartVote()
         return nil
     }
@@ -1487,13 +1535,19 @@ func (self *ArbiterManager) UpdateStatus() error {
         if self.slock.state != STATE_LEADER {
             if self.own_member.arbiter == 0 {
                 if !self.loaded {
-                    _ = self.slock.InitLeader()
+                    err := self.slock.InitLeader()
+                    if err != nil {
+                        self.slock.Log().Errorf("Arbiter update status init leader error %v", err)
+                    }
                     self.slock.StartLeader()
                     self.loaded = true
                     self.DoAnnouncement()
                     return nil
                 }
-                _ = self.slock.replication_manager.SwitchToLeader()
+                err := self.slock.replication_manager.SwitchToLeader()
+                if err != nil {
+                    self.slock.Log().Errorf("Arbiter update status change leader error %v", err)
+                }
                 self.DoAnnouncement()
             } else {
                 _ = self.QuitLeader()
@@ -1504,19 +1558,38 @@ func (self *ArbiterManager) UpdateStatus() error {
 
     if self.own_member.arbiter == 0 {
         if !self.loaded {
-            _ = self.slock.InitFollower(self.leader_member.host)
+            err := self.slock.InitFollower(self.leader_member.host)
+            if err != nil {
+                self.slock.Log().Errorf("Arbiter update status init follower error %v", err)
+            }
             self.slock.StartFollower()
-            _ = self.slock.replication_manager.transparency_manager.ChangeLeader(self.leader_member.host)
+            err = self.slock.replication_manager.transparency_manager.ChangeLeader(self.leader_member.host)
+            if err != nil {
+                self.slock.Log().Errorf("Arbiter update status change transparency address error %v", err)
+            }
             self.loaded = true
             return nil
         }
-        _ = self.slock.replication_manager.SwitchToFollower(self.leader_member.host)
-        _ = self.slock.replication_manager.transparency_manager.ChangeLeader(self.leader_member.host)
+
+        err := self.slock.replication_manager.SwitchToFollower(self.leader_member.host)
+        if err != nil {
+            self.slock.Log().Errorf("Arbiter update status change follower error %v", err)
+        }
+        err = self.slock.replication_manager.transparency_manager.ChangeLeader(self.leader_member.host)
+        if err != nil {
+            self.slock.Log().Errorf("Arbiter update status change transparency address error %v", err)
+        }
         return nil
     }
 
-    _ = self.slock.replication_manager.SwitchToFollower("")
-    _ = self.slock.replication_manager.transparency_manager.ChangeLeader(self.leader_member.host)
+    err := self.slock.replication_manager.SwitchToFollower("")
+    if err != nil {
+        self.slock.Log().Errorf("Arbiter update status reset follower error %v", err)
+    }
+    err = self.slock.replication_manager.transparency_manager.ChangeLeader(self.leader_member.host)
+    if err != nil {
+        self.slock.Log().Errorf("Arbiter update status reset transparency address error %v", err)
+    }
     return nil
 }
 
@@ -1529,16 +1602,20 @@ func (self *ArbiterManager) MemberStatusUpdated(member *ArbiterMember) error {
         self.voter.proposal_host = ""
         err := self.StartVote()
         if err != nil {
-            self.slock.Log().Errorf("Arbiter Vote error: %v", err)
+            self.slock.Log().Errorf("Arbiter proposal host offline restart election error %v", err)
+            return nil
         }
+        self.slock.Log().Infof("Arbiter proposal host offline restart election")
         return nil
     }
 
     if self.voter.proposal_host == "" && self.leader_member == nil {
         err := self.StartVote()
         if err != nil {
-            self.slock.Log().Errorf("Arbiter Vote error: %v", err)
+            self.slock.Log().Errorf("Arbiter leader reset restart election error %v", err)
+            return nil
         }
+        self.slock.Log().Infof("Arbiter leader reset restart election")
         return nil
     }
 
@@ -1546,8 +1623,10 @@ func (self *ArbiterManager) MemberStatusUpdated(member *ArbiterMember) error {
         if member.status != ARBITER_MEMBER_STATUS_ONLINE {
             err := self.StartVote()
             if err != nil {
-                self.slock.Log().Errorf("Arbiter Vote error: %v", err)
+                self.slock.Log().Errorf("Arbiter leader offline restart election error %v", err)
+                return nil
             }
+            self.slock.Log().Infof("Arbiter leader offline restart election")
         }
         return nil
     }
@@ -1568,15 +1647,13 @@ func (self *ArbiterManager) MemberStatusUpdated(member *ArbiterMember) error {
         if online_count < len(self.members) / 2 + 1 {
             go func() {
                 self.glock.Lock()
-                err := self.QuitLeader()
+                _ = self.QuitLeader()
                 self.glock.Unlock()
+                err := self.StartVote()
                 if err != nil {
-                    self.slock.Log().Errorf("Arbiter Quit Leader error: %v", err)
+                    self.slock.Log().Errorf("Arbiter member online not enough restart election %v", err)
                 }
-                err = self.StartVote()
-                if err != nil {
-                    self.slock.Log().Errorf("Arbiter Vote error: %v", err)
-                }
+                self.slock.Log().Infof("Arbiter member online not enough restart election")
             }()
         }
     }
@@ -1824,12 +1901,11 @@ func (self *ArbiterManager) CommandHandleCommitCommand(server_protocol *BinarySe
 }
 
 func (self *ArbiterManager) CommandHandleAnnouncementCommand(server_protocol *BinaryServerProtocol, command *protocol.CallCommand) (*protocol.CallResultCommand, error) {
-    defer self.slock.Log().Infof("Arbiter Handle AnnouncementCommand Finish")
-    self.slock.Log().Infof("Arbiter Handle AnnouncementCommand start")
-
     if self.stoped {
         return protocol.NewCallResultCommand(command, 0, "ERR_STOPED", nil), nil
     }
+    defer self.slock.Log().Infof("Arbiter handle announcementcommand finish")
+    self.slock.Log().Infof("Arbiter handle announcementcommand start")
 
     request := protobuf.ArbiterAnnouncementRequest{}
     err := request.Unmarshal(command.Data)
@@ -1855,7 +1931,7 @@ func (self *ArbiterManager) CommandHandleAnnouncementCommand(server_protocol *Bi
         }
     } else {
         if request.Replset.Version < self.version || (request.Replset.Version == self.version && request.Replset.Vertime < self.vertime) {
-            self.slock.Log().Infof("Arbiter Announcement Version Waring CommitId %d %d Version %d %d Vertime %d %d", request.Replset.CommitId,
+            self.slock.Log().Infof("Arbiter handle announcement version waring CommitId %d %d Version %d %d Vertime %d %d", request.Replset.CommitId,
                 self.voter.commit_id, request.Replset.Version, self.version, request.Replset.Vertime, self.vertime)
             self.glock.Unlock()
             return protocol.NewCallResultCommand(command, 0, "ERR_VERSION", nil), nil
@@ -1930,7 +2006,7 @@ func (self *ArbiterManager) CommandHandleAnnouncementCommand(server_protocol *Bi
 
         leader_host = leader_member.host
         if request.Replset.CommitId >= self.voter.commit_id && self.voter.proposal_host != "" {
-            self.slock.Log().Infof("Arbiter Voter Accept Leader %s", self.voter.proposal_host)
+            self.slock.Log().Infof("Arbiter handle announcement accept leader %s", self.voter.proposal_host)
             self.voter.proposal_host = ""
         }
     }
@@ -1946,7 +2022,7 @@ func (self *ArbiterManager) CommandHandleAnnouncementCommand(server_protocol *Bi
         _ = self.UpdateStatus()
     }
     self.glock.Unlock()
-    self.slock.Log().Infof("Arbiter Replication Announcement From %s Leader %s Member Count %d Version %d CommitId %d",
+    self.slock.Log().Infof("Arbiter handle announcement from %s leader %s member count %d version %d commitid %d",
         request.FromHost, leader_host, len(new_members), request.Replset.Version, request.Replset.CommitId)
 
     go func() {
@@ -1962,11 +2038,11 @@ func (self *ArbiterManager) CommandHandleAnnouncementCommand(server_protocol *Bi
             self.glock.Lock()
             err := self.UpdateStatus()
             if err != nil {
-                self.slock.Log().Errorf("Arbiter Update Status Error %v", err)
+                self.slock.Log().Errorf("Arbiter handle announcement update status error %v", err)
             }
             self.glock.Unlock()
         }
-        self.slock.Log().Infof("Arbiter Handle AnnouncementCommand upgraded")
+        self.slock.Log().Infof("Arbiter handle announcementcommand update status succed")
     }()
 
     for _, member := range self.members {

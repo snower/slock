@@ -1203,10 +1203,10 @@ func (self *LockDB) DoTimeOut(lock *Lock, forced_expried bool){
     atomic.AddUint32(&self.state.TimeoutedCount, 1)
 
     if timeout_flag & 0x0800 != 0 {
-        self.slock.Log().Errorf("Database LockTimeout DbId:%d LockKey:%x LockId:%x RequestId:%x RemoteAddr:%s", lock_command.DbId,
+        self.slock.Log().Errorf("Database lock timeout DbId:%d LockKey:%x LockId:%x RequestId:%x RemoteAddr:%s", lock_command.DbId,
             lock_command.LockKey, lock_command.LockId, lock_command.RequestId, lock_protocol.RemoteAddr().String())
     } else {
-        self.slock.Log().Debugf("Database LockTimeout DbId:%d LockKey:%x LockId:%x RequestId:%x RemoteAddr:%s", lock_command.DbId,
+        self.slock.Log().Debugf("Database lock timeout DbId:%d LockKey:%x LockId:%x RequestId:%x RemoteAddr:%s", lock_command.DbId,
             lock_command.LockKey, lock_command.LockId, lock_command.RequestId, lock_protocol.RemoteAddr().String())
     }
 
@@ -1371,10 +1371,10 @@ func (self *LockDB) DoExpried(lock *Lock, forced_expried bool){
     atomic.AddUint32(&self.state.ExpriedCount, uint32(lock_locked))
 
     if expried_flag & 0x0800 != 0 {
-        self.slock.Log().Errorf("Database LockExpried DbId:%d LockKey:%x LockId:%x RequestId:%x RemoteAddr:%s", lock_command.DbId,
+        self.slock.Log().Errorf("Database lock expried DbId:%d LockKey:%x LockId:%x RequestId:%x RemoteAddr:%s", lock_command.DbId,
             lock_command.LockKey, lock_command.LockId, lock_command.RequestId, lock_protocol.RemoteAddr().String())
     }else{
-        self.slock.Log().Debugf("Database LockExpried DbId:%d LockKey:%x LockId:%x RequestId:%x RemoteAddr:%s", lock_command.DbId,
+        self.slock.Log().Debugf("Database lock expried DbId:%d LockKey:%x LockId:%x RequestId:%x RemoteAddr:%s", lock_command.DbId,
             lock_command.LockKey, lock_command.LockId, lock_command.RequestId, lock_protocol.RemoteAddr().String())
     }
 

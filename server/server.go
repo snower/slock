@@ -29,11 +29,14 @@ func NewServer(slock *SLock) *Server {
 }
 
 func (self *Server) Listen() error {
-    server, err := net.Listen("tcp", fmt.Sprintf("%s:%d", Config.Bind, Config.Port))
+    address := fmt.Sprintf("%s:%d", Config.Bind, Config.Port)
+    server, err := net.Listen("tcp", address)
     if err != nil {
+        self.slock.Log().Errorf("Server listen %s error %v", address, err)
         return err
     }
     self.server = server
+    self.slock.Log().Infof("Server listen %s", address)
     return nil
 }
 
@@ -42,7 +45,7 @@ func (self *Server) Close() {
     self.stoped = true
     err := self.server.Close()
     if err != nil {
-        self.slock.Log().Errorf("Server Close Error: %v", err)
+        self.slock.Log().Errorf("Server close error %v", err)
     }
     self.glock.Unlock()
 
@@ -53,7 +56,7 @@ func (self *Server) Close() {
 
         err := stream.Close()
         if err != nil {
-            self.slock.Log().Errorf("Server Connection Close Error: %v", err)
+            self.slock.Log().Errorf("Server connection close error %v", err)
         }
         <- stream.closed_waiter
     }
@@ -101,11 +104,11 @@ func (self *Server) Loop() {
     signal.Notify(stop_signal, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
     go func() {
         <- stop_signal
-        self.slock.Log().Infof("Server Shutdown Start")
+        self.slock.Log().Infof("Server shutdown start")
         self.Close()
     }()
 
-    self.slock.Log().Infof("Server Start %s", fmt.Sprintf("%s:%d", Config.Bind, Config.Port))
+    self.slock.Log().Infof("Server start serve %s", fmt.Sprintf("%s:%d", Config.Bind, Config.Port))
     go self.slock.Start()
     for ; !self.stoped; {
         conn, err := self.server.Accept()
@@ -118,7 +121,7 @@ func (self *Server) Loop() {
         if err != nil {
             err := stream.Close()
             if err != nil {
-                self.slock.Log().Errorf("Server Connection Close Error %v", err)
+                self.slock.Log().Errorf("Server connection close error %v", err)
             }
             close(stream.closed_waiter)
             continue
@@ -126,7 +129,7 @@ func (self *Server) Loop() {
         go self.Handle(stream)
     }
     <- self.stoped_waiter
-    self.slock.Log().Infof("Server Shutdown Finish")
+    self.slock.Log().Infof("Server shutdown finish")
 }
 
 func (self *Server) CheckProtocol(stream *Stream) (ServerProtocol, error) {
@@ -144,13 +147,13 @@ func (self *Server) CheckProtocol(stream *Stream) (ServerProtocol, error) {
         } else {
             server_protocol = NewTransparencyBinaryServerProtocol(self.slock, stream, NewBinaryServerProtocol(self.slock, stream))
         }
-        self.slock.Log().Infof("Server Binary Protocol Connection Connected %s", server_protocol.RemoteAddr().String())
+        self.slock.Log().Infof("Server binary protocol connection connected %s", server_protocol.RemoteAddr().String())
 
         err := server_protocol.ProcessParse(buf)
         if err != nil {
             cerr := server_protocol.Close()
             if cerr != nil {
-                self.slock.Log().Errorf("Server Protocol Connection Close error: %v", cerr)
+                self.slock.Log().Errorf("Server binary protocol connection close error %v", cerr)
             }
             return nil, err
         }
@@ -163,13 +166,13 @@ func (self *Server) CheckProtocol(stream *Stream) (ServerProtocol, error) {
     } else {
         server_protocol = NewTransparencyTextServerProtocol(self.slock, stream, NewTextServerProtocol(self.slock, stream))
     }
-    self.slock.Log().Infof("Server Text Protocol Connection Connected %s", server_protocol.RemoteAddr().String())
+    self.slock.Log().Infof("Server text protocol connection connected %s", server_protocol.RemoteAddr().String())
 
     err = server_protocol.ProcessParse(buf[:n])
     if err != nil {
         cerr := server_protocol.Close()
         if cerr != nil {
-            self.slock.Log().Errorf("Server Protocol Connection Close error: %v", err)
+            self.slock.Log().Errorf("Server text protocol connection close error %v", err)
         }
         return nil, err
     }
@@ -180,7 +183,7 @@ func (self *Server) Handle(stream *Stream) {
     defer func() {
         err := self.RemoveStream(stream)
         if err != nil {
-            self.slock.Log().Errorf("Server Remove Connection Error %v", err)
+            self.slock.Log().Errorf("Server remove connection error %v", err)
         }
         close(stream.closed_waiter)
     }()
@@ -189,11 +192,11 @@ func (self *Server) Handle(stream *Stream) {
     if err != nil {
         cerr := stream.Close()
         if cerr != nil {
-            self.slock.Log().Errorf("Server Connection Error: %v", cerr)
+            self.slock.Log().Errorf("Server connection close error %v", cerr)
         }
 
         if err != io.EOF {
-            self.slock.Log().Errorf("Server Protocol Connection Error: %v", err)
+            self.slock.Log().Errorf("Server protocol connection start process error %v", err)
         }
         return
     }
@@ -287,7 +290,7 @@ func (self *Server) Handle(stream *Stream) {
             }
 
             if err != io.EOF && !self.stoped {
-                self.slock.Log().Errorf("Server Protocol Connection Process Error: %v", err)
+                self.slock.Log().Errorf("Server protocol connection process error %v", err)
             }
         }
         break
@@ -295,7 +298,7 @@ func (self *Server) Handle(stream *Stream) {
 
     err = server_protocol.Close()
     if err != nil {
-        self.slock.Log().Errorf("Server Protocol Connection Close error: %v", err)
+        self.slock.Log().Errorf("Server protocol connection close error %v", err)
     }
-    self.slock.Log().Infof("Server Protocol Connection Close %s", server_protocol.RemoteAddr().String())
+    self.slock.Log().Infof("Server protocol connection closed %s", server_protocol.RemoteAddr().String())
 }

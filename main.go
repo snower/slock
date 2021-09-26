@@ -80,14 +80,14 @@ func main() {
     slock_server := server.NewServer(slock)
     err = slock.Init(slock_server)
     if err != nil {
-        slock.Log().Errorf("Init Error: %v", err)
+        slock.Log().Errorf("Init error %v", err)
         slock.Log().Info("Exited")
         return
     }
 
     err = slock_server.Listen()
     if err != nil {
-        slock.Log().Errorf("Start Server Listen Error: %v", err)
+        slock.Log().Errorf("Start server listen error %v", err)
         slock.Log().Info("Exited")
         return
     }
