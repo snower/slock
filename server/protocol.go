@@ -255,6 +255,7 @@ type BinaryServerProtocol struct {
     flush_index                 int
     flush_wlock                 *sync.Mutex
     call_methods                map[string]BinaryServerProtocolCallHandler
+    will_commands               *LockCommandQueue
     total_command_count         uint64
     inited                      bool
     closed                      bool
@@ -263,7 +264,7 @@ type BinaryServerProtocol struct {
 func NewBinaryServerProtocol(slock *SLock, stream *Stream) *BinaryServerProtocol {
     server_protocol := &BinaryServerProtocol{slock, &sync.Mutex{}, stream, [16]byte{}, NewLockCommandQueue(4, 64, FREE_COMMAND_QUEUE_INIT_SIZE),
         NewLockCommandQueue(4, 64, FREE_COMMAND_QUEUE_INIT_SIZE), make([]byte, 1024), make([]byte, 1024),
-        0, 0, 0, 0, &sync.Mutex{}, nil, 0, false, false}
+        0, 0, 0, 0, &sync.Mutex{}, nil, nil, 0, false, false}
     server_protocol.InitLockCommand()
     stream.protocol = server_protocol
     return server_protocol
@@ -300,7 +301,23 @@ func (self *BinaryServerProtocol) Close() error {
         self.glock.Unlock()
         return nil
     }
-    self.glock.Unlock()
+
+    self.closed = true
+    will_commands := self.will_commands
+    if will_commands != nil {
+        self.will_commands = nil
+        self.glock.Unlock()
+
+        for {
+            command := will_commands.Pop()
+            if command == nil {
+                break
+            }
+            _ = self.ProcessCommad(command)
+        }
+    } else {
+        self.glock.Unlock()
+    }
 
     self.slock.glock.Lock()
     if self.inited {
@@ -324,7 +341,6 @@ func (self *BinaryServerProtocol) Close() error {
     }
 
     self.UnInitLockCommand()
-    self.closed = true
     self.glock.Unlock()
     self.flush_wlock.Lock()
     self.flush_wlock.Unlock()
@@ -459,6 +475,20 @@ func (self *BinaryServerProtocol) ReadParse(buf []byte) (protocol.CommandDecode,
                 }
             }
             return call_command, nil
+        case protocol.COMMAND_WILL_LOCK:
+            lock_command := self.GetLockCommand()
+            err := lock_command.Decode(buf)
+            if err != nil {
+                return nil, err
+            }
+            return lock_command, nil
+        case protocol.COMMAND_WILL_UNLOCK:
+            lock_command := self.GetLockCommand()
+            err := lock_command.Decode(buf)
+            if err != nil {
+                return nil, err
+            }
+            return lock_command, nil
         }
     }
     return nil, errors.New("Unknown Command")
@@ -730,6 +760,10 @@ func (self *BinaryServerProtocol) ProcessParse(buf []byte) error {
                 return err
             }
             return nil
+        case protocol.COMMAND_WILL_LOCK:
+            command = self.GetLockCommand()
+        case protocol.COMMAND_WILL_UNLOCK:
+            command = self.GetLockCommand()
         default:
             command = &protocol.Command{}
         }
@@ -846,6 +880,30 @@ func (self *BinaryServerProtocol) ProcessCommad(command protocol.ICommand) error
                 return err
             }
             return self.Write(protocol.NewCallResultCommand(call_command, protocol.RESULT_UNKNOWN_COMMAND, "", nil))
+
+        case protocol.COMMAND_WILL_LOCK:
+            if self.will_commands == nil {
+                self.glock.Lock()
+                if self.will_commands == nil {
+                    self.will_commands = NewLockCommandQueue(2, 4, 8)
+                }
+                self.glock.Unlock()
+            }
+            lock_command := command.(*protocol.LockCommand)
+            lock_command.CommandType = protocol.COMMAND_LOCK
+            return self.will_commands.Push(lock_command)
+
+        case protocol.COMMAND_WILL_UNLOCK:
+            if self.will_commands == nil {
+                self.glock.Lock()
+                if self.will_commands == nil {
+                    self.will_commands = NewLockCommandQueue(2, 4, 8)
+                }
+                self.glock.Unlock()
+            }
+            lock_command := command.(*protocol.LockCommand)
+            lock_command.CommandType = protocol.COMMAND_UNLOCK
+            return self.will_commands.Push(lock_command)
 
         default:
             return self.Write(protocol.NewResultCommand(command, protocol.RESULT_UNKNOWN_COMMAND))
@@ -1106,6 +1164,7 @@ type TextServerProtocol struct {
     lock_waiter                 chan *protocol.LockResultCommand
     lock_request_id             [16]byte
     lock_id                     [16]byte
+    will_commands               *LockCommandQueue
     total_command_count         uint64
     db_id                       uint8
     closed                      bool
@@ -1115,7 +1174,7 @@ func NewTextServerProtocol(slock *SLock, stream *Stream) *TextServerProtocol {
     parser := protocol.NewTextParser(make([]byte, 1024), make([]byte, 1024))
     server_protocol := &TextServerProtocol{slock, &sync.Mutex{}, stream, NewLockCommandQueue(4, 16, FREE_COMMAND_QUEUE_INIT_SIZE),
         nil, parser, nil, make(chan *protocol.LockResultCommand, 4),
-        [16]byte{}, [16]byte{}, 0, 0, false}
+        [16]byte{}, [16]byte{}, nil,0, 0, false}
     server_protocol.InitLockCommand()
     stream.protocol = server_protocol
     return server_protocol
@@ -1151,17 +1210,32 @@ func (self *TextServerProtocol) Unlock() {
 }
 
 func (self *TextServerProtocol) Close() error {
-    defer self.glock.Unlock()
     self.glock.Lock()
-
     if self.closed {
+        self.glock.Unlock()
         return nil
     }
+
+    self.closed = true
+    if self.will_commands != nil {
+        self.glock.Unlock()
+        for {
+            command := self.will_commands.Pop()
+            if command == nil {
+                break
+            }
+            _ = self.ProcessCommad(command)
+        }
+        self.will_commands = nil
+        self.glock.Lock()
+    }
+    self.glock.Unlock()
 
     self.slock.glock.Lock()
     self.slock.stats_total_command_count += self.total_command_count
     self.slock.glock.Unlock()
 
+    self.glock.Lock()
     if self.stream != nil {
         err := self.stream.Close()
         if err != nil {
@@ -1171,7 +1245,7 @@ func (self *TextServerProtocol) Close() error {
     }
 
     self.UnInitLockCommand()
-    self.closed = true
+    self.glock.Unlock()
     return nil
 }
 
@@ -1475,6 +1549,30 @@ func (self *TextServerProtocol) ProcessCommad(command protocol.ICommand) error {
             call_command := command.(*protocol.CallCommand)
             return self.Write(protocol.NewCallResultCommand(call_command, protocol.RESULT_UNKNOWN_COMMAND, "", nil))
 
+        case protocol.COMMAND_WILL_LOCK:
+            if self.will_commands == nil {
+                self.glock.Lock()
+                if self.will_commands == nil {
+                    self.will_commands = NewLockCommandQueue(2, 4, 8)
+                }
+                self.glock.Unlock()
+            }
+            lock_command := command.(*protocol.LockCommand)
+            lock_command.CommandType = protocol.COMMAND_LOCK
+            return self.will_commands.Push(lock_command)
+
+        case protocol.COMMAND_WILL_UNLOCK:
+            if self.will_commands == nil {
+                self.glock.Lock()
+                if self.will_commands == nil {
+                    self.will_commands = NewLockCommandQueue(2, 4, 8)
+                }
+                self.glock.Unlock()
+            }
+            lock_command := command.(*protocol.LockCommand)
+            lock_command.CommandType = protocol.COMMAND_UNLOCK
+            return self.will_commands.Push(lock_command)
+
         default:
             return self.Write(protocol.NewResultCommand(command, protocol.RESULT_UNKNOWN_COMMAND))
         }
@@ -1718,6 +1816,14 @@ func (self *TextServerProtocol) ArgsToLockComand(args []string) (*protocol.LockC
                 return nil, errors.New("Command Parse RCOUNT Error")
             }
             command.Rcount = uint8(rcount)
+        case "WILL":
+            will_type, err := strconv.Atoi(args[i + 1])
+            if err != nil {
+                return nil, errors.New("Command Parse WILL Error")
+            }
+            if will_type > 0 {
+                command.CommandType += 7
+            }
         }
     }
 
@@ -1758,6 +1864,18 @@ func (self *TextServerProtocol) CommandHandlerLock(server_protocol *TextServerPr
         return self.stream.WriteBytes(self.parser.BuildResponse(false, "ERR Uknown DB Error", nil))
     }
 
+    if lock_command.CommandType == protocol.COMMAND_WILL_LOCK {
+        if self.will_commands == nil {
+            self.glock.Lock()
+            if self.will_commands == nil {
+                self.will_commands = NewLockCommandQueue(2, 4, 8)
+            }
+            self.glock.Unlock()
+        }
+        _ = self.will_commands.Push(lock_command)
+        return self.stream.WriteBytes(self.parser.BuildResponse(true, "OK", nil))
+    }
+
     db := self.slock.dbs[lock_command.DbId]
     if db == nil {
         db = self.slock.GetOrNewDB(lock_command.DbId)
@@ -1769,6 +1887,7 @@ func (self *TextServerProtocol) CommandHandlerLock(server_protocol *TextServerPr
             self.lock_request_id[8], self.lock_request_id[9], self.lock_request_id[10], self.lock_request_id[11], self.lock_request_id[12], self.lock_request_id[13], self.lock_request_id[14], self.lock_request_id[15] =
             0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0
+        _ = self.FreeLockCommand(lock_command)
         return self.stream.WriteBytes(self.parser.BuildResponse(false, "ERR Lock Error", nil))
     }
     lock_command_result := <- self.lock_waiter
@@ -1817,6 +1936,8 @@ func (self *TextServerProtocol) CommandHandlerLock(server_protocol *TextServerPr
     buf_index += copy(wbuf[buf_index:], []byte(tr))
 
     buf_index += copy(wbuf[buf_index:], []byte("\r\n"))
+
+    _ = self.FreeLockCommand(lock_command)
     self.free_command_result = lock_command_result
     return self.stream.WriteBytes(wbuf[:buf_index])
 }
@@ -1831,6 +1952,18 @@ func (self *TextServerProtocol) CommandHandlerUnlock(server_protocol *TextServer
         return self.stream.WriteBytes(self.parser.BuildResponse(false, "ERR Uknown DB Error", nil))
     }
 
+    if lock_command.CommandType == protocol.COMMAND_WILL_UNLOCK {
+        if self.will_commands == nil {
+            self.glock.Lock()
+            if self.will_commands == nil {
+                self.will_commands = NewLockCommandQueue(2, 4, 8)
+            }
+            self.glock.Unlock()
+        }
+        _ = self.will_commands.Push(lock_command)
+        return self.stream.WriteBytes(self.parser.BuildResponse(true, "OK", nil))
+    }
+
     db := self.slock.dbs[lock_command.DbId]
     if db == nil {
         return self.stream.WriteBytes(self.parser.BuildResponse(false, "ERR Uknown DB Error", nil))
@@ -1843,6 +1976,7 @@ func (self *TextServerProtocol) CommandHandlerUnlock(server_protocol *TextServer
             self.lock_request_id[8], self.lock_request_id[9], self.lock_request_id[10], self.lock_request_id[11], self.lock_request_id[12], self.lock_request_id[13], self.lock_request_id[14], self.lock_request_id[15] =
             0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0
+        _ = self.FreeLockCommand(lock_command)
         return self.stream.WriteBytes(self.parser.BuildResponse(false, "ERR UnLock Error", nil))
     }
     lock_command_result := <- self.lock_waiter
@@ -1895,6 +2029,7 @@ func (self *TextServerProtocol) CommandHandlerUnlock(server_protocol *TextServer
 
     buf_index += copy(wbuf[buf_index:], []byte("\r\n"))
 
+    _ = self.FreeLockCommand(lock_command)
     self.free_command_result = lock_command_result
     return self.stream.WriteBytes(wbuf[:buf_index])
 }

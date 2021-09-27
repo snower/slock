@@ -12,14 +12,17 @@ const MAGIC uint8 = 0x56
 const VERSION uint8 = 0x01
 
 const (
-    COMMAND_INIT    uint8 = 0
-    COMMAND_LOCK    uint8 = 1
-    COMMAND_UNLOCK  uint8 = 2
-    COMMAND_STATE   uint8 = 3
-    COMMAND_ADMIN   uint8 = 4
-    COMMAND_PING    uint8 = 5
-    COMMAND_QUIT    uint8 = 6
-    COMMAND_CALL    uint8 = 7
+    COMMAND_INIT            uint8 = 0
+    COMMAND_LOCK            uint8 = 1
+    COMMAND_UNLOCK          uint8 = 2
+    COMMAND_STATE           uint8 = 3
+    COMMAND_ADMIN           uint8 = 4
+    COMMAND_PING            uint8 = 5
+    COMMAND_QUIT            uint8 = 6
+    COMMAND_CALL            uint8 = 7
+    COMMAND_WILL_LOCK       uint8 = 8
+    COMMAND_WILL_UNLOCK     uint8 = 9
+    COMMAND_LEADER          uint8 = 10
 )
 
 const (

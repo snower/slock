@@ -238,18 +238,38 @@ func (self *TransparencyBinaryServerProtocol) Init(client_id [16]byte) error {
 }
 
 func (self *TransparencyBinaryServerProtocol) Close() error {
-	defer self.glock.Unlock()
 	self.glock.Lock()
-
 	if self.closed {
+		self.glock.Unlock()
 		return nil
 	}
 
 	self.closed = true
+	will_commands := self.server_protocol.will_commands
+	if will_commands != nil {
+		self.server_protocol.will_commands = nil
+		self.glock.Unlock()
+
+		err := self.CheckClient()
+		if err == nil {
+			for {
+				command := will_commands.Pop()
+				if command == nil {
+					break
+				}
+				_ = self.client_protocol.Write(command)
+				_ = self.server_protocol.FreeLockCommand(command)
+			}
+		}
+		self.glock.Lock()
+	}
+
 	if self.client_protocol != nil {
 		_ = self.manager.ReleaseClient(self.client_protocol)
 	}
-	return self.server_protocol.Close()
+	err := self.server_protocol.Close()
+	self.glock.Unlock()
+	return err
 }
 
 func (self *TransparencyBinaryServerProtocol) Lock() {
@@ -513,6 +533,10 @@ func (self *TransparencyBinaryServerProtocol) ProcessParse(buf []byte) error {
 				return err
 			}
 			return nil
+		case protocol.COMMAND_WILL_LOCK:
+			command = self.server_protocol.GetLockCommand()
+		case protocol.COMMAND_WILL_UNLOCK:
+			command = self.server_protocol.GetLockCommand()
 		default:
 			command = &protocol.Command{}
 		}
@@ -663,18 +687,38 @@ func (self *TransparencyTextServerProtocol) Unlock() {
 }
 
 func (self *TransparencyTextServerProtocol) Close() error {
-	defer self.glock.Unlock()
 	self.glock.Lock()
-
 	if self.closed {
+		self.glock.Unlock()
 		return nil
 	}
 
 	self.closed = true
+	will_commands := self.server_protocol.will_commands
+	if will_commands != nil {
+		self.server_protocol.will_commands = nil
+		self.glock.Unlock()
+
+		err := self.CheckClient()
+		if err == nil {
+			for {
+				command := will_commands.Pop()
+				if command == nil {
+					break
+				}
+				_ = self.client_protocol.Write(command)
+				_ = self.server_protocol.FreeLockCommand(command)
+			}
+		}
+		self.glock.Lock()
+	}
+
 	if self.client_protocol != nil {
 		_ = self.manager.ReleaseClient(self.client_protocol)
 	}
-	return self.server_protocol.Close()
+	err := self.server_protocol.Close()
+	self.glock.Unlock()
+	return err
 }
 
 func (self *TransparencyTextServerProtocol) GetParser() *protocol.TextParser {
@@ -871,6 +915,19 @@ func (self *TransparencyTextServerProtocol) CommandHandlerLock(server_protocol *
 		return self.stream.WriteBytes(self.server_protocol.parser.BuildResponse(false, "ERR Uknown DB Error", nil))
 	}
 
+	if lock_command.CommandType == protocol.COMMAND_WILL_LOCK {
+		if self.server_protocol.will_commands == nil {
+			self.glock.Lock()
+			if self.server_protocol.will_commands == nil {
+				self.server_protocol.will_commands = NewLockCommandQueue(2, 4, 8)
+			}
+			self.glock.Unlock()
+		}
+		lock_command.CommandType = protocol.COMMAND_LOCK
+		_ = self.server_protocol.will_commands.Push(lock_command)
+		return self.stream.WriteBytes(self.server_protocol.parser.BuildResponse(true, "OK", nil))
+	}
+
 	cerr := self.CheckClient()
 	if cerr != nil {
 		return self.stream.WriteBytes(self.server_protocol.parser.BuildResponse(false, "ERR Leader Server Error", nil))
@@ -885,6 +942,7 @@ func (self *TransparencyTextServerProtocol) CommandHandlerLock(server_protocol *
 		if self.client_protocol != nil {
 			_ = self.manager.ReleaseClient(self.client_protocol)
 		}
+		_ = self.server_protocol.FreeLockCommand(lock_command)
 		return self.stream.WriteBytes(self.server_protocol.parser.BuildResponse(false, "ERR Lock Error", nil))
 	}
 	lock_command_result := <- self.lock_waiter
@@ -936,6 +994,8 @@ func (self *TransparencyTextServerProtocol) CommandHandlerLock(server_protocol *
 	buf_index += copy(wbuf[buf_index:], []byte(tr))
 
 	buf_index += copy(wbuf[buf_index:], []byte("\r\n"))
+
+	_ = self.server_protocol.FreeLockCommand(lock_command)
 	self.server_protocol.free_command_result = lock_command_result
 	return self.stream.WriteBytes(wbuf[:buf_index])
 }
@@ -954,6 +1014,19 @@ func (self *TransparencyTextServerProtocol) CommandHandlerUnlock(server_protocol
 		return self.stream.WriteBytes(self.server_protocol.parser.BuildResponse(false, "ERR Uknown DB Error", nil))
 	}
 
+	if lock_command.CommandType == protocol.COMMAND_WILL_UNLOCK {
+		if self.server_protocol.will_commands == nil {
+			self.glock.Lock()
+			if self.server_protocol.will_commands == nil {
+				self.server_protocol.will_commands = NewLockCommandQueue(2, 4, 8)
+			}
+			self.glock.Unlock()
+		}
+		lock_command.CommandType = protocol.COMMAND_UNLOCK
+		_ = self.server_protocol.will_commands.Push(lock_command)
+		return self.stream.WriteBytes(self.server_protocol.parser.BuildResponse(true, "OK", nil))
+	}
+
 	cerr := self.CheckClient()
 	if cerr != nil {
 		return self.stream.WriteBytes(self.server_protocol.parser.BuildResponse(false, "ERR Leader Server Error", nil))
@@ -968,6 +1041,7 @@ func (self *TransparencyTextServerProtocol) CommandHandlerUnlock(server_protocol
 		if self.client_protocol != nil {
 			_ = self.manager.ReleaseClient(self.client_protocol)
 		}
+		_ = self.server_protocol.FreeLockCommand(lock_command)
 		return self.stream.WriteBytes(self.server_protocol.parser.BuildResponse(false, "ERR UnLock Error", nil))
 	}
 	lock_command_result := <- self.lock_waiter
@@ -1025,6 +1099,7 @@ func (self *TransparencyTextServerProtocol) CommandHandlerUnlock(server_protocol
 
 	buf_index += copy(wbuf[buf_index:], []byte("\r\n"))
 
+	_ = self.server_protocol.FreeLockCommand(lock_command)
 	self.server_protocol.free_command_result = lock_command_result
 	return self.stream.WriteBytes(wbuf[:buf_index])
 }
@@ -1240,6 +1315,19 @@ func (self *TransparencyManager) CloseClient(binary_client *TransparencyBinaryCl
 			current_client = current_client.next_client
 		}
 	}
+
+	if binary_client.server_protocol != nil {
+		switch binary_client.server_protocol.(type) {
+		case *TransparencyBinaryServerProtocol:
+			server_protocol := binary_client.server_protocol.(*TransparencyBinaryServerProtocol)
+			server_protocol.client_protocol = nil
+		case *TransparencyTextServerProtocol:
+			server_protocol := binary_client.server_protocol.(*TransparencyTextServerProtocol)
+			server_protocol.client_protocol = nil
+		}
+	}
+	binary_client.server_protocol = nil
+	binary_client.idle_time = time.Now()
 	return nil
 }
 
