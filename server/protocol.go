@@ -290,6 +290,16 @@ func (self *BinaryServerProtocol) FindCallMethod(method_name string) (BinaryServ
 }
 
 func (self *BinaryServerProtocol) Init(client_id [16]byte) error {
+    if self.inited {
+        self.slock.glock.Lock()
+        if sp, ok := self.slock.streams[self.client_id]; ok {
+            if sp == self {
+                delete(self.slock.streams, self.client_id)
+            }
+        }
+        self.slock.glock.Unlock()
+    }
+
     self.client_id = client_id
     self.inited = true
     return nil
@@ -489,6 +499,13 @@ func (self *BinaryServerProtocol) ReadParse(buf []byte) (protocol.CommandDecode,
                 return nil, err
             }
             return lock_command, nil
+        case protocol.COMMAND_LEADER:
+            leader_command := &protocol.LeaderCommand{}
+            err := leader_command.Decode(buf)
+            if err != nil {
+                return nil, err
+            }
+            return leader_command, nil
         }
     }
     return nil, errors.New("Unknown Command")
@@ -764,6 +781,8 @@ func (self *BinaryServerProtocol) ProcessParse(buf []byte) error {
             command = self.GetLockCommand()
         case protocol.COMMAND_WILL_UNLOCK:
             command = self.GetLockCommand()
+        case protocol.COMMAND_LEADER:
+            command = &protocol.LeaderCommand{}
         default:
             command = &protocol.Command{}
         }
@@ -815,9 +834,11 @@ func (self *BinaryServerProtocol) ProcessCommad(command protocol.ICommand) error
         switch command.GetCommandType() {
         case protocol.COMMAND_INIT:
             init_command := command.(*protocol.InitCommand)
-            if self.Init(init_command.ClientId) != nil || self.slock.state != STATE_LEADER  {
+            err := self.Init(init_command.ClientId)
+            if err != nil  {
                 return self.Write(protocol.NewInitResultCommand(init_command, protocol.RESULT_ERROR, 0))
             }
+
             self.slock.glock.Lock()
             init_type := uint8(0)
             if _, ok := self.slock.streams[init_command.ClientId]; ok {
@@ -904,7 +925,9 @@ func (self *BinaryServerProtocol) ProcessCommad(command protocol.ICommand) error
             lock_command := command.(*protocol.LockCommand)
             lock_command.CommandType = protocol.COMMAND_UNLOCK
             return self.will_commands.Push(lock_command)
-
+        case protocol.COMMAND_LEADER:
+            leader_command := command.(*protocol.LeaderCommand)
+            return self.Write(protocol.NewLeaderResultCommand(leader_command, protocol.RESULT_SUCCED, self.slock.replication_manager.leader_address))
         default:
             return self.Write(protocol.NewResultCommand(command, protocol.RESULT_UNKNOWN_COMMAND))
         }

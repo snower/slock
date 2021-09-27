@@ -1033,3 +1033,101 @@ func (self *CallResultCommand) Encode(buf []byte) error {
     }
     return nil
 }
+
+
+type LeaderCommand struct {
+    Command
+    Flag        uint8
+    Blank       [44]byte
+}
+
+func NewLeaderCommand() *LeaderCommand {
+    command := Command{Magic:MAGIC, Version:VERSION, CommandType:COMMAND_LEADER, RequestId:GenRequestId()}
+    leader_command := LeaderCommand{Command:command, Flag:0, Blank:[44]byte{}}
+    return &leader_command
+}
+
+func (self *LeaderCommand) Decode(buf []byte) error{
+    self.Magic = uint8(buf[0])
+    self.Version = uint8(buf[1])
+    self.CommandType = uint8(buf[2])
+
+    self.RequestId[0], self.RequestId[1], self.RequestId[2], self.RequestId[3], self.RequestId[4], self.RequestId[5], self.RequestId[6], self.RequestId[7],
+        self.RequestId[8], self.RequestId[9], self.RequestId[10], self.RequestId[11], self.RequestId[12], self.RequestId[13], self.RequestId[14], self.RequestId[15] =
+        buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
+        buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18]
+
+    self.Flag = uint8(buf[19])
+    return nil
+}
+
+func (self *LeaderCommand) Encode(buf []byte) error {
+    buf[0] = byte(self.Magic)
+    buf[1] = byte(self.Version)
+    buf[2] = byte(self.CommandType)
+
+    buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
+        buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18] =
+        self.RequestId[0], self.RequestId[1], self.RequestId[2], self.RequestId[3], self.RequestId[4], self.RequestId[5], self.RequestId[6], self.RequestId[7],
+        self.RequestId[8], self.RequestId[9], self.RequestId[10], self.RequestId[11], self.RequestId[12], self.RequestId[13], self.RequestId[14], self.RequestId[15]
+
+    buf[19] = byte(self.Flag)
+
+    for i :=0; i < 44; i++ {
+        buf[20 + i] = 0x00
+    }
+    return nil
+}
+
+type LeaderResultCommand struct {
+    ResultCommand
+    HostLen uint8
+    Host    string
+}
+
+func NewLeaderResultCommand(command *LeaderCommand, result uint8, host string) *LeaderResultCommand {
+    result_command := ResultCommand{MAGIC, VERSION, command.CommandType, command.RequestId, result}
+    return &LeaderResultCommand{result_command, uint8(len(host)), host}
+}
+
+func (self *LeaderResultCommand) Decode(buf []byte) error{
+    self.Magic = uint8(buf[0])
+    self.Version = uint8(buf[1])
+    self.CommandType = uint8(buf[2])
+
+    self.RequestId[0], self.RequestId[1], self.RequestId[2], self.RequestId[3], self.RequestId[4], self.RequestId[5], self.RequestId[6], self.RequestId[7],
+        self.RequestId[8], self.RequestId[9], self.RequestId[10], self.RequestId[11], self.RequestId[12], self.RequestId[13], self.RequestId[14], self.RequestId[15] =
+        buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
+        buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18]
+
+    self.Result, self.HostLen = uint8(buf[19]), uint8(buf[20])
+    self.Host = string(buf[21:21 + self.HostLen])
+    return nil
+}
+
+func (self *LeaderResultCommand) Encode(buf []byte) error {
+    if len(self.Host) > 43 {
+        return errors.New("Host too long")
+    }
+
+    buf[0] = byte(self.Magic)
+    buf[1] = byte(self.Version)
+    buf[2] = byte(self.CommandType)
+
+    buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
+        buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18] =
+        self.RequestId[0], self.RequestId[1], self.RequestId[2], self.RequestId[3], self.RequestId[4], self.RequestId[5], self.RequestId[6], self.RequestId[7],
+        self.RequestId[8], self.RequestId[9], self.RequestId[10], self.RequestId[11], self.RequestId[12], self.RequestId[13], self.RequestId[14], self.RequestId[15]
+
+    buf[19] = uint8(self.Result)
+    buf[20] = byte(self.HostLen)
+
+    for i :=0; i < 43; i++ {
+        if i >= len(self.Host) {
+            buf[27 + i] = 0x00
+        } else {
+            buf[27 + i] = self.Host[i]
+        }
+    }
+    return nil
+}
