@@ -123,6 +123,27 @@ func (self *BinaryClientProtocol) Read() (protocol.CommandDecode, error) {
             }
         }
         return &command, nil
+    case protocol.COMMAND_WILL_LOCK:
+        command := protocol.LockResultCommand{}
+        err := command.Decode(self.rbuf)
+        if err != nil {
+            return nil, err
+        }
+        return &command, nil
+    case protocol.COMMAND_WILL_UNLOCK:
+        command := protocol.LockResultCommand{}
+        err := command.Decode(self.rbuf)
+        if err != nil {
+            return nil, err
+        }
+        return &command, nil
+    case protocol.COMMAND_LEADER:
+        command := protocol.LeaderResultCommand{}
+        err := command.Decode(self.rbuf)
+        if err != nil {
+            return nil, err
+        }
+        return &command, nil
     default:
         return nil, errors.New("unknown command")
     }

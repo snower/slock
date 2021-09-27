@@ -34,8 +34,9 @@ func (self *LockManager) GetDB() *LockDB{
 }
 
 func (self *LockManager) AddLock(lock *Lock) *Lock {
+    lock.start_time = self.lock_db.current_time
     if lock.command.ExpriedFlag & 0x0400 == 0 {
-        lock.expried_time = self.lock_db.current_time + int64(lock.command.Expried) + 1
+        lock.expried_time = lock.start_time + int64(lock.command.Expried) + 1
     } else if lock.command.ExpriedFlag & 0x4000 != 0 {
         lock.expried_time = 0x7fffffffffffffff
     }
@@ -140,14 +141,15 @@ func (self *LockManager) UpdateLockedLock(lock *Lock, timeout uint16, timeout_fl
     lock.command.Count = count
     lock.command.Rcount = rcount
 
+    lock.start_time = self.lock_db.current_time
     if timeout_flag & 0x0400 == 0 {
-        lock.timeout_time = self.lock_db.current_time + int64(timeout) + 1
+        lock.timeout_time = lock.start_time + int64(timeout) + 1
     } else {
         lock.timeout_time = 0
     }
 
     if expried_flag & 0x0400 == 0 {
-        lock.expried_time = self.lock_db.current_time + int64(expried) + 1
+        lock.expried_time = lock.start_time + int64(expried) + 1
     } else if lock.command.ExpriedFlag & 0x4000 != 0 {
         lock.expried_time = 0x7fffffffffffffff
     } else {
@@ -170,10 +172,6 @@ func (self *LockManager) UpdateLockedLock(lock *Lock, timeout uint16, timeout_fl
         lock.aof_time = uint8(float64(lock.command.Expried) * Config.DBLockAofParcentTime)
     default:
         lock.aof_time = self.lock_db.aof_time
-    }
-
-    if lock.is_aof {
-        _ = self.PushLockAof(lock)
     }
 }
 
@@ -229,15 +227,15 @@ func (self *LockManager) PushLockAof(lock *Lock) error {
     return nil
 }
 
-func (self *LockManager) PushUnLockAof(lock *Lock, command *protocol.LockCommand) error {
+func (self *LockManager) PushUnLockAof(lock *Lock, command *protocol.LockCommand, is_aof bool) error {
     if command == nil {
         if self.lock_db.status != STATE_LEADER {
-            lock.is_aof = false
+            lock.is_aof = is_aof
             return nil
         }
     } else {
         if command.Flag & 0x04 != 0 {
-            lock.is_aof = false
+            lock.is_aof = is_aof
             return nil
         }
     }
@@ -252,7 +250,7 @@ func (self *LockManager) PushUnLockAof(lock *Lock, command *protocol.LockCommand
             lock.command.DbId, lock.command.LockKey, lock.command.LockId)
         return err
     }
-    lock.is_aof = false
+    lock.is_aof = is_aof
     return nil
 }
 

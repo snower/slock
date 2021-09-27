@@ -445,7 +445,7 @@ func (self *AofChannel) Push(lock *Lock, command_type uint8, command *protocol.L
     aof_lock.LockKey = lock.command.LockKey
     aof_lock.AofFlag = 0
     if aof_lock.CommandTime - uint64(lock.start_time) > 0xffff {
-        aof_lock.StartTime = 0
+        aof_lock.StartTime = 0xffff
     } else {
         aof_lock.StartTime = uint16(aof_lock.CommandTime - uint64(lock.start_time))
     }
@@ -457,7 +457,11 @@ func (self *AofChannel) Push(lock *Lock, command_type uint8, command *protocol.L
     }
     if command == nil {
         aof_lock.Count = lock.command.Count
-        aof_lock.Rcount = lock.command.Rcount
+        if command_type == protocol.COMMAND_UNLOCK {
+            aof_lock.Rcount = 0
+        } else {
+            aof_lock.Rcount = lock.command.Rcount
+        }
     } else {
         aof_lock.Count = command.Count
         aof_lock.Rcount = command.Rcount
