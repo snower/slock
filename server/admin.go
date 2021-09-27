@@ -15,6 +15,7 @@ import (
 )
 
 var STATE_NAMES  = []string{"initing", "leader", "follower", "syncing", "config", "vote", "close"}
+var ROLE_NAMES = []string{"unknown", "leader", "follower", "arbiter"}
 
 type Admin struct {
     slock *SLock
@@ -229,7 +230,7 @@ func (self *Admin) CommandHandleInfoCommand(server_protocol *TextServerProtocol,
         infos = append(infos, fmt.Sprintf("gid:%s", self.slock.arbiter_manager.gid))
         infos = append(infos, fmt.Sprintf("version:%d", self.slock.arbiter_manager.version))
         infos = append(infos, fmt.Sprintf("vertime:%d", self.slock.arbiter_manager.vertime))
-        roles := []string{"unknown", "leader", "follower", "arbiter", "data"}
+
         for i, member := range self.slock.arbiter_manager.members {
             arbiter, isself, status, aof_id := "no", "no", "offline", member.aof_id
             if member.arbiter != 0 {
@@ -243,7 +244,7 @@ func (self *Admin) CommandHandleInfoCommand(server_protocol *TextServerProtocol,
                 status = "online"
             }
             infos = append(infos, fmt.Sprintf("member%d:host=%s,weight=%d,arbiter=%s,role=%s,status=%s,self=%s,aof_id=%x,update=%d,delay=%.2f", i + 1, member.host, member.weight,
-                arbiter, roles[member.role], status, isself, aof_id, member.last_updated / 1e6, float64(member.last_delay) / 1e6))
+                arbiter, ROLE_NAMES[member.role], status, isself, aof_id, member.last_updated / 1e6, float64(member.last_delay) / 1e6))
         }
     }
 
@@ -655,6 +656,10 @@ func (self *Admin) CommandHandleReplsetCommand(server_protocol *TextServerProtoc
         return self.CommandHandleReplsetRemoveCommand(server_protocol, args)
     case "SET":
         return self.CommandHandleReplsetSetCommand(server_protocol, args)
+    case "GET":
+        return self.CommandHandleReplsetGetCommand(server_protocol, args)
+    case "MEMBERS":
+        return self.CommandHandleReplsetMembersCommand(server_protocol, args)
     }
     return server_protocol.stream.WriteBytes(server_protocol.parser.BuildResponse(false, "ERR unkonwn command", nil))
 }
@@ -664,7 +669,23 @@ func (self *Admin) CommandHandleReplsetConfigCommand(server_protocol *TextServer
         return server_protocol.stream.WriteBytes(server_protocol.parser.BuildResponse(false, "ERR Command Arguments Error", nil))
     }
 
-    err := self.slock.arbiter_manager.Config(args[2], 1, 0)
+    weight, arbiter := 1, 0
+    for i := 0; i < (len(args) - 3) / 2; i++ {
+        switch strings.ToUpper(args[i * 2 + 3]) {
+        case "WEIGHT":
+            v, err := strconv.Atoi(args[i * 2 + 4])
+            if err == nil && v >= 0 {
+                weight = v
+            }
+        case "ARBITER":
+            v, err := strconv.Atoi(args[i * 2 + 4])
+            if err == nil && v >= 0 {
+                weight = v
+            }
+        }
+    }
+
+    err := self.slock.arbiter_manager.Config(args[2], uint32(weight), uint32(arbiter))
     if err != nil {
         return server_protocol.stream.WriteBytes(server_protocol.parser.BuildResponse(false, "ERR config error", nil))
     }
@@ -676,7 +697,23 @@ func (self *Admin) CommandHandleReplsetAddCommand(server_protocol *TextServerPro
         return server_protocol.stream.WriteBytes(server_protocol.parser.BuildResponse(false, "ERR Command Arguments Error", nil))
     }
 
-    err := self.slock.arbiter_manager.AddMember(args[2], 1, 0)
+    weight, arbiter := 1, 0
+    for i := 0; i < (len(args) - 3) / 2; i++ {
+        switch strings.ToUpper(args[i * 2 + 3]) {
+        case "WEIGHT":
+            v, err := strconv.Atoi(args[i * 2 + 4])
+            if err == nil && v >= 0 {
+                weight = v
+            }
+        case "ARBITER":
+            v, err := strconv.Atoi(args[i * 2 + 4])
+            if err == nil && v >= 0 {
+                weight = v
+            }
+        }
+    }
+
+    err := self.slock.arbiter_manager.AddMember(args[2], uint32(weight), uint32(arbiter))
     if err != nil {
         return server_protocol.stream.WriteBytes(server_protocol.parser.BuildResponse(false, "ERR add error", nil))
     }
@@ -700,9 +737,73 @@ func (self *Admin) CommandHandleReplsetSetCommand(server_protocol *TextServerPro
         return server_protocol.stream.WriteBytes(server_protocol.parser.BuildResponse(false, "ERR Command Arguments Error", nil))
     }
 
-    err := self.slock.arbiter_manager.UpdateMember(args[2], 1, 0)
+    weight, arbiter := 1, 0
+    for i := 0; i < (len(args) - 3) / 2; i++ {
+        switch strings.ToUpper(args[i * 2 + 3]) {
+        case "WEIGHT":
+            v, err := strconv.Atoi(args[i * 2 + 4])
+            if err == nil && v >= 0 {
+                weight = v
+            }
+        case "ARBITER":
+            v, err := strconv.Atoi(args[i * 2 + 4])
+            if err == nil && v >= 0 {
+                weight = v
+            }
+        }
+    }
+
+    err := self.slock.arbiter_manager.UpdateMember(args[2], uint32(weight), uint32(arbiter))
     if err != nil {
         return server_protocol.stream.WriteBytes(server_protocol.parser.BuildResponse(false, "ERR update error", nil))
     }
     return server_protocol.stream.WriteBytes(server_protocol.parser.BuildResponse(true, "OK", nil))
+}
+
+func (self *Admin) CommandHandleReplsetGetCommand(server_protocol *TextServerProtocol, args []string) error {
+    if len(args) < 3 {
+        return server_protocol.stream.WriteBytes(server_protocol.parser.BuildResponse(false, "ERR Command Arguments Error", nil))
+    }
+
+    results := make([]string, 0)
+    for _, member := range self.slock.arbiter_manager.members {
+        if member.host != args[2] {
+            continue
+        }
+
+        results = append(results, member.host)
+        results = append(results, fmt.Sprintf("%d", member.weight))
+        results = append(results, fmt.Sprintf("%d", member.arbiter))
+        results = append(results, ROLE_NAMES[member.role])
+        if member.status == ARBITER_MEMBER_STATUS_ONLINE {
+            results = append(results, "online")
+        } else {
+            results = append(results, "offline")
+        }
+    }
+
+    if len(results) == 0 {
+        return server_protocol.stream.WriteBytes(server_protocol.parser.BuildResponse(false, "ERR unknown member", nil))
+    }
+    return server_protocol.stream.WriteBytes(server_protocol.parser.BuildResponse(true, "", results))
+}
+
+func (self *Admin) CommandHandleReplsetMembersCommand(server_protocol *TextServerProtocol, args []string) error {
+    if len(self.slock.arbiter_manager.members) == 0 {
+        return server_protocol.stream.WriteBytes(server_protocol.parser.BuildResponse(false, "ERR not config", nil))
+    }
+
+    results := make([]string, 0)
+    for _, member := range self.slock.arbiter_manager.members {
+        results = append(results, member.host)
+        results = append(results, fmt.Sprintf("%d", member.weight))
+        results = append(results, fmt.Sprintf("%d", member.arbiter))
+        results = append(results, ROLE_NAMES[member.role])
+        if member.status == ARBITER_MEMBER_STATUS_ONLINE {
+            results = append(results, "online")
+        } else {
+            results = append(results, "offline")
+        }
+    }
+    return server_protocol.stream.WriteBytes(server_protocol.parser.BuildResponse(true, "", results))
 }

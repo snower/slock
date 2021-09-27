@@ -1551,6 +1551,7 @@ func (self *ArbiterManager) UpdateStatus() error {
                     self.DoAnnouncement()
                     return nil
                 }
+
                 err := self.slock.replication_manager.SwitchToLeader()
                 if err != nil {
                     self.slock.Log().Errorf("Arbiter update status change leader error %v", err)
@@ -2052,6 +2053,12 @@ func (self *ArbiterManager) CommandHandleAnnouncementCommand(server_protocol *Bi
                 self.slock.Log().Errorf("Arbiter handle announcement update status error %v", err)
             }
             self.glock.Unlock()
+        } else {
+            if self.own_member.weight == 0 {
+                self.glock.Lock()
+                _ = self.QuitLeader()
+                self.glock.Unlock()
+            }
         }
         self.slock.Log().Infof("Arbiter handle announcementcommand update status succed")
     }()
