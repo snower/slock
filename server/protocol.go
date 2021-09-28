@@ -941,7 +941,7 @@ func (self *BinaryServerProtocol) ProcessCommad(command protocol.ICommand) error
             return self.will_commands.Push(lock_command)
         case protocol.COMMAND_LEADER:
             leader_command := command.(*protocol.LeaderCommand)
-            return self.Write(protocol.NewLeaderResultCommand(leader_command, protocol.RESULT_SUCCED, self.slock.replication_manager.leader_address))
+            return self.Write(protocol.NewLeaderResultCommand(leader_command, protocol.RESULT_SUCCED, self.slock.replication_manager.transparency_manager.leader_address))
         default:
             return self.Write(protocol.NewResultCommand(command, protocol.RESULT_UNKNOWN_COMMAND))
         }
