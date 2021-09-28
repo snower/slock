@@ -282,6 +282,25 @@ func (self *Admin) CommandHandleInfoCommand(server_protocol *TextServerProtocol,
         }
     }
 
+    infos = append(infos, "\r\n# Transparency")
+    transparency_manager := self.slock.replication_manager.transparency_manager
+    client_count, client_idle_count := 0, 0
+    transparency_manager.glock.Lock()
+    current_client := transparency_manager.clients
+    for ; current_client != nil; {
+        client_count++
+        current_client = current_client.next_client
+    }
+    current_client = transparency_manager.idle_clients
+    for ; current_client != nil; {
+        client_idle_count++
+        current_client = current_client.next_client
+    }
+    transparency_manager.glock.Unlock()
+    infos = append(infos, fmt.Sprintf("leader:%s", transparency_manager.leader_address))
+    infos = append(infos, fmt.Sprintf("client_count:%d", client_count))
+    infos = append(infos, fmt.Sprintf("client_idle_count:%d", client_idle_count))
+
     infos = append(infos, "\r\n# Stats")
     infos = append(infos, fmt.Sprintf("db_count:%d", db_count))
     infos = append(infos, fmt.Sprintf("free_command_count:%d", free_lock_command_count))

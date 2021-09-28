@@ -309,12 +309,17 @@ func (self *TransparencyBinaryServerProtocol) CheckClient() (*TransparencyBinary
 		return nil, io.EOF
 	}
 
+	self.manager.glock.Lock()
 	client_protocol, err := self.manager.OpenClient()
 	if err != nil {
+		self.manager.glock.Unlock()
 		return nil, err
 	}
+	client_protocol.next_client = self.manager.clients
+	self.manager.clients = client_protocol
 	client_protocol.server_protocol = self
 	self.client_protocol = client_protocol
+	self.manager.glock.Unlock()
 	return self.client_protocol, nil
 }
 
