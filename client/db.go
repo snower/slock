@@ -81,7 +81,7 @@ func (self *Database) executeCommand(command protocol.ICommand, timeout int) (pr
         if r == nil {
             return nil, errors.New("wait timeout")
         }
-        return r.(*protocol.LockResultCommand), nil
+        return r, nil
     case <- time.After(time.Duration(timeout + 1) * time.Second):
         self.glock.Lock()
         if _, ok := self.requests[request_id]; ok {
