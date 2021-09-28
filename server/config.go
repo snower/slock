@@ -48,8 +48,6 @@ type ServerConfig struct{
     AofRingBufferMaxSize uint       `long:"aof_ring_buffer_max_size" description:"slave sync ring buffer max size" default:"268435456"`
     SlaveOf string                  `long:"slaveof" description:"slave of to master sync" default:""`
     ReplSet string                  `long:"replset" description:"replset name, start replset mode when it set" default:""`
-    TransparencyIdleTime uint       `long:"transparency_idle_time" description:"transparency idle time" default:"7200"`
-    TransparencyIdleCount uint      `long:"transparency_idle_count" description:"transparency idle count" default:"5"`
 }
 
 var Config *ServerConfig = nil

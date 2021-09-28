@@ -1314,7 +1314,7 @@ func (self *TransparencyManager) CheckIdleTimeout() {
 	current_client := self.idle_clients
 	self.idle_clients = nil
 	for ; current_client != nil; {
-		if now.Unix() - current_client.idle_time.Unix() > int64(Config.TransparencyIdleTime) || idle_count > Config.TransparencyIdleCount {
+		if now.Unix() - current_client.idle_time.Unix() > 900 || idle_count > 5 {
 			if current_client.client_protocol != nil {
 				_ = current_client.client_protocol.Close()
 			}
