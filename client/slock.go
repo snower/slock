@@ -7,150 +7,86 @@ import (
     "math/rand"
     "net"
     "sync"
+    "sync/atomic"
     "time"
 )
 
 var LETTERS = []byte("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
-var request_id_index uint64 = 0
-var lock_id_index uint64 = 0
+var request_id_index uint32 = 0
+var lock_id_index uint32 = 0
 
 type Client struct {
-    host string
-    port uint
-    stream *Stream
-    protocol ClientProtocol
-    dbs []*Database
-    glock *sync.Mutex
-    client_id [16]byte
-    is_stop bool
-    reconnect_count int
+    glock                   *sync.Mutex
+    protocols               []ClientProtocol
+    dbs                     []*Database
+    requests                map[[16]byte]chan protocol.ICommand
+    request_lock            *sync.Mutex
+    hosts                   []string
+    client_id               [16]byte
+    closed                  bool
+    closed_waiter           *sync.WaitGroup
+    reconnect_waiters       map[string]chan bool
 }
 
 func NewClient(host string, port uint) *Client{
-    client := &Client{host, port, nil, nil,make([]*Database, 256), &sync.Mutex{}, [16]byte{}, false, 0}
-    client.InitClientId()
+    address := fmt.Sprintf("%s:%d", host, port)
+    client := &Client{&sync.Mutex{}, make([]ClientProtocol, 0), make([]*Database, 256),
+        make(map[[16]byte]chan protocol.ICommand, 64), &sync.Mutex{}, []string{address},
+        [16]byte{}, false, &sync.WaitGroup{}, make(map[string]chan bool, 4)}
+    return client
+}
+
+func NewReplsetClient(hosts []string) *Client{
+    client := &Client{&sync.Mutex{}, make([]ClientProtocol, 0),
+        make([]*Database, 256), make(map[[16]byte]chan protocol.ICommand, 64), &sync.Mutex{},
+        hosts, [16]byte{}, false, &sync.WaitGroup{}, make(map[string]chan bool, 4)}
     return client
 }
 
 func (self *Client) Open() error {
-    if self.protocol != nil {
+    if len(self.protocols) > 0 {
         return errors.New("Client is Opened")
     }
 
-    addr := fmt.Sprintf("%s:%d", self.host, self.port)
-    conn, err := net.Dial("tcp", addr)
-    if err != nil {
-        return err
+    var err error
+    if len(self.hosts) == 1 {
+        self.initClientId()
     }
-    stream := NewStream(conn)
-    client_protocol := NewBinaryClientProtocol(stream)
-    if err := self.InitProtocol(client_protocol); err != nil {
-        client_protocol.Close()
-        return err
-    }
-    self.stream = stream
-    self.protocol = client_protocol
-    go self.Handle(self.stream)
-    return nil
-}
 
-func (self *Client) Reopen() {
-    self.reconnect_count = 1
-    time.Sleep(time.Duration(self.reconnect_count) * time.Second)
-
-    for !self.is_stop {
-        err := self.Open()
-        if err == nil {
-            break
+    protocols := make(map[string]ClientProtocol, 4)
+    for _, host := range self.hosts {
+        client_protocol, cerr := self.connect(host)
+        if cerr != nil {
+            err = cerr
         }
-
-        if self.reconnect_count >= 64 {
-            go func() {
-                self.Close()
-            }()
-            break
-        }
-
-        self.reconnect_count++
-        time.Sleep(time.Duration(self.reconnect_count) * time.Second)
+        protocols[host] = client_protocol
     }
-}
 
-func (self *Client) InitClientId() {
-    now := uint32(time.Now().Unix())
-    self.client_id = [16]byte{
-        byte(now >> 24), byte(now >> 16), byte(now >> 8), byte(now), LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)],
-        LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)],
-    }
-}
-
-func (self *Client) InitProtocol(client_protocol ClientProtocol) error {
-    init_command := &protocol.InitCommand{Command: protocol.Command{ Magic: protocol.MAGIC, Version: protocol.VERSION, CommandType: protocol.COMMAND_INIT, RequestId: self.client_id}, ClientId: self.client_id}
-    if err := client_protocol.Write(init_command); err != nil {
+    if len(self.protocols) == 0 {
         return err
     }
 
-    result, rerr := client_protocol.Read()
-    if rerr != nil {
-        return rerr
-    }
-
-    init_result_command := result.(*protocol.InitResultCommand)
-    if init_result_command.Result != protocol.RESULT_SUCCED {
-        return errors.New(fmt.Sprintf("init stream error: %d", init_result_command.Result))
-    }
-
-    if init_result_command.InitType == 0 {
-        for _, db := range self.dbs {
-            if db == nil {
-                continue
-            }
-
-            db.glock.Lock()
-            for request_id := range db.requests {
-                db.requests[request_id] <- nil
-                delete(db.requests, request_id)
-            }
-            db.glock.Unlock()
-        }
+    for host, client_protocol := range protocols {
+        go self.process(host, client_protocol)
+        self.closed_waiter.Add(1)
     }
     return nil
 }
 
-func (self *Client) Handle(stream *Stream) {
-    client_protocol := self.protocol
-
-    defer func() {
-        defer self.glock.Unlock()
-        self.glock.Lock()
-        client_protocol.Close()
-        self.stream = nil
-        self.protocol = nil
-        if !self.is_stop {
-            self.Reopen()
-        }
-    }()
-
-    for ; !self.is_stop; {
-        command, err := client_protocol.Read()
-        if err != nil {
-            break
-        }
-        if command == nil {
-            break
-        }
-
-        self.HandleCommand(command.(protocol.ICommand))
-    }
-}
 
 func (self *Client) Close() error {
-    defer self.glock.Unlock()
     self.glock.Lock()
-
-    if self.is_stop {
+    if self.closed {
+        self.glock.Unlock()
         return nil
     }
+
+    self.closed = true
+    for request_id := range self.requests {
+        close(self.requests[request_id])
+    }
+    self.requests = make(map[[16]byte]chan protocol.ICommand, 0)
+    self.glock.Unlock()
 
     for db_id, db := range self.dbs {
         if db == nil {
@@ -164,78 +100,278 @@ func (self *Client) Close() error {
         self.dbs[db_id] = nil
     }
 
-    if self.protocol != nil {
-        err := self.protocol.Close()
-        if err != nil {
-            return err
-        }
+    for _, client_protocol := range self.protocols {
+        _ = client_protocol.Close()
     }
 
-    self.stream = nil
-    self.protocol = nil
-    self.is_stop = true
+    self.glock.Lock()
+    for _, waiter := range self.reconnect_waiters {
+        close(waiter)
+    }
+    self.glock.Unlock()
+    self.closed_waiter.Wait()
     return nil
 }
 
-func (self *Client) GetDb(db_id uint8) *Database{
-    defer self.glock.Unlock()
-    self.glock.Lock()
+func (self *Client) connect(host string) (ClientProtocol, error) {
+    conn, err := net.Dial("tcp", host)
+    if err != nil {
+        return nil, err
+    }
 
+    stream := NewStream(conn)
+    client_protocol := NewBinaryClientProtocol(stream)
+    if len(self.hosts) == 1 {
+        err = self.initProtocol(client_protocol)
+        if err != nil {
+            _  = client_protocol.Close()
+            return nil, err
+        }
+    }
+    self.addProtocol(client_protocol)
+    return client_protocol, nil
+}
+
+func (self *Client) reconnect(host string) ClientProtocol {
+    self.glock.Lock()
+    waiter := make(chan bool, 1)
+    self.reconnect_waiters[host] = waiter
+    self.glock.Unlock()
+
+    for !self.closed {
+        select {
+        case <- waiter:
+            continue
+        case <- time.After(3 * time.Second):
+            client_protocol, err := self.connect(host)
+            if err != nil {
+                continue
+            }
+
+            self.glock.Lock()
+            if _, ok := self.reconnect_waiters[host]; ok {
+                delete(self.reconnect_waiters, host)
+            }
+            self.glock.Unlock()
+            return client_protocol
+        }
+    }
+
+    self.glock.Lock()
+    if _, ok := self.reconnect_waiters[host]; ok {
+        delete(self.reconnect_waiters, host)
+    }
+    self.glock.Unlock()
+    return nil
+}
+
+func (self *Client) addProtocol(client_protocol ClientProtocol) {
+    self.glock.Lock()
+    self.protocols = append(self.protocols, client_protocol)
+    self.glock.Unlock()
+}
+
+func (self *Client) removeProtocol(client_protocol ClientProtocol) {
+    self.glock.Lock()
+    protocols := make([]ClientProtocol, 0)
+    for _, p := range self.protocols {
+        if p != client_protocol {
+            protocols = append(protocols, p)
+        }
+    }
+    self.protocols = protocols
+    self.glock.Unlock()
+}
+
+
+func (self *Client) initClientId() {
+    now := uint32(time.Now().Unix())
+    self.client_id = [16]byte{
+        byte(now >> 24), byte(now >> 16), byte(now >> 8), byte(now), LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)],
+        LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)],
+    }
+}
+
+func (self *Client) initProtocol(client_protocol ClientProtocol) error {
+    init_command := &protocol.InitCommand{Command: protocol.Command{ Magic: protocol.MAGIC, Version: protocol.VERSION, CommandType: protocol.COMMAND_INIT, RequestId: self.client_id}, ClientId: self.client_id}
+    if err := client_protocol.Write(init_command); err != nil {
+        return err
+    }
+    result, rerr := client_protocol.Read()
+    if rerr != nil {
+        return rerr
+    }
+
+    if init_result_command, ok := result.(*protocol.InitResultCommand); ok {
+        if init_result_command.Result != protocol.RESULT_SUCCED {
+            return errors.New(fmt.Sprintf("init stream error: %d", init_result_command.Result))
+        }
+
+        if init_result_command.InitType != 1 {
+            for _, db := range self.dbs {
+                if db == nil {
+                    continue
+                }
+
+                db.glock.Lock()
+                for request_id := range db.requests {
+                    close(db.requests[request_id])
+                }
+                db.requests = make(map[[16]byte]chan protocol.ICommand, 0)
+                db.glock.Unlock()
+            }
+        }
+        return  nil
+    }
+    return errors.New("init fail")
+}
+
+func (self *Client) process(host string, client_protocol ClientProtocol) {
+    for ; !self.closed; {
+        if client_protocol == nil {
+            client_protocol = self.reconnect(host)
+            continue
+        }
+
+        command, err := client_protocol.Read()
+        if err != nil {
+            _ = client_protocol.Close()
+            self.removeProtocol(client_protocol)
+            self.reconnect(host)
+            continue
+        }
+        if command == nil {
+            continue
+        }
+        _ = self.handleCommand(command.(protocol.ICommand))
+    }
+
+    if client_protocol != nil {
+        _ =client_protocol.Close()
+    }
+    self.closed_waiter.Done()
+}
+
+func (self *Client) getPrococol() ClientProtocol {
+    self.glock.Lock()
+    if self.closed || len(self.protocols) == 0 {
+        self.glock.Unlock()
+        return nil
+    }
+
+    client_protocol := self.protocols[0]
+    self.glock.Unlock()
+    return client_protocol
+}
+
+func (self *Client) getOrNewDB(db_id uint8) *Database{
+    self.glock.Lock()
     db := self.dbs[db_id]
     if db == nil {
         db = NewDatabase(db_id, self)
         self.dbs[db_id] = db
     }
+    self.glock.Unlock()
     return db
 }
 
-func (self *Client) HandleCommand(command protocol.ICommand) error{
+func (self *Client) handleCommand(command protocol.ICommand) error{
     switch command.GetCommandType() {
     case protocol.COMMAND_LOCK:
         lock_command := command.(*protocol.LockResultCommand)
         db := self.dbs[lock_command.DbId]
         if db == nil {
-            db = self.GetDb(lock_command.DbId)
+            db = self.getOrNewDB(lock_command.DbId)
         }
-        return db.HandleLockCommandResult(lock_command)
+        return db.handleCommandResult(lock_command)
 
     case protocol.COMMAND_UNLOCK:
         lock_command := command.(*protocol.LockResultCommand)
         db := self.dbs[lock_command.DbId]
         if db == nil {
-            db = self.GetDb(lock_command.DbId)
+            db = self.getOrNewDB(lock_command.DbId)
         }
-        return db.HandleUnLockCommandResult(lock_command)
+        return db.handleCommandResult(lock_command)
 
     case protocol.COMMAND_STATE:
         state_command := command.(*protocol.StateResultCommand)
         db := self.dbs[state_command.DbId]
         if db == nil {
-            db = self.GetDb(state_command.DbId)
+            db = self.getOrNewDB(state_command.DbId)
         }
-        return db.HandleStateCommandResult(state_command)
+        return db.handleCommandResult(state_command)
     }
+
+    request_id := command.GetRequestId()
+    self.request_lock.Lock()
+    if request, ok := self.requests[request_id]; ok {
+        delete(self.requests, request_id)
+        self.request_lock.Unlock()
+
+        request <- command
+        return nil
+    }
+    self.request_lock.Unlock()
     return nil
 }
 
 func (self *Client) SelectDB(db_id uint8) *Database {
     db := self.dbs[db_id]
     if db == nil {
-        db = self.GetDb(db_id)
+        db = self.getOrNewDB(db_id)
     }
     return db
+}
+
+func (self *Client) ExecuteCommand(command protocol.ICommand, timeout int) (protocol.ICommand, error) {
+    client_protocol := self.getPrococol()
+    if client_protocol == nil {
+        return nil, errors.New("client is not opened")
+    }
+
+    request_id := command.GetRequestId()
+    self.request_lock.Lock()
+    if _, ok := self.requests[request_id]; ok {
+        self.request_lock.Unlock()
+        return nil, errors.New("request is used")
+    }
+
+    waiter := make(chan protocol.ICommand, 1)
+    self.requests[request_id] = waiter
+    self.request_lock.Unlock()
+
+    err := client_protocol.Write(command)
+    if err != nil {
+        self.request_lock.Lock()
+        if _, ok := self.requests[request_id]; ok {
+            delete(self.requests, request_id)
+        }
+        self.request_lock.Unlock()
+        return nil, err
+    }
+
+    select {
+    case r := <- waiter:
+        if r == nil {
+            return nil, errors.New("wait timeout")
+        }
+        return r.(*protocol.LockResultCommand), nil
+    case <- time.After(time.Duration(timeout + 1) * time.Second):
+        self.request_lock.Lock()
+        if _, ok := self.requests[request_id]; ok {
+            delete(self.requests, request_id)
+        }
+        self.request_lock.Unlock()
+        return nil, errors.New("timeout")
+    }
 }
 
 func (self *Client) Lock(lock_key [16]byte, timeout uint32, expried uint32) *Lock {
     return self.SelectDB(0).Lock(lock_key, timeout, expried)
 }
 
-func (self *Client) Event(event_key [16]byte, timeout uint32, expried uint32) *Event {
-    return self.SelectDB(0).Event(event_key, timeout, expried)
-}
-
-func (self *Client) CycleEvent(event_key [16]byte, timeout uint32, expried uint32) *CycleEvent {
-    return self.SelectDB(0).CycleEvent(event_key, timeout, expried)
+func (self *Client) Event(event_key [16]byte, timeout uint32, expried uint32, default_seted bool) *Event {
+    return self.SelectDB(0).Event(event_key, timeout, expried, default_seted)
 }
 
 func (self *Client) Semaphore(semaphore_key [16]byte, timeout uint32, expried uint32, count uint16) *Semaphore {
@@ -250,7 +386,15 @@ func (self *Client) RLock(lock_key [16]byte, timeout uint32, expried uint32) *RL
     return self.SelectDB(0).RLock(lock_key, timeout, expried)
 }
 
-
 func (self *Client) State(db_id uint8) *protocol.StateResultCommand {
     return self.SelectDB(db_id).State()
+}
+
+func (self *Client) GenRequestId() [16]byte {
+    now := uint64(time.Now().Nanosecond() / 1e6)
+    rid := atomic.AddUint32(&request_id_index, 1)
+    return [16]byte{
+        byte(now >> 24), byte(now >> 16), byte(now >> 8), byte(now), LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)],
+        LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], byte(rid >> 24), byte(rid >> 16), byte(rid >> 8), byte(rid),
+    }
 }

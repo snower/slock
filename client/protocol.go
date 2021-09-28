@@ -18,6 +18,7 @@ type ClientProtocol interface {
     Write(protocol.CommandEncode) error
     ReadCommand() (protocol.CommandDecode, error)
     WriteCommand(protocol.CommandEncode) error
+    GetStream() *Stream
     RemoteAddr() net.Addr
     LocalAddr() net.Addr
 }
@@ -181,6 +182,10 @@ func (self *BinaryClientProtocol) ReadCommand() (protocol.CommandDecode, error) 
 
 func (self *BinaryClientProtocol) WriteCommand(command protocol.CommandEncode) error {
     return self.Write(command)
+}
+
+func (self *BinaryClientProtocol) GetStream() *Stream {
+    return self.stream
 }
 
 func (self *BinaryClientProtocol) RemoteAddr() net.Addr {
@@ -411,6 +416,10 @@ func (self *TextClientProtocol) WriteCommand(result protocol.CommandEncode) erro
     buf_index += copy(wbuf[buf_index:], []byte("\r\n"))
 
     return self.stream.WriteBytes(wbuf[:buf_index])
+}
+
+func (self *TextClientProtocol) GetStream() *Stream {
+    return self.stream
 }
 
 func (self *TextClientProtocol) RemoteAddr() net.Addr {

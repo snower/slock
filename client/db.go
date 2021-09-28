@@ -10,10 +10,10 @@ import (
 )
 
 type Database struct {
-    db_id uint8
-    client *Client
-    requests map[[16]byte]chan protocol.ICommand
-    glock *sync.Mutex
+    db_id       uint8
+    client      *Client
+    requests    map[[16]byte]chan protocol.ICommand
+    glock       *sync.Mutex
 }
 
 func NewDatabase(db_id uint8, client *Client) *Database {
@@ -21,170 +21,86 @@ func NewDatabase(db_id uint8, client *Client) *Database {
 }
 
 func (self *Database) Close() error {
-    defer self.glock.Unlock()
     self.glock.Lock()
 
     for request_id := range self.requests {
-        self.requests[request_id] <- nil
+        close(self.requests[request_id])
     }
-
     self.requests = make(map[[16]byte]chan protocol.ICommand, 0)
-
     self.client = nil
+    self.glock.Unlock()
     return nil
 }
 
-func (self *Database) HandleLockCommandResult (command *protocol.LockResultCommand) error {
+func (self *Database) handleCommandResult (command protocol.ICommand) error {
+    request_id := command.GetRequestId()
     self.glock.Lock()
-
-    if request, ok := self.requests[command.RequestId]; ok {
-        delete(self.requests, command.RequestId)
+    if request, ok := self.requests[request_id]; ok {
+        delete(self.requests, request_id)
         self.glock.Unlock()
 
         request <- command
         return nil
     }
-
     self.glock.Unlock()
     return nil
 }
 
-func (self *Database) HandleUnLockCommandResult (command *protocol.LockResultCommand) error {
-    self.glock.Lock()
-
-    if request, ok := self.requests[command.RequestId]; ok {
-        delete(self.requests, command.RequestId)
-        self.glock.Unlock()
-
-        request <- command
-        return nil
+func (self *Database) executeCommand(command protocol.ICommand, timeout int) (protocol.ICommand, error) {
+    if self.client == nil {
+        return nil, errors.New("db is not closed")
     }
-
-    self.glock.Unlock()
-    return nil
-}
-
-func (self *Database) HandleStateCommandResult (command *protocol.StateResultCommand) error {
-    self.glock.Lock()
-
-    if request, ok := self.requests[command.RequestId]; ok {
-        delete(self.requests, command.RequestId)
-        self.glock.Unlock()
-
-        request <- command
-        return nil
-    }
-
-    self.glock.Unlock()
-    return nil
-}
-
-func (self *Database) SendLockCommand(command *protocol.LockCommand) (*protocol.LockResultCommand, error) {
-    if self.client.protocol == nil {
+    client_protocol := self.client.getPrococol()
+    if client_protocol == nil {
         return nil, errors.New("client is not opened")
     }
 
+    request_id := command.GetRequestId()
     self.glock.Lock()
-    if _, ok := self.requests[command.RequestId]; ok {
+    if _, ok := self.requests[request_id]; ok {
         self.glock.Unlock()
         return nil, errors.New("request is used")
     }
 
     waiter := make(chan protocol.ICommand, 1)
-    self.requests[command.RequestId] = waiter
+    self.requests[request_id] = waiter
     self.glock.Unlock()
 
-    err := self.client.protocol.Write(command)
+    err := client_protocol.Write(command)
     if err != nil {
         self.glock.Lock()
-        if _, ok := self.requests[command.RequestId]; ok {
-            delete(self.requests, command.RequestId)
+        if _, ok := self.requests[request_id]; ok {
+            delete(self.requests, request_id)
         }
         self.glock.Unlock()
         return nil, err
     }
 
-    result_command := <-waiter
-    if result_command == nil {
-        return nil, errors.New("wait timeout")
-    }
-    return result_command.(*protocol.LockResultCommand), nil
-}
-
-func (self *Database) SendUnLockCommand(command *protocol.LockCommand) (*protocol.LockResultCommand, error) {
-    if self.client.protocol == nil {
-        return nil, errors.New("client is not opened")
-    }
-
-    self.glock.Lock()
-    if _, ok := self.requests[command.RequestId]; ok {
-        self.glock.Unlock()
-        return nil, errors.New("request is used")
-    }
-
-    waiter := make(chan protocol.ICommand, 1)
-    self.requests[command.RequestId] = waiter
-    self.glock.Unlock()
-
-    err := self.client.protocol.Write(command)
-    if err != nil {
+    select {
+    case r := <- waiter:
+        if r == nil {
+            return nil, errors.New("wait timeout")
+        }
+        return r.(*protocol.LockResultCommand), nil
+    case <- time.After(time.Duration(timeout + 1) * time.Second):
         self.glock.Lock()
-        if _, ok := self.requests[command.RequestId]; ok {
-            delete(self.requests, command.RequestId)
+        if _, ok := self.requests[request_id]; ok {
+            delete(self.requests, request_id)
         }
         self.glock.Unlock()
-        return nil, err
+        return nil, errors.New("timeout")
     }
-
-    result_command := <-waiter
-    if result_command == nil {
-        return nil, errors.New("wait timeout")
-    }
-    return result_command.(*protocol.LockResultCommand), nil
-}
-
-func (self *Database) SendStateCommand(command *protocol.StateCommand) (*protocol.StateResultCommand, error) {
-    if self.client.protocol == nil {
-        return nil, errors.New("client not opened")
-    }
-
-    self.glock.Lock()
-    if _, ok := self.requests[command.RequestId]; ok {
-        self.glock.Unlock()
-        return nil, errors.New("request used")
-    }
-
-    waiter := make(chan protocol.ICommand, 1)
-    self.requests[command.RequestId] = waiter
-    self.glock.Unlock()
-
-    err := self.client.protocol.Write(command)
-    if err != nil {
-        self.glock.Lock()
-        if _, ok := self.requests[command.RequestId]; ok {
-            delete(self.requests, command.RequestId)
-        }
-        self.glock.Unlock()
-        return nil, err
-    }
-
-    result_command := <-waiter
-    if result_command == nil {
-        return nil, errors.New("wait timeout")
-    }
-    return result_command.(*protocol.StateResultCommand), nil
 }
 
 func (self *Database) Lock(lock_key [16]byte, timeout uint32, expried uint32) *Lock {
     return NewLock(self, lock_key, timeout, expried, 0, 0)
 }
 
-func (self *Database) Event(event_key [16]byte, timeout uint32, expried uint32) *Event {
-    return NewEvent(self, event_key, timeout, expried)
-}
-
-func (self *Database) CycleEvent(event_key [16]byte, timeout uint32, expried uint32) *CycleEvent {
-    return NewCycleEvent(self, event_key, timeout, expried)
+func (self *Database) Event(event_key [16]byte, timeout uint32, expried uint32, default_seted bool) *Event {
+    if default_seted {
+        return NewDefaultSetEvent(self, event_key, timeout, expried)
+    }
+    return NewDefaultClearEvent(self, event_key, timeout, expried)
 }
 
 func (self *Database) Semaphore(semaphore_key [16]byte, timeout uint32, expried uint32, count uint16) *Semaphore {
@@ -200,30 +116,32 @@ func (self *Database) RLock(lock_key [16]byte, timeout uint32, expried uint32) *
 }
 
 func (self *Database) State() *protocol.StateResultCommand {
-    request_id := self.GetRequestId()
+    request_id := self.client.GenRequestId()
     command := &protocol.StateCommand{Command: protocol.Command{Magic: protocol.MAGIC, Version: protocol.VERSION, CommandType: protocol.COMMAND_STATE, RequestId: request_id},
         Flag: 0, DbId: self.db_id, Blank: [43]byte{}}
-    result_command, err := self.SendStateCommand(command)
+    result_command, err := self.executeCommand(command, 5)
     if err != nil {
         return nil
     }
-    return result_command
-}
 
-func (self *Database) GetRequestId() [16]byte {
-    now := uint32(time.Now().Unix())
-    request_id_index := atomic.AddUint64(&request_id_index, 1)
-    return [16]byte{
-        byte(now >> 24), byte(now >> 16), byte(now >> 8), byte(now), LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)],
-        LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], byte(request_id_index >> 40), byte(request_id_index >> 32), byte(request_id_index >> 24), byte(request_id_index >> 16), byte(request_id_index >> 8), byte(request_id_index),
+    if c, ok := result_command.(*protocol.StateResultCommand); ok {
+        return c
     }
+    return nil
 }
 
-func (self *Database) GenLockId() ([16]byte) {
-    now := uint32(time.Now().Unix())
-    request_id_index := atomic.AddUint64(&request_id_index, 1)
+func (self *Database) GenRequestId() [16]byte {
+    if self.client == nil {
+        return [16]byte{}
+    }
+    return self.client.GenRequestId()
+}
+
+func (self *Database) GenLockId() [16]byte {
+    now := uint64(time.Now().Nanosecond() / 1e6)
+    lid := atomic.AddUint32(&lock_id_index, 1)
     return [16]byte{
-        byte(now >> 24), byte(now >> 16), byte(now >> 8), byte(now), LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)],
-        LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], byte(request_id_index >> 40), byte(request_id_index >> 32), byte(request_id_index >> 24), byte(request_id_index >> 16), byte(request_id_index >> 8), byte(request_id_index),
+        byte(now >> 40), byte(now >> 32), byte(now >> 24), byte(now >> 16), byte(now >> 8), byte(now), LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)],
+        LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], byte(lid >> 24), byte(lid >> 16), byte(lid >> 8), byte(lid),
     }
 }
