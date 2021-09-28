@@ -1859,13 +1859,21 @@ func (self *TextServerProtocol) ArgsToLockComand(args []string) (*protocol.LockC
             if err != nil {
                 return nil, errors.New("Command Parse COUNT Error")
             }
-            command.Count = uint16(count)
+            if count > 0 {
+                command.Count = uint16(count) - 1
+            } else {
+                command.Count = uint16(count)
+            }
         case "RCOUNT":
             rcount, err := strconv.Atoi(args[i + 1])
             if err != nil {
                 return nil, errors.New("Command Parse RCOUNT Error")
             }
-            command.Rcount = uint8(rcount)
+            if rcount > 0 {
+                command.Rcount = uint8(rcount) - 1
+            } else {
+                command.Rcount = uint8(rcount)
+            }
         case "WILL":
             will_type, err := strconv.Atoi(args[i + 1])
             if err != nil {
@@ -1969,7 +1977,7 @@ func (self *TextServerProtocol) CommandHandlerLock(server_protocol *TextServerPr
 
     buf_index += copy(wbuf[buf_index:], []byte("\r\n$5\r\nCOUNT"))
 
-    tr = fmt.Sprintf("%d", lock_command_result.Count)
+    tr = fmt.Sprintf("%d", lock_command_result.Count + 1)
     buf_index += copy(wbuf[buf_index:], []byte(fmt.Sprintf("\r\n$%d\r\n", len(tr))))
     buf_index += copy(wbuf[buf_index:], []byte(tr))
 
@@ -1981,7 +1989,7 @@ func (self *TextServerProtocol) CommandHandlerLock(server_protocol *TextServerPr
 
     buf_index += copy(wbuf[buf_index:], []byte("\r\n$6\r\nRCOUNT"))
 
-    tr = fmt.Sprintf("%d", lock_command_result.Rcount)
+    tr = fmt.Sprintf("%d", lock_command_result.Rcount + 1)
     buf_index += copy(wbuf[buf_index:], []byte(fmt.Sprintf("\r\n$%d\r\n", len(tr))))
     buf_index += copy(wbuf[buf_index:], []byte(tr))
 
@@ -2061,7 +2069,7 @@ func (self *TextServerProtocol) CommandHandlerUnlock(server_protocol *TextServer
 
     buf_index += copy(wbuf[buf_index:], []byte("\r\n$5\r\nCOUNT"))
 
-    tr = fmt.Sprintf("%d", lock_command_result.Count)
+    tr = fmt.Sprintf("%d", lock_command_result.Count + 1)
     buf_index += copy(wbuf[buf_index:], []byte(fmt.Sprintf("\r\n$%d\r\n", len(tr))))
     buf_index += copy(wbuf[buf_index:], []byte(tr))
 
@@ -2073,7 +2081,7 @@ func (self *TextServerProtocol) CommandHandlerUnlock(server_protocol *TextServer
 
     buf_index += copy(wbuf[buf_index:], []byte("\r\n$6\r\nRCOUNT"))
 
-    tr = fmt.Sprintf("%d", lock_command_result.Rcount)
+    tr = fmt.Sprintf("%d", lock_command_result.Rcount + 1)
     buf_index += copy(wbuf[buf_index:], []byte(fmt.Sprintf("\r\n$%d\r\n", len(tr))))
     buf_index += copy(wbuf[buf_index:], []byte(tr))
 

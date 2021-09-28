@@ -1046,7 +1046,7 @@ func (self *TransparencyTextServerProtocol) CommandHandlerLock(server_protocol *
 
 	buf_index += copy(wbuf[buf_index:], []byte("\r\n$5\r\nCOUNT"))
 
-	tr = fmt.Sprintf("%d", lock_command_result.Count)
+	tr = fmt.Sprintf("%d", lock_command_result.Count + 1)
 	buf_index += copy(wbuf[buf_index:], []byte(fmt.Sprintf("\r\n$%d\r\n", len(tr))))
 	buf_index += copy(wbuf[buf_index:], []byte(tr))
 
@@ -1058,7 +1058,7 @@ func (self *TransparencyTextServerProtocol) CommandHandlerLock(server_protocol *
 
 	buf_index += copy(wbuf[buf_index:], []byte("\r\n$6\r\nRCOUNT"))
 
-	tr = fmt.Sprintf("%d", lock_command_result.Rcount)
+	tr = fmt.Sprintf("%d", lock_command_result.Rcount + 1)
 	buf_index += copy(wbuf[buf_index:], []byte(fmt.Sprintf("\r\n$%d\r\n", len(tr))))
 	buf_index += copy(wbuf[buf_index:], []byte(tr))
 
@@ -1154,7 +1154,7 @@ func (self *TransparencyTextServerProtocol) CommandHandlerUnlock(server_protocol
 
 	buf_index += copy(wbuf[buf_index:], []byte("\r\n$5\r\nCOUNT"))
 
-	tr = fmt.Sprintf("%d", lock_command_result.Count)
+	tr = fmt.Sprintf("%d", lock_command_result.Count + 1)
 	buf_index += copy(wbuf[buf_index:], []byte(fmt.Sprintf("\r\n$%d\r\n", len(tr))))
 	buf_index += copy(wbuf[buf_index:], []byte(tr))
 
@@ -1166,7 +1166,7 @@ func (self *TransparencyTextServerProtocol) CommandHandlerUnlock(server_protocol
 
 	buf_index += copy(wbuf[buf_index:], []byte("\r\n$6\r\nRCOUNT"))
 
-	tr = fmt.Sprintf("%d", lock_command_result.Rcount)
+	tr = fmt.Sprintf("%d", lock_command_result.Rcount + 1)
 	buf_index += copy(wbuf[buf_index:], []byte(fmt.Sprintf("\r\n$%d\r\n", len(tr))))
 	buf_index += copy(wbuf[buf_index:], []byte(tr))
 
