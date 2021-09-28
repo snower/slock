@@ -162,7 +162,7 @@ func (self *ReplicationClient) Open(addr string) error {
 	if self.protocol != nil {
 		return errors.New("Client is Opened")
 	}
-
+	
 	conn, err := net.DialTimeout("tcp", addr, 2 * time.Second)
 	if err != nil {
 		return err
@@ -180,8 +180,6 @@ func (self *ReplicationClient) Close() error {
 	if self.protocol != nil {
 		_ = self.protocol.Close()
 	}
-	self.stream = nil
-	self.protocol = nil
 	_ = self.WakeupRetryConnect()
 	self.manager.slock.logger.Errorf("Replication client %s close", self.manager.leader_address)
 	return nil
@@ -197,8 +195,10 @@ func (self *ReplicationClient) Run() {
 			if self.protocol != nil {
 				_ = self.protocol.Close()
 			}
+			self.glock.Lock()
 			self.stream = nil
 			self.protocol = nil
+			self.glock.Unlock()
 			self.manager.WakeupInitSyncedWaiters()
 			if self.closed {
 				break
@@ -226,8 +226,10 @@ func (self *ReplicationClient) Run() {
 		if self.protocol != nil {
 			_ = self.protocol.Close()
 		}
+		self.glock.Lock()
 		self.stream = nil
 		self.protocol = nil
+		self.glock.Unlock()
 		self.manager.WakeupInitSyncedWaiters()
 		if self.closed {
 			break

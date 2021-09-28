@@ -258,8 +258,6 @@ func (self *ArbiterClient) Close() error {
     if self.protocol != nil {
         _ = self.protocol.Close()
     }
-    self.stream = nil
-    self.protocol = nil
     _ = self.WakeupRetryConnect()
     self.member.manager.slock.Log().Warnf("Arbiter client connect %s close", self.member.host)
     return nil
@@ -341,8 +339,10 @@ func (self *ArbiterClient) Run() {
 
     close(self.rchannel)
     close(self.closed_waiter)
+    self.glock.Lock()
     self.protocol = nil
     self.stream = nil
+    self.glock.Unlock()
     self.member.manager.slock.Log().Infof("Arbiter client connect %s closed", self.member.host)
     if self.member != nil {
         self.member.client = nil
@@ -431,8 +431,6 @@ func (self *ArbiterServer) Close() error {
     if self.protocol != nil {
         _ = self.protocol.Close()
     }
-    self.stream = nil
-    self.protocol = nil
     if self.member != nil {
         self.member.manager.slock.Log().Infof("Arbiter server connect from %s close", self.member.host)
     }
@@ -491,9 +489,9 @@ func (self *ArbiterServer) Run() {
     if !self.stream.closed {
         <- self.stream.closed_waiter
     }
+    self.closed = true
     self.protocol = nil
     self.stream = nil
-    self.closed = true
     close(self.closed_waiter)
     if self.member != nil {
         self.member.manager.slock.Log().Infof("Arbiter server connect from %s closed", self.member.host)

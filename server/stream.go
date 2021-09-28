@@ -105,6 +105,7 @@ func (self *Stream) Close() error {
     }
 
     self.closed = true
+    self.protocol = nil
     return self.conn.Close()
 }
 
