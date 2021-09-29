@@ -20,8 +20,8 @@ go get github.com/snower/slock
 ```
 Usage:
   slock [info]
-	default start slock server
-	info command show db state
+        default start slock server
+        info command show db state
 
 Application Options:
       --bind=                                bind address (default: 127.0.0.1)
@@ -33,14 +33,20 @@ Application Options:
       --log_buffer_size=                     log buffer byte size (default: 0)
       --log_buffer_flush_time=               log buffer flush seconds time (default: 1)
       --data_dir=                            data dir (default: ./data/)
+      --db_fast_key_count=                   db fast key count (default: 4194304)
       --db_concurrent_lock=                  db concurrent lock count (default: 8)
-      --db_lock_aof_time=                    db lock aof time (default: 2)
+      --db_lock_aof_time=                    db lock aof time (default: 1)
+      --db_lock_aof_parcent_time=            db lock aof parcent expried time (default: 0.3)
       --aof_queue_size=                      aof channel queue size (default: 4096)
       --aof_file_rewrite_size=               aof file rewrite size (default: 67174400)
       --aof_file_buffer_size=                aof file buffer size (default: 4096)
+      --aof_ring_buffer_size=                slave sync ring buffer size (default: 1048576)
+      --aof_ring_buffer_max_size=            slave sync ring buffer max size (default: 268435456)
+      --slaveof=                             slave of to master sync
+      --replset=                             replset name, start replset mode when it set
 
 Help Options:
-  -h, --help                                 Show this help message 	
+  -h, --help                                 Show this help message
 ```
 
 ```
@@ -74,7 +80,7 @@ KeyCount:	0
 # Redis Text Protocol Command
 
 ```
-LOCK lock_key [TIMEOUT seconds] [EXPRIED seconds] [LOCK_ID lock_id_string] [FLAG flag_uint8] [COUNT count_uint16] [RCOUNT rcount_uint8]
+LOCK lock_key [TIMEOUT seconds] [EXPRIED seconds] [LOCK_ID lock_id_string] [FLAG flag_uint8] [COUNT count_uint16] [RCOUNT rcount_uint8] [WILL will_uint8]
 
 对lock_key加锁。
 - LOCK_KEY 需要加锁的key值，长度16字节，不足16前面加0x00补足，32字节是尝试hex解码，超过16字节取MD5
@@ -84,6 +90,26 @@ LOCK lock_key [TIMEOUT seconds] [EXPRIED seconds] [LOCK_ID lock_id_string] [FLAG
 - FLAG 标识，可选
 - COUNT LOCK_KEY最大锁定次数，不超过两字节无符号整型，可选
 - RCOUNT LOCK_ID 重复锁定次数，不超过一字节无符号整型，可选
+- WILL 设置值1表示次命令遗言命令，在连接断开后被发送执行，可选
+
+返回 [RESULT_CODE, RESULG_MSG, 'LOCK_ID', lock_id, 'LCOUNT', lcount, 'COUNT', count, 'LRCOUNT', lrcoutn, 'RCOUNT', rcount]
+- RESULT_CODE 返回值，数字，0为成功
+- RESULG_MSG 放回值消息提示，OK为成功
+- LOCK_ID 本次加锁ID，解锁是需要
+- LCOUNT LOCK_KEY已锁定次数
+- COUNT LOCK_KEY最大锁定次数
+- LRCOUNT LOCK_ID已锁定次数
+- RCOUNT LOCK_ID最大锁定次数
+- WILL 设置值1表示次命令遗言命令，在连接断开后被发送执行，可选
+
+UNLOCK lock_key [LOCK_ID lock_id_string] [FLAG flag_uint8] [RCOUNT rcount_uint8] [WILL will_uint8]
+
+对lock_key解锁。
+- LOCK_KEY 需要加锁的key值，长度16字节，不足16前面加0x00补足，32字节是尝试hex解码，超过16字节取MD5
+- LOCK_ID 本次加锁ID，不指明则自动使用上次锁定lock_id，长度16字节，不足16前面加0x00补足，32字节是尝试hex解码，超过16字节取MD5，可选
+- FLAG 标识，可选
+- RCOUNT LOCK_ID 重复锁定次数，不超过一字节无符号整型，可选
+- WILL 设置值1表示次命令遗言命令，在连接断开后被发送执行，可选
 
 返回 [RESULT_CODE, RESULG_MSG, 'LOCK_ID', lock_id, 'LCOUNT', lcount, 'COUNT', count, 'LRCOUNT', lrcoutn, 'RCOUNT', rcount]
 - RESULT_CODE 返回值，数字，0为成功
@@ -94,13 +120,17 @@ LOCK lock_key [TIMEOUT seconds] [EXPRIED seconds] [LOCK_ID lock_id_string] [FLAG
 - LRCOUNT LOCK_ID已锁定次数
 - RCOUNT LOCK_ID最大锁定次数
 
-UNLOCK lock_key [LOCK_ID lock_id_string] [FLAG flag_uint8] [RCOUNT rcount_uint8]
+PUSH lock_key [TIMEOUT seconds] [EXPRIED seconds] [LOCK_ID lock_id_string] [FLAG flag_uint8] [COUNT count_uint16] [RCOUNT rcount_uint8]
 
-对lock_key解锁。
+推送对lock_key加锁命令，不等待结果返回。
 - LOCK_KEY 需要加锁的key值，长度16字节，不足16前面加0x00补足，32字节是尝试hex解码，超过16字节取MD5
-- LOCK_ID 本次加锁ID，不指明则自动使用上次锁定lock_id，长度16字节，不足16前面加0x00补足，32字节是尝试hex解码，超过16字节取MD5，可选
+- TIMEOUT 已锁定则等待时长，不超过两字节无符号整型，可选
+- EXPRIED 锁定后超时时长，不超过两字节无符号整型，可选
+- LOCK_ID 本次加锁ID，不指明lock_id则自动生成一个，长度16字节，不足16前面加0x00补足，32字节是尝试hex解码，超过16字节取MD5，可选
 - FLAG 标识，可选
+- COUNT LOCK_KEY最大锁定次数，不超过两字节无符号整型，可选
 - RCOUNT LOCK_ID 重复锁定次数，不超过一字节无符号整型，可选
+- WILL 设置值1表示次命令遗言命令，在连接断开后被发送执行，可选
 
 返回 [RESULT_CODE, RESULG_MSG, 'LOCK_ID', lock_id, 'LCOUNT', lcount, 'COUNT', count, 'LRCOUNT', lrcoutn, 'RCOUNT', rcount]
 - RESULT_CODE 返回值，数字，0为成功
