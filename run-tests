@@ -11,6 +11,7 @@ run_govet() {
             log_error "go vet failed for the following reasons:
             $GOVET_ERRORS
 please run 'go vet $*' on your changes before committing."
+        ps -ef | grep slock | grep -v grep | awk '{print $2}' | xargs kill -HUP > /dev/null 2>&1
         exit 1
     fi
 }
@@ -23,6 +24,7 @@ run_gotest() {
             log_error "go test failed for the following reasons:
             $GOTEST_OUTPUTS
 please run 'go test $*' on your changes before committing."
+        ps -ef | grep slock | grep -v grep | awk '{print $2}' | xargs kill -HUP > /dev/null 2>&1
         exit 1
     fi
 }
@@ -35,9 +37,7 @@ run_govet "github.com/snower/slock/client"
 echo "Run go test"
 run_gotest "github.com/snower/slock/protocol"
 run_gotest "github.com/snower/slock/server"
-run_gotest "github.com/snower/slock/client"
 
-echo "Run Benchmark"
 export PATH=$(pwd):$PATH
 
 DATA_DIR="/tmp/$(date '+%Y%m%d%H%M%S')/"
@@ -55,6 +55,9 @@ please run 'slock' on your changes before committing."
     exit 1
 fi
 
+run_gotest "github.com/snower/slock/client"
+
+echo "Run Benchmark"
 echo
 
 BENCH_CMD="go run benchmarks/benchmark/benchmark.go --client=16 --conc=64 --count=200000"

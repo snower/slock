@@ -366,6 +366,15 @@ func (self *Client) ExecuteCommand(command protocol.ICommand, timeout int) (prot
     }
 }
 
+func (self *Client) SendCommand(command protocol.ICommand) error {
+    client_protocol := self.getPrococol()
+    if client_protocol == nil {
+        return errors.New("client is not opened")
+    }
+
+    return client_protocol.Write(command)
+}
+
 func (self *Client) Lock(lock_key [16]byte, timeout uint32, expried uint32) *Lock {
     return self.SelectDB(0).Lock(lock_key, timeout, expried)
 }

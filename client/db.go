@@ -92,8 +92,21 @@ func (self *Database) executeCommand(command protocol.ICommand, timeout int) (pr
     }
 }
 
+
+func (self *Database) sendCommand(command protocol.ICommand) error {
+    if self.client == nil {
+        return errors.New("db is not closed")
+    }
+    client_protocol := self.client.getPrococol()
+    if client_protocol == nil {
+        return errors.New("client is not opened")
+    }
+
+    return client_protocol.Write(command)
+}
+
 func (self *Database) Lock(lock_key [16]byte, timeout uint32, expried uint32) *Lock {
-    return NewLock(self, lock_key, timeout, expried, 0, 0)
+    return NewLock(self, lock_key, timeout, expried)
 }
 
 func (self *Database) Event(event_key [16]byte, timeout uint32, expried uint32, default_seted bool) *Event {

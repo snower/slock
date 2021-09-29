@@ -20,8 +20,20 @@ func NewRWLock(db *Database, lock_key [16]byte, timeout uint32, expried uint32) 
     return &RWLock{db, lock_key, timeout, expried, make([]*Lock, 0), nil, &sync.Mutex{}}
 }
 
+func (self *RWLock) GetLockKey() [16]byte {
+    return self.lock_key
+}
+
+func (self *RWLock) GetTimeout() uint32 {
+    return self.timeout
+}
+
+func (self *RWLock) GetExpried() uint32 {
+    return self.expried
+}
+
 func (self *RWLock) RLock() error {
-    rlock := &Lock{self.db, self.db.GenRequestId(), self.db.GenLockId(), self.lock_key, self.timeout, self.expried, 0xffff, 0}
+    rlock := &Lock{self.db, self.db.GenLockId(), self.lock_key, self.timeout, self.expried, 0xffff, 0}
     err := rlock.Lock()
     if err == nil {
         self.glock.Lock()
@@ -46,7 +58,7 @@ func (self *RWLock) RUnlock() error {
 func (self *RWLock) Lock() error {
     self.glock.Lock()
     if self.wlock == nil {
-        self.wlock = &Lock{self.db, self.db.GenRequestId(), self.db.GenLockId(), self.lock_key, self.timeout, self.expried, 0, 0}
+        self.wlock = &Lock{self.db, self.db.GenLockId(), self.lock_key, self.timeout, self.expried, 0, 0}
     }
     self.glock.Unlock()
     return self.wlock.Lock()

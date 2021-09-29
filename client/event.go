@@ -36,20 +36,35 @@ func NewDefaultClearEvent(db *Database, event_key [16]byte, timeout uint32, expr
         nil, nil, &sync.Mutex{}, EVENT_MODE_DEFAULT_CLEAR}
 }
 
+func (self *Event) GetEventKey() [16]byte {
+    return self.event_key
+}
+
+func (self *Event) GetTimeout() uint32 {
+    return self.timeout
+}
+
+func (self *Event) GetExpried() uint32 {
+    return self.expried
+}
+
+func (self *Event) Mode() uint8 {
+    return self.seted_mode
+}
+
 func (self *Event) Clear() error {
     if self.seted_mode == EVENT_MODE_DEFAULT_SET {
         self.glock.Lock()
         if self.event_lock == nil {
-            self.event_lock = &Lock{self.db, self.db.GenRequestId(), self.event_key,
-                self.event_key, self.timeout, self.expried, 0, 0}
+            self.event_lock = &Lock{self.db, self.event_key, self.event_key, self.timeout, self.expried, 0, 0}
         }
         self.glock.Unlock()
 
-        result_command, err := self.event_lock.DoLock(0x02)
-        if err != nil {
-            return err
+        err := self.event_lock.LockUpdate()
+        if err == nil {
+            return nil
         }
-        if result_command.Result == protocol.RESULT_SUCCED || result_command.Result == protocol.RESULT_LOCKED_ERROR {
+        if err.CommandResult.Result == protocol.RESULT_LOCKED_ERROR {
             return nil
         }
         return errors.New("unknown command result")
@@ -57,8 +72,7 @@ func (self *Event) Clear() error {
 
     self.glock.Lock()
     if self.event_lock == nil {
-        self.event_lock = &Lock{self.db, self.db.GenRequestId(), self.event_key,
-            self.event_key, self.timeout, self.expried, 1, 0}
+        self.event_lock = &Lock{self.db, self.event_key, self.event_key, self.timeout, self.expried, 1, 0}
     }
     self.glock.Unlock()
 
@@ -76,8 +90,7 @@ func (self *Event) Set() error {
     if self.seted_mode == EVENT_MODE_DEFAULT_SET {
         self.glock.Lock()
         if self.event_lock == nil {
-            self.event_lock = &Lock{self.db, self.db.GenRequestId(), self.event_key,
-                self.event_key, self.timeout, self.expried, 0, 0}
+            self.event_lock = &Lock{self.db, self.event_key, self.event_key, self.timeout, self.expried, 0, 0}
         }
         self.glock.Unlock()
 
@@ -93,16 +106,15 @@ func (self *Event) Set() error {
 
     self.glock.Lock()
     if self.event_lock == nil {
-        self.event_lock = &Lock{self.db, self.db.GenRequestId(), self.event_key,
-            self.event_key, self.timeout, self.expried, 1, 0}
+        self.event_lock = &Lock{self.db, self.event_key, self.event_key, self.timeout, self.expried, 1, 0}
     }
     self.glock.Unlock()
 
-    result_command, err := self.event_lock.DoLock(0x02)
-    if err != nil {
+    err := self.event_lock.LockUpdate()
+    if err == nil {
         return err
     }
-    if result_command.Result == protocol.RESULT_SUCCED || result_command.Result == protocol.RESULT_LOCKED_ERROR {
+    if err.CommandResult.Result == protocol.RESULT_LOCKED_ERROR {
         return nil
     }
     return errors.New("unknown command result")
@@ -110,8 +122,7 @@ func (self *Event) Set() error {
 
 func (self *Event) IsSet() (bool, error){
     if self.seted_mode == EVENT_MODE_DEFAULT_SET {
-        self.check_lock = &Lock{self.db, self.db.GenRequestId(), self.event_key,
-            self.db.GenLockId(), 0, 0, 0, 0}
+        self.check_lock = &Lock{self.db, self.event_key, self.db.GenLockId(), 0, 0, 0, 0}
         err := self.check_lock.Lock()
         if err == nil {
             return true, nil
@@ -122,8 +133,7 @@ func (self *Event) IsSet() (bool, error){
         return false, err.Err
     }
 
-    self.check_lock = &Lock{self.db, self.db.GenRequestId(), self.event_key,
-        self.db.GenLockId(), 0x02000000, 0, 1, 0}
+    self.check_lock = &Lock{self.db, self.event_key, self.db.GenLockId(), 0x02000000, 0, 1, 0}
     err := self.check_lock.Lock()
     if err == nil {
         return true, nil
@@ -136,7 +146,7 @@ func (self *Event) IsSet() (bool, error){
 
 func (self *Event) Wait(timeout uint32) (bool, error) {
     if self.seted_mode == EVENT_MODE_DEFAULT_SET {
-        self.wait_lock = &Lock{self.db, self.db.GenRequestId(), self.event_key, self.db.GenLockId(), timeout, 0, 0, 0}
+        self.wait_lock = &Lock{self.db, self.event_key, self.db.GenLockId(), timeout, 0, 0, 0}
         err := self.wait_lock.Lock()
         if err == nil {
             return true, nil
@@ -147,7 +157,7 @@ func (self *Event) Wait(timeout uint32) (bool, error) {
         return false, err.Err
     }
 
-    self.wait_lock = &Lock{self.db, self.db.GenRequestId(), self.event_key, self.db.GenLockId(), timeout | 0x02000000, 0, 1, 0}
+    self.wait_lock = &Lock{self.db, self.event_key, self.db.GenLockId(), timeout | 0x02000000, 0, 1, 0}
     err := self.wait_lock.Lock()
     if err == nil {
         return true, nil
@@ -160,7 +170,7 @@ func (self *Event) Wait(timeout uint32) (bool, error) {
 
 func (self *Event) WaitAndTimeoutRetryClear(timeout uint32) (bool, error) {
     if self.seted_mode == EVENT_MODE_DEFAULT_SET {
-        self.wait_lock = &Lock{self.db, self.db.GenRequestId(), self.event_key, self.db.GenLockId(), timeout, 0, 0, 0}
+        self.wait_lock = &Lock{self.db, self.event_key, self.db.GenLockId(), timeout, 0, 0, 0}
         err := self.wait_lock.Lock()
         if err == nil {
             return true, nil
@@ -169,19 +179,20 @@ func (self *Event) WaitAndTimeoutRetryClear(timeout uint32) (bool, error) {
         if err.Result == protocol.RESULT_TIMEOUT {
             self.glock.Lock()
             if self.event_lock == nil {
-                self.event_lock = &Lock{self.db, self.db.GenRequestId(), self.event_key,
-                    self.event_key, self.timeout, self.expried, 0, 0}
+                self.event_lock = &Lock{self.db, self.event_key, self.event_key, self.timeout, self.expried, 0, 0}
             }
             self.glock.Unlock()
 
-            result_command, rerr := self.event_lock.DoLock(0x02)
-            if rerr == nil {
-                if result_command.Result == protocol.RESULT_SUCCED  {
+            rerr := self.event_lock.LockUpdate()
+            if rerr != nil {
+                if rerr.CommandResult.Result == protocol.RESULT_SUCCED {
                     _ = self.event_lock.Unlock()
                     return true, nil
                 }
+                if rerr.CommandResult.Result == protocol.RESULT_LOCKED_ERROR {
+                    return false, nil
+                }
             }
-            return false, nil
         }
         return false, err.Err
     }
