@@ -985,7 +985,7 @@ func (self *Aof) NewAofChannel(lock_db *LockDB) *AofChannel {
     self.glock.Lock()
     server_protocol := NewMemWaiterServerProtocol(self.slock)
     aof_channel := &AofChannel{self.slock, &sync.Mutex{}, self, lock_db, make(chan *AofLock, Config.AofQueueSize),
-        server_protocol, make([]*AofLock, Config.AofQueueSize), 0, int32(Config.AofQueueSize),
+        server_protocol, make([]*AofLock, Config.AofQueueSize + 4), 0, int32(Config.AofQueueSize + 4),
         false, make(chan bool, 1)}
     _ = server_protocol.SetResultCallback(self.LockLoaded)
     self.channels = append(self.channels, aof_channel)

@@ -41,7 +41,7 @@ type ServerConfig struct{
     DBConcurrentLock uint           `long:"db_concurrent_lock" description:"db concurrent lock count" default:"8"`
     DBLockAofTime uint              `long:"db_lock_aof_time" description:"db lock aof time" default:"1"`
     DBLockAofParcentTime float64    `long:"db_lock_aof_parcent_time" description:"db lock aof parcent expried time" default:"0.3"`
-    AofQueueSize uint               `long:"aof_queue_size" description:"aof channel queue size" default:"4096"`
+    AofQueueSize uint               `long:"aof_queue_size" description:"aof channel queue size" default:"64"`
     AofFileRewriteSize uint         `long:"aof_file_rewrite_size" description:"aof file rewrite size" default:"67174400"`
     AofFileBufferSize uint          `long:"aof_file_buffer_size" description:"aof file buffer size" default:"4096"`
     AofRingBufferSize uint          `long:"aof_ring_buffer_size" description:"slave sync ring buffer size" default:"1048576"`
