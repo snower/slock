@@ -12,8 +12,8 @@ var lock_key [16]byte
 
 func run(slock_client *client.Client, count *uint32, max_count uint32, waiter chan bool) {
     for ;; {
-        lock := client.NewLock(slock_client.SelectDB(0), lock_key, 60, 60, 31, 0)
-        //lock := slock_client.Lock(lock_key, 5, 5)
+        lock := client.NewLock(slock_client.SelectDB(0), lock_key, 60, 60)
+        lock.SetCount(31)
 
         err := lock.Lock()
         if err != nil {
