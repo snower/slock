@@ -253,9 +253,6 @@ type BinaryServerProtocol struct {
     wbuf                        []byte
     rindex                      int
     rlen                        int
-    windex                      int
-    flush_index                 int
-    flush_wlock                 *sync.Mutex
     call_methods                map[string]BinaryServerProtocolCallHandler
     will_commands               *LockCommandQueue
     total_command_count         uint64
@@ -265,8 +262,8 @@ type BinaryServerProtocol struct {
 
 func NewBinaryServerProtocol(slock *SLock, stream *Stream) *BinaryServerProtocol {
     server_protocol := &BinaryServerProtocol{slock, &sync.Mutex{}, stream, [16]byte{}, NewLockCommandQueue(4, 64, FREE_COMMAND_QUEUE_INIT_SIZE),
-        NewLockCommandQueue(4, 64, FREE_COMMAND_QUEUE_INIT_SIZE), make([]byte, 1024), make([]byte, 1024),
-        0, 0, 0, 0, &sync.Mutex{}, nil, nil, 0, false, false}
+        NewLockCommandQueue(4, 64, FREE_COMMAND_QUEUE_INIT_SIZE), make([]byte, 1024), make([]byte, 64),
+        0, 0, nil, nil, 0, false, false}
     server_protocol.InitLockCommand()
     stream.protocol = server_protocol
     return server_protocol
@@ -354,8 +351,6 @@ func (self *BinaryServerProtocol) Close() error {
 
     self.UnInitLockCommand()
     self.glock.Unlock()
-    self.flush_wlock.Lock()
-    self.flush_wlock.Unlock()
     return nil
 }
 
@@ -518,70 +513,43 @@ func (self *BinaryServerProtocol) Write(result protocol.CommandEncode) error {
         return errors.New("Protocol Closed")
     }
 
-    content_len := 0
-    var content_data []byte = nil
+    self.glock.Lock()
+    err := result.Encode(self.wbuf)
+    if err != nil {
+        self.glock.Unlock()
+        return err
+    }
+
+    n, err := self.stream.conn.Write(self.wbuf)
+    if err != nil {
+        self.glock.Unlock()
+        return err
+    }
+
+    if n < 64 {
+        for ; n < 64; {
+            cn, err := self.stream.conn.Write(self.wbuf[n:])
+            if err != nil {
+                self.glock.Unlock()
+                return err
+            }
+            n += cn
+        }
+    }
+
     switch result.(type) {
     case *protocol.CallResultCommand:
         call_command := result.(*protocol.CallResultCommand)
         if call_command.ContentLen > 0 {
-            content_len, content_data = int(call_command.ContentLen), call_command.Data
+            err := self.stream.WriteBytes(call_command.Data)
+            if err != nil {
+                self.glock.Unlock()
+                return err
+            }
         }
-    }
-
-    if content_len > 960 {
-        self.WaitFlushWrite(len(self.wbuf))
-        err := result.Encode(self.wbuf)
-        if err != nil {
-            self.glock.Unlock()
-            return err
-        }
-        err = self.stream.WriteBytes(self.wbuf[:64])
-        if err != nil {
-            self.glock.Unlock()
-            return err
-        }
-        err = self.stream.WriteBytes(content_data)
-        if err != nil {
-            self.glock.Unlock()
-            return err
-        }
-        return nil
-    }
-
-    self.glock.Lock()
-    if self.windex > 960 - content_len {
-        self.glock.Unlock()
-        self.WaitFlushWrite(64 + content_len)
-    }
-
-    err := result.Encode(self.wbuf[self.windex:])
-    if err != nil {
-        self.glock.Unlock()
-        return err
-    }
-    if content_len > 0 {
-        copy(self.wbuf[self.windex + 64:], content_data)
-    }
-
-    if self.flush_index > 0 {
-        self.windex += 64 + content_len
-        self.glock.Unlock()
-        return nil
-    }
-
-    n, err := self.stream.conn.Write(self.wbuf[:64 + content_len])
-    if err != nil {
-        self.glock.Unlock()
-        return err
-    }
-
-    if n < 64 + content_len {
-        self.windex += 64 + content_len
-        self.flush_index = n
-        go self.FlushWrite()
     }
     self.glock.Unlock()
-    return err
+    return nil
 }
 
 func (self *BinaryServerProtocol) ReadCommand() (protocol.CommandDecode, error) {
@@ -987,17 +955,12 @@ func (self *BinaryServerProtocol) ProcessLockResultCommand(command *protocol.Loc
         }
     }
 
-    self.glock.Lock()
-    if self.windex > 960 {
-        self.glock.Unlock()
-        self.WaitFlushWrite(64)
-    }
-
-    buf := self.wbuf[self.windex:]
+    buf := self.wbuf
     if len(buf) < 64 {
         return errors.New("buf too short")
     }
 
+    self.glock.Lock()
     buf[0], buf[1], buf[2] = protocol.MAGIC, protocol.VERSION, byte(command.CommandType)
 
     buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
@@ -1020,63 +983,24 @@ func (self *BinaryServerProtocol) ProcessLockResultCommand(command *protocol.Loc
     buf[54], buf[55], buf[56], buf[57], buf[58], buf[59], buf[60], buf[61] = byte(lcount), byte(lcount >> 8), byte(command.Count), byte(command.Count >> 8), byte(lrcount), byte(command.Rcount), 0x00, 0x00
     buf[62], buf[63] = 0x00, 0x00
 
-    if self.flush_index > 0 {
-        self.windex += 64
-        self.glock.Unlock()
-        return nil
-    }
-
-    n, err := self.stream.conn.Write(buf[:64])
+    n, err := self.stream.conn.Write(buf)
     if err != nil {
         self.glock.Unlock()
         return err
     }
 
     if n < 64 {
-        self.windex += 64
-        self.flush_index = n
-        go self.FlushWrite()
+        for ; n < 64; {
+            cn, err := self.stream.conn.Write(buf[n:])
+            if err != nil {
+                self.glock.Unlock()
+                return err
+            }
+            n += cn
+        }
     }
     self.glock.Unlock()
     return nil
-}
-
-func (self *BinaryServerProtocol) WaitFlushWrite(require_size int) {
-    for {
-        self.flush_wlock.Lock()
-        self.glock.Lock()
-        if self.windex > 1024 - require_size {
-            self.flush_wlock.Unlock()
-            self.glock.Unlock()
-            continue
-        }
-        self.flush_wlock.Unlock()
-        return
-    }
-}
-
-func (self *BinaryServerProtocol) FlushWrite() {
-    self.flush_wlock.Lock()
-    for  {
-        n, err := self.stream.conn.Write(self.wbuf[self.flush_index: self.windex])
-        if err != nil {
-            self.flush_index, self.windex = 0, 0
-            self.flush_wlock.Unlock()
-            _ = self.Close()
-            self.slock.Log().Infof("Protocol binary connection flush write error %s %v", self.RemoteAddr().String(), err)
-            return
-        }
-
-        self.flush_index += n
-        self.glock.Lock()
-        if self.flush_index >= self.windex {
-            self.flush_index, self.windex = 0, 0
-            self.flush_wlock.Unlock()
-            self.glock.Unlock()
-            return
-        }
-        self.glock.Unlock()
-    }
 }
 
 func (self *BinaryServerProtocol) ProcessLockResultCommandLocked(command *protocol.LockCommand, result uint8, lcount uint16, lrcount uint8) error {

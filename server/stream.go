@@ -29,11 +29,6 @@ func NewStream(conn net.Conn) *Stream {
     now := time.Now()
     stream := &Stream{conn, nil,&now, atomic.AddUint64(&client_id, 1),
         STREAM_TYPE_NORMAL, false, make(chan bool, 1)}
-    if tcp_conn, ok := conn.(*net.TCPConn); ok {
-        if tcp_conn.SetNoDelay(true) != nil {
-            return nil
-        }
-    }
     return stream
 }
 

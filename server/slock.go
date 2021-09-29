@@ -1,8 +1,10 @@
 package server
 
 import (
+    "errors"
     "github.com/hhkbp2/go-logging"
     "github.com/snower/slock/protocol"
+    "net"
     "sync"
     "time"
 )
@@ -92,8 +94,13 @@ func (self *SLock) InitLeader() error {
 }
 
 func (self *SLock) InitFollower(leader_address string) error {
+    _, err := net.ResolveTCPAddr("tcp", leader_address)
+    if err != nil {
+        return errors.New("host invalid error")
+    }
+
     self.UpdateState(STATE_INIT)
-    err := self.aof.Init()
+    err = self.aof.Init()
     if err != nil {
         self.logger.Errorf("Aof init error %v", err)
         return err

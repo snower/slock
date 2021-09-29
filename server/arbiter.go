@@ -1242,9 +1242,14 @@ func (self *ArbiterManager) Config(host string, weight uint32, arbiter uint32) e
         return errors.New("member info error")
     }
 
+    _, err := net.ResolveTCPAddr("tcp", host)
+    if err != nil {
+        return errors.New("host invalid error")
+    }
+
     member := NewArbiterMember(self, host, weight, arbiter)
     member.isself = true
-    err := member.Open()
+    err = member.Open()
     if err != nil {
         return err
     }
@@ -1274,6 +1279,11 @@ func (self *ArbiterManager) AddMember(host string, weight uint32, arbiter uint32
         return errors.New("member info error")
     }
 
+    _, err := net.ResolveTCPAddr("tcp", host)
+    if err != nil {
+        return errors.New("host invalid error")
+    }
+
     for _, member := range self.members {
         if member.host == host {
             return errors.New("has save member error")
@@ -1282,7 +1292,7 @@ func (self *ArbiterManager) AddMember(host string, weight uint32, arbiter uint32
 
     member := NewArbiterMember(self, host, weight, arbiter)
     member.role = ARBITER_ROLE_FOLLOWER
-    err := member.Open()
+    err = member.Open()
     if err != nil {
         return err
     }
@@ -1346,6 +1356,11 @@ func (self *ArbiterManager) UpdateMember(host string, weight uint32, arbiter uin
 
     if self.own_member == nil || len(self.members) == 0 {
         return errors.New("member info error")
+    }
+
+    _, err := net.ResolveTCPAddr("tcp", host)
+    if err != nil {
+        return errors.New("host invalid error")
     }
 
     var current_member *ArbiterMember = nil

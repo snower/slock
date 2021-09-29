@@ -13,12 +13,6 @@ type Stream struct {
 
 func NewStream(conn net.Conn) *Stream {
     stream := &Stream{conn, false}
-    tcp_conn, ok := conn.(*net.TCPConn)
-    if ok {
-        if tcp_conn.SetNoDelay(true) != nil {
-            return nil
-        }
-    }
     return stream
 }
 
