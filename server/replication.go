@@ -689,6 +689,9 @@ func (self *ReplicationServer) HandleInitSync(command *protocol.CallCommand) (*p
 	if err != nil {
 		return protocol.NewCallResultCommand(command, 0, "ERR_AOF_ID", nil), nil
 	}
+	if buf[4] == 0 && buf[5] == 0 && buf[6] == 0 && buf[7] == 0 {
+		return protocol.NewCallResultCommand(command, 0, "ERR_NOT_FOUND", nil), nil
+	}
 	inited_aof_id := [16]byte{buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11], buf[12], buf[13], buf[14], buf[15]}
 	buffer_index, serr := self.manager.buffer_queue.Search(inited_aof_id, self.waof_lock.buf)
 	if serr != nil {

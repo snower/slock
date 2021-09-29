@@ -1347,6 +1347,7 @@ func (self *Aof) LoadRewriteAofFiles(aof_filenames []string) (*AofFile, []*AofFi
         return nil, nil, err
     }
 
+    now := uint64(time.Now().Unix())
     lock_command := &protocol.LockCommand{}
     aof_files := make([]*AofFile, 0)
     aof_id := uint32(0)
@@ -1361,7 +1362,7 @@ func (self *Aof) LoadRewriteAofFiles(aof_filenames []string) (*AofFile, []*AofFi
         lock_command.DbId = lock.DbId
         lock_command.LockId = lock.LockId
         lock_command.LockKey = lock.LockKey
-        if !db.HasLock(lock_command) {
+        if now - lock.CommandTime > 300 && !db.HasLock(lock_command) {
             return true, nil
         }
 
