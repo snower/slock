@@ -80,7 +80,7 @@ func TestTextParser_MultiParseRequest(t *testing.T) {
 		admin_parse.buf_len = len(data)
 		admin_parse.buf_index = 0
 
-		for ; admin_parse.buf_index < admin_parse.buf_len; {
+		for admin_parse.buf_index < admin_parse.buf_len {
 			err := admin_parse.ParseRequest()
 			if err != nil {
 				t.Errorf("Text Request Command Parse Fail %v %v", err, admin_parse.args)
@@ -142,7 +142,6 @@ func TestTextParser_BuildResponse(t *testing.T) {
 	}
 }
 
-
 func TestTextParser_ParseResponseOK(t *testing.T) {
 	admin_parse := NewTextParser(make([]byte, 1024), make([]byte, 1024))
 
@@ -198,7 +197,6 @@ func TestTextParser_ParseResponseERR(t *testing.T) {
 		return
 	}
 }
-
 
 func TestTextParser_ParseResponseERRMessage(t *testing.T) {
 	admin_parse := NewTextParser(make([]byte, 1024), make([]byte, 1024))
@@ -289,7 +287,6 @@ func TestTextParser_ParseResponseARY(t *testing.T) {
 	}
 }
 
-
 func TestTextParser_ParseResponseZeroArg(t *testing.T) {
 	admin_parse := NewTextParser(make([]byte, 1024), make([]byte, 1024))
 
@@ -336,7 +333,7 @@ func TestTextParser_ParseMulti(t *testing.T) {
 		admin_parse.buf_len = len(data)
 		admin_parse.buf_index = 0
 
-		for ; admin_parse.buf_index < admin_parse.buf_len; {
+		for admin_parse.buf_index < admin_parse.buf_len {
 			r := admin_parse.ParseResponse()
 			if r != nil {
 				t.Errorf("Text Response Command ParseMulti Fail %v", r)

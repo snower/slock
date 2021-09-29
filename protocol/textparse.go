@@ -8,8 +8,8 @@ import (
 )
 
 type TextRequestCommand struct {
-	Parser      *TextParser
-	Args        []string
+	Parser *TextParser
+	Args   []string
 }
 
 func (self *TextRequestCommand) Decode(buf []byte) error {
@@ -38,13 +38,13 @@ func (self *TextRequestCommand) GetArgs() []string {
 }
 
 type TextResponseCommand struct {
-	Parser      *TextParser
-	ErrorType   string
-	Message     string
-	Results     []string
+	Parser    *TextParser
+	ErrorType string
+	Message   string
+	Results   []string
 }
 
-func (self *TextResponseCommand) Decode(buf []byte) error  {
+func (self *TextResponseCommand) Decode(buf []byte) error {
 	if len(buf) > len(self.Parser.rbuf) || self.Parser.buf_index != self.Parser.buf_len {
 		return errors.New("buf error")
 	}
@@ -55,7 +55,7 @@ func (self *TextResponseCommand) Decode(buf []byte) error  {
 	return self.Parser.ParseResponse()
 }
 
-func (self *TextResponseCommand) Encode(buf []byte) error  {
+func (self *TextResponseCommand) Encode(buf []byte) error {
 	is_success := false
 	message := self.Message
 	if self.ErrorType == "" {
@@ -65,7 +65,7 @@ func (self *TextResponseCommand) Encode(buf []byte) error  {
 	}
 
 	build_buf := self.Parser.BuildResponse(is_success, message, self.Results)
-	if len(build_buf) > len(buf)|| self.Parser.buf_index == self.Parser.buf_len {
+	if len(build_buf) > len(buf) || self.Parser.buf_index == self.Parser.buf_len {
 		return errors.New("buf error")
 	}
 
@@ -86,17 +86,17 @@ func (self *TextResponseCommand) GetResults() []string {
 }
 
 type TextParser struct {
-	rbuf        []byte
-	wbuf        []byte
-	args        []string
-	carg        []byte
-	args_type   int
-	buf_index   int
-	buf_len     int
-	stage       int
-	args_count  int
-	carg_index  int
-	carg_len    int
+	rbuf       []byte
+	wbuf       []byte
+	args       []string
+	carg       []byte
+	args_type  int
+	buf_index  int
+	buf_len    int
+	stage      int
+	args_count int
+	carg_index int
+	carg_len   int
 }
 
 func NewTextParser(rbuf []byte, wbuf []byte) *TextParser {
@@ -114,7 +114,7 @@ func (self *TextParser) CopyToReadBuf(buf []byte) {
 }
 
 func (self *TextParser) GetRemainingReadBuffer() []byte {
-	buf := self.rbuf[self.buf_index: self.buf_len]
+	buf := self.rbuf[self.buf_index:self.buf_len]
 	self.buf_len = 0
 	self.buf_index = 0
 	return buf
@@ -211,7 +211,7 @@ func (self *TextParser) Reset() {
 }
 
 func (self *TextParser) ParseRequest() error {
-	for ; self.buf_index < self.buf_len; {
+	for self.buf_index < self.buf_len {
 		switch self.stage {
 		case 0:
 			if self.rbuf[self.buf_index] != '*' {
@@ -285,11 +285,11 @@ func (self *TextParser) ParseRequest() error {
 		case 4:
 			carg_len := self.carg_len - self.carg_index
 			if carg_len > 0 {
-				if self.buf_len - self.buf_index < carg_len {
+				if self.buf_len-self.buf_index < carg_len {
 					if self.carg_index == 0 {
-						self.args = append(self.args, string(self.rbuf[self.buf_index: self.buf_len]))
+						self.args = append(self.args, string(self.rbuf[self.buf_index:self.buf_len]))
 					} else {
-						self.args[len(self.args) - 1] += string(self.rbuf[self.buf_index: self.buf_len])
+						self.args[len(self.args)-1] += string(self.rbuf[self.buf_index:self.buf_len])
 					}
 					self.carg_index += self.buf_len - self.buf_index
 					self.buf_index = self.buf_len
@@ -297,9 +297,9 @@ func (self *TextParser) ParseRequest() error {
 				}
 
 				if self.carg_index == 0 {
-					self.args = append(self.args, string(self.rbuf[self.buf_index: self.buf_index + carg_len]))
+					self.args = append(self.args, string(self.rbuf[self.buf_index:self.buf_index+carg_len]))
 				} else {
-					self.args[len(self.args) - 1] += string(self.rbuf[self.buf_index: self.buf_index + carg_len])
+					self.args[len(self.args)-1] += string(self.rbuf[self.buf_index : self.buf_index+carg_len])
 				}
 				self.carg_index = carg_len
 				self.buf_index += carg_len
@@ -336,7 +336,7 @@ func (self *TextParser) ParseRequest() error {
 }
 
 func (self *TextParser) ParseResponse() error {
-	for ; self.buf_index < self.buf_len; {
+	for self.buf_index < self.buf_len {
 		switch self.stage {
 		case 0:
 			switch self.rbuf[self.buf_index] {
@@ -429,11 +429,11 @@ func (self *TextParser) ParseResponse() error {
 		case 4:
 			carg_len := self.carg_len - self.carg_index
 			if carg_len > 0 {
-				if self.buf_len - self.buf_index < carg_len {
+				if self.buf_len-self.buf_index < carg_len {
 					if self.carg_index == 0 {
-						self.args = append(self.args, string(self.rbuf[self.buf_index: self.buf_len]))
+						self.args = append(self.args, string(self.rbuf[self.buf_index:self.buf_len]))
 					} else {
-						self.args[len(self.args) - 1] += string(self.rbuf[self.buf_index: self.buf_len])
+						self.args[len(self.args)-1] += string(self.rbuf[self.buf_index:self.buf_len])
 					}
 					self.carg_index += self.buf_len - self.buf_index
 					self.buf_index = self.buf_len
@@ -441,9 +441,9 @@ func (self *TextParser) ParseResponse() error {
 				}
 
 				if self.carg_index == 0 {
-					self.args = append(self.args, string(self.rbuf[self.buf_index: self.buf_index + carg_len]))
+					self.args = append(self.args, string(self.rbuf[self.buf_index:self.buf_index+carg_len]))
 				} else {
-					self.args[len(self.args) - 1] += string(self.rbuf[self.buf_index: self.buf_index + carg_len])
+					self.args[len(self.args)-1] += string(self.rbuf[self.buf_index : self.buf_index+carg_len])
 				}
 				self.carg_index = carg_len
 				self.buf_index += carg_len

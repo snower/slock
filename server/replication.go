@@ -15,18 +15,18 @@ import (
 )
 
 type ReplicationBufferQueue struct {
-	manager 			*ReplicationManager
-	glock 				*sync.RWMutex
-	buf 				[]byte
-	segment_count 		int
-	segment_size		int
-	current_index		uint64
-	max_index			uint64
-	require_duplicated	bool
+	manager            *ReplicationManager
+	glock              *sync.RWMutex
+	buf                []byte
+	segment_count      int
+	segment_size       int
+	current_index      uint64
+	max_index          uint64
+	require_duplicated bool
 }
 
-func NewReplicationBufferQueue(manager *ReplicationManager, buf_size int) *ReplicationBufferQueue  {
-	max_index := uint64(0xffffffffffffffff) - uint64(0xffffffffffffffff) % uint64(buf_size / 64)
+func NewReplicationBufferQueue(manager *ReplicationManager, buf_size int) *ReplicationBufferQueue {
+	max_index := uint64(0xffffffffffffffff) - uint64(0xffffffffffffffff)%uint64(buf_size/64)
 	queue := &ReplicationBufferQueue{manager, &sync.RWMutex{}, make([]byte, buf_size),
 		buf_size / 64, 64, 0, max_index, false}
 	return queue
@@ -42,19 +42,19 @@ func (self *ReplicationBufferQueue) Reduplicated() *ReplicationBufferQueue {
 	buf := make([]byte, buf_size)
 	self.glock.Lock()
 	copy(buf, self.buf)
-	copy(buf[self.segment_count * self.segment_size:], self.buf)
+	copy(buf[self.segment_count*self.segment_size:], self.buf)
 	self.buf = buf
 	self.segment_count = buf_size / 64
-	self.max_index = uint64(0xffffffffffffffff) - uint64(0xffffffffffffffff) % uint64(buf_size / 64)
+	self.max_index = uint64(0xffffffffffffffff) - uint64(0xffffffffffffffff)%uint64(buf_size/64)
 	self.require_duplicated = false
 	self.glock.Unlock()
-	self.manager.slock.Log().Infof("Replication aof ring buffer reduplicated size %d to %d", buf_size / 2, buf_size)
+	self.manager.slock.Log().Infof("Replication aof ring buffer reduplicated size %d to %d", buf_size/2, buf_size)
 	return self
 }
 
 func (self *ReplicationBufferQueue) Push(buf []byte) error {
 	self.glock.Lock()
-	current_size := int(self.current_index % uint64(self.segment_count)) * self.segment_size
+	current_size := int(self.current_index%uint64(self.segment_count)) * self.segment_size
 	copy(self.buf[current_size:], buf)
 	self.current_index++
 	if self.current_index >= self.max_index {
@@ -71,13 +71,13 @@ func (self *ReplicationBufferQueue) Pop(segment_index uint64, buf []byte) error 
 		return io.EOF
 	}
 
-	if self.current_index - segment_index > uint64(self.segment_count) {
+	if self.current_index-segment_index > uint64(self.segment_count) {
 		self.glock.RUnlock()
 		return errors.New("segment out of buf")
 	}
 
-	current_size := int(segment_index % uint64(self.segment_count)) * self.segment_size
-	copy(buf, self.buf[current_size: current_size + self.segment_size])
+	current_size := int(segment_index%uint64(self.segment_count)) * self.segment_size
+	copy(buf, self.buf[current_size:current_size+self.segment_size])
 	self.glock.RUnlock()
 	return nil
 }
@@ -89,8 +89,8 @@ func (self *ReplicationBufferQueue) Head(buf []byte) (uint64, error) {
 		return 0, errors.New("buffer is empty")
 	}
 
-	current_size := int((self.current_index - 1) % uint64(self.segment_count)) * self.segment_size
-	copy(buf, self.buf[current_size: current_size+self.segment_size])
+	current_size := int((self.current_index-1)%uint64(self.segment_count)) * self.segment_size
+	copy(buf, self.buf[current_size:current_size+self.segment_size])
 	self.glock.RUnlock()
 	return self.current_index - 1, nil
 }
@@ -111,8 +111,8 @@ func (self *ReplicationBufferQueue) Search(aof_id [16]byte, aof_buf []byte) (uin
 	}
 
 	for i := 0; i < segment_count; i++ {
-		current_size := int((start_index + uint64(i)) % uint64(self.segment_count)) * self.segment_size
-		buf := self.buf[current_size: current_size + self.segment_size]
+		current_size := int((start_index+uint64(i))%uint64(self.segment_count)) * self.segment_size
+		buf := self.buf[current_size : current_size+self.segment_size]
 		current_aof_id := [16]byte{buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18]}
 		if current_aof_id == aof_id {
 			copy(aof_buf, buf)
@@ -129,23 +129,23 @@ func (self *ReplicationBufferQueue) Search(aof_id [16]byte, aof_buf []byte) (uin
 }
 
 type ReplicationClient struct {
-	manager 			*ReplicationManager
-	glock 				*sync.Mutex
-	stream 				*client.Stream
-	protocol 			*client.BinaryClientProtocol
-	aof 				*Aof
-	aof_lock 			*AofLock
-	current_request_id	[16]byte
-	rbufs				[][]byte
-	rbuf_index			int
-	rbuf_channel		chan []byte
-	wbuf				[]byte
-	loaded_count		uint64
-	wakeup_signal		chan bool
-	closed_waiter		chan bool
-	closed 				bool
-	connected_leader 	bool
-	recved_files		bool
+	manager            *ReplicationManager
+	glock              *sync.Mutex
+	stream             *client.Stream
+	protocol           *client.BinaryClientProtocol
+	aof                *Aof
+	aof_lock           *AofLock
+	current_request_id [16]byte
+	rbufs              [][]byte
+	rbuf_index         int
+	rbuf_channel       chan []byte
+	wbuf               []byte
+	loaded_count       uint64
+	wakeup_signal      chan bool
+	closed_waiter      chan bool
+	closed             bool
+	connected_leader   bool
+	recved_files       bool
 }
 
 func NewReplicationClient(manager *ReplicationManager) *ReplicationClient {
@@ -162,8 +162,8 @@ func (self *ReplicationClient) Open(addr string) error {
 	if self.protocol != nil {
 		return errors.New("Client is Opened")
 	}
-	
-	conn, err := net.DialTimeout("tcp", addr, 2 * time.Second)
+
+	conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
 	if err != nil {
 		return err
 	}
@@ -187,7 +187,7 @@ func (self *ReplicationClient) Close() error {
 
 func (self *ReplicationClient) Run() {
 	self.current_request_id = self.manager.current_request_id
-	for ; !self.closed; {
+	for !self.closed {
 		self.manager.slock.logger.Infof("Replication client connect leader %s", self.manager.leader_address)
 		err := self.Open(self.manager.leader_address)
 		if err != nil {
@@ -255,7 +255,7 @@ func (self *ReplicationClient) SendSyncCommand() (*protobuf.SyncResponse, error)
 		self.manager.slock.logger.Infof("Replication client send start sync")
 	}
 
-	request := protobuf.SyncRequest{AofId:request_id}
+	request := protobuf.SyncRequest{AofId: request_id}
 	data, err := request.Marshal()
 	if err != nil {
 		return nil, err
@@ -377,7 +377,7 @@ func (self *ReplicationClient) RecvFiles() error {
 
 	var aof_file *AofFile = nil
 	aof_index := uint32(0)
-	for ; !self.closed; {
+	for !self.closed {
 		err := self.ReadLock()
 		if err != nil {
 			return err
@@ -417,7 +417,7 @@ func (self *ReplicationClient) RecvFiles() error {
 			}
 		}
 
-		if self.aof_lock.AofFlag & 0x1000 != 0 {
+		if self.aof_lock.AofFlag&0x1000 != 0 {
 			self.aof_lock.AofFlag &= 0xEFFF
 		}
 		err = self.aof.LoadLock(self.aof_lock)
@@ -442,7 +442,7 @@ func (self *ReplicationClient) RecvFiles() error {
 func (self *ReplicationClient) Process() error {
 	go self.ReadProcess()
 
-	for ; !self.closed; {
+	for !self.closed {
 		err := self.GetLock()
 		if err != nil {
 			return err
@@ -472,7 +472,7 @@ func (self *ReplicationClient) ReadLock() error {
 	}
 
 	if n < 64 {
-		for ; n < 64; {
+		for n < 64 {
 			nn, nerr := self.stream.Read(buf[n:])
 			if nerr != nil {
 				return nerr
@@ -491,7 +491,7 @@ func (self *ReplicationClient) ReadLock() error {
 func (self *ReplicationClient) GetLock() error {
 	for {
 		select {
-		case buf := <- self.rbuf_channel:
+		case buf := <-self.rbuf_channel:
 			if buf == nil {
 				return io.EOF
 			}
@@ -510,7 +510,7 @@ func (self *ReplicationClient) GetLock() error {
 			self.aof.aof_glock.Lock()
 			self.aof.Flush()
 			self.aof.aof_glock.Unlock()
-			buf := <- self.rbuf_channel
+			buf := <-self.rbuf_channel
 			if buf == nil {
 				return io.EOF
 			}
@@ -526,7 +526,7 @@ func (self *ReplicationClient) GetLock() error {
 }
 
 func (self *ReplicationClient) ReadProcess() {
-	for ; !self.closed; {
+	for !self.closed {
 		buf := self.rbufs[self.rbuf_index]
 		n, err := self.stream.Read(buf)
 		if err != nil {
@@ -535,7 +535,7 @@ func (self *ReplicationClient) ReadProcess() {
 		}
 
 		if n < 64 {
-			for ; n < 64; {
+			for n < 64 {
 				nn, nerr := self.stream.Read(buf[n:])
 				if nerr != nil {
 					self.rbuf_channel <- nil
@@ -582,9 +582,9 @@ func (self *ReplicationClient) SleepWhenRetryConnect() error {
 	self.glock.Unlock()
 
 	select {
-	case <- self.wakeup_signal:
+	case <-self.wakeup_signal:
 		return nil
-	case <- time.After(5 * time.Second):
+	case <-time.After(5 * time.Second):
 		self.glock.Lock()
 		self.wakeup_signal = nil
 		self.glock.Unlock()
@@ -603,19 +603,19 @@ func (self *ReplicationClient) WakeupRetryConnect() error {
 }
 
 type ReplicationServer struct {
-	manager 			*ReplicationManager
-	stream 				*Stream
-	protocol 			*BinaryServerProtocol
-	aof 				*Aof
-	raof_lock 			*AofLock
-	waof_lock 			*AofLock
-	current_request_id	[16]byte
-	buffer_index		uint64
-	pulled				uint32
-	pulled_waiter		chan bool
-	closed 				bool
-	closed_waiter		chan bool
-	sended_files		bool
+	manager            *ReplicationManager
+	stream             *Stream
+	protocol           *BinaryServerProtocol
+	aof                *Aof
+	raof_lock          *AofLock
+	waof_lock          *AofLock
+	current_request_id [16]byte
+	buffer_index       uint64
+	pulled             uint32
+	pulled_waiter      chan bool
+	closed             bool
+	closed_waiter      chan bool
+	sended_files       bool
 }
 
 func NewReplicationServer(manager *ReplicationManager, server_protocol *BinaryServerProtocol) *ReplicationServer {
@@ -642,7 +642,7 @@ func (self *ReplicationServer) HandleInitSync(command *protocol.CallCommand) (*p
 	request := protobuf.SyncRequest{}
 	err := request.Unmarshal(command.Data)
 	if err != nil {
-		return protocol.NewCallResultCommand(command, 0,  "ERR_PROTO", nil), nil
+		return protocol.NewCallResultCommand(command, 0, "ERR_PROTO", nil), nil
 	}
 
 	if request.AofId == "" {
@@ -657,12 +657,12 @@ func (self *ReplicationServer) HandleInitSync(command *protocol.CallCommand) (*p
 			}
 		}
 		request_id := fmt.Sprintf("%x", self.waof_lock.GetRequestId())
-		response := protobuf.SyncResponse{AofId:request_id}
+		response := protobuf.SyncResponse{AofId: request_id}
 		data, err := response.Marshal()
 		if err != nil {
 			return protocol.NewCallResultCommand(command, 0, "ERR_ENCODE", nil), nil
 		}
-		err = self.protocol.Write(protocol.NewCallResultCommand(command, 0,  "", data))
+		err = self.protocol.Write(protocol.NewCallResultCommand(command, 0, "", data))
 		if err != nil {
 			return nil, err
 		}
@@ -703,7 +703,7 @@ func (self *ReplicationServer) HandleInitSync(command *protocol.CallCommand) (*p
 		return protocol.NewCallResultCommand(command, 0, "ERR_ENCODE", nil), nil
 	}
 	request_id := fmt.Sprintf("%x", self.waof_lock.GetRequestId())
-	response := protobuf.SyncResponse{AofId:request_id}
+	response := protobuf.SyncResponse{AofId: request_id}
 	data, err := response.Marshal()
 	if err != nil {
 		return protocol.NewCallResultCommand(command, 0, "ERR_ENCODE", nil), nil
@@ -740,7 +740,7 @@ func (self *ReplicationServer) SendFiles() error {
 		aof_filenames = append(aof_filenames, rewrite_file)
 	}
 	aof_filenames = append(aof_filenames, append_files...)
-	err = self.aof.LoadAofFiles(aof_filenames, func (filename string, aof_file *AofFile, lock *AofLock, first_lock bool) (bool, error) {
+	err = self.aof.LoadAofFiles(aof_filenames, func(filename string, aof_file *AofFile, lock *AofLock, first_lock bool) (bool, error) {
 		if lock.AofIndex >= self.waof_lock.AofIndex && lock.AofId >= self.waof_lock.AofId {
 			return false, nil
 		}
@@ -767,14 +767,14 @@ func (self *ReplicationServer) SendFiles() error {
 
 func (self *ReplicationServer) WaitStarted() error {
 	buf := self.raof_lock.buf
-	for ; !self.closed; {
+	for !self.closed {
 		n, err := self.stream.Read(buf)
 		if err != nil {
 			return err
 		}
 
 		if n < 64 {
-			for ; n < 64; {
+			for n < 64 {
 				nn, nerr := self.stream.Read(buf[n:])
 				if nerr != nil {
 					return nerr
@@ -815,14 +815,14 @@ func (self *ReplicationServer) SendFilesFinished() error {
 func (self *ReplicationServer) SendFilesQueue() error {
 	bufs := make([][]byte, 0)
 	atomic.AddUint32(&self.manager.server_active_count, 1)
-	for ; !self.closed && !self.sended_files; {
+	for !self.closed && !self.sended_files {
 		buf := make([]byte, 64)
 		err := self.manager.buffer_queue.Pop(self.buffer_index, buf)
 		if err != nil {
 			if err == io.EOF {
 				atomic.AddUint32(&self.pulled, 1)
 				atomic.AddUint32(&self.manager.server_active_count, 0xffffffff)
-				<- self.pulled_waiter
+				<-self.pulled_waiter
 				atomic.AddUint32(&self.manager.server_active_count, 1)
 				continue
 			}
@@ -846,8 +846,8 @@ func (self *ReplicationServer) SendFilesQueue() error {
 			if err != nil {
 				return err
 			}
-			if self.waof_lock.ExpriedFlag & 0x4000 == 0 {
-				if int64(self.waof_lock.CommandTime + uint64(self.waof_lock.ExpriedTime)) <= now {
+			if self.waof_lock.ExpriedFlag&0x4000 == 0 {
+				if int64(self.waof_lock.CommandTime+uint64(self.waof_lock.ExpriedTime)) <= now {
 					continue
 				}
 			}
@@ -871,8 +871,8 @@ func (self *ReplicationServer) SendProcess() error {
 	}
 
 	atomic.AddUint32(&self.manager.server_active_count, 1)
-	for ; !self.closed; {
-		if float64(self.manager.buffer_queue.current_index - self.buffer_index) > float64(self.manager.buffer_queue.segment_count) * 0.8 {
+	for !self.closed {
+		if float64(self.manager.buffer_queue.current_index-self.buffer_index) > float64(self.manager.buffer_queue.segment_count)*0.8 {
 			self.manager.buffer_queue.require_duplicated = true
 		}
 
@@ -890,7 +890,7 @@ func (self *ReplicationServer) SendProcess() error {
 					}
 					self.manager.glock.Unlock()
 				}
-				<- self.pulled_waiter
+				<-self.pulled_waiter
 				atomic.AddUint32(&self.manager.server_active_count, 1)
 				continue
 			}
@@ -919,14 +919,14 @@ func (self *ReplicationServer) SendProcess() error {
 func (self *ReplicationServer) RecvProcess() error {
 	buf := self.raof_lock.buf
 	lock_result := &protocol.LockResultCommand{}
-	for ; !self.closed; {
+	for !self.closed {
 		n, err := self.stream.Read(buf)
 		if err != nil {
 			return err
 		}
 
 		if n < 64 {
-			for ; n < 64; {
+			for n < 64 {
 				nn, nerr := self.stream.Read(buf[n:])
 				if nerr != nil {
 					return nerr
@@ -949,34 +949,34 @@ func (self *ReplicationServer) RecvProcess() error {
 }
 
 type ReplicationAckLock struct {
-	lock_result 	protocol.LockResultCommand
-	aof_result		uint8
-	locked			bool
-	aofed			bool
+	lock_result protocol.LockResultCommand
+	aof_result  uint8
+	locked      bool
+	aofed       bool
 }
 
 func NewReplicationAckLock() *ReplicationAckLock {
-	result_command := protocol.ResultCommand{ Magic:protocol.MAGIC, Version:protocol.VERSION, CommandType:0, RequestId:[16]byte{}, Result:0}
-	lock_result := protocol.LockResultCommand{ResultCommand:result_command, Flag:0, DbId:0, LockId:[16]byte{}, LockKey:[16]byte{},
-		Count:0, Lcount:0, Lrcount:0, Rcount:0, Blank:protocol.RESULT_LOCK_COMMAND_BLANK_BYTERS}
+	result_command := protocol.ResultCommand{Magic: protocol.MAGIC, Version: protocol.VERSION, CommandType: 0, RequestId: [16]byte{}, Result: 0}
+	lock_result := protocol.LockResultCommand{ResultCommand: result_command, Flag: 0, DbId: 0, LockId: [16]byte{}, LockKey: [16]byte{},
+		Count: 0, Lcount: 0, Lrcount: 0, Rcount: 0, Blank: protocol.RESULT_LOCK_COMMAND_BLANK_BYTERS}
 	return &ReplicationAckLock{lock_result, 0, false, false}
 }
 
 type ReplicationAckDB struct {
-	manager 					*ReplicationManager
-	glock						*sync.Mutex
-	locks 						map[[16]byte]*Lock
-	requests					map[[2][16]byte][16]byte
-	ack_locks					map[[16]byte]*ReplicationAckLock
-	free_ack_locks				[]*ReplicationAckLock
-	free_ack_locks_index        uint32
-	ack_count					uint8
-	closed   					bool
+	manager              *ReplicationManager
+	glock                *sync.Mutex
+	locks                map[[16]byte]*Lock
+	requests             map[[2][16]byte][16]byte
+	ack_locks            map[[16]byte]*ReplicationAckLock
+	free_ack_locks       []*ReplicationAckLock
+	free_ack_locks_index uint32
+	ack_count            uint8
+	closed               bool
 }
 
 func NewReplicationAckDB(manager *ReplicationManager) *ReplicationAckDB {
 	return &ReplicationAckDB{manager, &sync.Mutex{}, make(map[[16]byte]*Lock, REPLICATION_ACK_DB_INIT_SIZE),
-			make(map[[2][16]byte][16]byte, REPLICATION_ACK_DB_INIT_SIZE), make(map[[16]byte]*ReplicationAckLock, REPLICATION_ACK_DB_INIT_SIZE),
+		make(map[[2][16]byte][16]byte, REPLICATION_ACK_DB_INIT_SIZE), make(map[[16]byte]*ReplicationAckLock, REPLICATION_ACK_DB_INIT_SIZE),
 		make([]*ReplicationAckLock, REPLICATION_MAX_FREE_ACK_LOCK_QUEUE_SIZE), 0, 1, false}
 }
 
@@ -999,7 +999,7 @@ func (self *ReplicationAckDB) PushLock(lock *AofLock) error {
 			lock_manager.lock_db.DoAckLock(lock.lock, false)
 			return nil
 		}
-		
+
 		lock_key := [2][16]byte{lock.LockKey, lock.LockId}
 		if request_id, ok := self.requests[lock_key]; ok {
 			if _, ok := self.locks[request_id]; ok {
@@ -1221,39 +1221,39 @@ func (self *ReplicationAckDB) SwitchToFollower() error {
 }
 
 type ReplicationManager struct {
-	slock 						*SLock
-	glock 						*sync.Mutex
-	buffer_queue 				*ReplicationBufferQueue
-	ack_dbs						[]*ReplicationAckDB
-	client_channel 				*ReplicationClient
-	server_channels 			[]*ReplicationServer
-	transparency_manager		*TransparencyManager
-	current_request_id			[16]byte
-	leader_address				string
-	server_count				uint32
-	server_active_count 		uint32
-	server_flush_waiter			chan bool
-	inited_waters				[]chan bool
-	closed 						bool
-	is_leader 					bool
+	slock                *SLock
+	glock                *sync.Mutex
+	buffer_queue         *ReplicationBufferQueue
+	ack_dbs              []*ReplicationAckDB
+	client_channel       *ReplicationClient
+	server_channels      []*ReplicationServer
+	transparency_manager *TransparencyManager
+	current_request_id   [16]byte
+	leader_address       string
+	server_count         uint32
+	server_active_count  uint32
+	server_flush_waiter  chan bool
+	inited_waters        []chan bool
+	closed               bool
+	is_leader            bool
 }
 
 func NewReplicationManager() *ReplicationManager {
 	transparency_manager := NewTransparencyManager()
 	manager := &ReplicationManager{nil, &sync.Mutex{}, nil, make([]*ReplicationAckDB, 256),
-		nil, make([]*ReplicationServer, 0), transparency_manager,[16]byte{}, "", 0,
+		nil, make([]*ReplicationServer, 0), transparency_manager, [16]byte{}, "", 0,
 		0, nil, make([]chan bool, 0), false, true}
 	manager.buffer_queue = NewReplicationBufferQueue(manager, int(Config.AofRingBufferSize))
 	return manager
 }
 
-func (self *ReplicationManager) GetCallMethods() map[string]BinaryServerProtocolCallHandler{
+func (self *ReplicationManager) GetCallMethods() map[string]BinaryServerProtocolCallHandler {
 	handlers := make(map[string]BinaryServerProtocolCallHandler, 2)
 	handlers["SYNC"] = self.CommandHandleSyncCommand
 	return handlers
 }
 
-func (self *ReplicationManager) GetHandlers() map[string]TextServerProtocolCommandHandler{
+func (self *ReplicationManager) GetHandlers() map[string]TextServerProtocolCommandHandler {
 	handlers := make(map[string]TextServerProtocolCommandHandler, 2)
 	return handlers
 }
@@ -1284,7 +1284,7 @@ func (self *ReplicationManager) Close() {
 	if self.client_channel != nil {
 		client_channel := self.client_channel
 		_ = client_channel.Close()
-		<- client_channel.closed_waiter
+		<-client_channel.closed_waiter
 		self.client_channel = nil
 	}
 
@@ -1292,7 +1292,7 @@ func (self *ReplicationManager) Close() {
 	_ = self.WaitServerSynced()
 	for _, channel := range self.server_channels {
 		_ = channel.Close()
-		<- channel.closed_waiter
+		<-channel.closed_waiter
 	}
 	self.glock.Lock()
 	self.server_channels = self.server_channels[:0]
@@ -1308,7 +1308,7 @@ func (self *ReplicationManager) Close() {
 	}
 	self.glock.Unlock()
 	_ = self.transparency_manager.Close()
-	<- self.transparency_manager.closed_waiter
+	<-self.transparency_manager.closed_waiter
 	self.slock.logger.Infof("Replication closed")
 }
 
@@ -1322,16 +1322,16 @@ func (self *ReplicationManager) WaitServerSynced() error {
 	server_flush_waiter := make(chan bool, 1)
 	go func() {
 		select {
-		case <- server_flush_waiter:
+		case <-server_flush_waiter:
 			return
-		case <- time.After(30 * time.Second):
+		case <-time.After(30 * time.Second):
 			self.server_flush_waiter = nil
 			close(server_flush_waiter)
 		}
 	}()
 	self.server_flush_waiter = server_flush_waiter
 	self.glock.Unlock()
-	<- self.server_flush_waiter
+	<-self.server_flush_waiter
 	return nil
 }
 
@@ -1466,7 +1466,7 @@ func (self *ReplicationManager) PushLock(lock *AofLock) error {
 		self.buffer_queue = self.buffer_queue.Reduplicated()
 	}
 
-	if lock.AofFlag & 0x1000 != 0 && lock.lock != nil {
+	if lock.AofFlag&0x1000 != 0 && lock.lock != nil {
 		db := self.GetOrNewAckDB(lock.DbId)
 		err := db.PushLock(lock)
 		if err != nil {
@@ -1545,7 +1545,7 @@ func (self *ReplicationManager) SwitchToLeader() error {
 	if self.client_channel != nil {
 		client_channel := self.client_channel
 		_ = client_channel.Close()
-		<- client_channel.closed_waiter
+		<-client_channel.closed_waiter
 		self.current_request_id = client_channel.current_request_id
 		self.client_channel = nil
 	}
@@ -1588,7 +1588,7 @@ func (self *ReplicationManager) SwitchToFollower(address string) error {
 	_ = self.WaitServerSynced()
 	for _, channel := range self.server_channels {
 		_ = channel.Close()
-		<- channel.closed_waiter
+		<-channel.closed_waiter
 	}
 
 	for _, db := range self.ack_dbs {
@@ -1600,7 +1600,7 @@ func (self *ReplicationManager) SwitchToFollower(address string) error {
 	if self.client_channel != nil {
 		client_channel := self.client_channel
 		_ = client_channel.Close()
-		<- client_channel.closed_waiter
+		<-client_channel.closed_waiter
 		self.current_request_id = client_channel.current_request_id
 		self.client_channel = nil
 	}
@@ -1643,7 +1643,7 @@ func (self *ReplicationManager) ChangeLeader(address string) error {
 	if self.client_channel != nil {
 		client_channel := self.client_channel
 		_ = client_channel.Close()
-		<- client_channel.closed_waiter
+		<-client_channel.closed_waiter
 		self.current_request_id = client_channel.current_request_id
 		self.client_channel = nil
 	}

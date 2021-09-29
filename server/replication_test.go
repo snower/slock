@@ -7,7 +7,7 @@ import (
 )
 
 func TestReplicationBufferQueue_Push(t *testing.T) {
-	queue := NewReplicationBufferQueue(nil,1024 * 1024)
+	queue := NewReplicationBufferQueue(nil, 1024*1024)
 
 	buf := make([]byte, 64)
 	buf[0] = 0xa5
@@ -29,7 +29,7 @@ func TestReplicationBufferQueue_Push(t *testing.T) {
 }
 
 func TestReplicationBufferQueue_Pop(t *testing.T) {
-	queue := NewReplicationBufferQueue(nil, 1024 * 1024)
+	queue := NewReplicationBufferQueue(nil, 1024*1024)
 
 	obuf := make([]byte, 64)
 	buf := make([]byte, 64)
@@ -58,7 +58,7 @@ func TestReplicationBufferQueue_Pop(t *testing.T) {
 }
 
 func TestReplicationBufferQueue_Head(t *testing.T) {
-	queue := NewReplicationBufferQueue(nil, 1024 * 1024)
+	queue := NewReplicationBufferQueue(nil, 1024*1024)
 
 	obuf := make([]byte, 64)
 	buf := make([]byte, 64)
@@ -93,7 +93,7 @@ func TestReplicationBufferQueue_Head(t *testing.T) {
 }
 
 func TestReplicationBufferQueue_Search(t *testing.T) {
-	queue := NewReplicationBufferQueue(nil, 1024 * 1024)
+	queue := NewReplicationBufferQueue(nil, 1024*1024)
 
 	obuf := make([]byte, 64)
 	buf := make([]byte, 64)
@@ -127,16 +127,16 @@ func TestReplicationBufferQueue_Search(t *testing.T) {
 }
 
 func TestReplicationBufferQueue_Run(t *testing.T) {
-	queue := NewReplicationBufferQueue(nil, 1024 * 1024)
+	queue := NewReplicationBufferQueue(nil, 1024*1024)
 
 	go func() {
 		index := uint32(0)
 		buf := make([]byte, 64)
 		for i := 0; i < 100000; i++ {
-			buf[0], buf[1], buf[2], buf[3] = uint8(index), uint8(index >> 8), uint8(index >> 16), uint8(index >> 24)
-			index ++
+			buf[0], buf[1], buf[2], buf[3] = uint8(index), uint8(index>>8), uint8(index>>16), uint8(index>>24)
+			index++
 			queue.Push(buf)
-			if index % 1000 == 0 {
+			if index%1000 == 0 {
 				time.Sleep(2 * time.Millisecond)
 			}
 		}
@@ -168,7 +168,6 @@ func TestReplicationBufferQueue_Run(t *testing.T) {
 	}
 }
 
-
 func TestReplicationBufferQueue_Reduplicated(t *testing.T) {
 	queue := NewReplicationBufferQueue(nil, 640)
 
@@ -194,10 +193,10 @@ func TestReplicationBufferQueue_Reduplicated(t *testing.T) {
 	buf_size := queue.segment_count * 2 * queue.segment_size
 	new_buf := make([]byte, buf_size)
 	copy(new_buf, queue.buf)
-	copy(new_buf[queue.segment_count * queue.segment_size:], queue.buf)
+	copy(new_buf[queue.segment_count*queue.segment_size:], queue.buf)
 	queue.buf = new_buf
 	queue.segment_count = buf_size / 64
-	queue.max_index = uint64(0xffffffffffffffff) - uint64(0xffffffffffffffff) % uint64(buf_size / 64)
+	queue.max_index = uint64(0xffffffffffffffff) - uint64(0xffffffffffffffff)%uint64(buf_size/64)
 	queue.require_duplicated = false
 
 	err = queue.Pop(16, obuf)
