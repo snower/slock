@@ -19,8 +19,8 @@ func TestReplicationBufferQueue_Push(t *testing.T) {
 		t.Errorf("ReplicationBufferQueue Push Error Fail %v", err)
 	}
 
-	if queue.current_index != 1 {
-		t.Errorf("ReplicationBufferQueue Push Current_index Error Fail %v", queue.current_index)
+	if queue.currentIndex != 1 {
+		t.Errorf("ReplicationBufferQueue Push Current_index Error Fail %v", queue.currentIndex)
 	}
 
 	if queue.buf[0] != buf[0] || queue.buf[10] != buf[10] || queue.buf[54] != buf[54] {
@@ -190,14 +190,14 @@ func TestReplicationBufferQueue_Reduplicated(t *testing.T) {
 		t.Errorf("ReplicationBufferQueue Pop Buf Error Fail %v", obuf)
 	}
 
-	buf_size := queue.segment_count * 2 * queue.segment_size
-	new_buf := make([]byte, buf_size)
-	copy(new_buf, queue.buf)
-	copy(new_buf[queue.segment_count*queue.segment_size:], queue.buf)
-	queue.buf = new_buf
-	queue.segment_count = buf_size / 64
-	queue.max_index = uint64(0xffffffffffffffff) - uint64(0xffffffffffffffff)%uint64(buf_size/64)
-	queue.require_duplicated = false
+	bufSize := queue.segmentCount * 2 * queue.segmentSize
+	newBuf := make([]byte, bufSize)
+	copy(newBuf, queue.buf)
+	copy(newBuf[queue.segmentCount*queue.segmentSize:], queue.buf)
+	queue.buf = newBuf
+	queue.segmentCount = bufSize / 64
+	queue.maxIndex = uint64(0xffffffffffffffff) - uint64(0xffffffffffffffff)%uint64(bufSize/64)
+	queue.requireDuplicated = false
 
 	err = queue.Pop(16, obuf)
 	if err != nil {

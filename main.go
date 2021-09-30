@@ -30,14 +30,14 @@ func ShowDBStateInfo() {
 		return
 	}
 
-	slock_client := client.NewClient(config.Host, config.Port)
-	cerr := slock_client.Open()
+	slockClient := client.NewClient(config.Host, config.Port)
+	cerr := slockClient.Open()
 	if cerr != nil {
 		fmt.Printf("Connect Error: %v", err)
 		return
 	}
 
-	state := slock_client.SelectDB(uint8(config.Db)).State()
+	state := slockClient.SelectDB(uint8(config.Db)).State()
 	if state.DbState == 0 {
 		fmt.Println("Slock DB not used")
 	} else {
@@ -77,21 +77,21 @@ func main() {
 	}
 
 	slock := server.NewSLock(config)
-	slock_server := server.NewServer(slock)
-	err = slock.Init(slock_server)
+	slockServer := server.NewServer(slock)
+	err = slock.Init(slockServer)
 	if err != nil {
 		slock.Log().Errorf("Init error %v", err)
 		slock.Log().Info("Exited")
 		return
 	}
 
-	err = slock_server.Listen()
+	err = slockServer.Listen()
 	if err != nil {
 		slock.Log().Errorf("Start server listen error %v", err)
 		slock.Log().Info("Exited")
 		return
 	}
 
-	slock_server.Loop()
+	slockServer.Serve()
 	slock.Log().Info("Exited")
 }

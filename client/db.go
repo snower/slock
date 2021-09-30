@@ -10,21 +10,21 @@ import (
 )
 
 type Database struct {
-	db_id    uint8
+	dbId     uint8
 	client   *Client
 	requests map[[16]byte]chan protocol.ICommand
 	glock    *sync.Mutex
 }
 
-func NewDatabase(db_id uint8, client *Client) *Database {
-	return &Database{db_id, client, make(map[[16]byte]chan protocol.ICommand, 4096), &sync.Mutex{}}
+func NewDatabase(dbId uint8, client *Client) *Database {
+	return &Database{dbId, client, make(map[[16]byte]chan protocol.ICommand, 4096), &sync.Mutex{}}
 }
 
 func (self *Database) Close() error {
 	self.glock.Lock()
 
-	for request_id := range self.requests {
-		close(self.requests[request_id])
+	for requestId := range self.requests {
+		close(self.requests[requestId])
 	}
 	self.requests = make(map[[16]byte]chan protocol.ICommand, 0)
 	self.client = nil
@@ -33,10 +33,10 @@ func (self *Database) Close() error {
 }
 
 func (self *Database) handleCommandResult(command protocol.ICommand) error {
-	request_id := command.GetRequestId()
+	requestId := command.GetRequestId()
 	self.glock.Lock()
-	if request, ok := self.requests[request_id]; ok {
-		delete(self.requests, request_id)
+	if request, ok := self.requests[requestId]; ok {
+		delete(self.requests, requestId)
 		self.glock.Unlock()
 
 		request <- command
@@ -50,27 +50,27 @@ func (self *Database) executeCommand(command protocol.ICommand, timeout int) (pr
 	if self.client == nil {
 		return nil, errors.New("db is not closed")
 	}
-	client_protocol := self.client.getPrococol()
-	if client_protocol == nil {
+	clientProtocol := self.client.getPrococol()
+	if clientProtocol == nil {
 		return nil, errors.New("client is not opened")
 	}
 
-	request_id := command.GetRequestId()
+	requestId := command.GetRequestId()
 	self.glock.Lock()
-	if _, ok := self.requests[request_id]; ok {
+	if _, ok := self.requests[requestId]; ok {
 		self.glock.Unlock()
 		return nil, errors.New("request is used")
 	}
 
 	waiter := make(chan protocol.ICommand, 1)
-	self.requests[request_id] = waiter
+	self.requests[requestId] = waiter
 	self.glock.Unlock()
 
-	err := client_protocol.Write(command)
+	err := clientProtocol.Write(command)
 	if err != nil {
 		self.glock.Lock()
-		if _, ok := self.requests[request_id]; ok {
-			delete(self.requests, request_id)
+		if _, ok := self.requests[requestId]; ok {
+			delete(self.requests, requestId)
 		}
 		self.glock.Unlock()
 		return nil, err
@@ -84,8 +84,8 @@ func (self *Database) executeCommand(command protocol.ICommand, timeout int) (pr
 		return r, nil
 	case <-time.After(time.Duration(timeout+1) * time.Second):
 		self.glock.Lock()
-		if _, ok := self.requests[request_id]; ok {
-			delete(self.requests, request_id)
+		if _, ok := self.requests[requestId]; ok {
+			delete(self.requests, requestId)
 		}
 		self.glock.Unlock()
 		return nil, errors.New("timeout")
@@ -96,47 +96,47 @@ func (self *Database) sendCommand(command protocol.ICommand) error {
 	if self.client == nil {
 		return errors.New("db is not closed")
 	}
-	client_protocol := self.client.getPrococol()
-	if client_protocol == nil {
+	clientProtocol := self.client.getPrococol()
+	if clientProtocol == nil {
 		return errors.New("client is not opened")
 	}
 
-	return client_protocol.Write(command)
+	return clientProtocol.Write(command)
 }
 
-func (self *Database) Lock(lock_key [16]byte, timeout uint32, expried uint32) *Lock {
-	return NewLock(self, lock_key, timeout, expried)
+func (self *Database) Lock(lockKey [16]byte, timeout uint32, expried uint32) *Lock {
+	return NewLock(self, lockKey, timeout, expried)
 }
 
-func (self *Database) Event(event_key [16]byte, timeout uint32, expried uint32, default_seted bool) *Event {
-	if default_seted {
-		return NewDefaultSetEvent(self, event_key, timeout, expried)
+func (self *Database) Event(eventKey [16]byte, timeout uint32, expried uint32, defaultSeted bool) *Event {
+	if defaultSeted {
+		return NewDefaultSetEvent(self, eventKey, timeout, expried)
 	}
-	return NewDefaultClearEvent(self, event_key, timeout, expried)
+	return NewDefaultClearEvent(self, eventKey, timeout, expried)
 }
 
-func (self *Database) Semaphore(semaphore_key [16]byte, timeout uint32, expried uint32, count uint16) *Semaphore {
-	return NewSemaphore(self, semaphore_key, timeout, expried, count)
+func (self *Database) Semaphore(semaphoreKey [16]byte, timeout uint32, expried uint32, count uint16) *Semaphore {
+	return NewSemaphore(self, semaphoreKey, timeout, expried, count)
 }
 
-func (self *Database) RWLock(lock_key [16]byte, timeout uint32, expried uint32) *RWLock {
-	return NewRWLock(self, lock_key, timeout, expried)
+func (self *Database) RWLock(lockKey [16]byte, timeout uint32, expried uint32) *RWLock {
+	return NewRWLock(self, lockKey, timeout, expried)
 }
 
-func (self *Database) RLock(lock_key [16]byte, timeout uint32, expried uint32) *RLock {
-	return NewRLock(self, lock_key, timeout, expried)
+func (self *Database) RLock(lockKey [16]byte, timeout uint32, expried uint32) *RLock {
+	return NewRLock(self, lockKey, timeout, expried)
 }
 
 func (self *Database) State() *protocol.StateResultCommand {
-	request_id := self.client.GenRequestId()
-	command := &protocol.StateCommand{Command: protocol.Command{Magic: protocol.MAGIC, Version: protocol.VERSION, CommandType: protocol.COMMAND_STATE, RequestId: request_id},
-		Flag: 0, DbId: self.db_id, Blank: [43]byte{}}
-	result_command, err := self.executeCommand(command, 5)
+	requestId := self.client.GenRequestId()
+	command := &protocol.StateCommand{Command: protocol.Command{Magic: protocol.MAGIC, Version: protocol.VERSION, CommandType: protocol.COMMAND_STATE, RequestId: requestId},
+		Flag: 0, DbId: self.dbId, Blank: [43]byte{}}
+	resultCommand, err := self.executeCommand(command, 5)
 	if err != nil {
 		return nil
 	}
 
-	if c, ok := result_command.(*protocol.StateResultCommand); ok {
+	if c, ok := resultCommand.(*protocol.StateResultCommand); ok {
 		return c
 	}
 	return nil
@@ -151,7 +151,7 @@ func (self *Database) GenRequestId() [16]byte {
 
 func (self *Database) GenLockId() [16]byte {
 	now := uint64(time.Now().Nanosecond() / 1e6)
-	lid := atomic.AddUint32(&lock_id_index, 1)
+	lid := atomic.AddUint32(&lockIdIndex, 1)
 	return [16]byte{
 		byte(now >> 40), byte(now >> 32), byte(now >> 24), byte(now >> 16), byte(now >> 8), byte(now), LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)],
 		LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], byte(lid >> 24), byte(lid >> 16), byte(lid >> 8), byte(lid),

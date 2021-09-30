@@ -64,14 +64,14 @@ var ERROR_MSG []string = []string{
 }
 
 var LETTERS = []byte("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
-var request_id_index uint64 = 0
+var requestIdIndex uint64 = 0
 
 func GenRequestId() [16]byte {
 	now := uint32(time.Now().Unix())
-	request_id_index := atomic.AddUint64(&request_id_index, 1)
+	rii := atomic.AddUint64(&requestIdIndex, 1)
 	return [16]byte{
 		byte(now >> 24), byte(now >> 16), byte(now >> 8), byte(now), LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)],
-		LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], byte(request_id_index >> 40), byte(request_id_index >> 32), byte(request_id_index >> 24), byte(request_id_index >> 16), byte(request_id_index >> 8), byte(request_id_index),
+		LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], byte(rii >> 40), byte(rii >> 32), byte(rii >> 24), byte(rii >> 16), byte(rii >> 8), byte(rii),
 	}
 }
 
@@ -97,8 +97,8 @@ type Command struct {
 	RequestId   [16]byte
 }
 
-func NewCommand(command_type uint8) *Command {
-	command := Command{Magic: MAGIC, Version: VERSION, CommandType: command_type, RequestId: GenRequestId()}
+func NewCommand(commandType uint8) *Command {
+	command := Command{Magic: MAGIC, Version: VERSION, CommandType: commandType, RequestId: GenRequestId()}
 	return &command
 }
 
@@ -194,9 +194,9 @@ type InitCommand struct {
 	Blank    [29]byte
 }
 
-func NewInitCommand(client_id [16]byte) *InitCommand {
+func NewInitCommand(clientId [16]byte) *InitCommand {
 	command := Command{Magic: MAGIC, Version: VERSION, CommandType: COMMAND_INIT, RequestId: GenRequestId()}
-	init_command := InitCommand{Command: command, ClientId: client_id, Blank: [29]byte{}}
+	init_command := InitCommand{Command: command, ClientId: clientId, Blank: [29]byte{}}
 	return &init_command
 }
 
@@ -252,9 +252,9 @@ type InitResultCommand struct {
 	Blank    [43]byte
 }
 
-func NewInitResultCommand(command *InitCommand, result uint8, init_type uint8) *InitResultCommand {
-	result_command := ResultCommand{MAGIC, VERSION, command.CommandType, command.RequestId, result}
-	return &InitResultCommand{result_command, init_type, INIT_COMMAND_BLANK_BYTERS}
+func NewInitResultCommand(command *InitCommand, result uint8, initType uint8) *InitResultCommand {
+	resultCommand := ResultCommand{MAGIC, VERSION, command.CommandType, command.RequestId, result}
+	return &InitResultCommand{resultCommand, initType, INIT_COMMAND_BLANK_BYTERS}
 }
 
 func (self *InitResultCommand) Decode(buf []byte) error {
@@ -319,9 +319,9 @@ type LockCommand struct {
 	Rcount  uint8
 }
 
-func NewLockCommand(db_id uint8, lock_key [16]byte, lock_id [16]byte, timeout uint16, expried uint16, count uint16) *LockCommand {
+func NewLockCommand(dbId uint8, lockKey [16]byte, lockId [16]byte, timeout uint16, expried uint16, count uint16) *LockCommand {
 	command := Command{Magic: MAGIC, Version: VERSION, CommandType: COMMAND_LOCK, RequestId: GenRequestId()}
-	lock_command := LockCommand{Command: command, Flag: 0, DbId: db_id, LockId: lock_id, LockKey: lock_key, TimeoutFlag: 0,
+	lock_command := LockCommand{Command: command, Flag: 0, DbId: dbId, LockId: lockId, LockKey: lockKey, TimeoutFlag: 0,
 		Timeout: timeout, ExpriedFlag: 0, Expried: expried, Count: count, Rcount: 0}
 	return &lock_command
 }
@@ -472,9 +472,9 @@ type StateCommand struct {
 	Blank [43]byte
 }
 
-func NewStateCommand(db_id uint8) *StateCommand {
+func NewStateCommand(dbId uint8) *StateCommand {
 	command := Command{Magic: MAGIC, Version: VERSION, CommandType: COMMAND_STATE, RequestId: GenRequestId()}
-	state_command := StateCommand{Command: command, Flag: 0, DbId: db_id, Blank: [43]byte{}}
+	state_command := StateCommand{Command: command, Flag: 0, DbId: dbId, Blank: [43]byte{}}
 	return &state_command
 }
 
@@ -523,12 +523,12 @@ type StateResultCommand struct {
 	Blank   [1]byte
 }
 
-func NewStateResultCommand(command *StateCommand, result uint8, flag uint8, db_state uint8, state *LockDBState) *StateResultCommand {
+func NewStateResultCommand(command *StateCommand, result uint8, flag uint8, dbState uint8, state *LockDBState) *StateResultCommand {
 	result_command := ResultCommand{MAGIC, VERSION, command.CommandType, command.RequestId, result}
 	if state == nil {
 		state = &LockDBState{}
 	}
-	return &StateResultCommand{result_command, flag, db_state, command.DbId, *state, [1]byte{}}
+	return &StateResultCommand{result_command, flag, dbState, command.DbId, *state, [1]byte{}}
 }
 
 func (self *StateResultCommand) Decode(buf []byte) error {
@@ -632,9 +632,9 @@ type AdminCommand struct {
 	Blank     [44]byte
 }
 
-func NewAdminCommand(admin_type uint8) *AdminCommand {
+func NewAdminCommand(adminType uint8) *AdminCommand {
 	command := Command{Magic: MAGIC, Version: VERSION, CommandType: COMMAND_ADMIN, RequestId: GenRequestId()}
-	admin_command := AdminCommand{Command: command, AdminType: admin_type, Blank: [44]byte{}}
+	admin_command := AdminCommand{Command: command, AdminType: adminType, Blank: [44]byte{}}
 	return &admin_command
 }
 
@@ -896,15 +896,15 @@ type CallCommand struct {
 	Data       []byte
 }
 
-func NewCallCommand(method_name string, data []byte) *CallCommand {
-	content_len := uint32(0)
+func NewCallCommand(methodName string, data []byte) *CallCommand {
+	contentLen := uint32(0)
 	if data != nil {
-		content_len = uint32(len(data))
+		contentLen = uint32(len(data))
 	}
 
 	command := Command{Magic: MAGIC, Version: VERSION, CommandType: COMMAND_CALL, RequestId: GenRequestId()}
-	call_command := CallCommand{Command: command, Flag: 0, Encoding: CALL_COMMAND_ENCODING_PROTOCOL, Charset: CALL_COMMAND_CHARSET_UTF8, ContentLen: content_len, MethodName: method_name, Data: data}
-	return &call_command
+	callCommand := CallCommand{Command: command, Flag: 0, Encoding: CALL_COMMAND_ENCODING_PROTOCOL, Charset: CALL_COMMAND_CHARSET_UTF8, ContentLen: contentLen, MethodName: methodName, Data: data}
+	return &callCommand
 }
 
 func (self *CallCommand) Decode(buf []byte) error {
@@ -968,14 +968,14 @@ type CallResultCommand struct {
 	Data       []byte
 }
 
-func NewCallResultCommand(command *CallCommand, result uint8, err_type string, data []byte) *CallResultCommand {
-	content_len := uint32(0)
+func NewCallResultCommand(command *CallCommand, result uint8, errType string, data []byte) *CallResultCommand {
+	contentLen := uint32(0)
 	if data != nil {
-		content_len = uint32(len(data))
+		contentLen = uint32(len(data))
 	}
 
-	result_command := ResultCommand{MAGIC, VERSION, command.CommandType, command.RequestId, result}
-	return &CallResultCommand{result_command, 0, CALL_COMMAND_ENCODING_PROTOCOL, CALL_COMMAND_CHARSET_UTF8, content_len, err_type, data}
+	resultCommand := ResultCommand{MAGIC, VERSION, command.CommandType, command.RequestId, result}
+	return &CallResultCommand{resultCommand, 0, CALL_COMMAND_ENCODING_PROTOCOL, CALL_COMMAND_CHARSET_UTF8, contentLen, errType, data}
 }
 
 func (self *CallResultCommand) Decode(buf []byte) error {
@@ -1041,8 +1041,8 @@ type LeaderCommand struct {
 
 func NewLeaderCommand() *LeaderCommand {
 	command := Command{Magic: MAGIC, Version: VERSION, CommandType: COMMAND_LEADER, RequestId: GenRequestId()}
-	leader_command := LeaderCommand{Command: command, Flag: 0, Blank: [44]byte{}}
-	return &leader_command
+	leaderCommand := LeaderCommand{Command: command, Flag: 0, Blank: [44]byte{}}
+	return &leaderCommand
 }
 
 func (self *LeaderCommand) Decode(buf []byte) error {
@@ -1084,8 +1084,8 @@ type LeaderResultCommand struct {
 }
 
 func NewLeaderResultCommand(command *LeaderCommand, result uint8, host string) *LeaderResultCommand {
-	result_command := ResultCommand{MAGIC, VERSION, command.CommandType, command.RequestId, result}
-	return &LeaderResultCommand{result_command, uint8(len(host)), host}
+	resultCommand := ResultCommand{MAGIC, VERSION, command.CommandType, command.RequestId, result}
+	return &LeaderResultCommand{resultCommand, uint8(len(host)), host}
 }
 
 func (self *LeaderResultCommand) Decode(buf []byte) error {

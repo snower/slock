@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-var client_id uint64 = 0
+var clientId uint64 = 0
 
 const (
 	STREAM_TYPE_NORMAL  uint8 = 0
@@ -16,18 +16,18 @@ const (
 )
 
 type Stream struct {
-	conn          net.Conn
-	protocol      ServerProtocol
-	start_time    *time.Time
-	stream_id     uint64
-	stream_type   uint8
-	closed        bool
-	closed_waiter chan bool
+	conn         net.Conn
+	protocol     ServerProtocol
+	startTime    *time.Time
+	streamId     uint64
+	streamType   uint8
+	closed       bool
+	closedWaiter chan bool
 }
 
 func NewStream(conn net.Conn) *Stream {
 	now := time.Now()
-	stream := &Stream{conn, nil, &now, atomic.AddUint64(&client_id, 1),
+	stream := &Stream{conn, nil, &now, atomic.AddUint64(&clientId, 1),
 		STREAM_TYPE_NORMAL, false, make(chan bool, 1)}
 	return stream
 }

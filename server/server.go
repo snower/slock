@@ -11,14 +11,14 @@ import (
 )
 
 type Server struct {
-	slock            *SLock
-	server           net.Listener
-	streams          []*Stream
-	glock            *sync.Mutex
-	connected_count  uint32
-	connecting_count uint32
-	stoped           bool
-	stoped_waiter    chan bool
+	slock           *SLock
+	server          net.Listener
+	streams         []*Stream
+	glock           *sync.Mutex
+	connectedCount  uint32
+	connectingCount uint32
+	stoped          bool
+	stopedWaiter    chan bool
 }
 
 func NewServer(slock *SLock) *Server {
@@ -50,7 +50,7 @@ func (self *Server) Close() {
 	self.glock.Unlock()
 
 	for _, stream := range self.streams {
-		if stream.stream_type != STREAM_TYPE_NORMAL {
+		if stream.streamType != STREAM_TYPE_NORMAL {
 			continue
 		}
 
@@ -58,22 +58,22 @@ func (self *Server) Close() {
 		if err != nil {
 			self.slock.Log().Errorf("Server connection close error %v", err)
 		}
-		<-stream.closed_waiter
+		<-stream.closedWaiter
 	}
 	self.slock.Close()
-	close(self.stoped_waiter)
+	close(self.stopedWaiter)
 }
 
-func (self *Server) AddStream(stream *Stream) error {
+func (self *Server) addStream(stream *Stream) error {
 	defer self.glock.Unlock()
 	self.glock.Lock()
 	self.streams = append(self.streams, stream)
-	self.connecting_count++
-	self.connected_count++
+	self.connectingCount++
+	self.connectedCount++
 	return nil
 }
 
-func (self *Server) RemoveStream(stream *Stream) error {
+func (self *Server) removeStream(stream *Stream) error {
 	defer self.glock.Unlock()
 	self.glock.Lock()
 	streams := self.streams
@@ -83,7 +83,7 @@ func (self *Server) RemoveStream(stream *Stream) error {
 		if stream != v {
 			self.streams = append(self.streams, v)
 		} else {
-			self.connecting_count--
+			self.connectingCount--
 		}
 	}
 	return nil
@@ -91,7 +91,7 @@ func (self *Server) RemoveStream(stream *Stream) error {
 
 func (self *Server) CloseStreams() error {
 	for _, stream := range self.streams {
-		if stream.stream_type != STREAM_TYPE_NORMAL {
+		if stream.streamType != STREAM_TYPE_NORMAL {
 			continue
 		}
 		_ = stream.Close()
@@ -99,11 +99,11 @@ func (self *Server) CloseStreams() error {
 	return nil
 }
 
-func (self *Server) Loop() {
-	stop_signal := make(chan os.Signal, 1)
-	signal.Notify(stop_signal, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
+func (self *Server) Serve() {
+	stopSignal := make(chan os.Signal, 1)
+	signal.Notify(stopSignal, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
-		<-stop_signal
+		<-stopSignal
 		self.slock.Log().Infof("Server shutdown start")
 		self.Close()
 	}()
@@ -117,23 +117,23 @@ func (self *Server) Loop() {
 		}
 
 		stream := NewStream(conn)
-		err = self.AddStream(stream)
+		err = self.addStream(stream)
 		if err != nil {
 			err := stream.Close()
 			if err != nil {
 				self.slock.Log().Errorf("Server connection close error %v", err)
 			}
-			close(stream.closed_waiter)
+			close(stream.closedWaiter)
 			continue
 		}
-		go self.Handle(stream)
+		go self.handle(stream)
 	}
-	<-self.stoped_waiter
+	<-self.stopedWaiter
 	self.slock.Log().Infof("Server shutdown finish")
 }
 
-func (self *Server) CheckProtocol(stream *Stream) (ServerProtocol, error) {
-	var server_protocol ServerProtocol
+func (self *Server) checkProtocol(stream *Stream) (ServerProtocol, error) {
+	var serverProtocol ServerProtocol
 	buf := make([]byte, 64)
 	n, err := stream.Read(buf)
 	if err != nil {
@@ -143,51 +143,51 @@ func (self *Server) CheckProtocol(stream *Stream) (ServerProtocol, error) {
 	mv := uint16(buf[0]) | uint16(buf[1])<<8
 	if n == 64 && mv == 0x0156 {
 		if self.slock.state == STATE_LEADER {
-			server_protocol = NewBinaryServerProtocol(self.slock, stream)
+			serverProtocol = NewBinaryServerProtocol(self.slock, stream)
 		} else {
-			server_protocol = NewTransparencyBinaryServerProtocol(self.slock, stream, NewBinaryServerProtocol(self.slock, stream))
+			serverProtocol = NewTransparencyBinaryServerProtocol(self.slock, stream, NewBinaryServerProtocol(self.slock, stream))
 		}
-		self.slock.Log().Infof("Server binary protocol connection connected %s", server_protocol.RemoteAddr().String())
+		self.slock.Log().Infof("Server binary protocol connection connected %s", serverProtocol.RemoteAddr().String())
 
-		err := server_protocol.ProcessParse(buf)
+		err := serverProtocol.ProcessParse(buf)
 		if err != nil {
-			cerr := server_protocol.Close()
+			cerr := serverProtocol.Close()
 			if cerr != nil {
 				self.slock.Log().Errorf("Server binary protocol connection close error %v", cerr)
 			}
 			return nil, err
 		}
-		return server_protocol, nil
+		return serverProtocol, nil
 	}
 
 	if self.slock.state == STATE_LEADER {
-		server_protocol = NewTextServerProtocol(self.slock, stream)
+		serverProtocol = NewTextServerProtocol(self.slock, stream)
 	} else {
-		server_protocol = NewTransparencyTextServerProtocol(self.slock, stream, NewTextServerProtocol(self.slock, stream))
+		serverProtocol = NewTransparencyTextServerProtocol(self.slock, stream, NewTextServerProtocol(self.slock, stream))
 	}
-	self.slock.Log().Infof("Server text protocol connection connected %s", server_protocol.RemoteAddr().String())
+	self.slock.Log().Infof("Server text protocol connection connected %s", serverProtocol.RemoteAddr().String())
 
-	err = server_protocol.ProcessParse(buf[:n])
+	err = serverProtocol.ProcessParse(buf[:n])
 	if err != nil {
-		cerr := server_protocol.Close()
+		cerr := serverProtocol.Close()
 		if cerr != nil {
 			self.slock.Log().Errorf("Server text protocol connection close error %v", err)
 		}
 		return nil, err
 	}
-	return server_protocol, nil
+	return serverProtocol, nil
 }
 
-func (self *Server) Handle(stream *Stream) {
+func (self *Server) handle(stream *Stream) {
 	defer func() {
-		err := self.RemoveStream(stream)
+		err := self.removeStream(stream)
 		if err != nil {
 			self.slock.Log().Errorf("Server remove connection error %v", err)
 		}
-		close(stream.closed_waiter)
+		close(stream.closedWaiter)
 	}()
 
-	server_protocol, err := self.CheckProtocol(stream)
+	serverProtocol, err := self.checkProtocol(stream)
 	if err != nil {
 		cerr := stream.Close()
 		if cerr != nil {
@@ -201,86 +201,86 @@ func (self *Server) Handle(stream *Stream) {
 	}
 
 	for {
-		switch server_protocol.(type) {
+		switch serverProtocol.(type) {
 		case *BinaryServerProtocol:
 			if self.slock.state != STATE_LEADER {
 				if err == AGAIN {
-					binary_server_protocol := server_protocol.(*BinaryServerProtocol)
-					server_protocol = NewTransparencyBinaryServerProtocol(self.slock, stream, binary_server_protocol)
-					for binary_server_protocol.rlen-binary_server_protocol.rindex >= 64 {
-						err = server_protocol.ProcessParse(binary_server_protocol.rbuf[binary_server_protocol.rindex:])
+					binaryServerProtocol := serverProtocol.(*BinaryServerProtocol)
+					serverProtocol = NewTransparencyBinaryServerProtocol(self.slock, stream, binaryServerProtocol)
+					for binaryServerProtocol.rlen-binaryServerProtocol.rindex >= 64 {
+						err = serverProtocol.ProcessParse(binaryServerProtocol.rbuf[binaryServerProtocol.rindex:])
 						if err != nil {
 							break
 						}
 
-						binary_server_protocol.rindex += 64
-						if binary_server_protocol.rindex == binary_server_protocol.rlen {
-							binary_server_protocol.rindex, binary_server_protocol.rlen = 0, 0
+						binaryServerProtocol.rindex += 64
+						if binaryServerProtocol.rindex == binaryServerProtocol.rlen {
+							binaryServerProtocol.rindex, binaryServerProtocol.rlen = 0, 0
 						}
 					}
 					if err == nil {
-						err = server_protocol.Process()
+						err = serverProtocol.Process()
 					}
 				} else {
-					server_protocol = NewTransparencyBinaryServerProtocol(self.slock, stream, server_protocol.(*BinaryServerProtocol))
-					err = server_protocol.Process()
+					serverProtocol = NewTransparencyBinaryServerProtocol(self.slock, stream, serverProtocol.(*BinaryServerProtocol))
+					err = serverProtocol.Process()
 				}
 			} else {
-				err = server_protocol.Process()
+				err = serverProtocol.Process()
 			}
 		case *TextServerProtocol:
 			if self.slock.state != STATE_LEADER {
 				if err == AGAIN {
-					text_server_protocol := server_protocol.(*TextServerProtocol)
-					transparency_server_protocol := NewTransparencyTextServerProtocol(self.slock, stream, text_server_protocol)
-					server_protocol = transparency_server_protocol
-					err = transparency_server_protocol.RunCommand()
+					textServerProtocol := serverProtocol.(*TextServerProtocol)
+					transparencyServerProtocol := NewTransparencyTextServerProtocol(self.slock, stream, textServerProtocol)
+					serverProtocol = transparencyServerProtocol
+					err = transparencyServerProtocol.RunCommand()
 					if err == nil {
-						err = server_protocol.Process()
+						err = serverProtocol.Process()
 					}
 				} else {
-					server_protocol = NewTransparencyTextServerProtocol(self.slock, stream, server_protocol.(*TextServerProtocol))
+					serverProtocol = NewTransparencyTextServerProtocol(self.slock, stream, serverProtocol.(*TextServerProtocol))
 					if err == nil {
-						err = server_protocol.Process()
+						err = serverProtocol.Process()
 					}
 				}
 			} else {
-				err = server_protocol.Process()
+				err = serverProtocol.Process()
 			}
 		case *TransparencyBinaryServerProtocol:
 			if self.slock.state == STATE_LEADER {
-				transparency_server_protocol := server_protocol.(*TransparencyBinaryServerProtocol)
-				binary_server_protocol := transparency_server_protocol.server_protocol
+				transparencyServerProtocol := serverProtocol.(*TransparencyBinaryServerProtocol)
+				binaryServerProtocol := transparencyServerProtocol.serverProtocol
 				if err == AGAIN {
-					for binary_server_protocol.rlen-binary_server_protocol.rindex >= 64 {
-						err = binary_server_protocol.ProcessParse(binary_server_protocol.rbuf[binary_server_protocol.rindex:])
+					for binaryServerProtocol.rlen-binaryServerProtocol.rindex >= 64 {
+						err = binaryServerProtocol.ProcessParse(binaryServerProtocol.rbuf[binaryServerProtocol.rindex:])
 						if err != nil {
 							break
 						}
 
-						binary_server_protocol.rindex += 64
-						if binary_server_protocol.rindex == binary_server_protocol.rlen {
-							binary_server_protocol.rindex, binary_server_protocol.rlen = 0, 0
+						binaryServerProtocol.rindex += 64
+						if binaryServerProtocol.rindex == binaryServerProtocol.rlen {
+							binaryServerProtocol.rindex, binaryServerProtocol.rlen = 0, 0
 						}
 					}
 					if err == nil {
-						err = binary_server_protocol.Process()
+						err = binaryServerProtocol.Process()
 					}
 				} else {
-					err = binary_server_protocol.Process()
+					err = binaryServerProtocol.Process()
 				}
 			} else {
-				err = server_protocol.Process()
+				err = serverProtocol.Process()
 			}
 		case *TransparencyTextServerProtocol:
 			if self.slock.state == STATE_LEADER {
-				transparency_server_protocol := server_protocol.(*TransparencyTextServerProtocol)
-				err = transparency_server_protocol.server_protocol.Process()
+				transparencyServerProtocol := serverProtocol.(*TransparencyTextServerProtocol)
+				err = transparencyServerProtocol.serverProtocol.Process()
 			} else {
-				err = server_protocol.Process()
+				err = serverProtocol.Process()
 			}
 		default:
-			err = server_protocol.Process()
+			err = serverProtocol.Process()
 		}
 
 		if err != nil {
@@ -295,9 +295,9 @@ func (self *Server) Handle(stream *Stream) {
 		break
 	}
 
-	err = server_protocol.Close()
+	err = serverProtocol.Close()
 	if err != nil {
 		self.slock.Log().Errorf("Server protocol connection close error %v", err)
 	}
-	self.slock.Log().Infof("Server protocol connection closed %s", server_protocol.RemoteAddr().String())
+	self.slock.Log().Infof("Server protocol connection closed %s", serverProtocol.RemoteAddr().String())
 }

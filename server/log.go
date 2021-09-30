@@ -17,43 +17,43 @@ func InitConsoleLogger(formatter logging.Formatter) logging.Handler {
 	return handler
 }
 
-func InitFileLogger(log_file string, formatter logging.Formatter) logging.Handler {
+func InitFileLogger(logFile string, formatter logging.Formatter) logging.Handler {
 	handler := logging.MustNewRotatingFileHandler(
-		log_file, os.O_APPEND, int(Config.LogBufferSize), time.Duration(Config.LogBufferFlushTime)*time.Second, 64,
+		logFile, os.O_APPEND, int(Config.LogBufferSize), time.Duration(Config.LogBufferFlushTime)*time.Second, 64,
 		uint64(Config.LogRotatingSize), uint32(Config.LogBackupCount))
 
 	handler.SetFormatter(formatter)
 	return handler
 }
 
-func InitLogger(log_file string, log_level string) logging.Logger {
+func InitLogger(logFile string, logLevel string) logging.Logger {
 	logger := logging.GetLogger("")
 	formatter := GetFormatter()
 
-	logging_level := logging.LevelInfo
-	switch log_level {
+	loggingLevel := logging.LevelInfo
+	switch logLevel {
 	case "DEBUG":
-		logging_level = logging.LevelDebug
+		loggingLevel = logging.LevelDebug
 	case "WARNING":
-		logging_level = logging.LevelWarning
+		loggingLevel = logging.LevelWarning
 	case "ERROR":
-		logging_level = logging.LevelError
+		loggingLevel = logging.LevelError
 	default:
-		logging_level = logging.LevelInfo
+		loggingLevel = logging.LevelInfo
 	}
 
-	if log_file == "" || log_file == "-" {
+	if logFile == "" || logFile == "-" {
 		handler := InitConsoleLogger(formatter)
-		_ = handler.SetLevel(logging_level)
-		_ = logger.SetLevel(logging_level)
+		_ = handler.SetLevel(loggingLevel)
+		_ = logger.SetLevel(loggingLevel)
 		logger.AddHandler(handler)
-		logger.Infof("Logger start consolelogger %s %s", log_level, log_file)
+		logger.Infof("Logger start consolelogger %s %s", logLevel, logFile)
 	} else {
-		handler := InitFileLogger(log_file, formatter)
-		_ = handler.SetLevel(logging_level)
-		_ = logger.SetLevel(logging_level)
+		handler := InitFileLogger(logFile, formatter)
+		_ = handler.SetLevel(loggingLevel)
+		_ = logger.SetLevel(loggingLevel)
 		logger.AddHandler(handler)
-		logger.Infof("Logger start filelogger %s %s", log_level, log_file)
+		logger.Infof("Logger start filelogger %s %s", logLevel, logFile)
 	}
 	return logger
 }

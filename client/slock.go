@@ -12,20 +12,20 @@ import (
 )
 
 var LETTERS = []byte("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
-var request_id_index uint32 = 0
-var lock_id_index uint32 = 0
+var requestIdIndex uint32 = 0
+var lockIdIndex uint32 = 0
 
 type Client struct {
-	glock             *sync.Mutex
-	protocols         []ClientProtocol
-	dbs               []*Database
-	requests          map[[16]byte]chan protocol.ICommand
-	request_lock      *sync.Mutex
-	hosts             []string
-	client_id         [16]byte
-	closed            bool
-	closed_waiter     *sync.WaitGroup
-	reconnect_waiters map[string]chan bool
+	glock            *sync.Mutex
+	protocols        []ClientProtocol
+	dbs              []*Database
+	requests         map[[16]byte]chan protocol.ICommand
+	requestLock      *sync.Mutex
+	hosts            []string
+	clientId         [16]byte
+	closed           bool
+	closedWaiter     *sync.WaitGroup
+	reconnectWaiters map[string]chan bool
 }
 
 func NewClient(host string, port uint) *Client {
@@ -68,7 +68,7 @@ func (self *Client) Open() error {
 
 	for host, client_protocol := range protocols {
 		go self.process(host, client_protocol)
-		self.closed_waiter.Add(1)
+		self.closedWaiter.Add(1)
 	}
 	return nil
 }
@@ -104,11 +104,11 @@ func (self *Client) Close() error {
 	}
 
 	self.glock.Lock()
-	for _, waiter := range self.reconnect_waiters {
+	for _, waiter := range self.reconnectWaiters {
 		close(waiter)
 	}
 	self.glock.Unlock()
-	self.closed_waiter.Wait()
+	self.closedWaiter.Wait()
 	return nil
 }
 
@@ -134,7 +134,7 @@ func (self *Client) connect(host string) (ClientProtocol, error) {
 func (self *Client) reconnect(host string) ClientProtocol {
 	self.glock.Lock()
 	waiter := make(chan bool, 1)
-	self.reconnect_waiters[host] = waiter
+	self.reconnectWaiters[host] = waiter
 	self.glock.Unlock()
 
 	for !self.closed {
@@ -148,8 +148,8 @@ func (self *Client) reconnect(host string) ClientProtocol {
 			}
 
 			self.glock.Lock()
-			if _, ok := self.reconnect_waiters[host]; ok {
-				delete(self.reconnect_waiters, host)
+			if _, ok := self.reconnectWaiters[host]; ok {
+				delete(self.reconnectWaiters, host)
 			}
 			self.glock.Unlock()
 			return client_protocol
@@ -157,8 +157,8 @@ func (self *Client) reconnect(host string) ClientProtocol {
 	}
 
 	self.glock.Lock()
-	if _, ok := self.reconnect_waiters[host]; ok {
-		delete(self.reconnect_waiters, host)
+	if _, ok := self.reconnectWaiters[host]; ok {
+		delete(self.reconnectWaiters, host)
 	}
 	self.glock.Unlock()
 	return nil
@@ -184,14 +184,14 @@ func (self *Client) removeProtocol(client_protocol ClientProtocol) {
 
 func (self *Client) initClientId() {
 	now := uint32(time.Now().Unix())
-	self.client_id = [16]byte{
+	self.clientId = [16]byte{
 		byte(now >> 24), byte(now >> 16), byte(now >> 8), byte(now), LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)],
 		LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)],
 	}
 }
 
 func (self *Client) initProtocol(client_protocol ClientProtocol) error {
-	init_command := &protocol.InitCommand{Command: protocol.Command{Magic: protocol.MAGIC, Version: protocol.VERSION, CommandType: protocol.COMMAND_INIT, RequestId: self.client_id}, ClientId: self.client_id}
+	init_command := &protocol.InitCommand{Command: protocol.Command{Magic: protocol.MAGIC, Version: protocol.VERSION, CommandType: protocol.COMMAND_INIT, RequestId: self.clientId}, ClientId: self.clientId}
 	if err := client_protocol.Write(init_command); err != nil {
 		return err
 	}
@@ -247,7 +247,7 @@ func (self *Client) process(host string, client_protocol ClientProtocol) {
 	if client_protocol != nil {
 		_ = client_protocol.Close()
 	}
-	self.closed_waiter.Done()
+	self.closedWaiter.Done()
 }
 
 func (self *Client) getPrococol() ClientProtocol {
@@ -301,15 +301,15 @@ func (self *Client) handleCommand(command protocol.ICommand) error {
 	}
 
 	request_id := command.GetRequestId()
-	self.request_lock.Lock()
+	self.requestLock.Lock()
 	if request, ok := self.requests[request_id]; ok {
 		delete(self.requests, request_id)
-		self.request_lock.Unlock()
+		self.requestLock.Unlock()
 
 		request <- command
 		return nil
 	}
-	self.request_lock.Unlock()
+	self.requestLock.Unlock()
 	return nil
 }
 
@@ -328,23 +328,23 @@ func (self *Client) ExecuteCommand(command protocol.ICommand, timeout int) (prot
 	}
 
 	request_id := command.GetRequestId()
-	self.request_lock.Lock()
+	self.requestLock.Lock()
 	if _, ok := self.requests[request_id]; ok {
-		self.request_lock.Unlock()
+		self.requestLock.Unlock()
 		return nil, errors.New("request is used")
 	}
 
 	waiter := make(chan protocol.ICommand, 1)
 	self.requests[request_id] = waiter
-	self.request_lock.Unlock()
+	self.requestLock.Unlock()
 
 	err := client_protocol.Write(command)
 	if err != nil {
-		self.request_lock.Lock()
+		self.requestLock.Lock()
 		if _, ok := self.requests[request_id]; ok {
 			delete(self.requests, request_id)
 		}
-		self.request_lock.Unlock()
+		self.requestLock.Unlock()
 		return nil, err
 	}
 
@@ -355,11 +355,11 @@ func (self *Client) ExecuteCommand(command protocol.ICommand, timeout int) (prot
 		}
 		return r, nil
 	case <-time.After(time.Duration(timeout+1) * time.Second):
-		self.request_lock.Lock()
+		self.requestLock.Lock()
 		if _, ok := self.requests[request_id]; ok {
 			delete(self.requests, request_id)
 		}
-		self.request_lock.Unlock()
+		self.requestLock.Unlock()
 		return nil, errors.New("timeout")
 	}
 }
@@ -399,7 +399,7 @@ func (self *Client) State(db_id uint8) *protocol.StateResultCommand {
 
 func (self *Client) GenRequestId() [16]byte {
 	now := uint64(time.Now().Nanosecond() / 1e6)
-	rid := atomic.AddUint32(&request_id_index, 1)
+	rid := atomic.AddUint32(&requestIdIndex, 1)
 	return [16]byte{
 		byte(now >> 24), byte(now >> 16), byte(now >> 8), byte(now), LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)],
 		LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], byte(rid >> 24), byte(rid >> 16), byte(rid >> 8), byte(rid),

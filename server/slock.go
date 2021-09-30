@@ -20,37 +20,37 @@ const (
 )
 
 type SLock struct {
-	server                    *Server
-	dbs                       []*LockDB
-	glock                     *sync.Mutex
-	aof                       *Aof
-	replication_manager       *ReplicationManager
-	arbiter_manager           *ArbiterManager
-	admin                     *Admin
-	logger                    logging.Logger
-	streams                   map[[16]byte]ServerProtocol
-	uptime                    *time.Time
-	free_lock_commands        *LockCommandQueue
-	free_lock_command_lock    *sync.Mutex
-	free_lock_command_count   int32
-	stats_total_command_count uint64
-	state                     uint8
+	server                 *Server
+	dbs                    []*LockDB
+	glock                  *sync.Mutex
+	aof                    *Aof
+	replicationManager     *ReplicationManager
+	arbiterManager         *ArbiterManager
+	admin                  *Admin
+	logger                 logging.Logger
+	streams                map[[16]byte]ServerProtocol
+	uptime                 *time.Time
+	freeLockCommandQueue   *LockCommandQueue
+	freeLockCommandLock    *sync.Mutex
+	freeLockCommandCount   int32
+	statsTotalCommandCount uint64
+	state                  uint8
 }
 
 func NewSLock(config *ServerConfig) *SLock {
 	SetConfig(config)
 
 	aof := NewAof()
-	replication_manager := NewReplicationManager()
+	replicationManager := NewReplicationManager()
 	admin := NewAdmin()
 	now := time.Now()
 	logger := InitLogger(Config.Log, Config.LogLevel)
-	slock := &SLock{nil, make([]*LockDB, 256), &sync.Mutex{}, aof, replication_manager, nil, admin, logger,
+	slock := &SLock{nil, make([]*LockDB, 256), &sync.Mutex{}, aof, replicationManager, nil, admin, logger,
 		make(map[[16]byte]ServerProtocol, STREAMS_INIT_COUNT), &now, NewLockCommandQueue(16, 64, FREE_COMMAND_QUEUE_INIT_SIZE*16),
 		&sync.Mutex{}, 0, 0, STATE_INIT}
 	aof.slock = slock
-	replication_manager.slock = slock
-	replication_manager.transparency_manager.slock = slock
+	replicationManager.slock = slock
+	replicationManager.transparencyManager.slock = slock
 	admin.slock = slock
 	return slock
 }
@@ -58,9 +58,9 @@ func NewSLock(config *ServerConfig) *SLock {
 func (self *SLock) Init(server *Server) error {
 	self.server = server
 	if Config.ReplSet != "" {
-		self.UpdateState(STATE_CONFIG)
-		self.arbiter_manager = NewArbiterManager(self, Config.ReplSet)
-		err := self.arbiter_manager.Load()
+		self.updateState(STATE_CONFIG)
+		self.arbiterManager = NewArbiterManager(self, Config.ReplSet)
+		err := self.arbiterManager.Load()
 		if err != nil {
 			self.logger.Errorf("Arbiter load error %v", err)
 			return err
@@ -70,21 +70,21 @@ func (self *SLock) Init(server *Server) error {
 	}
 
 	if Config.SlaveOf != "" {
-		return self.InitFollower(Config.SlaveOf)
+		return self.initFollower(Config.SlaveOf)
 	}
-	return self.InitLeader()
+	return self.initLeader()
 }
 
-func (self *SLock) InitLeader() error {
-	self.UpdateState(STATE_INIT)
+func (self *SLock) initLeader() error {
+	self.updateState(STATE_INIT)
 	err := self.aof.LoadAndInit()
 	if err != nil {
 		self.logger.Errorf("Aof LoadOrInit error %v", err)
 		return err
 	}
 
-	self.UpdateState(STATE_LEADER)
-	err = self.replication_manager.Init("")
+	self.updateState(STATE_LEADER)
+	err = self.replicationManager.Init("")
 	if err != nil {
 		self.logger.Errorf("Replication init error %v", err)
 		return err
@@ -93,21 +93,21 @@ func (self *SLock) InitLeader() error {
 	return nil
 }
 
-func (self *SLock) InitFollower(leader_address string) error {
+func (self *SLock) initFollower(leader_address string) error {
 	_, err := net.ResolveTCPAddr("tcp", leader_address)
 	if err != nil {
 		return errors.New("host invalid error")
 	}
 
-	self.UpdateState(STATE_INIT)
+	self.updateState(STATE_INIT)
 	err = self.aof.Init()
 	if err != nil {
 		self.logger.Errorf("Aof init error %v", err)
 		return err
 	}
 
-	self.UpdateState(STATE_SYNC)
-	err = self.replication_manager.Init(leader_address)
+	self.updateState(STATE_SYNC)
+	err = self.replicationManager.Init(leader_address)
 	if err != nil {
 		self.logger.Errorf("Replication init error %v", err)
 		return err
@@ -118,7 +118,7 @@ func (self *SLock) InitFollower(leader_address string) error {
 
 func (self *SLock) Start() {
 	if Config.ReplSet != "" {
-		err := self.arbiter_manager.Start()
+		err := self.arbiterManager.Start()
 		if err != nil {
 			self.logger.Errorf("Arbiter start error %v", err)
 			return
@@ -128,18 +128,18 @@ func (self *SLock) Start() {
 	}
 
 	if Config.SlaveOf != "" {
-		self.StartFollower()
+		self.startFollower()
 		return
 	}
-	self.StartLeader()
+	self.startLeader()
 }
 
-func (self *SLock) StartLeader() {
+func (self *SLock) startLeader() {
 	self.logger.Infof("Slock start by leader")
 }
 
-func (self *SLock) StartFollower() {
-	err := self.replication_manager.StartSync()
+func (self *SLock) startFollower() {
+	err := self.replicationManager.StartSync()
 	if err != nil {
 		self.logger.Errorf("Replication start sync error %v", err)
 		return
@@ -149,10 +149,10 @@ func (self *SLock) StartFollower() {
 }
 
 func (self *SLock) Close() {
-	if self.arbiter_manager != nil {
-		self.arbiter_manager.Close()
+	if self.arbiterManager != nil {
+		_ = self.arbiterManager.Close()
 	}
-	self.replication_manager.Close()
+	self.replicationManager.Close()
 	self.glock.Lock()
 	for i, db := range self.dbs {
 		if db != nil {
@@ -167,16 +167,16 @@ func (self *SLock) Close() {
 	self.logger.Infof("Slock closed")
 }
 
-func (self *SLock) UpdateState(state uint8) {
+func (self *SLock) updateState(state uint8) {
 	self.state = state
 
 	for _, db := range self.dbs {
 		if db != nil && db.status != STATE_CLOSE && state != STATE_CLOSE {
 			db.status = state
 
-			for i := int8(0); i < db.manager_max_glocks; i++ {
-				db.manager_glocks[i].Lock()
-				db.manager_glocks[i].Unlock()
+			for i := int8(0); i < db.managerMaxGlocks; i++ {
+				db.managerGlocks[i].Lock()
+				db.managerGlocks[i].Unlock()
 			}
 		}
 	}
@@ -187,42 +187,42 @@ func (self *SLock) GetAof() *Aof {
 }
 
 func (self *SLock) GetReplicationManager() *ReplicationManager {
-	return self.replication_manager
+	return self.replicationManager
 }
 
 func (self *SLock) GetArbiterManager() *ArbiterManager {
-	return self.arbiter_manager
+	return self.arbiterManager
 }
 
 func (self *SLock) GetAdmin() *Admin {
 	return self.admin
 }
 
-func (self *SLock) GetOrNewDB(db_id uint8) *LockDB {
+func (self *SLock) GetOrNewDB(dbId uint8) *LockDB {
 	self.glock.Lock()
-	if self.dbs[db_id] == nil {
-		self.dbs[db_id] = NewLockDB(self, db_id)
+	if self.dbs[dbId] == nil {
+		self.dbs[dbId] = NewLockDB(self, dbId)
 	}
 	self.glock.Unlock()
-	return self.dbs[db_id]
+	return self.dbs[dbId]
 }
 
-func (self *SLock) GetDB(db_id uint8) *LockDB {
-	if self.dbs[db_id] == nil {
-		return self.GetOrNewDB(db_id)
+func (self *SLock) GetDB(dbId uint8) *LockDB {
+	if self.dbs[dbId] == nil {
+		return self.GetOrNewDB(dbId)
 	}
-	return self.dbs[db_id]
+	return self.dbs[dbId]
 }
 
-func (self *SLock) DoLockComamnd(db *LockDB, server_protocol ServerProtocol, command *protocol.LockCommand) error {
-	return db.Lock(server_protocol, command)
+func (self *SLock) doLockComamnd(db *LockDB, serverProtocol ServerProtocol, command *protocol.LockCommand) error {
+	return db.Lock(serverProtocol, command)
 }
 
-func (self *SLock) DoUnLockComamnd(db *LockDB, server_protocol ServerProtocol, command *protocol.LockCommand) error {
-	return db.UnLock(server_protocol, command)
+func (self *SLock) doUnLockComamnd(db *LockDB, serverProtocol ServerProtocol, command *protocol.LockCommand) error {
+	return db.UnLock(serverProtocol, command)
 }
 
-func (self *SLock) GetState(server_protocol ServerProtocol, command *protocol.StateCommand) error {
+func (self *SLock) GetState(serverProtocol ServerProtocol, command *protocol.StateCommand) error {
 	db_state := uint8(0)
 
 	db := self.dbs[command.DbId]
@@ -231,61 +231,61 @@ func (self *SLock) GetState(server_protocol ServerProtocol, command *protocol.St
 	}
 
 	if db == nil {
-		return server_protocol.Write(protocol.NewStateResultCommand(command, protocol.RESULT_SUCCED, 0, db_state, nil))
+		return serverProtocol.Write(protocol.NewStateResultCommand(command, protocol.RESULT_SUCCED, 0, db_state, nil))
 	}
-	return server_protocol.Write(protocol.NewStateResultCommand(command, protocol.RESULT_SUCCED, 0, db_state, db.GetState()))
+	return serverProtocol.Write(protocol.NewStateResultCommand(command, protocol.RESULT_SUCCED, 0, db_state, db.GetState()))
 }
 
 func (self *SLock) Log() logging.Logger {
 	return self.logger
 }
 
-func (self *SLock) FreeLockCommand(command *protocol.LockCommand) *protocol.LockCommand {
-	self.free_lock_command_lock.Lock()
-	if self.free_lock_commands.Push(command) != nil {
+func (self *SLock) freeLockCommand(command *protocol.LockCommand) *protocol.LockCommand {
+	self.freeLockCommandLock.Lock()
+	if self.freeLockCommandQueue.Push(command) != nil {
 		return nil
 	}
-	self.free_lock_command_count++
-	self.free_lock_command_lock.Unlock()
+	self.freeLockCommandCount++
+	self.freeLockCommandLock.Unlock()
 	return command
 }
 
-func (self *SLock) GetLockCommand() *protocol.LockCommand {
-	self.free_lock_command_lock.Lock()
-	command := self.free_lock_commands.PopRight()
+func (self *SLock) getLockCommand() *protocol.LockCommand {
+	self.freeLockCommandLock.Lock()
+	command := self.freeLockCommandQueue.PopRight()
 	if command != nil {
-		self.free_lock_command_count--
+		self.freeLockCommandCount--
 	}
-	self.free_lock_command_lock.Unlock()
+	self.freeLockCommandLock.Unlock()
 	return command
 }
 
-func (self *SLock) FreeLockCommands(commands []*protocol.LockCommand) error {
-	self.free_lock_command_lock.Lock()
+func (self *SLock) freeLockCommands(commands []*protocol.LockCommand) error {
+	self.freeLockCommandLock.Lock()
 	for _, command := range commands {
-		if self.free_lock_commands.Push(command) != nil {
+		if self.freeLockCommandQueue.Push(command) != nil {
 			continue
 		}
-		self.free_lock_command_count++
+		self.freeLockCommandCount++
 	}
-	self.free_lock_command_lock.Unlock()
+	self.freeLockCommandLock.Unlock()
 	return nil
 }
 
-func (self *SLock) GetLockCommands(count int32) []*protocol.LockCommand {
-	self.free_lock_command_lock.Lock()
-	if count > self.free_lock_command_count {
-		count = self.free_lock_command_count
+func (self *SLock) getLockCommands(count int32) []*protocol.LockCommand {
+	self.freeLockCommandLock.Lock()
+	if count > self.freeLockCommandCount {
+		count = self.freeLockCommandCount
 	}
 	commands := make([]*protocol.LockCommand, count)
 	for i := int32(0); i < count; i++ {
-		command := self.free_lock_commands.PopRight()
+		command := self.freeLockCommandQueue.PopRight()
 		if command == nil {
 			break
 		}
 		commands[i] = command
-		self.free_lock_command_count--
+		self.freeLockCommandCount--
 	}
-	self.free_lock_command_lock.Unlock()
+	self.freeLockCommandLock.Unlock()
 	return commands
 }

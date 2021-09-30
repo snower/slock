@@ -7,21 +7,21 @@ import (
 )
 
 type RWLock struct {
-	db       *Database
-	lock_key [16]byte
-	timeout  uint32
-	expried  uint32
-	rlocks   []*Lock
-	wlock    *Lock
-	glock    *sync.Mutex
+	db      *Database
+	lockKey [16]byte
+	timeout uint32
+	expried uint32
+	rlocks  []*Lock
+	wlock   *Lock
+	glock   *sync.Mutex
 }
 
-func NewRWLock(db *Database, lock_key [16]byte, timeout uint32, expried uint32) *RWLock {
-	return &RWLock{db, lock_key, timeout, expried, make([]*Lock, 0), nil, &sync.Mutex{}}
+func NewRWLock(db *Database, lockKey [16]byte, timeout uint32, expried uint32) *RWLock {
+	return &RWLock{db, lockKey, timeout, expried, make([]*Lock, 0), nil, &sync.Mutex{}}
 }
 
 func (self *RWLock) GetLockKey() [16]byte {
-	return self.lock_key
+	return self.lockKey
 }
 
 func (self *RWLock) GetTimeout() uint32 {
@@ -33,7 +33,7 @@ func (self *RWLock) GetExpried() uint32 {
 }
 
 func (self *RWLock) RLock() error {
-	rlock := &Lock{self.db, self.db.GenLockId(), self.lock_key, self.timeout, self.expried, 0xffff, 0}
+	rlock := &Lock{self.db, self.db.GenLockId(), self.lockKey, self.timeout, self.expried, 0xffff, 0}
 	err := rlock.Lock()
 	if err == nil {
 		self.glock.Lock()
@@ -58,7 +58,7 @@ func (self *RWLock) RUnlock() error {
 func (self *RWLock) Lock() error {
 	self.glock.Lock()
 	if self.wlock == nil {
-		self.wlock = &Lock{self.db, self.db.GenLockId(), self.lock_key, self.timeout, self.expried, 0, 0}
+		self.wlock = &Lock{self.db, self.db.GenLockId(), self.lockKey, self.timeout, self.expried, 0, 0}
 	}
 	self.glock.Unlock()
 	return self.wlock.Lock()

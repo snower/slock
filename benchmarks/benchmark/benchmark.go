@@ -8,10 +8,10 @@ import (
     "time"
 )
 
-func run(slock_client *client.Client, count *uint32, max_count uint32, waiter chan bool, timeout_flag int, expried_flag int) {
+func run(slockClient *client.Client, count *uint32, maxCount uint32, waiter chan bool, timeoutFlag int, expriedFlag int) {
     for ;; {
-        lock_key := slock_client.SelectDB(0).GenLockId()
-        lock := slock_client.Lock(lock_key, (uint32(timeout_flag) << 16) | 5, (uint32(expried_flag) << 16) | 5)
+        lockKey := slockClient.SelectDB(0).GenLockId()
+        lock := slockClient.Lock(lockKey, (uint32(timeoutFlag) << 16) | 5, (uint32(expriedFlag) << 16) | 5)
 
         err := lock.Lock()
         if err != nil {
@@ -26,17 +26,17 @@ func run(slock_client *client.Client, count *uint32, max_count uint32, waiter ch
         }
 
         atomic.AddUint32(count, 1)
-        if *count > max_count {
+        if *count > maxCount {
             close(waiter)
             return
         }
     }
 }
 
-func bench(client_count int, concurrentc int, max_count int, port int, host string, timeout_flag int, expried_flag int)  {
-    fmt.Printf("Run %d Client, %d concurrentc, %d Count Lock and Unlock\n", client_count, concurrentc, max_count)
+func bench(clientCount int, concurrentc int, maxCount int, port int, host string, timeoutFlag int, expriedFlag int)  {
+    fmt.Printf("Run %d Client, %d concurrentc, %d Count Lock and Unlock\n", clientCount, concurrentc, maxCount)
 
-    clients := make([]*client.Client, client_count)
+    clients := make([]*client.Client, clientCount)
     waiters := make([]chan bool, concurrentc)
     defer func() {
         for _, c := range clients {
@@ -47,45 +47,45 @@ func bench(client_count int, concurrentc int, max_count int, port int, host stri
         }
     }()
 
-    for c := 0; c < client_count; c++ {
-        slock_client := client.NewClient(host, uint(port))
-        err := slock_client.Open()
+    for c := 0; c < clientCount; c++ {
+        slockClient := client.NewClient(host, uint(port))
+        err := slockClient.Open()
         if err != nil {
             fmt.Printf("Connect Error: %v", err)
             return
         }
-        clients[c] = slock_client
+        clients[c] = slockClient
     }
     fmt.Printf("Client Opened %d\n", len(clients))
 
     var count uint32
-    start_time := time.Now().UnixNano()
+    startTime := time.Now().UnixNano()
     for i:=0; i < concurrentc; i++{
         waiters[i] = make(chan bool, 1)
-        go run(clients[i % client_count], &count, uint32(max_count), waiters[i], timeout_flag, expried_flag)
+        go run(clients[i %clientCount], &count, uint32(maxCount), waiters[i], timeoutFlag, expriedFlag)
     }
     for _, waiter := range waiters {
         <- waiter
     }
-    end_time := time.Now().UnixNano()
-    pt := float64(end_time - start_time) / 1000000000.0
+    endTime := time.Now().UnixNano()
+    pt := float64(endTime-startTime) / 1000000000.0
     fmt.Printf("%d %fs %fr/s\n\n", count, pt, float64(count) / pt)
 }
 
 func main()  {
     port := flag.Int("port", 5658, "port")
     host := flag.String("host", "127.0.0.1", "host")
-    client := flag.Int("client", 0, "client count")
+    clientCount := flag.Int("client", 0, "client count")
     conc := flag.Int("conc", 0, "concurrentc")
     count := flag.Int("count", 0, "lock and unlock count")
-    timeout_flag := flag.Int("timeout_flag", 0, "timeout_flag")
-    expried_flag := flag.Int("expried_flag", 0, "expried_flag")
+    timeoutFlag := flag.Int("timeout_flag", 0, "timeout_flag")
+    expriedFlag := flag.Int("expried_flag", 0, "expried_flag")
 
     flag.Parse()
 
-    if *client > 0 || *conc > 0 || *count > 0 {
-        if *client <= 0 {
-            *client = 16
+    if *clientCount > 0 || *conc > 0 || *count > 0 {
+        if *clientCount <= 0 {
+            *clientCount = 16
         }
 
         if *conc <= 0 {
@@ -96,30 +96,30 @@ func main()  {
             *count = 500000
         }
 
-        bench(*client, *conc, *count, *port, *host, *timeout_flag, *expried_flag)
+        bench(*clientCount, *conc, *count, *port, *host, *timeoutFlag, *expriedFlag)
         fmt.Println("Succed")
         return
     }
 
-    bench(1, 1, 200000, *port, *host, *timeout_flag, *expried_flag)
+    bench(1, 1, 200000, *port, *host, *timeoutFlag, *expriedFlag)
 
-    bench(1, 64, 300000, *port, *host, *timeout_flag, *expried_flag)
+    bench(1, 64, 300000, *port, *host, *timeoutFlag, *expriedFlag)
 
-    bench(64, 64, 500000, *port, *host, *timeout_flag, *expried_flag)
+    bench(64, 64, 500000, *port, *host, *timeoutFlag, *expriedFlag)
 
-    bench(8, 64, 500000, *port, *host, *timeout_flag, *expried_flag)
+    bench(8, 64, 500000, *port, *host, *timeoutFlag, *expriedFlag)
 
-    bench(16, 64, 500000, *port, *host, *timeout_flag, *expried_flag)
+    bench(16, 64, 500000, *port, *host, *timeoutFlag, *expriedFlag)
 
-    bench(16, 256, 500000, *port, *host, *timeout_flag, *expried_flag)
+    bench(16, 256, 500000, *port, *host, *timeoutFlag, *expriedFlag)
 
-    bench(64, 512, 500000, *port, *host, *timeout_flag, *expried_flag)
+    bench(64, 512, 500000, *port, *host, *timeoutFlag, *expriedFlag)
 
-    bench(512, 512, 500000, *port, *host, *timeout_flag, *expried_flag)
+    bench(512, 512, 500000, *port, *host, *timeoutFlag, *expriedFlag)
 
-    bench(64, 4096, 500000, *port, *host, *timeout_flag, *expried_flag)
+    bench(64, 4096, 500000, *port, *host, *timeoutFlag, *expriedFlag)
 
-    bench(4096, 4096, 500000, *port, *host, *timeout_flag, *expried_flag)
+    bench(4096, 4096, 500000, *port, *host, *timeoutFlag, *expriedFlag)
 
     fmt.Println("Succed")
 }

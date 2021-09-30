@@ -1,20 +1,20 @@
 package client
 
 type RLock struct {
-	db       *Database
-	lock_key [16]byte
-	timeout  uint32
-	expried  uint32
-	lock     *Lock
+	db      *Database
+	lockKey [16]byte
+	timeout uint32
+	expried uint32
+	lock    *Lock
 }
 
-func NewRLock(db *Database, lock_key [16]byte, timeout uint32, expried uint32) *RLock {
-	lock := &Lock{db, db.GenLockId(), lock_key, timeout, expried, 0, 0xff}
-	return &RLock{db, lock_key, timeout, expried, lock}
+func NewRLock(db *Database, lockKey [16]byte, timeout uint32, expried uint32) *RLock {
+	lock := &Lock{db, db.GenLockId(), lockKey, timeout, expried, 0, 0xff}
+	return &RLock{db, lockKey, timeout, expried, lock}
 }
 
 func (self *RLock) GetLockKey() [16]byte {
-	return self.lock_key
+	return self.lockKey
 }
 
 func (self *RLock) GetTimeout() uint32 {

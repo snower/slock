@@ -13,23 +13,23 @@ type TextRequestCommand struct {
 }
 
 func (self *TextRequestCommand) Decode(buf []byte) error {
-	if len(buf) > len(self.Parser.rbuf) || self.Parser.buf_index != self.Parser.buf_len {
+	if len(buf) > len(self.Parser.rbuf) || self.Parser.bufIndex != self.Parser.bufLen {
 		return errors.New("buf error")
 	}
 
 	copy(self.Parser.rbuf, buf)
-	self.Parser.buf_len = len(buf)
-	self.Parser.buf_index = 0
+	self.Parser.bufLen = len(buf)
+	self.Parser.bufIndex = 0
 	return self.Parser.ParseRequest()
 }
 
 func (self *TextRequestCommand) Encode(buf []byte) error {
-	build_buf := self.Parser.BuildRequest(self.Args)
-	if len(build_buf) > len(buf) || self.Parser.buf_index == self.Parser.buf_len {
+	buildBuf := self.Parser.BuildRequest(self.Args)
+	if len(buildBuf) > len(buf) || self.Parser.bufIndex == self.Parser.bufLen {
 		return errors.New("buf error")
 	}
 
-	copy(buf, build_buf)
+	copy(buf, buildBuf)
 	return nil
 }
 
@@ -45,31 +45,31 @@ type TextResponseCommand struct {
 }
 
 func (self *TextResponseCommand) Decode(buf []byte) error {
-	if len(buf) > len(self.Parser.rbuf) || self.Parser.buf_index != self.Parser.buf_len {
+	if len(buf) > len(self.Parser.rbuf) || self.Parser.bufIndex != self.Parser.bufLen {
 		return errors.New("buf error")
 	}
 
 	copy(self.Parser.rbuf, buf)
-	self.Parser.buf_len = len(buf)
-	self.Parser.buf_index = 0
+	self.Parser.bufLen = len(buf)
+	self.Parser.bufIndex = 0
 	return self.Parser.ParseResponse()
 }
 
 func (self *TextResponseCommand) Encode(buf []byte) error {
-	is_success := false
+	isSuccess := false
 	message := self.Message
 	if self.ErrorType == "" {
-		is_success = true
+		isSuccess = true
 	} else {
 		message = fmt.Sprintf("%s %s", self.ErrorType, self.Message)
 	}
 
-	build_buf := self.Parser.BuildResponse(is_success, message, self.Results)
-	if len(build_buf) > len(buf) || self.Parser.buf_index == self.Parser.buf_len {
+	buildBuf := self.Parser.BuildResponse(isSuccess, message, self.Results)
+	if len(buildBuf) > len(buf) || self.Parser.bufIndex == self.Parser.bufLen {
 		return errors.New("buf error")
 	}
 
-	copy(buf, build_buf)
+	copy(buf, buildBuf)
 	return nil
 }
 
@@ -86,17 +86,17 @@ func (self *TextResponseCommand) GetResults() []string {
 }
 
 type TextParser struct {
-	rbuf       []byte
-	wbuf       []byte
-	args       []string
-	carg       []byte
-	args_type  int
-	buf_index  int
-	buf_len    int
-	stage      int
-	args_count int
-	carg_index int
-	carg_len   int
+	rbuf      []byte
+	wbuf      []byte
+	args      []string
+	carg      []byte
+	argsType  int
+	bufIndex  int
+	bufLen    int
+	stage     int
+	argsCount int
+	cargIndex int
+	cargLen   int
 }
 
 func NewTextParser(rbuf []byte, wbuf []byte) *TextParser {
@@ -109,14 +109,14 @@ func (self *TextParser) GetReadBuf() []byte {
 }
 
 func (self *TextParser) CopyToReadBuf(buf []byte) {
-	copy(self.rbuf[self.buf_index:], buf)
-	self.buf_len += len(buf)
+	copy(self.rbuf[self.bufIndex:], buf)
+	self.bufLen += len(buf)
 }
 
 func (self *TextParser) GetRemainingReadBuffer() []byte {
-	buf := self.rbuf[self.buf_index:self.buf_len]
-	self.buf_len = 0
-	self.buf_index = 0
+	buf := self.rbuf[self.bufIndex:self.bufLen]
+	self.bufLen = 0
+	self.bufIndex = 0
 	return buf
 }
 
@@ -125,12 +125,12 @@ func (self *TextParser) GetWriteBuf() []byte {
 }
 
 func (self *TextParser) CopyToWriteBuf(buf []byte) {
-	copy(self.wbuf[self.buf_index:], buf)
-	self.buf_len += len(buf)
+	copy(self.wbuf[self.bufIndex:], buf)
+	self.bufLen += len(buf)
 }
 
 func (self *TextParser) GetArgsType() int {
-	return self.args_type
+	return self.argsType
 }
 
 func (self *TextParser) GetArgs() []string {
@@ -138,32 +138,32 @@ func (self *TextParser) GetArgs() []string {
 }
 
 func (self *TextParser) GetArgsCount() int {
-	return self.args_count
+	return self.argsCount
 }
 
 func (self *TextParser) GetCommandType() string {
-	if self.args_type == 0 && len(self.args) >= 1 {
+	if self.argsType == 0 && len(self.args) >= 1 {
 		return strings.ToUpper(self.args[0])
 	}
 	return ""
 }
 
 func (self *TextParser) GetErrorType() string {
-	if self.args_type == 2 && len(self.args) >= 1 {
+	if self.argsType == 2 && len(self.args) >= 1 {
 		return strings.ToUpper(self.args[0])
 	}
 	return ""
 }
 
 func (self *TextParser) GetErrorMessage() string {
-	if self.args_type == 2 && len(self.args) >= 2 {
+	if self.argsType == 2 && len(self.args) >= 2 {
 		return self.args[1]
 	}
 	return ""
 }
 
 func (self *TextParser) GetRequestCommand() (*TextRequestCommand, error) {
-	if self.args_type != 0 {
+	if self.argsType != 0 {
 		return nil, errors.New("not request")
 	}
 
@@ -173,12 +173,12 @@ func (self *TextParser) GetRequestCommand() (*TextRequestCommand, error) {
 }
 
 func (self *TextParser) GetResponseCommand() (*TextResponseCommand, error) {
-	if self.args_type == 0 {
+	if self.argsType == 0 {
 		return nil, errors.New("not response")
 	}
 
 	command := TextResponseCommand{self, "", "", make([]string, 0)}
-	if self.args_type == 2 {
+	if self.argsType == 2 {
 		if len(self.args) >= 1 {
 			command.ErrorType = self.args[0]
 		}
@@ -193,7 +193,7 @@ func (self *TextParser) GetResponseCommand() (*TextResponseCommand, error) {
 }
 
 func (self *TextParser) IsBufferEnd() bool {
-	return self.buf_len == self.buf_index
+	return self.bufLen == self.bufIndex
 }
 
 func (self *TextParser) IsParseFinish() bool {
@@ -201,47 +201,47 @@ func (self *TextParser) IsParseFinish() bool {
 }
 
 func (self *TextParser) BufferUpdate(n int) {
-	self.buf_len = n
-	self.buf_index = 0
+	self.bufLen = n
+	self.bufIndex = 0
 }
 
 func (self *TextParser) Reset() {
 	self.args = self.args[:0]
-	self.args_count = 0
+	self.argsCount = 0
 }
 
 func (self *TextParser) ParseRequest() error {
-	for self.buf_index < self.buf_len {
+	for self.bufIndex < self.bufLen {
 		switch self.stage {
 		case 0:
-			if self.rbuf[self.buf_index] != '*' {
+			if self.rbuf[self.bufIndex] != '*' {
 				return errors.New("Command first byte must by *")
 			}
-			self.buf_index++
-			self.args_type = 0
+			self.bufIndex++
+			self.argsType = 0
 			self.stage = 1
 		case 1:
-			for ; self.buf_index < self.buf_len; self.buf_index++ {
-				if self.rbuf[self.buf_index] == '\n' {
-					if self.buf_index > 0 && self.rbuf[self.buf_index-1] != '\r' {
+			for ; self.bufIndex < self.bufLen; self.bufIndex++ {
+				if self.rbuf[self.bufIndex] == '\n' {
+					if self.bufIndex > 0 && self.rbuf[self.bufIndex-1] != '\r' {
 						return errors.New("Command parse args count error")
 					}
 
-					args_count, err := strconv.Atoi(string(self.carg[:self.carg_index]))
+					argsCount, err := strconv.Atoi(string(self.carg[:self.cargIndex]))
 					if err != nil {
 						return err
 					}
-					self.args_count = args_count
-					self.carg_index = 0
-					self.buf_index++
+					self.argsCount = argsCount
+					self.cargIndex = 0
+					self.bufIndex++
 					self.stage = 2
 					break
-				} else if self.rbuf[self.buf_index] != '\r' {
-					if self.carg_index >= 64 {
+				} else if self.rbuf[self.bufIndex] != '\r' {
+					if self.cargIndex >= 64 {
 						return errors.New("Command parse args count error")
 					}
-					self.carg[self.carg_index] = self.rbuf[self.buf_index]
-					self.carg_index++
+					self.carg[self.cargIndex] = self.rbuf[self.bufIndex]
+					self.cargIndex++
 				}
 			}
 
@@ -249,33 +249,33 @@ func (self *TextParser) ParseRequest() error {
 				return nil
 			}
 		case 2:
-			if self.rbuf[self.buf_index] != '$' {
+			if self.rbuf[self.bufIndex] != '$' {
 				return errors.New("Command first byte must by $")
 			}
-			self.buf_index++
+			self.bufIndex++
 			self.stage = 3
 		case 3:
-			for ; self.buf_index < self.buf_len; self.buf_index++ {
-				if self.rbuf[self.buf_index] == '\n' {
-					if self.buf_index > 0 && self.rbuf[self.buf_index-1] != '\r' {
+			for ; self.bufIndex < self.bufLen; self.bufIndex++ {
+				if self.rbuf[self.bufIndex] == '\n' {
+					if self.bufIndex > 0 && self.rbuf[self.bufIndex-1] != '\r' {
 						return errors.New("Command parse arg len error")
 					}
 
-					carg_len, err := strconv.Atoi(string(self.carg[:self.carg_index]))
+					cargLen, err := strconv.Atoi(string(self.carg[:self.cargIndex]))
 					if err != nil {
 						return errors.New("Command parse args count error")
 					}
-					self.carg_len = carg_len
-					self.carg_index = 0
-					self.buf_index++
+					self.cargLen = cargLen
+					self.cargIndex = 0
+					self.bufIndex++
 					self.stage = 4
 					break
-				} else if self.rbuf[self.buf_index] != '\r' {
-					if self.carg_index >= 64 {
+				} else if self.rbuf[self.bufIndex] != '\r' {
+					if self.cargIndex >= 64 {
 						return errors.New("Command parse args count error")
 					}
-					self.carg[self.carg_index] = self.rbuf[self.buf_index]
-					self.carg_index++
+					self.carg[self.cargIndex] = self.rbuf[self.bufIndex]
+					self.cargIndex++
 				}
 			}
 
@@ -283,41 +283,41 @@ func (self *TextParser) ParseRequest() error {
 				return nil
 			}
 		case 4:
-			carg_len := self.carg_len - self.carg_index
-			if carg_len > 0 {
-				if self.buf_len-self.buf_index < carg_len {
-					if self.carg_index == 0 {
-						self.args = append(self.args, string(self.rbuf[self.buf_index:self.buf_len]))
+			cargLen := self.cargLen - self.cargIndex
+			if cargLen > 0 {
+				if self.bufLen-self.bufIndex < cargLen {
+					if self.cargIndex == 0 {
+						self.args = append(self.args, string(self.rbuf[self.bufIndex:self.bufLen]))
 					} else {
-						self.args[len(self.args)-1] += string(self.rbuf[self.buf_index:self.buf_len])
+						self.args[len(self.args)-1] += string(self.rbuf[self.bufIndex:self.bufLen])
 					}
-					self.carg_index += self.buf_len - self.buf_index
-					self.buf_index = self.buf_len
+					self.cargIndex += self.bufLen - self.bufIndex
+					self.bufIndex = self.bufLen
 					return nil
 				}
 
-				if self.carg_index == 0 {
-					self.args = append(self.args, string(self.rbuf[self.buf_index:self.buf_index+carg_len]))
+				if self.cargIndex == 0 {
+					self.args = append(self.args, string(self.rbuf[self.bufIndex:self.bufIndex+cargLen]))
 				} else {
-					self.args[len(self.args)-1] += string(self.rbuf[self.buf_index : self.buf_index+carg_len])
+					self.args[len(self.args)-1] += string(self.rbuf[self.bufIndex : self.bufIndex+cargLen])
 				}
-				self.carg_index = carg_len
-				self.buf_index += carg_len
+				self.cargIndex = cargLen
+				self.bufIndex += cargLen
 			}
 
-			for ; self.buf_index < self.buf_len; self.buf_index++ {
-				if self.rbuf[self.buf_index] == '\n' {
-					if self.buf_index > 0 && self.rbuf[self.buf_index-1] != '\r' {
+			for ; self.bufIndex < self.bufLen; self.bufIndex++ {
+				if self.rbuf[self.bufIndex] == '\n' {
+					if self.bufIndex > 0 && self.rbuf[self.bufIndex-1] != '\r' {
 						return errors.New("Command parse arg error")
 					}
 
-					if self.carg_len == 0 {
+					if self.cargLen == 0 {
 						self.args = append(self.args, "")
 					}
-					self.carg_index = 0
-					self.carg_len = 0
-					self.buf_index++
-					if len(self.args) < self.args_count {
+					self.cargIndex = 0
+					self.cargLen = 0
+					self.bufIndex++
+					if len(self.args) < self.argsCount {
 						self.stage = 2
 					} else {
 						self.stage = 0
@@ -336,56 +336,56 @@ func (self *TextParser) ParseRequest() error {
 }
 
 func (self *TextParser) ParseResponse() error {
-	for self.buf_index < self.buf_len {
+	for self.bufIndex < self.bufLen {
 		switch self.stage {
 		case 0:
-			switch self.rbuf[self.buf_index] {
+			switch self.rbuf[self.bufIndex] {
 			case '+':
 				self.args = append(self.args, "")
-				self.args_count = 0
-				self.args_type = 1
-				self.buf_index++
+				self.argsCount = 0
+				self.argsType = 1
+				self.bufIndex++
 				self.stage = 5
 			case '-':
 				self.args = append(self.args, "")
 				self.args = append(self.args, "")
-				self.args_count = 0
-				self.args_type = 2
-				self.buf_index++
+				self.argsCount = 0
+				self.argsType = 2
+				self.bufIndex++
 				self.stage = 6
 			case '$':
-				self.args_type = 3
-				self.buf_index++
+				self.argsType = 3
+				self.bufIndex++
 				self.stage = 3
 			case '*':
-				self.args_type = 4
-				self.buf_index++
+				self.argsType = 4
+				self.bufIndex++
 				self.stage = 1
 			default:
 				return errors.New("Response first byte must by -+$*")
 			}
 		case 1:
-			for ; self.buf_index < self.buf_len; self.buf_index++ {
-				if self.rbuf[self.buf_index] == '\n' {
-					if self.buf_index > 0 && self.rbuf[self.buf_index-1] != '\r' {
+			for ; self.bufIndex < self.bufLen; self.bufIndex++ {
+				if self.rbuf[self.bufIndex] == '\n' {
+					if self.bufIndex > 0 && self.rbuf[self.bufIndex-1] != '\r' {
 						return errors.New("Response parse args count error")
 					}
 
-					args_count, err := strconv.Atoi(string(self.carg[:self.carg_index]))
+					argsCount, err := strconv.Atoi(string(self.carg[:self.cargIndex]))
 					if err != nil {
 						return err
 					}
-					self.args_count = args_count
-					self.carg_index = 0
-					self.buf_index++
+					self.argsCount = argsCount
+					self.cargIndex = 0
+					self.bufIndex++
 					self.stage = 2
 					break
-				} else if self.rbuf[self.buf_index] != '\r' {
-					if self.carg_index >= 64 {
+				} else if self.rbuf[self.bufIndex] != '\r' {
+					if self.cargIndex >= 64 {
 						return errors.New("Response parse args count error")
 					}
-					self.carg[self.carg_index] = self.rbuf[self.buf_index]
-					self.carg_index++
+					self.carg[self.cargIndex] = self.rbuf[self.bufIndex]
+					self.cargIndex++
 				}
 			}
 
@@ -393,33 +393,33 @@ func (self *TextParser) ParseResponse() error {
 				return nil
 			}
 		case 2:
-			if self.rbuf[self.buf_index] != '$' {
+			if self.rbuf[self.bufIndex] != '$' {
 				return errors.New("Response first byte must by $")
 			}
-			self.buf_index++
+			self.bufIndex++
 			self.stage = 3
 		case 3:
-			for ; self.buf_index < self.buf_len; self.buf_index++ {
-				if self.rbuf[self.buf_index] == '\n' {
-					if self.buf_index > 0 && self.rbuf[self.buf_index-1] != '\r' {
+			for ; self.bufIndex < self.bufLen; self.bufIndex++ {
+				if self.rbuf[self.bufIndex] == '\n' {
+					if self.bufIndex > 0 && self.rbuf[self.bufIndex-1] != '\r' {
 						return errors.New("Response parse arg len error")
 					}
 
-					carg_len, err := strconv.Atoi(string(self.carg[:self.carg_index]))
+					cargLen, err := strconv.Atoi(string(self.carg[:self.cargIndex]))
 					if err != nil {
 						return errors.New("Response parse args count error")
 					}
-					self.carg_len = carg_len
-					self.carg_index = 0
-					self.buf_index++
+					self.cargLen = cargLen
+					self.cargIndex = 0
+					self.bufIndex++
 					self.stage = 4
 					break
-				} else if self.rbuf[self.buf_index] != '\r' {
-					if self.carg_index >= 64 {
+				} else if self.rbuf[self.bufIndex] != '\r' {
+					if self.cargIndex >= 64 {
 						return errors.New("Response parse args count error")
 					}
-					self.carg[self.carg_index] = self.rbuf[self.buf_index]
-					self.carg_index++
+					self.carg[self.cargIndex] = self.rbuf[self.bufIndex]
+					self.cargIndex++
 				}
 			}
 
@@ -427,41 +427,41 @@ func (self *TextParser) ParseResponse() error {
 				return nil
 			}
 		case 4:
-			carg_len := self.carg_len - self.carg_index
-			if carg_len > 0 {
-				if self.buf_len-self.buf_index < carg_len {
-					if self.carg_index == 0 {
-						self.args = append(self.args, string(self.rbuf[self.buf_index:self.buf_len]))
+			cargLen := self.cargLen - self.cargIndex
+			if cargLen > 0 {
+				if self.bufLen-self.bufIndex < cargLen {
+					if self.cargIndex == 0 {
+						self.args = append(self.args, string(self.rbuf[self.bufIndex:self.bufLen]))
 					} else {
-						self.args[len(self.args)-1] += string(self.rbuf[self.buf_index:self.buf_len])
+						self.args[len(self.args)-1] += string(self.rbuf[self.bufIndex:self.bufLen])
 					}
-					self.carg_index += self.buf_len - self.buf_index
-					self.buf_index = self.buf_len
+					self.cargIndex += self.bufLen - self.bufIndex
+					self.bufIndex = self.bufLen
 					return nil
 				}
 
-				if self.carg_index == 0 {
-					self.args = append(self.args, string(self.rbuf[self.buf_index:self.buf_index+carg_len]))
+				if self.cargIndex == 0 {
+					self.args = append(self.args, string(self.rbuf[self.bufIndex:self.bufIndex+cargLen]))
 				} else {
-					self.args[len(self.args)-1] += string(self.rbuf[self.buf_index : self.buf_index+carg_len])
+					self.args[len(self.args)-1] += string(self.rbuf[self.bufIndex : self.bufIndex+cargLen])
 				}
-				self.carg_index = carg_len
-				self.buf_index += carg_len
+				self.cargIndex = cargLen
+				self.bufIndex += cargLen
 			}
 
-			for ; self.buf_index < self.buf_len; self.buf_index++ {
-				if self.rbuf[self.buf_index] == '\n' {
-					if self.buf_index > 0 && self.rbuf[self.buf_index-1] != '\r' {
+			for ; self.bufIndex < self.bufLen; self.bufIndex++ {
+				if self.rbuf[self.bufIndex] == '\n' {
+					if self.bufIndex > 0 && self.rbuf[self.bufIndex-1] != '\r' {
 						return errors.New("Response parse arg error")
 					}
 
-					if self.carg_len == 0 {
+					if self.cargLen == 0 {
 						self.args = append(self.args, "")
 					}
-					self.carg_index = 0
-					self.carg_len = 0
-					self.buf_index++
-					if len(self.args) < self.args_count {
+					self.cargIndex = 0
+					self.cargLen = 0
+					self.bufIndex++
+					if len(self.args) < self.argsCount {
 						self.stage = 2
 					} else {
 						self.stage = 0
@@ -475,39 +475,39 @@ func (self *TextParser) ParseResponse() error {
 				return nil
 			}
 		case 5:
-			for ; self.buf_index < self.buf_len; self.buf_index++ {
-				if self.rbuf[self.buf_index] == '\n' {
-					if self.buf_index > 0 && self.rbuf[self.buf_index-1] != '\r' {
+			for ; self.bufIndex < self.bufLen; self.bufIndex++ {
+				if self.rbuf[self.bufIndex] == '\n' {
+					if self.bufIndex > 0 && self.rbuf[self.bufIndex-1] != '\r' {
 						return errors.New("Response parse msg error")
 					}
 
-					self.buf_index++
+					self.bufIndex++
 					self.stage = 0
 					return nil
-				} else if self.rbuf[self.buf_index] != '\r' {
-					if self.args_type == 2 {
-						self.args[1] += string(self.rbuf[self.buf_index])
+				} else if self.rbuf[self.bufIndex] != '\r' {
+					if self.argsType == 2 {
+						self.args[1] += string(self.rbuf[self.bufIndex])
 					} else {
-						self.args[0] += string(self.rbuf[self.buf_index])
+						self.args[0] += string(self.rbuf[self.bufIndex])
 					}
 				}
 			}
 		case 6:
-			for ; self.buf_index < self.buf_len; self.buf_index++ {
-				if self.rbuf[self.buf_index] == ' ' {
-					self.buf_index++
+			for ; self.bufIndex < self.bufLen; self.bufIndex++ {
+				if self.rbuf[self.bufIndex] == ' ' {
+					self.bufIndex++
 					self.stage = 5
 					break
-				} else if self.rbuf[self.buf_index] == '\n' {
-					if self.buf_index > 0 && self.rbuf[self.buf_index-1] != '\r' {
+				} else if self.rbuf[self.bufIndex] == '\n' {
+					if self.bufIndex > 0 && self.rbuf[self.bufIndex-1] != '\r' {
 						return errors.New("Response parse msg error")
 					}
 
-					self.buf_index++
+					self.bufIndex++
 					self.stage = 0
 					return nil
-				} else if self.rbuf[self.buf_index] != '\r' {
-					self.args[0] += string(self.rbuf[self.buf_index])
+				} else if self.rbuf[self.bufIndex] != '\r' {
+					self.args[0] += string(self.rbuf[self.bufIndex])
 				}
 			}
 		}
@@ -524,8 +524,8 @@ func (self *TextParser) BuildRequest(args []string) []byte {
 	return buf
 }
 
-func (self *TextParser) BuildResponse(is_success bool, message string, results []string) []byte {
-	if !is_success {
+func (self *TextParser) BuildResponse(isSuccess bool, message string, results []string) []byte {
+	if !isSuccess {
 		return []byte(fmt.Sprintf("-%s\r\n", message))
 	}
 
