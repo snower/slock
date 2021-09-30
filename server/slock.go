@@ -5,6 +5,8 @@ import (
 	"github.com/hhkbp2/go-logging"
 	"github.com/snower/slock/protocol"
 	"net"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 )
@@ -58,9 +60,19 @@ func NewSLock(config *ServerConfig) *SLock {
 func (self *SLock) Init(server *Server) error {
 	self.server = server
 	if Config.ReplSet != "" {
+		dataDir, err := filepath.Abs(Config.DataDir)
+		if err != nil {
+			return err
+		}
+
+		if _, err := os.Stat(dataDir); os.IsNotExist(err) {
+			self.logger.Errorf("Slock data dir config error %v", err)
+			return err
+		}
+
 		self.updateState(STATE_CONFIG)
 		self.arbiterManager = NewArbiterManager(self, Config.ReplSet)
-		err := self.arbiterManager.Load()
+		err = self.arbiterManager.Load()
 		if err != nil {
 			self.logger.Errorf("Arbiter load error %v", err)
 			return err
