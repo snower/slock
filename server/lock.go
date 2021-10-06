@@ -34,11 +34,13 @@ func (self *LockManager) GetDB() *LockDB {
 }
 
 func (self *LockManager) AddLock(lock *Lock) *Lock {
-	lock.startTime = self.lockDb.currentTime
-	if lock.command.ExpriedFlag&0x0400 == 0 {
-		lock.expriedTime = lock.startTime + int64(lock.command.Expried) + 1
-	} else if lock.command.ExpriedFlag&0x4000 != 0 {
-		lock.expriedTime = 0x7fffffffffffffff
+	if lock.command.TimeoutFlag&0x0100 == 0 {
+		lock.startTime = self.lockDb.currentTime
+		if lock.command.ExpriedFlag&0x0400 == 0 {
+			lock.expriedTime = lock.startTime + int64(lock.command.Expried) + 1
+		} else if lock.command.ExpriedFlag&0x4000 != 0 {
+			lock.expriedTime = 0x7fffffffffffffff
+		}
 	}
 
 	switch lock.command.ExpriedFlag & 0x1300 {
@@ -274,7 +276,15 @@ func (self *LockManager) GetOrNewLock(protocol ServerProtocol, command *protocol
 	lock.command = command
 	lock.protocol = protocol
 	lock.startTime = now
-	lock.expriedTime = 0
+	if lock.command.TimeoutFlag&0x0100 != 0 {
+		if lock.command.ExpriedFlag&0x0400 == 0 {
+			lock.expriedTime = lock.startTime + int64(lock.command.Expried) + 1
+		} else if lock.command.ExpriedFlag&0x4000 != 0 {
+			lock.expriedTime = 0x7fffffffffffffff
+		}
+	} else {
+		lock.expriedTime = 0
+	}
 	if lock.command.TimeoutFlag&0x0400 == 0 {
 		lock.timeoutTime = now + int64(command.Timeout) + 1
 	} else {
