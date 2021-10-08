@@ -196,5 +196,20 @@ func (self *Event) WaitAndTimeoutRetryClear(timeout uint32) (bool, error) {
 		}
 		return false, err.Err
 	}
-	return self.Wait(timeout)
+
+	self.waitLock = &Lock{self.db, self.eventKey, self.db.GenLockId(), timeout | 0x02000000, 0, 1, 0}
+	err := self.waitLock.Lock()
+	if err == nil {
+		self.glock.Lock()
+		if self.eventLock == nil {
+			self.eventLock = &Lock{self.db, self.eventKey, self.eventKey, self.timeout, self.expried, 1, 0}
+		}
+		self.glock.Unlock()
+		_ = self.eventLock.Unlock()
+		return true, nil
+	}
+	if err.Result == protocol.RESULT_TIMEOUT {
+		return false, nil
+	}
+	return false, err
 }
