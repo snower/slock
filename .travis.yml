@@ -9,6 +9,7 @@ go:
   - 1.17.x
 
 before_install:
+  - apt-get update && apt-get install --reinstall ca-certificates
   - go get -v github.com/snower/slock
 
 script:
