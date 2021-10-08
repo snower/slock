@@ -1185,7 +1185,7 @@ func (self *LockDB) doTimeOut(lock *Lock, forcedExpried bool) {
 	lockManager.glock.Unlock()
 
 	timeoutFlag := lockCommand.TimeoutFlag
-	if timeoutFlag&0x0800 != 0 {
+	if timeoutFlag&protocol.TIMEOUT_FLAG_LOG_ERROR_WHEN_TIMEOUT != 0 {
 		self.slock.Log().Errorf("Database lock timeout DbId:%d LockKey:%x LockId:%x RequestId:%x RemoteAddr:%s", lockCommand.DbId,
 			lockCommand.LockKey, lockCommand.LockId, lockCommand.RequestId, lockProtocol.RemoteAddr().String())
 	} else {
@@ -1195,7 +1195,7 @@ func (self *LockDB) doTimeOut(lock *Lock, forcedExpried bool) {
 
 	_ = lockProtocol.ProcessLockResultCommandLocked(lockCommand, protocol.RESULT_TIMEOUT, uint16(lockManager.locked), lock.locked)
 	if lockLocked == 0 {
-		if timeoutFlag&0x0080 == 0 {
+		if timeoutFlag&protocol.TIMEOUT_FLAG_REVERSE_KEY_LOCK_WHEN_TIMEOUT == 0 {
 			_ = lockProtocol.FreeLockCommandLocked(lockCommand)
 		}
 		atomic.AddUint32(&self.state.WaitCount, 0xffffffff)
@@ -1207,7 +1207,7 @@ func (self *LockDB) doTimeOut(lock *Lock, forcedExpried bool) {
 	if lockLocked > 0 {
 		self.wakeUpWaitLocks(lockManager, nil)
 	} else {
-		if timeoutFlag&0x0080 != 0 {
+		if timeoutFlag&protocol.TIMEOUT_FLAG_REVERSE_KEY_LOCK_WHEN_TIMEOUT != 0 {
 			lockCommand.TimeoutFlag = 0
 			lockKey := lockCommand.LockKey
 			lockCommand.LockKey[0], lockCommand.LockKey[1], lockCommand.LockKey[2], lockCommand.LockKey[3], lockCommand.LockKey[4], lockCommand.LockKey[5], lockCommand.LockKey[6], lockCommand.LockKey[7],
@@ -1320,13 +1320,13 @@ func (self *LockDB) doExpried(lock *Lock, forcedExpried bool) {
 
 	if !forcedExpried {
 		if self.status != STATE_LEADER {
-			if lock.command.ExpriedFlag&0x0400 == 0 {
+			if lock.command.ExpriedFlag&protocol.EXPRIED_FLAG_MILLISECOND_TIME == 0 {
 				if lock.command.Expried > 30 {
 					lock.expriedTime = self.currentTime + 30
 				} else {
 					lock.expriedTime = self.currentTime + int64(lock.command.Expried) + 1
 				}
-			} else if lock.command.ExpriedFlag&0x4000 != 0 {
+			} else if lock.command.ExpriedFlag&protocol.EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME != 0 {
 				lock.expriedTime = 0x7fffffffffffffff
 			}
 			self.AddExpried(lock)
@@ -1334,7 +1334,7 @@ func (self *LockDB) doExpried(lock *Lock, forcedExpried bool) {
 			return
 		}
 
-		if lock.command.ExpriedFlag&0x8000 != 0 {
+		if lock.command.ExpriedFlag&protocol.EXPRIED_FLAG_KEEPLIVED != 0 {
 			stream := lock.protocol.GetStream()
 			if stream != nil && !stream.closed {
 				lock.expriedTime = self.currentTime + int64(lock.command.Expried)
@@ -1364,7 +1364,7 @@ func (self *LockDB) doExpried(lock *Lock, forcedExpried bool) {
 	lockManager.glock.Unlock()
 
 	expriedFlag := lockCommand.ExpriedFlag
-	if expriedFlag&0x0800 != 0 {
+	if expriedFlag&protocol.EXPRIED_FLAG_LOG_ERROR_WHEN_EXPRIED != 0 {
 		self.slock.Log().Errorf("Database lock expried DbId:%d LockKey:%x LockId:%x RequestId:%x RemoteAddr:%s", lockCommand.DbId,
 			lockCommand.LockKey, lockCommand.LockId, lockCommand.RequestId, lockProtocol.RemoteAddr().String())
 	} else {
@@ -1373,7 +1373,7 @@ func (self *LockDB) doExpried(lock *Lock, forcedExpried bool) {
 	}
 
 	_ = lockProtocol.ProcessLockResultCommandLocked(lockCommand, protocol.RESULT_EXPRIED, uint16(lockManager.locked), lock.locked)
-	if expriedFlag&0x0080 == 0 {
+	if expriedFlag&protocol.EXPRIED_FLAG_REVERSE_KEY_LOCK_WHEN_EXPRIED == 0 {
 		_ = lockProtocol.FreeLockCommandLocked(lockCommand)
 	}
 	atomic.AddUint32(&self.state.LockedCount, 0xffffffff-uint32(lockLocked)+1)
@@ -1381,7 +1381,7 @@ func (self *LockDB) doExpried(lock *Lock, forcedExpried bool) {
 
 	self.wakeUpWaitLocks(lockManager, nil)
 
-	if expriedFlag&0x0080 != 0 {
+	if expriedFlag&protocol.EXPRIED_FLAG_REVERSE_KEY_LOCK_WHEN_EXPRIED != 0 {
 		lockCommand.ExpriedFlag = 0
 		lockCommand.Expried = lockCommand.Timeout
 		lockKey := lockCommand.LockKey
@@ -1434,7 +1434,7 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 	}
 
 	if self.status != STATE_LEADER {
-		if command.Flag&0x04 == 0 {
+		if command.Flag&protocol.LOCK_FLAG_FROM_AOF == 0 {
 			if lockManager.refCount == 0 {
 				self.RemoveLockManager(lockManager)
 			}
@@ -1447,7 +1447,7 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 
 	waited := lockManager.waited
 	if lockManager.locked > 0 {
-		if command.Flag&0x01 != 0 {
+		if command.Flag&protocol.LOCK_FLAG_SHOW_WHEN_LOCKED != 0 {
 			lockManager.glock.Unlock()
 
 			currentLock := lockManager.currentLock
@@ -1464,11 +1464,11 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 
 		currentLock := lockManager.GetLockedLock(command)
 		if currentLock != nil {
-			if command.Flag&0x02 != 0 {
+			if command.Flag&protocol.LOCK_FLAG_UPDATE_WHEN_LOCKED != 0 {
 				if currentLock.longWaitIndex > 0 {
 					self.RemoveLongExpried(currentLock)
 					lockManager.UpdateLockedLock(currentLock, command.Timeout, command.TimeoutFlag, command.Expried, command.ExpriedFlag, command.Count, command.Rcount)
-					if command.ExpriedFlag&0x0400 == 0 {
+					if command.ExpriedFlag&protocol.EXPRIED_FLAG_MILLISECOND_TIME == 0 {
 						self.AddExpried(currentLock)
 					} else {
 						self.AddMillisecondExpried(currentLock)
@@ -1506,7 +1506,7 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 				if currentLock.longWaitIndex > 0 {
 					self.RemoveLongExpried(currentLock)
 					lockManager.UpdateLockedLock(currentLock, command.Timeout, command.TimeoutFlag, command.Expried, command.ExpriedFlag, command.Count, command.Rcount)
-					if command.ExpriedFlag&0x0400 == 0 {
+					if command.ExpriedFlag&protocol.EXPRIED_FLAG_MILLISECOND_TIME == 0 {
 						self.AddExpried(currentLock)
 					} else {
 						self.AddMillisecondExpried(currentLock)
@@ -1534,7 +1534,7 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 			return nil
 		}
 	} else {
-		if command.TimeoutFlag&0x0200 != 0 {
+		if command.TimeoutFlag&protocol.TIMEOUT_FLAG_LOCK_WAIT_WHEN_UNLOCK != 0 {
 			if lockManager.waited {
 				lockManager.glock.Unlock()
 
@@ -1556,8 +1556,8 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 			lockManager.AddLock(lock)
 			lockManager.locked++
 
-			if command.TimeoutFlag&0x1000 != 0 && !lock.isAof && lock.aofTime != 0xff && command.Flag&0x04 == 0 {
-				if command.TimeoutFlag&0x0400 == 0 {
+			if command.TimeoutFlag&protocol.TIMEOUT_FLAG_REQUIRE_ACKED != 0 && !lock.isAof && lock.aofTime != 0xff && command.Flag&protocol.LOCK_FLAG_FROM_AOF == 0 {
+				if command.TimeoutFlag&protocol.TIMEOUT_FLAG_MILLISECOND_TIME == 0 {
 					self.AddTimeOut(lock)
 				} else {
 					self.AddMillisecondTimeOut(lock)
@@ -1572,7 +1572,7 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 				return nil
 			}
 
-			if command.ExpriedFlag&0x0400 == 0 {
+			if command.ExpriedFlag&protocol.EXPRIED_FLAG_MILLISECOND_TIME == 0 {
 				self.AddExpried(lock)
 			} else {
 				self.AddMillisecondExpried(lock)
@@ -1608,7 +1608,7 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 
 	if command.Timeout > 0 {
 		lockManager.AddWaitLock(lock)
-		if command.TimeoutFlag&0x0400 == 0 {
+		if command.TimeoutFlag&protocol.TIMEOUT_FLAG_MILLISECOND_TIME == 0 {
 			self.AddTimeOut(lock)
 		} else {
 			self.AddMillisecondTimeOut(lock)
@@ -1649,7 +1649,7 @@ func (self *LockDB) UnLock(serverProtocol ServerProtocol, command *protocol.Lock
 
 	lockManager.glock.Lock()
 	if self.status != STATE_LEADER {
-		if command.Flag&0x04 == 0 {
+		if command.Flag&protocol.UNLOCK_FLAG_FROM_AOF == 0 {
 			lockManager.glock.Unlock()
 
 			_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_STATE_ERROR, uint16(lockManager.locked), 0)
@@ -1670,7 +1670,7 @@ func (self *LockDB) UnLock(serverProtocol ServerProtocol, command *protocol.Lock
 
 	currentLock := lockManager.GetLockedLock(command)
 	if currentLock == nil {
-		if command.Flag&0x01 != 0 {
+		if command.Flag&protocol.UNLOCK_FLAG_UNLOCK_FIRST_LOCK_WHEN_LOCKED != 0 {
 			currentLock = lockManager.currentLock
 
 			if currentLock == nil {
@@ -1837,7 +1837,7 @@ func (self *LockDB) wakeUpWaitLocks(lockManager *LockManager, serverProtocol Ser
 
 func (self *LockDB) wakeUpWaitLock(lockManager *LockManager, waitLock *Lock, serverProtocol ServerProtocol) {
 	//self.RemoveTimeOut(wait_lock)
-	if waitLock.command.TimeoutFlag&0x1000 != 0 && !waitLock.isAof && waitLock.aofTime != 0xff && waitLock.command.Flag&0x04 == 0 {
+	if waitLock.command.TimeoutFlag&protocol.TIMEOUT_FLAG_REQUIRE_ACKED != 0 && !waitLock.isAof && waitLock.aofTime != 0xff && waitLock.command.Flag&protocol.LOCK_FLAG_FROM_AOF == 0 {
 		lockManager.AddLock(waitLock)
 		lockManager.locked++
 		waitLock.refCount++
@@ -1859,7 +1859,7 @@ func (self *LockDB) wakeUpWaitLock(lockManager *LockManager, waitLock *Lock, ser
 		lockManager.AddLock(waitLock)
 		lockManager.locked++
 
-		if waitLock.command.ExpriedFlag&0x0400 == 0 {
+		if waitLock.command.ExpriedFlag&protocol.EXPRIED_FLAG_MILLISECOND_TIME == 0 {
 			self.AddExpried(waitLock)
 		} else {
 			self.AddMillisecondExpried(waitLock)
@@ -1919,13 +1919,13 @@ func (self *LockDB) DoAckLock(lock *Lock, succed bool) {
 
 	if succed {
 		lock.ackCount = 0xff
-		if lock.command.ExpriedFlag&0x0400 == 0 {
+		if lock.command.ExpriedFlag&protocol.EXPRIED_FLAG_MILLISECOND_TIME == 0 {
 			lock.expriedTime = self.currentTime + int64(lock.command.Expried) + 1
-		} else if lock.command.ExpriedFlag&0x4000 != 0 {
+		} else if lock.command.ExpriedFlag&protocol.EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME != 0 {
 			lock.expriedTime = 0x7fffffffffffffff
 		}
 
-		if lock.command.ExpriedFlag&0x0400 == 0 {
+		if lock.command.ExpriedFlag&protocol.EXPRIED_FLAG_MILLISECOND_TIME == 0 {
 			self.AddExpried(lock)
 		} else {
 			self.AddMillisecondExpried(lock)

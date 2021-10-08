@@ -124,7 +124,7 @@ func (self *Lock) Unlock() *LockError {
 }
 
 func (self *Lock) LockShow() *LockError {
-	lockResultCommand, err := self.doLock(0x01, 0, 0, 0, 0)
+	lockResultCommand, err := self.doLock(protocol.LOCK_FLAG_SHOW_WHEN_LOCKED, 0, 0, 0, 0)
 	if err != nil {
 		return &LockError{0x80, lockResultCommand, err}
 	}
@@ -136,7 +136,7 @@ func (self *Lock) LockShow() *LockError {
 }
 
 func (self *Lock) LockUpdate() *LockError {
-	lockResultCommand, err := self.doLock(0x02, self.timeout, self.expried, self.count, self.rcount)
+	lockResultCommand, err := self.doLock(protocol.LOCK_FLAG_UPDATE_WHEN_LOCKED, self.timeout, self.expried, self.count, self.rcount)
 	if err != nil {
 		return &LockError{0x80, lockResultCommand, err}
 	}
@@ -148,7 +148,7 @@ func (self *Lock) LockUpdate() *LockError {
 }
 
 func (self *Lock) UnlockHead() *LockError {
-	lockResultCommand, err := self.doUnlock(0x01, self.timeout, self.expried, self.count, self.rcount)
+	lockResultCommand, err := self.doUnlock(protocol.UNLOCK_FLAG_UNLOCK_FIRST_LOCK_WHEN_LOCKED, self.timeout, self.expried, self.count, self.rcount)
 	if err != nil {
 		return &LockError{0x80, lockResultCommand, err}
 	}

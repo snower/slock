@@ -24,6 +24,8 @@ const AOF_LOCK_TYPE_LOAD = 1
 const AOF_LOCK_TYPE_ACK_FILE = 2
 const AOF_LOCK_TYPE_ACK_ACKED = 3
 
+const AOF_FLAG_REQUIRE_ACKED = 0x1000
+
 type AofLock struct {
 	HandleType  uint8
 	CommandType uint8
@@ -327,7 +329,7 @@ func (self *AofFile) WriteLock(lock *AofLock) error {
 	buf[0], buf[1] = 62, 0
 
 	copy(self.wbuf[self.windex:], buf)
-	if lock.AofFlag&0x1000 != 0 {
+	if lock.AofFlag&AOF_FLAG_REQUIRE_ACKED != 0 {
 		self.ackRequests[self.ackIndex] = self.wbuf[self.windex : self.windex+64]
 		self.ackIndex++
 	}
@@ -449,7 +451,7 @@ func (self *AofChannel) Push(lock *Lock, commandType uint8, command *protocol.Lo
 		aofLock.StartTime = uint16(aofLock.CommandTime - uint64(lock.startTime))
 	}
 	aofLock.ExpriedFlag = lock.command.ExpriedFlag
-	if lock.command.ExpriedFlag&0x4000 == 0 {
+	if lock.command.ExpriedFlag&protocol.EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME == 0 {
 		aofLock.ExpriedTime = uint16(uint64(lock.expriedTime) - aofLock.CommandTime)
 	} else {
 		aofLock.ExpriedTime = 0
@@ -465,8 +467,8 @@ func (self *AofChannel) Push(lock *Lock, commandType uint8, command *protocol.Lo
 		aofLock.Count = command.Count
 		aofLock.Rcount = command.Rcount
 	}
-	if lock.command.TimeoutFlag&0x1000 != 0 {
-		aofLock.AofFlag |= 0x1000
+	if lock.command.TimeoutFlag&protocol.TIMEOUT_FLAG_REQUIRE_ACKED != 0 {
+		aofLock.AofFlag |= AOF_FLAG_REQUIRE_ACKED
 		aofLock.lock = lock
 	} else {
 		aofLock.lock = nil
@@ -617,7 +619,7 @@ func (self *AofChannel) HandleLock(aofLock *AofLock) {
 	err := aofLock.Encode()
 	if err != nil {
 		self.slock.Log().Errorf("Aof push lock encode error %v", err)
-		if aofLock.AofFlag&0x1000 != 0 && aofLock.CommandType == protocol.COMMAND_LOCK && aofLock.lock != nil {
+		if aofLock.AofFlag&AOF_FLAG_REQUIRE_ACKED != 0 && aofLock.CommandType == protocol.COMMAND_LOCK && aofLock.lock != nil {
 			lockManager := aofLock.lock.manager
 			lockManager.lockDb.DoAckLock(aofLock.lock, false)
 		}
@@ -633,7 +635,7 @@ func (self *AofChannel) HandleLoad(aofLock *AofLock) {
 	}
 
 	expriedTime := uint16(0)
-	if aofLock.ExpriedFlag&0x4000 == 0 {
+	if aofLock.ExpriedFlag&protocol.EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME == 0 {
 		expriedTime = uint16(int64(aofLock.CommandTime+uint64(aofLock.ExpriedTime)) - self.lockDb.currentTime)
 	}
 
@@ -644,8 +646,8 @@ func (self *AofChannel) HandleLoad(aofLock *AofLock) {
 	lockCommand.DbId = aofLock.DbId
 	lockCommand.LockId = aofLock.LockId
 	lockCommand.LockKey = aofLock.LockKey
-	if aofLock.AofFlag&0x1000 != 0 {
-		lockCommand.TimeoutFlag = 0x1000
+	if aofLock.AofFlag&AOF_FLAG_REQUIRE_ACKED != 0 {
+		lockCommand.TimeoutFlag = protocol.TIMEOUT_FLAG_REQUIRE_ACKED
 	} else {
 		lockCommand.TimeoutFlag = 0
 	}
@@ -660,7 +662,7 @@ func (self *AofChannel) HandleLoad(aofLock *AofLock) {
 		return
 	}
 	self.slock.Log().Errorf("Aof load lock Processlockcommand error %v", err)
-	if aofLock.AofFlag&0x1000 != 0 {
+	if aofLock.AofFlag&AOF_FLAG_REQUIRE_ACKED != 0 {
 		_ = self.aof.lockLoaded(self.serverProtocol.(*MemWaiterServerProtocol), lockCommand, protocol.RESULT_ERROR, 0, 0)
 	}
 }
@@ -940,7 +942,7 @@ func (self *Aof) LoadAofFile(filename string, lock *AofLock, now int64, iterFunc
 			return err
 		}
 
-		if lock.ExpriedFlag&0x4000 == 0 {
+		if lock.ExpriedFlag&protocol.EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME == 0 {
 			if int64(lock.CommandTime+uint64(lock.ExpriedTime)) <= now {
 				continue
 			}
@@ -1090,7 +1092,7 @@ func (self *Aof) PushLock(lock *AofLock) {
 	self.replGlock.Unlock()
 
 	if werr != nil || perr != nil {
-		if lock.AofFlag&0x1000 != 0 && lock.CommandType == protocol.COMMAND_LOCK && lock.lock != nil {
+		if lock.AofFlag&AOF_FLAG_REQUIRE_ACKED != 0 && lock.CommandType == protocol.COMMAND_LOCK && lock.lock != nil {
 			lockManager := lock.lock.manager
 			lockManager.lockDb.DoAckLock(lock.lock, false)
 		}
@@ -1130,7 +1132,7 @@ func (self *Aof) lockAcked(buf []byte, succed bool) error {
 
 func (self *Aof) lockLoaded(_ *MemWaiterServerProtocol, command *protocol.LockCommand, result uint8, lcount uint16, lrcount uint8) error {
 	if self.slock.state == STATE_FOLLOWER {
-		if command.TimeoutFlag&0x1000 == 0 {
+		if command.TimeoutFlag&protocol.TIMEOUT_FLAG_REQUIRE_ACKED == 0 {
 			return nil
 		}
 

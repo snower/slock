@@ -417,7 +417,7 @@ func (self *ReplicationClient) recvFiles() error {
 			}
 		}
 
-		if self.aofLock.AofFlag&0x1000 != 0 {
+		if self.aofLock.AofFlag&AOF_FLAG_REQUIRE_ACKED != 0 {
 			self.aofLock.AofFlag &= 0xEFFF
 		}
 		err = self.aof.LoadLock(self.aofLock)
@@ -846,7 +846,7 @@ func (self *ReplicationServer) sendFilesQueue() error {
 			if err != nil {
 				return err
 			}
-			if self.waofLock.ExpriedFlag&0x4000 == 0 {
+			if self.waofLock.ExpriedFlag&protocol.EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME == 0 {
 				if int64(self.waofLock.CommandTime+uint64(self.waofLock.ExpriedTime)) <= now {
 					continue
 				}
@@ -1466,7 +1466,7 @@ func (self *ReplicationManager) PushLock(lock *AofLock) error {
 		self.bufferQueue = self.bufferQueue.Reduplicated()
 	}
 
-	if lock.AofFlag&0x1000 != 0 && lock.lock != nil {
+	if lock.AofFlag&AOF_FLAG_REQUIRE_ACKED != 0 && lock.lock != nil {
 		db := self.GetOrNewAckDB(lock.DbId)
 		err := db.PushLock(lock)
 		if err != nil {
