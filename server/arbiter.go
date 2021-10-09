@@ -954,8 +954,10 @@ func (self *ArbiterVoter) StartVote() error {
 				if err == nil {
 					err = self.DoCommit()
 					if err == nil {
-						_ = self.manager.voteSucced()
-						return
+						err = self.manager.voteSucced()
+						if err == nil {
+							return
+						}
 					}
 				}
 			}
@@ -1084,7 +1086,6 @@ func (self *ArbiterVoter) DoAnnouncement() error {
 				if member.host == self.proposalHost && !member.isSelf && self.voting {
 					self.proposalHost = ""
 					self.proposalFromHost = ""
-					_ = self.manager.StartVote()
 					self.manager.slock.Log().Infof("Arbiter voter do announcement to leader %s error %v, will restart election", member.host, err)
 					return err
 				}
@@ -1514,7 +1515,11 @@ func (self *ArbiterManager) voteSucced() error {
 			}
 		}
 		self.glock.Unlock()
-		_ = self.voter.DoAnnouncement()
+		err := self.voter.DoAnnouncement()
+		if err != nil {
+			self.slock.Log().Infof("Arbiter election succed change status announcement leader fail")
+			return err
+		}
 		self.glock.Lock()
 		_ = self.updateStatus()
 	}
