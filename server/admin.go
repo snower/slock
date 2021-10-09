@@ -362,21 +362,16 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 }
 
 func (self *Admin) commandHandleShowCommand(serverProtocol *TextServerProtocol, args []string) error {
-	if len(args) < 2 {
+	if len(args) < 1 {
 		return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(false, "ERR Command Arguments Error", nil))
 	}
 
-	dbId, err := strconv.Atoi(args[1])
-	if err != nil {
-		return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(false, "ERR DB Id Error", nil))
-	}
-
-	db := self.slock.dbs[uint8(dbId)]
+	db := self.slock.dbs[serverProtocol.dbId]
 	if db == nil {
-		return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(false, "ERR DB Uninit Error", nil))
+		return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(false, "ERR DB Empty", nil))
 	}
 
-	if len(args) == 2 {
+	if len(args) == 1 || (len(args) == 2 && args[1] == "*") {
 		return self.commandHandleShowDBCommand(serverProtocol, args, db)
 	}
 	return self.commandHandleShowLockCommand(serverProtocol, args, db)
