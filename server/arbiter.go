@@ -857,21 +857,22 @@ func (self *ArbiterMember) DoAnnouncement() (*protobuf.ArbiterAnnouncementRespon
 }
 
 type ArbiterVoter struct {
-	manager      *ArbiterManager
-	glock        *sync.Mutex
-	commitId     uint64
-	proposalId   uint64
-	proposalHost string
-	voteHost     string
-	voteAofId    [16]byte
-	voting       bool
-	closed       bool
-	closedWaiter chan bool
-	wakeupSignal chan bool
+	manager          *ArbiterManager
+	glock            *sync.Mutex
+	commitId         uint64
+	proposalId       uint64
+	proposalHost     string
+	proposalFromHost string
+	voteHost         string
+	voteAofId        [16]byte
+	voting           bool
+	closed           bool
+	closedWaiter     chan bool
+	wakeupSignal     chan bool
 }
 
 func NewArbiterVoter() *ArbiterVoter {
-	return &ArbiterVoter{nil, &sync.Mutex{}, 0, 0, "", "", [16]byte{},
+	return &ArbiterVoter{nil, &sync.Mutex{}, 0, 0, "", "", "", [16]byte{},
 		false, false, make(chan bool, 1), nil}
 }
 
@@ -1057,6 +1058,7 @@ func (self *ArbiterVoter) DoProposal() error {
 
 func (self *ArbiterVoter) DoCommit() error {
 	self.proposalHost = self.voteHost
+	self.proposalFromHost = self.manager.ownMember.host
 	self.commitId = self.proposalId
 
 	responses := self.DoRequests("do commit", func(member *ArbiterMember) (interface{}, error) {
@@ -1065,6 +1067,7 @@ func (self *ArbiterVoter) DoCommit() error {
 
 	if len(responses) < len(self.manager.members)/2+1 {
 		self.proposalHost = ""
+		self.proposalFromHost = ""
 		return errors.New("member accept proposal count too small")
 	}
 
@@ -1080,6 +1083,7 @@ func (self *ArbiterVoter) DoAnnouncement() error {
 			if err != nil {
 				if member.host == self.proposalHost && !member.isSelf && self.voting {
 					self.proposalHost = ""
+					self.proposalFromHost = ""
 					_ = self.manager.StartVote()
 					self.manager.slock.Log().Infof("Arbiter voter do announcement to leader %s error %v, will restart election", member.host, err)
 					return err
@@ -1427,6 +1431,7 @@ func (self *ArbiterManager) QuitMember() error {
 	self.leaderMember = nil
 	self.voter.proposalId = 0
 	self.voter.proposalHost = ""
+	self.voter.proposalFromHost = ""
 	self.voter.commitId = 0
 	self.version = 1
 	self.vertime = 0
@@ -1477,6 +1482,7 @@ func (self *ArbiterManager) voteSucced() error {
 			self.leaderMember = member
 			if member.host == self.ownMember.host {
 				self.voter.proposalHost = ""
+				self.voter.proposalFromHost = ""
 			}
 		} else {
 			if member.arbiter != 0 {
@@ -1623,12 +1629,25 @@ func (self *ArbiterManager) memberStatusUpdated(member *ArbiterMember) error {
 
 	if member.host == self.voter.proposalHost && member.status != ARBITER_MEMBER_STATUS_ONLINE {
 		self.voter.proposalHost = ""
+		self.voter.proposalFromHost = ""
 		err := self.StartVote()
 		if err != nil {
 			self.slock.Log().Errorf("Arbiter proposal host offline restart election error %v", err)
 			return nil
 		}
 		self.slock.Log().Infof("Arbiter proposal host offline restart election")
+		return nil
+	}
+
+	if member.host == self.voter.proposalFromHost && member.status != ARBITER_MEMBER_STATUS_ONLINE {
+		self.voter.proposalHost = ""
+		self.voter.proposalFromHost = ""
+		err := self.StartVote()
+		if err != nil {
+			self.slock.Log().Errorf("Arbiter proposal vote host offline restart election error %v", err)
+			return nil
+		}
+		self.slock.Log().Infof("Arbiter proposal host vote offline restart election")
 		return nil
 	}
 
@@ -1815,7 +1834,7 @@ func (self *ArbiterManager) commandHandleVoteCommand(_ *BinaryServerProtocol, co
 	return protocol.NewCallResultCommand(command, 0, "", data), nil
 }
 
-func (self *ArbiterManager) commandHandleProposalCommand(_ *BinaryServerProtocol, command *protocol.CallCommand) (*protocol.CallResultCommand, error) {
+func (self *ArbiterManager) commandHandleProposalCommand(serverProtocol *BinaryServerProtocol, command *protocol.CallCommand) (*protocol.CallResultCommand, error) {
 	if self.stoped {
 		return protocol.NewCallResultCommand(command, 0, "ERR_STOPED", nil), nil
 	}
@@ -1836,6 +1855,7 @@ func (self *ArbiterManager) commandHandleProposalCommand(_ *BinaryServerProtocol
 	}
 
 	var voteMember *ArbiterMember = nil
+	var voteFromMember *ArbiterMember = nil
 	for _, member := range self.members {
 		if member.role == ARBITER_ROLE_LEADER && member.status == ARBITER_MEMBER_STATUS_ONLINE {
 			self.DoAnnouncement()
@@ -1845,13 +1865,16 @@ func (self *ArbiterManager) commandHandleProposalCommand(_ *BinaryServerProtocol
 		if member.host == request.Host {
 			voteMember = member
 		}
+		if member.server != nil && member.server.protocol == serverProtocol {
+			voteFromMember = member
+		}
 
 		if self.CompareAofId(member.aofId, self.DecodeAofId(request.AofId)) > 0 {
 			return protocol.NewCallResultCommand(command, 0, "ERR_AOFID", nil), nil
 		}
 	}
 
-	if voteMember == nil {
+	if voteMember == nil || voteFromMember == nil {
 		return protocol.NewCallResultCommand(command, 0, "ERR_HOST", nil), nil
 	}
 
@@ -1878,7 +1901,7 @@ func (self *ArbiterManager) commandHandleProposalCommand(_ *BinaryServerProtocol
 	return protocol.NewCallResultCommand(command, 0, "", data), nil
 }
 
-func (self *ArbiterManager) commandHandleCommitCommand(_ *BinaryServerProtocol, command *protocol.CallCommand) (*protocol.CallResultCommand, error) {
+func (self *ArbiterManager) commandHandleCommitCommand(serverProtocol *BinaryServerProtocol, command *protocol.CallCommand) (*protocol.CallResultCommand, error) {
 	if self.stoped {
 		return protocol.NewCallResultCommand(command, 0, "ERR_STOPED", nil), nil
 	}
@@ -1894,13 +1917,17 @@ func (self *ArbiterManager) commandHandleCommitCommand(_ *BinaryServerProtocol, 
 	}
 
 	var voteMember *ArbiterMember = nil
+	var voteFromMember *ArbiterMember = nil
 	for _, member := range self.members {
 		if member.host == request.Host {
 			voteMember = member
 		}
+		if member.server != nil && member.server.protocol == serverProtocol {
+			voteFromMember = member
+		}
 	}
 
-	if voteMember == nil {
+	if voteMember == nil || voteFromMember == nil {
 		return protocol.NewCallResultCommand(command, 0, "ERR_HOST", nil), nil
 	}
 
@@ -1919,6 +1946,7 @@ func (self *ArbiterManager) commandHandleCommitCommand(_ *BinaryServerProtocol, 
 		return protocol.NewCallResultCommand(command, 0, "ERR_ENCODE", nil), nil
 	}
 	self.voter.proposalHost = request.Host
+	self.voter.proposalFromHost = voteFromMember.host
 	self.voter.commitId = request.ProposalId
 	return protocol.NewCallResultCommand(command, 0, "", data), nil
 }
@@ -2031,6 +2059,7 @@ func (self *ArbiterManager) commandHandleAnnouncementCommand(serverProtocol *Bin
 		if request.Replset.CommitId >= self.voter.commitId && self.voter.proposalHost != "" {
 			self.slock.Log().Infof("Arbiter handle announcement accept leader %s", self.voter.proposalHost)
 			self.voter.proposalHost = ""
+			self.voter.proposalFromHost = ""
 		}
 	}
 
