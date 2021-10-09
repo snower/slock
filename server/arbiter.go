@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"github.com/snower/slock/client"
 	"github.com/snower/slock/protocol"
-	"github.com/snower/slock/server/protobuf"
+	"github.com/snower/slock/protocol/protobuf"
 	"io"
 	"io/ioutil"
 	"math/big"
