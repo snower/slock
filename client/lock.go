@@ -41,12 +41,32 @@ func (self *Lock) GetLockId() [16]byte {
 	return self.lockId
 }
 
-func (self *Lock) GetTimeout() uint32 {
-	return self.timeout
+func (self *Lock) GetTimeout() uint16 {
+	return uint16(self.timeout & 0xffff)
 }
 
-func (self *Lock) GetExpried() uint32 {
-	return self.expried
+func (self *Lock) GetTimeoutFlag() uint16 {
+	return uint16((self.timeout & 0xffff) >> 16)
+}
+
+func (self *Lock) SetTimeoutFlag(flag uint16) uint16 {
+	oflag := self.GetTimeoutFlag()
+	self.timeout = (self.timeout & 0xffff) | (uint32(flag) << 16)
+	return oflag
+}
+
+func (self *Lock) GetExpried() uint16 {
+	return uint16(self.expried & 0xffff)
+}
+
+func (self *Lock) GetExpriedFlag() uint16 {
+	return uint16((self.expried & 0xffff) >> 16)
+}
+
+func (self *Lock) SetExpriedFlag(flag uint16) uint16 {
+	oflag := self.GetExpriedFlag()
+	self.expried = (self.expried & 0xffff) | (uint32(flag) << 16)
+	return oflag
 }
 
 func (self *Lock) GetCount() uint16 {
@@ -54,8 +74,13 @@ func (self *Lock) GetCount() uint16 {
 }
 
 func (self *Lock) SetCount(count uint16) uint16 {
-	self.count = count
-	return self.count
+	ocount := self.count
+	if count > 0 {
+		self.count = count - 1
+	} else {
+		self.count = 0
+	}
+	return ocount
 }
 
 func (self *Lock) GetRcount() uint8 {
@@ -63,8 +88,13 @@ func (self *Lock) GetRcount() uint8 {
 }
 
 func (self *Lock) SetRcount(rcount uint8) uint8 {
-	self.rcount = rcount
-	return self.rcount
+	orcount := self.rcount
+	if rcount > 0 {
+		self.rcount = rcount - 1
+	} else {
+		self.rcount = 0
+	}
+	return orcount
 }
 
 func (self *Lock) doLock(flag uint8, timeout uint32, expried uint32, count uint16, rcount uint8) (*protocol.LockResultCommand, error) {
@@ -129,8 +159,8 @@ func (self *Lock) LockShow() *LockError {
 		return &LockError{0x80, lockResultCommand, err}
 	}
 
-	if lockResultCommand.Result != protocol.RESULT_UNOWN_ERROR {
-		return &LockError{lockResultCommand.Result, lockResultCommand, nil}
+	if lockResultCommand.Result == protocol.RESULT_UNOWN_ERROR {
+		return &LockError{0, lockResultCommand, nil}
 	}
 	return &LockError{lockResultCommand.Result, lockResultCommand, errors.New("show error")}
 }
@@ -141,8 +171,8 @@ func (self *Lock) LockUpdate() *LockError {
 		return &LockError{0x80, lockResultCommand, err}
 	}
 
-	if lockResultCommand.Result != 0 && lockResultCommand.Result != protocol.RESULT_LOCKED_ERROR {
-		return &LockError{lockResultCommand.Result, lockResultCommand, nil}
+	if lockResultCommand.Result == 0 || lockResultCommand.Result == protocol.RESULT_LOCKED_ERROR {
+		return &LockError{0, lockResultCommand, nil}
 	}
 	return &LockError{lockResultCommand.Result, lockResultCommand, errors.New("update error")}
 }
@@ -153,10 +183,10 @@ func (self *Lock) UnlockHead() *LockError {
 		return &LockError{0x80, lockResultCommand, err}
 	}
 
-	if lockResultCommand.Result != 0 {
-		return &LockError{lockResultCommand.Result, lockResultCommand, errors.New("unlock error")}
+	if lockResultCommand.Result == 0 {
+		return &LockError{lockResultCommand.Result, lockResultCommand, nil}
 	}
-	return &LockError{lockResultCommand.Result, lockResultCommand, nil}
+	return &LockError{lockResultCommand.Result, lockResultCommand, errors.New("unlock error")}
 }
 
 func (self *Lock) SendLock() error {

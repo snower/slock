@@ -92,6 +92,24 @@ please run 'go run benchmarks/benchmark3/benchmark.go' on your changes before co
     exit 1
 fi
 
+sleep 3
+
+SLOCK_INFOS=$(slock info 2>&1)
+for INFO_KEY in "LockedCount" "WaitCount" "KeyCount"
+do
+    INFO_COUNT=$(echo "$SLOCK_INFOS" | grep $INFO_KEY | awk '{print $2}')
+    if [ "$INFO_COUNT" != "0" ]
+    then
+        log_error "slock info Error for the following reasons:
+$SLOCK_INFOS
+please run 'slock info' on your changes before committing."
+
+        ps -ef | grep slock | grep -v grep | awk '{print $2}' | xargs kill -HUP > /dev/null 2>&1
+        ps -ef | grep benchmark | grep -v grep | awk '{print $2}' | xargs kill -HUP > /dev/null 2>&1
+        exit 1
+    fi
+done
+
 echo "Benchmark Single Key Multi Lock Info:
 $BENCH_OUTPUTS
 "
@@ -113,24 +131,6 @@ fi
 echo "Benchmark Parallel Lock Info:
 $BENCH_OUTPUTS
 "
-
-sleep 3
-
-SLOCK_INFOS=$(slock info 2>&1)
-for INFO_KEY in "LockedCount" "WaitCount" "KeyCount"
-do
-    INFO_COUNT=$(echo "$SLOCK_INFOS" | grep $INFO_KEY | awk '{print $2}')
-    if [ "$INFO_COUNT" != "0" ]
-    then
-        log_error "slock info Error for the following reasons:
-$SLOCK_INFOS
-please run 'slock info' on your changes before committing."
-
-        ps -ef | grep slock | grep -v grep | awk '{print $2}' | xargs kill -HUP > /dev/null 2>&1
-        ps -ef | grep benchmark | grep -v grep | awk '{print $2}' | xargs kill -HUP > /dev/null 2>&1
-        exit 1
-    fi
-done
 
 echo "Slock Info:
 $SLOCK_INFOS

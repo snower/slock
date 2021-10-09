@@ -32,7 +32,7 @@ func (self *RWLock) GetExpried() uint32 {
 	return self.expried
 }
 
-func (self *RWLock) RLock() error {
+func (self *RWLock) RLock() *LockError {
 	rlock := &Lock{self.db, self.db.GenLockId(), self.lockKey, self.timeout, self.expried, 0xffff, 0}
 	err := rlock.Lock()
 	if err == nil {
@@ -43,7 +43,7 @@ func (self *RWLock) RLock() error {
 	return err
 }
 
-func (self *RWLock) RUnlock() error {
+func (self *RWLock) RUnlock() *LockError {
 	self.glock.Lock()
 	if len(self.rlocks) == 0 {
 		self.glock.Unlock()
@@ -55,7 +55,7 @@ func (self *RWLock) RUnlock() error {
 	return rlock.Unlock()
 }
 
-func (self *RWLock) Lock() error {
+func (self *RWLock) Lock() *LockError {
 	self.glock.Lock()
 	if self.wlock == nil {
 		self.wlock = &Lock{self.db, self.db.GenLockId(), self.lockKey, self.timeout, self.expried, 0, 0}
@@ -64,7 +64,7 @@ func (self *RWLock) Lock() error {
 	return self.wlock.Lock()
 }
 
-func (self *RWLock) Unlock() error {
+func (self *RWLock) Unlock() *LockError {
 	self.glock.Lock()
 	if self.wlock == nil {
 		self.glock.Unlock()

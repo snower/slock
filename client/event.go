@@ -1,7 +1,6 @@
 package client
 
 import (
-	"errors"
 	"github.com/snower/slock/protocol"
 	"sync"
 )
@@ -61,13 +60,10 @@ func (self *Event) Clear() error {
 		self.glock.Unlock()
 
 		err := self.eventLock.LockUpdate()
-		if err == nil {
+		if err.Result == protocol.RESULT_SUCCED {
 			return nil
 		}
-		if err.CommandResult.Result == protocol.RESULT_LOCKED_ERROR {
-			return nil
-		}
-		return errors.New("unknown command result")
+		return err
 	}
 
 	self.glock.Lock()
@@ -83,7 +79,7 @@ func (self *Event) Clear() error {
 	if err.Result == protocol.RESULT_UNLOCK_ERROR {
 		return nil
 	}
-	return err.Err
+	return err
 }
 
 func (self *Event) Set() error {
@@ -101,7 +97,7 @@ func (self *Event) Set() error {
 		if err.Result == protocol.RESULT_UNLOCK_ERROR {
 			return nil
 		}
-		return err.Err
+		return err
 	}
 
 	self.glock.Lock()
@@ -111,18 +107,15 @@ func (self *Event) Set() error {
 	self.glock.Unlock()
 
 	err := self.eventLock.LockUpdate()
-	if err == nil {
-		return err
-	}
-	if err.CommandResult.Result == protocol.RESULT_LOCKED_ERROR {
+	if err.Result == protocol.RESULT_SUCCED {
 		return nil
 	}
-	return errors.New("unknown command result")
+	return err
 }
 
 func (self *Event) IsSet() (bool, error) {
 	if self.setedMode == EVENT_MODE_DEFAULT_SET {
-		self.checkLock = &Lock{self.db, self.eventKey, self.db.GenLockId(), 0, 0, 0, 0}
+		self.checkLock = &Lock{self.db, self.db.GenLockId(), self.eventKey, 0, 0, 0, 0}
 		err := self.checkLock.Lock()
 		if err == nil {
 			return true, nil
@@ -130,23 +123,23 @@ func (self *Event) IsSet() (bool, error) {
 		if err.Result == protocol.RESULT_TIMEOUT {
 			return false, nil
 		}
-		return false, err.Err
+		return false, err
 	}
 
-	self.checkLock = &Lock{self.db, self.eventKey, self.db.GenLockId(), 0x02000000, 0, 1, 0}
+	self.checkLock = &Lock{self.db, self.db.GenLockId(), self.eventKey, 0, 0, 0, 0}
 	err := self.checkLock.Lock()
 	if err == nil {
-		return true, nil
-	}
-	if err.Result == protocol.RESULT_UNOWN_ERROR || err.Result == protocol.RESULT_TIMEOUT {
 		return false, nil
 	}
-	return false, err.Err
+	if err.Result == protocol.RESULT_TIMEOUT {
+		return true, nil
+	}
+	return false, err
 }
 
 func (self *Event) Wait(timeout uint32) (bool, error) {
 	if self.setedMode == EVENT_MODE_DEFAULT_SET {
-		self.waitLock = &Lock{self.db, self.eventKey, self.db.GenLockId(), timeout, 0, 0, 0}
+		self.waitLock = &Lock{self.db, self.db.GenLockId(), self.eventKey, timeout, 0, 0, 0}
 		err := self.waitLock.Lock()
 		if err == nil {
 			return true, nil
@@ -157,7 +150,7 @@ func (self *Event) Wait(timeout uint32) (bool, error) {
 		return false, err.Err
 	}
 
-	self.waitLock = &Lock{self.db, self.eventKey, self.db.GenLockId(), timeout | 0x02000000, 0, 1, 0}
+	self.waitLock = &Lock{self.db, self.db.GenLockId(), self.eventKey, timeout | 0x02000000, 0, 1, 0}
 	err := self.waitLock.Lock()
 	if err == nil {
 		return true, nil
@@ -170,7 +163,7 @@ func (self *Event) Wait(timeout uint32) (bool, error) {
 
 func (self *Event) WaitAndTimeoutRetryClear(timeout uint32) (bool, error) {
 	if self.setedMode == EVENT_MODE_DEFAULT_SET {
-		self.waitLock = &Lock{self.db, self.eventKey, self.db.GenLockId(), timeout, 0, 0, 0}
+		self.waitLock = &Lock{self.db, self.db.GenLockId(), self.eventKey, timeout, 0, 0, 0}
 		err := self.waitLock.Lock()
 		if err == nil {
 			return true, nil
@@ -184,7 +177,7 @@ func (self *Event) WaitAndTimeoutRetryClear(timeout uint32) (bool, error) {
 			self.glock.Unlock()
 
 			rerr := self.eventLock.LockUpdate()
-			if rerr != nil {
+			if rerr.Result == 0 {
 				if rerr.CommandResult.Result == protocol.RESULT_SUCCED {
 					_ = self.eventLock.Unlock()
 					return true, nil
@@ -194,10 +187,10 @@ func (self *Event) WaitAndTimeoutRetryClear(timeout uint32) (bool, error) {
 				}
 			}
 		}
-		return false, err.Err
+		return false, err
 	}
 
-	self.waitLock = &Lock{self.db, self.eventKey, self.db.GenLockId(), timeout | 0x02000000, 0, 1, 0}
+	self.waitLock = &Lock{self.db, self.db.GenLockId(), self.eventKey, timeout | 0x02000000, 0, 1, 0}
 	err := self.waitLock.Lock()
 	if err == nil {
 		self.glock.Lock()

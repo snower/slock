@@ -25,10 +25,10 @@ func (self *RLock) GetExpried() uint32 {
 	return self.expried
 }
 
-func (self *RLock) Lock() error {
+func (self *RLock) Lock() *LockError {
 	return self.lock.Lock()
 }
 
-func (self *RLock) Unlock() error {
+func (self *RLock) Unlock() *LockError {
 	return self.lock.Unlock()
 }
