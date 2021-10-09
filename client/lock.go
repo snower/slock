@@ -154,7 +154,7 @@ func (self *Lock) Unlock() *LockError {
 }
 
 func (self *Lock) LockShow() *LockError {
-	lockResultCommand, err := self.doLock(protocol.LOCK_FLAG_SHOW_WHEN_LOCKED, [16]byte{},0, 0, 0xffff, 0xff)
+	lockResultCommand, err := self.doLock(protocol.LOCK_FLAG_SHOW_WHEN_LOCKED, [16]byte{}, 0, 0, 0xffff, 0xff)
 	if err != nil {
 		return &LockError{0x80, lockResultCommand, err}
 	}
