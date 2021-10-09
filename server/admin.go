@@ -404,7 +404,7 @@ func (self *Admin) commandHandleShowDBCommand(serverProtocol *TextServerProtocol
 
 func (self *Admin) commandHandleShowLockCommand(serverProtocol *TextServerProtocol, args []string, db *LockDB) error {
 	command := protocol.LockCommand{}
-	serverProtocol.ArgsToLockComandParseId(args[2], &command.LockKey)
+	serverProtocol.ArgsToLockComandParseId(args[1], &command.LockKey)
 
 	lockManager := db.GetLockManager(&command)
 	if lockManager == nil || lockManager.locked <= 0 {
@@ -442,32 +442,39 @@ func (self *Admin) commandHandleShowLockCommand(serverProtocol *TextServerProtoc
 		lockInfos = append(lockInfos, fmt.Sprintf("%d", state))
 	}
 
-	if lockManager.lockMaps != nil {
-		for _, lock := range lockManager.lockMaps {
-			state := uint8(0)
-			if lock.timeouted {
-				state |= 0x01
-			}
+	if lockManager.locks != nil {
+		for i, _ := range lockManager.locks.IterNodes() {
+			nodeQueues := lockManager.locks.IterNodeQueues(int32(i))
+			for _, lock := range nodeQueues {
+				if lock.locked == 0 {
+					continue
+				}
 
-			if lock.expried {
-				state |= 0x02
-			}
+				state := uint8(0)
+				if lock.timeouted {
+					state |= 0x01
+				}
 
-			if lock.longWaitIndex > 0 {
-				state |= 0x04
-			}
+				if lock.expried {
+					state |= 0x02
+				}
 
-			if lock.isAof {
-				state |= 0x08
-			}
+				if lock.longWaitIndex > 0 {
+					state |= 0x04
+				}
 
-			lockInfos = append(lockInfos, fmt.Sprintf("%x", lock.command.LockId))
-			lockInfos = append(lockInfos, fmt.Sprintf("%d", lock.startTime))
-			lockInfos = append(lockInfos, fmt.Sprintf("%d", lock.timeoutTime))
-			lockInfos = append(lockInfos, fmt.Sprintf("%d", lock.expriedTime))
-			lockInfos = append(lockInfos, fmt.Sprintf("%d", lock.locked))
-			lockInfos = append(lockInfos, fmt.Sprintf("%d", lock.aofTime))
-			lockInfos = append(lockInfos, fmt.Sprintf("%d", state))
+				if lock.isAof {
+					state |= 0x08
+				}
+
+				lockInfos = append(lockInfos, fmt.Sprintf("%x", lock.command.LockId))
+				lockInfos = append(lockInfos, fmt.Sprintf("%d", lock.startTime))
+				lockInfos = append(lockInfos, fmt.Sprintf("%d", lock.timeoutTime))
+				lockInfos = append(lockInfos, fmt.Sprintf("%d", lock.expriedTime))
+				lockInfos = append(lockInfos, fmt.Sprintf("%d", lock.locked))
+				lockInfos = append(lockInfos, fmt.Sprintf("%d", lock.aofTime))
+				lockInfos = append(lockInfos, fmt.Sprintf("%d", state))
+			}
 		}
 	}
 	lockManager.glock.Unlock()

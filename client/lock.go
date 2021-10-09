@@ -97,9 +97,9 @@ func (self *Lock) SetRcount(rcount uint8) uint8 {
 	return orcount
 }
 
-func (self *Lock) doLock(flag uint8, timeout uint32, expried uint32, count uint16, rcount uint8) (*protocol.LockResultCommand, error) {
+func (self *Lock) doLock(flag uint8, lockId [16]byte, timeout uint32, expried uint32, count uint16, rcount uint8) (*protocol.LockResultCommand, error) {
 	command := &protocol.LockCommand{Command: protocol.Command{Magic: protocol.MAGIC, Version: protocol.VERSION, CommandType: protocol.COMMAND_LOCK, RequestId: self.db.GenRequestId()},
-		Flag: flag, DbId: self.db.dbId, LockId: self.lockId, LockKey: self.lockKey, TimeoutFlag: uint16(timeout >> 16), Timeout: uint16(timeout),
+		Flag: flag, DbId: self.db.dbId, LockId: lockId, LockKey: self.lockKey, TimeoutFlag: uint16(timeout >> 16), Timeout: uint16(timeout),
 		ExpriedFlag: uint16(expried >> 16), Expried: uint16(expried), Count: count, Rcount: rcount}
 	resultCommand, err := self.db.executeCommand(command, int(command.Timeout+1))
 	if err != nil {
@@ -113,9 +113,9 @@ func (self *Lock) doLock(flag uint8, timeout uint32, expried uint32, count uint1
 	return lockResultCommand, nil
 }
 
-func (self *Lock) doUnlock(flag uint8, timeout uint32, expried uint32, count uint16, rcount uint8) (*protocol.LockResultCommand, error) {
+func (self *Lock) doUnlock(flag uint8, lockId [16]byte, timeout uint32, expried uint32, count uint16, rcount uint8) (*protocol.LockResultCommand, error) {
 	command := &protocol.LockCommand{Command: protocol.Command{Magic: protocol.MAGIC, Version: protocol.VERSION, CommandType: protocol.COMMAND_UNLOCK, RequestId: self.db.GenRequestId()},
-		Flag: flag, DbId: self.db.dbId, LockId: self.lockId, LockKey: self.lockKey, TimeoutFlag: uint16(timeout >> 16), Timeout: uint16(timeout),
+		Flag: flag, DbId: self.db.dbId, LockId: lockId, LockKey: self.lockKey, TimeoutFlag: uint16(timeout >> 16), Timeout: uint16(timeout),
 		ExpriedFlag: uint16(expried >> 16), Expried: uint16(expried), Count: count, Rcount: rcount}
 	resultCommand, err := self.db.executeCommand(command, int(command.Timeout+1))
 	if err != nil {
@@ -130,7 +130,7 @@ func (self *Lock) doUnlock(flag uint8, timeout uint32, expried uint32, count uin
 }
 
 func (self *Lock) Lock() *LockError {
-	lockResultCommand, err := self.doLock(0, self.timeout, self.expried, self.count, self.rcount)
+	lockResultCommand, err := self.doLock(0, self.lockId, self.timeout, self.expried, self.count, self.rcount)
 	if err != nil {
 		return &LockError{0x80, lockResultCommand, err}
 	}
@@ -142,7 +142,7 @@ func (self *Lock) Lock() *LockError {
 }
 
 func (self *Lock) Unlock() *LockError {
-	lockResultCommand, err := self.doUnlock(0, self.timeout, self.expried, self.count, self.rcount)
+	lockResultCommand, err := self.doUnlock(0, self.lockId, self.timeout, self.expried, self.count, self.rcount)
 	if err != nil {
 		return &LockError{0x80, lockResultCommand, err}
 	}
@@ -154,7 +154,7 @@ func (self *Lock) Unlock() *LockError {
 }
 
 func (self *Lock) LockShow() *LockError {
-	lockResultCommand, err := self.doLock(protocol.LOCK_FLAG_SHOW_WHEN_LOCKED, 0, 0, 0, 0)
+	lockResultCommand, err := self.doLock(protocol.LOCK_FLAG_SHOW_WHEN_LOCKED, [16]byte{},0, 0, 0xffff, 0xff)
 	if err != nil {
 		return &LockError{0x80, lockResultCommand, err}
 	}
@@ -166,7 +166,7 @@ func (self *Lock) LockShow() *LockError {
 }
 
 func (self *Lock) LockUpdate() *LockError {
-	lockResultCommand, err := self.doLock(protocol.LOCK_FLAG_UPDATE_WHEN_LOCKED, self.timeout, self.expried, self.count, self.rcount)
+	lockResultCommand, err := self.doLock(protocol.LOCK_FLAG_UPDATE_WHEN_LOCKED, self.lockId, self.timeout, self.expried, self.count, self.rcount)
 	if err != nil {
 		return &LockError{0x80, lockResultCommand, err}
 	}
@@ -178,7 +178,7 @@ func (self *Lock) LockUpdate() *LockError {
 }
 
 func (self *Lock) UnlockHead() *LockError {
-	lockResultCommand, err := self.doUnlock(protocol.UNLOCK_FLAG_UNLOCK_FIRST_LOCK_WHEN_LOCKED, self.timeout, self.expried, self.count, self.rcount)
+	lockResultCommand, err := self.doUnlock(protocol.UNLOCK_FLAG_UNLOCK_FIRST_LOCK_WHEN_LOCKED, [16]byte{}, self.timeout, self.expried, self.count, self.rcount)
 	if err != nil {
 		return &LockError{0x80, lockResultCommand, err}
 	}

@@ -1448,18 +1448,46 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 	waited := lockManager.waited
 	if lockManager.locked > 0 {
 		if command.Flag&protocol.LOCK_FLAG_SHOW_WHEN_LOCKED != 0 {
+			blankLockId := [16]byte{}
+			currentLock := lockManager.currentLock
+			if command.LockId != blankLockId {
+				currentLock = nil
+				if lockManager.locks != nil {
+					var lastLock *Lock = nil
+					for i, _ := range lockManager.locks.IterNodes() {
+						nodeQueues := lockManager.locks.IterNodeQueues(int32(i))
+						for _, lock := range nodeQueues {
+							if lock.locked == 0 {
+								continue
+							}
+							if lastLock != nil {
+								currentLock = lock
+								break
+							}
+							if lock.command.LockId == command.LockId {
+								lastLock = lock
+							}
+						}
+
+						if currentLock != nil {
+							break
+						}
+					}
+				}
+			}
 			lockManager.glock.Unlock()
 
-			currentLock := lockManager.currentLock
-			command.LockId = currentLock.command.LockId
-			command.Expried = uint16(currentLock.expriedTime - currentLock.startTime)
-			command.Timeout = currentLock.command.Timeout
-			command.Count = currentLock.command.Count
-			command.Rcount = currentLock.command.Rcount
+			if currentLock != nil {
+				command.LockId = currentLock.command.LockId
+				command.Expried = uint16(currentLock.expriedTime - currentLock.startTime)
+				command.Timeout = currentLock.command.Timeout
+				command.Count = currentLock.command.Count
+				command.Rcount = currentLock.command.Rcount
 
-			_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_UNOWN_ERROR, uint16(lockManager.locked), currentLock.locked)
-			_ = serverProtocol.FreeLockCommand(command)
-			return nil
+				_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_UNOWN_ERROR, uint16(lockManager.locked), currentLock.locked)
+				_ = serverProtocol.FreeLockCommand(command)
+				return nil
+			}
 		}
 
 		currentLock := lockManager.GetLockedLock(command)
