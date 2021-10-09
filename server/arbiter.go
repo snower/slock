@@ -1562,6 +1562,12 @@ func (self *ArbiterManager) updateStatus() error {
 					err := self.slock.initLeader()
 					if err != nil {
 						self.slock.Log().Errorf("Arbiter update status init leader error %v", err)
+						go func() {
+							self.glock.Lock()
+							_ = self.QuitLeader()
+							self.glock.Unlock()
+						}()
+						return err
 					}
 					self.slock.startLeader()
 					self.loaded = true
@@ -1572,6 +1578,12 @@ func (self *ArbiterManager) updateStatus() error {
 				err := self.slock.replicationManager.SwitchToLeader()
 				if err != nil {
 					self.slock.Log().Errorf("Arbiter update status change leader error %v", err)
+					go func() {
+						self.glock.Lock()
+						_ = self.QuitLeader()
+						self.glock.Unlock()
+					}()
+					return err
 				}
 				err = self.slock.replicationManager.transparencyManager.ChangeLeader("")
 				if err != nil {
