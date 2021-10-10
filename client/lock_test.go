@@ -128,6 +128,40 @@ func TestLock_UnLockHead(t *testing.T) {
 	})
 }
 
+
+func TestLock_CancelWait(t *testing.T) {
+	testWithClient(t, func(client *Client) {
+		lock := client.Lock(testString2Key("TestCancelWait"), 5, 5)
+		err := lock.Lock()
+		if err != nil {
+			t.Errorf("Lock Lock Fail %v", err)
+			return
+		}
+
+		waitLock := client.Lock(testString2Key("TestCancelWait"), 5, 5)
+		go func() {
+			err = waitLock.Lock()
+			if err == nil || err.CommandResult.Result != protocol.RESULT_UNLOCK_ERROR {
+				t.Errorf("Lock Wait Cancel Lock Fail %v", err)
+				return
+			}
+		}()
+		time.Sleep(10 * time.Millisecond)
+
+		err = waitLock.CancelWait()
+		if err.CommandResult.Result != protocol.RESULT_LOCKED_ERROR {
+			t.Errorf("Lock Cancel Fail %v", err)
+			return
+		}
+
+		err = lock.Unlock()
+		if err != nil {
+			t.Errorf("Lock Unlock Fail %v", err)
+			return
+		}
+	})
+}
+
 func TestLock_LockCount(t *testing.T) {
 	testWithClient(t, func(client *Client) {
 		lock1 := client.Lock(testString2Key("TestLockCount"), 0, 5)

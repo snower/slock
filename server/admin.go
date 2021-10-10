@@ -500,6 +500,10 @@ func (self *Admin) commandHandleShowLockWaitCommand(serverProtocol *TextServerPr
 		for i, _ := range lockManager.waitLocks.IterNodes() {
 			nodeQueues := lockManager.waitLocks.IterNodeQueues(int32(i))
 			for _, lock := range nodeQueues {
+				if lock.timeouted {
+					continue
+				}
+
 				state := uint8(0)
 				if lock.timeouted {
 					state |= 0x01

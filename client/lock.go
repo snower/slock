@@ -178,7 +178,7 @@ func (self *Lock) LockUpdate() *LockError {
 }
 
 func (self *Lock) UnlockHead() *LockError {
-	lockResultCommand, err := self.doUnlock(protocol.UNLOCK_FLAG_UNLOCK_FIRST_LOCK_WHEN_LOCKED, [16]byte{}, self.timeout, self.expried, self.count, self.rcount)
+	lockResultCommand, err := self.doUnlock(protocol.UNLOCK_FLAG_UNLOCK_FIRST_LOCK_WHEN_UNLOCKED, [16]byte{}, self.timeout, self.expried, self.count, self.rcount)
 	if err != nil {
 		return &LockError{0x80, lockResultCommand, err}
 	}
@@ -187,6 +187,18 @@ func (self *Lock) UnlockHead() *LockError {
 		return &LockError{lockResultCommand.Result, lockResultCommand, nil}
 	}
 	return &LockError{lockResultCommand.Result, lockResultCommand, errors.New("unlock error")}
+}
+
+func (self *Lock) CancelWait() *LockError {
+	lockResultCommand, err := self.doUnlock(protocol.UNLOCK_FLAG_CANCEL_WAIT_LOCK_WHEN_UNLOCKED, self.lockId, self.timeout, self.expried, self.count, self.rcount)
+	if err != nil {
+		return &LockError{0x80, lockResultCommand, err}
+	}
+
+	if lockResultCommand.Result == protocol.RESULT_LOCKED_ERROR {
+		return &LockError{0, lockResultCommand, nil}
+	}
+	return &LockError{lockResultCommand.Result, lockResultCommand, errors.New("cancel error")}
 }
 
 func (self *Lock) SendLock() error {

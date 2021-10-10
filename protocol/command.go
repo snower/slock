@@ -47,8 +47,9 @@ const (
 )
 
 const (
-	UNLOCK_FLAG_UNLOCK_FIRST_LOCK_WHEN_LOCKED = 0x01
-	UNLOCK_FLAG_FROM_AOF                      = 0x04
+	UNLOCK_FLAG_UNLOCK_FIRST_LOCK_WHEN_UNLOCKED = 0x01
+	UNLOCK_FLAG_CANCEL_WAIT_LOCK_WHEN_UNLOCKED  = 0x02
+	UNLOCK_FLAG_FROM_AOF                        = 0x04
 )
 
 const (
@@ -76,7 +77,7 @@ const (
 const (
 	CALL_COMMAND_ENCODING_TEXT     = 1
 	CALL_COMMAND_ENCODING_JSON     = 2
-	CALL_COMMAND_ENCODING_PROTOCOL = 3
+	CALL_COMMAND_ENCODING_PROTOBUF = 3
 
 	CALL_COMMAND_CHARSET_UTF8 = 1
 )
@@ -936,7 +937,7 @@ func NewCallCommand(methodName string, data []byte) *CallCommand {
 	}
 
 	command := Command{Magic: MAGIC, Version: VERSION, CommandType: COMMAND_CALL, RequestId: GenRequestId()}
-	callCommand := CallCommand{Command: command, Flag: 0, Encoding: CALL_COMMAND_ENCODING_PROTOCOL, Charset: CALL_COMMAND_CHARSET_UTF8, ContentLen: contentLen, MethodName: methodName, Data: data}
+	callCommand := CallCommand{Command: command, Flag: 0, Encoding: CALL_COMMAND_ENCODING_PROTOBUF, Charset: CALL_COMMAND_CHARSET_UTF8, ContentLen: contentLen, MethodName: methodName, Data: data}
 	return &callCommand
 }
 
@@ -1008,7 +1009,7 @@ func NewCallResultCommand(command *CallCommand, result uint8, errType string, da
 	}
 
 	resultCommand := ResultCommand{MAGIC, VERSION, command.CommandType, command.RequestId, result}
-	return &CallResultCommand{resultCommand, 0, CALL_COMMAND_ENCODING_PROTOCOL, CALL_COMMAND_CHARSET_UTF8, contentLen, errType, data}
+	return &CallResultCommand{resultCommand, 0, CALL_COMMAND_ENCODING_PROTOBUF, CALL_COMMAND_CHARSET_UTF8, contentLen, errType, data}
 }
 
 func (self *CallResultCommand) Decode(buf []byte) error {
