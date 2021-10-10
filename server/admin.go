@@ -200,7 +200,7 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 					freeLockManagerCount += int(0xffffffff - freeLockManagerTail + freeLockManagerHead)
 				}
 			}
-			for i := int8(0); i < db.managerMaxGlocks; i++ {
+			for i := uint16(0); i < db.managerMaxGlocks; i++ {
 				freeLockCount += int(db.freeLocks[i].Len())
 			}
 		}

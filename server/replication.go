@@ -1577,7 +1577,7 @@ func (self *ReplicationManager) SwitchToFollower(address string) error {
 
 	for _, db := range self.slock.dbs {
 		if db != nil {
-			for i := int8(0); i < db.managerMaxGlocks; i++ {
+			for i := uint16(0); i < db.managerMaxGlocks; i++ {
 				db.managerGlocks[i].Lock()
 				db.managerGlocks[i].Unlock()
 			}

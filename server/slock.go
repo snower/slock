@@ -186,7 +186,7 @@ func (self *SLock) updateState(state uint8) {
 		if db != nil && db.status != STATE_CLOSE && state != STATE_CLOSE {
 			db.status = state
 
-			for i := int8(0); i < db.managerMaxGlocks; i++ {
+			for i := uint16(0); i < db.managerMaxGlocks; i++ {
 				db.managerGlocks[i].Lock()
 				db.managerGlocks[i].Unlock()
 			}
