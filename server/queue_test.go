@@ -11,8 +11,8 @@ func TestLockQueuePushPop(t *testing.T) {
 	tail := &Lock{}
 
 	q := NewLockQueue(1, 3, 4)
-	q.Push(head)
-	q.Push(tail)
+	_ = q.Push(head)
+	_ = q.Push(tail)
 
 	if q.Pop() != head {
 		t.Error("LockQueue Push Pop Test Fail")
@@ -31,8 +31,8 @@ func TestLockQueuePushPopRight(t *testing.T) {
 	tail := &Lock{}
 
 	q := NewLockQueue(1, 3, 4)
-	q.Push(head)
-	q.Push(tail)
+	_ = q.Push(head)
+	_ = q.Push(tail)
 
 	if q.PopRight() != tail {
 		t.Error("LockQueue Push PopRight Test Fail")
@@ -51,8 +51,8 @@ func TestLockQueuePushLeftPop(t *testing.T) {
 	tail := &Lock{}
 
 	q := NewLockQueue(1, 3, 4)
-	q.Push(head)
-	q.PushLeft(tail)
+	_ = q.Push(head)
+	_ = q.PushLeft(tail)
 
 	if q.Pop() != head {
 		t.Error("LockQueue PushLeft Pop Test Fail")
@@ -71,8 +71,8 @@ func TestLockQueuePushLeftPopRight(t *testing.T) {
 	tail := &Lock{}
 
 	q := NewLockQueue(1, 3, 4)
-	q.Push(head)
-	q.PushLeft(tail)
+	_ = q.Push(head)
+	_ = q.PushLeft(tail)
 
 	if q.PopRight() != head {
 		t.Error("LockQueue PushLeft PopRight Test Fail")
@@ -91,8 +91,8 @@ func TestLockQueueHead(t *testing.T) {
 	tail := &Lock{}
 
 	q := NewLockQueue(1, 3, 4)
-	q.Push(head)
-	q.Push(tail)
+	_ = q.Push(head)
+	_ = q.Push(tail)
 
 	if q.Head() != head {
 		t.Error("LockQueue Head Test Fail")
@@ -112,8 +112,8 @@ func TestLockQueueTail(t *testing.T) {
 	tail := &Lock{}
 
 	q := NewLockQueue(1, 3, 4)
-	q.Push(head)
-	q.Push(tail)
+	_ = q.Push(head)
+	_ = q.Push(tail)
 
 	if q.Tail() != tail {
 		t.Error("LockQueue Tail Test Fail")
@@ -133,8 +133,8 @@ func TestLockQueueLen(t *testing.T) {
 	tail := &Lock{}
 
 	q := NewLockQueue(1, 3, 4)
-	q.Push(head)
-	q.Push(tail)
+	_ = q.Push(head)
+	_ = q.Push(tail)
 
 	if q.Len() != 2 {
 		t.Error("LockQueue Len Test Fail")
@@ -144,7 +144,7 @@ func TestLockQueueLen(t *testing.T) {
 	q.Pop()
 	q.Pop()
 	for i := 0; i < 10; i++ {
-		q.Push(head)
+		_ = q.Push(head)
 	}
 	if q.Len() != 10 {
 		t.Error("LockQueue Len Test Many Fail")
@@ -186,7 +186,7 @@ func TestLockQueueReset(t *testing.T) {
 		qlen--
 	}
 
-	q.Reset()
+	_ = q.Reset()
 	nodeSize := 0
 	for _, nodeQueue := range q.queues {
 		if nodeQueue == nil {
@@ -237,7 +237,7 @@ func TestLockQueueRellac(t *testing.T) {
 		qlen--
 	}
 
-	q.Rellac()
+	_ = q.Rellac()
 	nodeSize := 0
 	for _, nodeQueue := range q.queues {
 		if nodeQueue == nil {
@@ -285,7 +285,7 @@ func TestLockQueueResize(t *testing.T) {
 	}
 	ht := q.tailNodeIndex - q.headNodeIndex
 
-	q.Resize()
+	_ = q.Resize()
 	if q.Len() != int32(qlen) {
 		t.Error("LockQueue Len Fail")
 		return
@@ -300,7 +300,7 @@ func TestLockQueueResize(t *testing.T) {
 		qlen--
 	}
 
-	q.Resize()
+	_ = q.Resize()
 	if q.Len() != int32(qlen) {
 		t.Error("LockQueue Len Fail")
 		return
@@ -323,7 +323,7 @@ func TestLockQueueResize(t *testing.T) {
 		return
 	}
 
-	q.Reset()
+	_ = q.Reset()
 	nodeSize := 0
 	for _, nodeQueue := range q.queues {
 		if nodeQueue == nil {
@@ -368,7 +368,7 @@ func TestLockQueueRestructuring(t *testing.T) {
 		return
 	}
 
-	q.Restructuring()
+	_ = q.Restructuring()
 	if q.Len() != int32(rlen) {
 		t.Error("LockQueue Restructuring Len Fail")
 		return
@@ -413,8 +413,8 @@ func TestLockCommandQueuePushPop(t *testing.T) {
 	tail := &protocol.LockCommand{}
 
 	q := NewLockCommandQueue(1, 3, 4)
-	q.Push(head)
-	q.Push(tail)
+	_ = q.Push(head)
+	_ = q.Push(tail)
 
 	if q.Pop() != head {
 		t.Error("LockCommandQueue Push Pop Test Fail")
@@ -433,8 +433,8 @@ func TestLockCommandQueuePushPopRight(t *testing.T) {
 	tail := &protocol.LockCommand{}
 
 	q := NewLockCommandQueue(1, 3, 4)
-	q.Push(head)
-	q.Push(tail)
+	_ = q.Push(head)
+	_ = q.Push(tail)
 
 	if q.PopRight() != tail {
 		t.Error("LockCommandQueue Push PopRight Test Fail")
@@ -453,8 +453,8 @@ func TestLockCommandQueuePushLeftPop(t *testing.T) {
 	tail := &protocol.LockCommand{}
 
 	q := NewLockCommandQueue(1, 3, 4)
-	q.Push(head)
-	q.PushLeft(tail)
+	_ = q.Push(head)
+	_ = q.PushLeft(tail)
 
 	if q.Pop() != head {
 		t.Error("LockCommandQueue PushLeft Pop Test Fail")
@@ -473,8 +473,8 @@ func TestLockCommandQueuePushLeftPopRight(t *testing.T) {
 	tail := &protocol.LockCommand{}
 
 	q := NewLockCommandQueue(1, 3, 4)
-	q.Push(head)
-	q.PushLeft(tail)
+	_ = q.Push(head)
+	_ = q.PushLeft(tail)
 
 	if q.PopRight() != head {
 		t.Error("LockCommandQueue PushLeft PopRight Test Fail")
@@ -493,8 +493,8 @@ func TestLockCommandQueueHead(t *testing.T) {
 	tail := &protocol.LockCommand{}
 
 	q := NewLockCommandQueue(1, 3, 4)
-	q.Push(head)
-	q.Push(tail)
+	_ = q.Push(head)
+	_ = q.Push(tail)
 
 	if q.Head() != head {
 		t.Error("LockCommandQueue Head Test Fail")
@@ -514,8 +514,8 @@ func TestLockCommandQueueTail(t *testing.T) {
 	tail := &protocol.LockCommand{}
 
 	q := NewLockCommandQueue(1, 3, 4)
-	q.Push(head)
-	q.Push(tail)
+	_ = q.Push(head)
+	_ = q.Push(tail)
 
 	if q.Tail() != tail {
 		t.Error("LockCommandQueue Tail Test Fail")
@@ -535,8 +535,8 @@ func TestLockCommandQueueLen(t *testing.T) {
 	tail := &protocol.LockCommand{}
 
 	q := NewLockCommandQueue(1, 3, 4)
-	q.Push(head)
-	q.Push(tail)
+	_ = q.Push(head)
+	_ = q.Push(tail)
 
 	if q.Len() != 2 {
 		t.Error("LockCommandQueue Len Test Fail")
@@ -546,7 +546,7 @@ func TestLockCommandQueueLen(t *testing.T) {
 	q.Pop()
 	q.Pop()
 	for i := 0; i < 10; i++ {
-		q.Push(head)
+		_ = q.Push(head)
 	}
 	if q.Len() != 10 {
 		t.Error("LockCommandQueue Len Test Many Fail")
@@ -588,7 +588,7 @@ func TestLockCommandQueueReset(t *testing.T) {
 		qlen--
 	}
 
-	q.Reset()
+	_ = q.Reset()
 	nodeSize := 0
 	for _, nodeQueue := range q.queues {
 		if nodeQueue == nil {
@@ -640,7 +640,7 @@ func TestLockCommandQueueRellac(t *testing.T) {
 		qlen--
 	}
 
-	q.Rellac()
+	_ = q.Rellac()
 	nodeSize := 0
 	for _, nodeQueue := range q.queues {
 		if nodeQueue == nil {
@@ -689,7 +689,7 @@ func TestLockCommandQueueResize(t *testing.T) {
 	}
 	ht := q.tailNodeIndex - q.headNodeIndex
 
-	q.Resize()
+	_ = q.Resize()
 	if q.Len() != int32(qlen) {
 		t.Error("LockCommandQueue Len Fail")
 		return
@@ -704,7 +704,7 @@ func TestLockCommandQueueResize(t *testing.T) {
 		qlen--
 	}
 
-	q.Resize()
+	_ = q.Resize()
 	if q.Len() != int32(qlen) {
 		t.Error("LockCommandQueue Len Fail")
 		return
@@ -727,7 +727,7 @@ func TestLockCommandQueueResize(t *testing.T) {
 		return
 	}
 
-	q.Reset()
+	_ = q.Reset()
 	nodeSize := 0
 	for _, nodeQueue := range q.queues {
 		if nodeQueue == nil {
@@ -772,7 +772,7 @@ func TestLockCommandQueueRestructuring(t *testing.T) {
 		return
 	}
 
-	q.Restructuring()
+	_ = q.Restructuring()
 	if q.Len() != int32(rlen) {
 		t.Error("LockCommandQueue Restructuring Len Fail")
 		return

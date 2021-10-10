@@ -1017,11 +1017,11 @@ func (self *Aof) RemoveAofChannel(aofChannel *AofChannel) *AofChannel {
 	return aofChannel
 }
 
-func (self *Aof) activeAofChannel(channel *AofChannel) {
+func (self *Aof) activeAofChannel(_ *AofChannel) {
 	atomic.AddUint32(&self.activedChannelCount, 1)
 }
 
-func (self *Aof) unactiveAofChannel(channel *AofChannel) {
+func (self *Aof) unactiveAofChannel(_ *AofChannel) {
 	atomic.AddUint32(&self.activedChannelCount, 0xffffffff)
 	if !atomic.CompareAndSwapUint32(&self.activedChannelCount, 0, 0) {
 		return

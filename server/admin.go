@@ -51,7 +51,7 @@ func (self *Admin) Close() {
 	self.closed = true
 }
 
-func (self *Admin) commandHandleShutdownCommand(serverProtocol *TextServerProtocol, args []string) error {
+func (self *Admin) commandHandleShutdownCommand(serverProtocol *TextServerProtocol, _ []string) error {
 	err := serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(true, "OK", nil))
 	if err != nil {
 		return err
@@ -66,7 +66,7 @@ func (self *Admin) commandHandleShutdownCommand(serverProtocol *TextServerProtoc
 	return io.EOF
 }
 
-func (self *Admin) commandHandleBgRewritAaofCommand(serverProtocol *TextServerProtocol, args []string) error {
+func (self *Admin) commandHandleBgRewritAaofCommand(serverProtocol *TextServerProtocol, _ []string) error {
 	err := serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(true, "OK", nil))
 	if err != nil {
 		return err
@@ -79,7 +79,7 @@ func (self *Admin) commandHandleBgRewritAaofCommand(serverProtocol *TextServerPr
 	return nil
 }
 
-func (self *Admin) commandHandleRewriteAofCommand(serverProtocol *TextServerProtocol, args []string) error {
+func (self *Admin) commandHandleRewriteAofCommand(serverProtocol *TextServerProtocol, _ []string) error {
 	_ = self.slock.GetAof().RewriteAofFile()
 	return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(true, "OK", nil))
 }
@@ -108,7 +108,7 @@ func (self *Admin) commandHandleFlushDBCommand(serverProtocol *TextServerProtoco
 	return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(true, "OK", nil))
 }
 
-func (self *Admin) commandHandleFlushAllCommand(serverProtocol *TextServerProtocol, args []string) error {
+func (self *Admin) commandHandleFlushAllCommand(serverProtocol *TextServerProtocol, _ []string) error {
 	defer self.slock.glock.Unlock()
 	self.slock.glock.Lock()
 
@@ -139,7 +139,7 @@ func (self *Admin) commandHandlePingCommand(serverProtocol *TextServerProtocol, 
 	return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(true, "PONG", nil))
 }
 
-func (self *Admin) commandHandleQuitCommand(serverProtocol *TextServerProtocol, args []string) error {
+func (self *Admin) commandHandleQuitCommand(serverProtocol *TextServerProtocol, _ []string) error {
 	err := serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(true, "OK", nil))
 	if err != nil {
 		return err
@@ -147,7 +147,7 @@ func (self *Admin) commandHandleQuitCommand(serverProtocol *TextServerProtocol, 
 	return io.EOF
 }
 
-func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, args []string) error {
+func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, _ []string) error {
 	infos := make([]string, 0)
 
 	infos = append(infos, "# Server")
@@ -381,7 +381,7 @@ func (self *Admin) commandHandleShowCommand(serverProtocol *TextServerProtocol, 
 	return self.commandHandleShowLockCommand(serverProtocol, args, db)
 }
 
-func (self *Admin) commandHandleShowDBCommand(serverProtocol *TextServerProtocol, args []string, db *LockDB) error {
+func (self *Admin) commandHandleShowDBCommand(serverProtocol *TextServerProtocol, _ []string, db *LockDB) error {
 	lockManagers := make([]*LockManager, 0)
 	for _, value := range db.fastLocks {
 		lockManager := value.manager
@@ -447,7 +447,7 @@ func (self *Admin) commandHandleShowLockCommand(serverProtocol *TextServerProtoc
 	}
 
 	if lockManager.locks != nil {
-		for i, _ := range lockManager.locks.IterNodes() {
+		for i := range lockManager.locks.IterNodes() {
 			nodeQueues := lockManager.locks.IterNodeQueues(int32(i))
 			for _, lock := range nodeQueues {
 				if lock.locked == 0 {
@@ -497,7 +497,7 @@ func (self *Admin) commandHandleShowLockWaitCommand(serverProtocol *TextServerPr
 	lockInfos := make([]string, 0)
 	lockManager.glock.Lock()
 	if lockManager.waitLocks != nil {
-		for i, _ := range lockManager.waitLocks.IterNodes() {
+		for i := range lockManager.waitLocks.IterNodes() {
 			nodeQueues := lockManager.waitLocks.IterNodeQueues(int32(i))
 			for _, lock := range nodeQueues {
 				if lock.timeouted {
@@ -636,7 +636,7 @@ func (self *Admin) commandHandleClientCommand(serverProtocol *TextServerProtocol
 	return self.commandHandleClientListCommand(serverProtocol, args)
 }
 
-func (self *Admin) commandHandleClientListCommand(serverProtocol *TextServerProtocol, args []string) error {
+func (self *Admin) commandHandleClientListCommand(serverProtocol *TextServerProtocol, _ []string) error {
 	infos := make([]string, 0)
 	for _, stream := range self.server.streams {
 		protocolName, clientId, commandCount := "", [16]byte{}, uint64(0)
@@ -863,7 +863,7 @@ func (self *Admin) commandHandleReplsetGetCommand(serverProtocol *TextServerProt
 	return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(true, "", results))
 }
 
-func (self *Admin) commandHandleReplsetMembersCommand(serverProtocol *TextServerProtocol, args []string) error {
+func (self *Admin) commandHandleReplsetMembersCommand(serverProtocol *TextServerProtocol, _ []string) error {
 	if len(self.slock.arbiterManager.members) == 0 {
 		return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(false, "ERR not config", nil))
 	}

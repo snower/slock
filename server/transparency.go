@@ -812,7 +812,7 @@ func (self *TransparencyTextServerProtocol) FindHandler(name string) (TextServer
 	return self.serverProtocol.FindHandler(name)
 }
 
-func (self *TransparencyTextServerProtocol) Init(clientId [16]byte) error {
+func (self *TransparencyTextServerProtocol) Init(_ [16]byte) error {
 	return nil
 }
 

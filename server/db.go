@@ -326,7 +326,7 @@ func (self *LockDB) checkMillisecondTimeOut(ms int64, glockIndex int8) {
 	if lockQueue != nil {
 		self.millisecondTimeoutLocks[glockIndex][ms%1000] = nil
 
-		for i, _ := range lockQueue.IterNodes() {
+		for i := range lockQueue.IterNodes() {
 			nodeQueues := lockQueue.IterNodeQueues(int32(i))
 			for j, lock := range nodeQueues {
 				if !lock.timeouted {
@@ -353,7 +353,7 @@ func (self *LockDB) checkMillisecondTimeOut(ms int64, glockIndex int8) {
 		}
 		self.managerGlocks[glockIndex].Unlock()
 
-		for i, _ := range lockQueue.IterNodes() {
+		for i := range lockQueue.IterNodes() {
 			nodeQueues := lockQueue.IterNodeQueues(int32(i))
 			for j, lock := range nodeQueues {
 				if lock != nil {
@@ -653,7 +653,7 @@ func (self *LockDB) checkMillisecondExpried(ms int64, glockIndex int8) {
 	if lockQueue != nil {
 		self.millisecondExpriedLocks[glockIndex][ms%1000] = nil
 
-		for i, _ := range lockQueue.IterNodes() {
+		for i := range lockQueue.IterNodes() {
 			nodeQueues := lockQueue.IterNodeQueues(int32(i))
 			for j, lock := range nodeQueues {
 				if !lock.expried {
@@ -680,7 +680,7 @@ func (self *LockDB) checkMillisecondExpried(ms int64, glockIndex int8) {
 		}
 		self.managerGlocks[glockIndex].Unlock()
 
-		for i, _ := range lockQueue.IterNodes() {
+		for i := range lockQueue.IterNodes() {
 			nodeQueues := lockQueue.IterNodeQueues(int32(i))
 			for j, lock := range nodeQueues {
 				if lock != nil {
@@ -1143,7 +1143,7 @@ func (self *LockDB) RemoveLongTimeOut(lock *Lock) {
 	lock.refCount--
 }
 
-func (self *LockDB) doTimeOut(lock *Lock, forcedExpried bool) {
+func (self *LockDB) doTimeOut(lock *Lock, _ bool) {
 	lockManager := lock.manager
 	lockManager.glock.Lock()
 	if lock.timeouted {
@@ -1902,7 +1902,7 @@ func (self *LockDB) wakeUpWaitLock(lockManager *LockManager, waitLock *Lock, ser
 func (self *LockDB) cancelWaitLock(lockManager *LockManager, command *protocol.LockCommand, serverProtocol ServerProtocol) {
 	var waitLock *Lock = nil
 	if lockManager.waitLocks != nil {
-		for i, _ := range lockManager.waitLocks.IterNodes() {
+		for i := range lockManager.waitLocks.IterNodes() {
 			nodeQueues := lockManager.waitLocks.IterNodeQueues(int32(i))
 			for _, lock := range nodeQueues {
 				if lock.timeouted {

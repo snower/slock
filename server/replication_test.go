@@ -33,7 +33,7 @@ func TestReplicationBufferQueue_Pop(t *testing.T) {
 
 	obuf := make([]byte, 64)
 	buf := make([]byte, 64)
-	queue.Push(buf)
+	_ = queue.Push(buf)
 	err := queue.Pop(0, obuf)
 	if err != nil {
 		t.Errorf("ReplicationBufferQueue Pop Error Fail %v", err)
@@ -46,7 +46,7 @@ func TestReplicationBufferQueue_Pop(t *testing.T) {
 	buf[0] = 0xa5
 	buf[10] = 0x34
 	buf[54] = 0x56
-	queue.Push(buf)
+	_ = queue.Push(buf)
 	err = queue.Pop(1, obuf)
 	if err != nil {
 		t.Errorf("ReplicationBufferQueue Pop Error Fail %v", err)
@@ -62,8 +62,8 @@ func TestReplicationBufferQueue_Head(t *testing.T) {
 
 	obuf := make([]byte, 64)
 	buf := make([]byte, 64)
-	queue.Push(buf)
-	queue.Push(buf)
+	_ = queue.Push(buf)
+	_ = queue.Push(buf)
 	index, err := queue.Head(obuf)
 	if err != nil {
 		t.Errorf("ReplicationBufferQueue Pop Error Fail %v", err)
@@ -77,7 +77,7 @@ func TestReplicationBufferQueue_Head(t *testing.T) {
 	buf[10] = 0x34
 	buf[54] = 0x56
 
-	queue.Push(buf)
+	_ = queue.Push(buf)
 	index, err = queue.Head(obuf)
 	if err != nil {
 		t.Errorf("ReplicationBufferQueue Pop Error Fail %v", err)
@@ -97,20 +97,20 @@ func TestReplicationBufferQueue_Search(t *testing.T) {
 
 	obuf := make([]byte, 64)
 	buf := make([]byte, 64)
-	queue.Push(buf)
-	queue.Push(buf)
+	_ = queue.Push(buf)
+	_ = queue.Push(buf)
 	buf[0] = 0xa5
 	buf[10] = 0x34
 	buf[54] = 0x56
-	queue.Push(buf)
+	_ = queue.Push(buf)
 
-	aof_lock := &AofLock{buf: make([]byte, 64)}
-	aof_lock.AofIndex = 43
-	aof_lock.AofId = 343294329
-	aof_lock.Encode()
-	queue.Push(aof_lock.buf)
+	aofLock := &AofLock{buf: make([]byte, 64)}
+	aofLock.AofIndex = 43
+	aofLock.AofId = 343294329
+	_ = aofLock.Encode()
+	_ = queue.Push(aofLock.buf)
 
-	index, err := queue.Search(aof_lock.GetRequestId(), obuf)
+	index, err := queue.Search(aofLock.GetRequestId(), obuf)
 	if err != nil {
 		t.Errorf("ReplicationBufferQueue Pop Error Fail %v", err)
 	}
@@ -119,10 +119,10 @@ func TestReplicationBufferQueue_Search(t *testing.T) {
 		t.Errorf("ReplicationBufferQueue Push Index Error Fail %v", index)
 	}
 
-	aof_lock.buf = obuf
-	aof_lock.Decode()
-	if aof_lock.AofIndex != 43 || aof_lock.AofId != 343294329 {
-		t.Errorf("ReplicationBufferQueue Pop Buf Error Fail %v", aof_lock)
+	aofLock.buf = obuf
+	_ = aofLock.Decode()
+	if aofLock.AofIndex != 43 || aofLock.AofId != 343294329 {
+		t.Errorf("ReplicationBufferQueue Pop Buf Error Fail %v", aofLock)
 	}
 }
 
@@ -135,7 +135,7 @@ func TestReplicationBufferQueue_Run(t *testing.T) {
 		for i := 0; i < 100000; i++ {
 			buf[0], buf[1], buf[2], buf[3] = uint8(index), uint8(index>>8), uint8(index>>16), uint8(index>>24)
 			index++
-			queue.Push(buf)
+			_ = queue.Push(buf)
 			if index%1000 == 0 {
 				time.Sleep(2 * time.Millisecond)
 			}
@@ -173,12 +173,12 @@ func TestReplicationBufferQueue_Reduplicated(t *testing.T) {
 
 	buf := make([]byte, 64)
 	for i := 0; i < 16; i++ {
-		queue.Push(buf)
+		_ = queue.Push(buf)
 	}
 	buf[0] = 0xa5
 	buf[10] = 0x34
 	buf[54] = 0x56
-	queue.Push(buf)
+	_ = queue.Push(buf)
 
 	obuf := make([]byte, 64)
 	err := queue.Pop(16, obuf)

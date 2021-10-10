@@ -60,7 +60,7 @@ func NewMemWaiterServerProtocol(slock *SLock) *MemWaiterServerProtocol {
 	return memWaiterServerProtocol
 }
 
-func (self *MemWaiterServerProtocol) Init(clientId [16]byte) error {
+func (self *MemWaiterServerProtocol) Init(_ [16]byte) error {
 	return nil
 }
 
@@ -92,15 +92,15 @@ func (self *MemWaiterServerProtocol) Process() error {
 	return nil
 }
 
-func (self *MemWaiterServerProtocol) ProcessParse(buf []byte) error {
+func (self *MemWaiterServerProtocol) ProcessParse(_ []byte) error {
 	return nil
 }
 
-func (self *MemWaiterServerProtocol) ProcessBuild(command protocol.ICommand) error {
+func (self *MemWaiterServerProtocol) ProcessBuild(_ protocol.ICommand) error {
 	return nil
 }
 
-func (self *MemWaiterServerProtocol) ProcessCommad(command protocol.ICommand) error {
+func (self *MemWaiterServerProtocol) ProcessCommad(_ protocol.ICommand) error {
 	return nil
 }
 
@@ -1200,7 +1200,7 @@ func (self *BinaryServerProtocol) commandHandleListLockedCommand(_ *BinaryServer
 	}
 
 	if lockManager.locks != nil {
-		for i, _ := range lockManager.locks.IterNodes() {
+		for i := range lockManager.locks.IterNodes() {
 			nodeQueues := lockManager.locks.IterNodeQueues(int32(i))
 			for _, lock := range nodeQueues {
 				if lock.locked == 0 {
@@ -1254,7 +1254,7 @@ func (self *BinaryServerProtocol) commandHandleListWaitCommand(_ *BinaryServerPr
 	locks := make([]*protobuf.LockDBLockWait, 0)
 	lockManager.glock.Lock()
 	if lockManager.waitLocks != nil {
-		for i, _ := range lockManager.waitLocks.IterNodes() {
+		for i := range lockManager.waitLocks.IterNodes() {
 			nodeQueues := lockManager.waitLocks.IterNodeQueues(int32(i))
 			for _, lock := range nodeQueues {
 				if lock.timeouted {
@@ -1327,7 +1327,7 @@ func (self *TextServerProtocol) FindHandler(name string) (TextServerProtocolComm
 	return nil, errors.New("unknown command")
 }
 
-func (self *TextServerProtocol) Init(client_id [16]byte) error {
+func (self *TextServerProtocol) Init(_ [16]byte) error {
 	return nil
 }
 

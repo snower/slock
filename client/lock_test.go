@@ -137,7 +137,7 @@ func TestLock_CancelWait(t *testing.T) {
 			return
 		}
 
-		waitLock := client.Lock(testString2Key("TestCancelWait"), 5, 5)
+		waitLock := client.Lock(testString2Key("TestCancelWait"), 5, 0)
 		go func() {
 			err = waitLock.Lock()
 			if err == nil || err.CommandResult.Result != protocol.RESULT_UNLOCK_ERROR {
@@ -158,6 +158,7 @@ func TestLock_CancelWait(t *testing.T) {
 			t.Errorf("Lock Unlock Fail %v", err)
 			return
 		}
+		time.Sleep(20 * time.Millisecond)
 	})
 }
 

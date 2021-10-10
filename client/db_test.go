@@ -123,5 +123,6 @@ func TestDB_ListWaits(t *testing.T) {
 			t.Errorf("DB Unlock Fail %v", err)
 			return
 		}
+		time.Sleep(20 * time.Millisecond)
 	})
 }

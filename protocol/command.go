@@ -230,8 +230,8 @@ type InitCommand struct {
 
 func NewInitCommand(clientId [16]byte) *InitCommand {
 	command := Command{Magic: MAGIC, Version: VERSION, CommandType: COMMAND_INIT, RequestId: GenRequestId()}
-	init_command := InitCommand{Command: command, ClientId: clientId, Blank: [29]byte{}}
-	return &init_command
+	initCommand := InitCommand{Command: command, ClientId: clientId, Blank: [29]byte{}}
+	return &initCommand
 }
 
 func (self *InitCommand) Decode(buf []byte) error {
@@ -757,8 +757,8 @@ type PingCommand struct {
 
 func NewPingCommand() *PingCommand {
 	command := Command{Magic: MAGIC, Version: VERSION, CommandType: COMMAND_PING, RequestId: GenRequestId()}
-	ping_command := PingCommand{Command: command, Blank: [45]byte{}}
-	return &ping_command
+	pingCommand := PingCommand{Command: command, Blank: [45]byte{}}
+	return &pingCommand
 }
 
 func (self *PingCommand) Decode(buf []byte) error {
@@ -842,8 +842,8 @@ type QuitCommand struct {
 
 func NewQuitCommand() *QuitCommand {
 	command := Command{Magic: MAGIC, Version: VERSION, CommandType: COMMAND_QUIT, RequestId: GenRequestId()}
-	quit_command := QuitCommand{Command: command, Blank: [45]byte{}}
-	return &quit_command
+	quitCommand := QuitCommand{Command: command, Blank: [45]byte{}}
+	return &quitCommand
 }
 
 func (self *QuitCommand) Decode(buf []byte) error {
