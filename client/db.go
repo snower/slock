@@ -2,7 +2,9 @@ package client
 
 import (
 	"errors"
+	"fmt"
 	"github.com/snower/slock/protocol"
+	"github.com/snower/slock/protocol/protobuf"
 	"math/rand"
 	"sync"
 	"sync/atomic"
@@ -140,6 +142,84 @@ func (self *Database) State() *protocol.StateResultCommand {
 		return c
 	}
 	return nil
+}
+
+func (self *Database) ListLocks(timeout int) (*protobuf.LockDBListLockResponse, error) {
+	request := protobuf.LockDBListLockRequest{DbId:uint32(self.dbId)}
+	data, err := request.Marshal()
+	if err != nil {
+		return nil, err
+	}
+
+	command := protocol.NewCallCommand("LIST_LOCK", data)
+	resultCommand, err := self.client.ExecuteCommand(command, timeout)
+	if err != nil {
+		return nil, err
+	}
+
+	callResultCommand := resultCommand.(*protocol.CallResultCommand)
+	if callResultCommand.Result != protocol.RESULT_SUCCED {
+		return nil, errors.New(fmt.Sprintf("call error: error code %d", callResultCommand.Result))
+	}
+
+	response := protobuf.LockDBListLockResponse{}
+	err = response.Unmarshal(callResultCommand.Data)
+	if err != nil {
+		return nil, err
+	}
+	return &response, nil
+}
+
+func (self *Database) ListLockLockeds(lockKey [16]byte, timeout int) (*protobuf.LockDBListLockedResponse, error) {
+	request := protobuf.LockDBListLockedRequest{DbId:uint32(self.dbId), LockKey:lockKey[:]}
+	data, err := request.Marshal()
+	if err != nil {
+		return nil, err
+	}
+
+	command := protocol.NewCallCommand("LIST_LOCKED", data)
+	resultCommand, err := self.client.ExecuteCommand(command, timeout)
+	if err != nil {
+		return nil, err
+	}
+
+	callResultCommand := resultCommand.(*protocol.CallResultCommand)
+	if callResultCommand.Result != protocol.RESULT_SUCCED {
+		return nil, errors.New(fmt.Sprintf("call error: error code %d", callResultCommand.Result))
+	}
+
+	response := protobuf.LockDBListLockedResponse{}
+	err = response.Unmarshal(callResultCommand.Data)
+	if err != nil {
+		return nil, err
+	}
+	return &response, nil
+}
+
+func (self *Database) ListLockWaits(lockKey [16]byte, timeout int) (*protobuf.LockDBListWaitResponse, error) {
+	request := protobuf.LockDBListWaitRequest{DbId:uint32(self.dbId), LockKey:lockKey[:]}
+	data, err := request.Marshal()
+	if err != nil {
+		return nil, err
+	}
+
+	command := protocol.NewCallCommand("LIST_WAIT", data)
+	resultCommand, err := self.client.ExecuteCommand(command, timeout)
+	if err != nil {
+		return nil, err
+	}
+
+	callResultCommand := resultCommand.(*protocol.CallResultCommand)
+	if callResultCommand.Result != protocol.RESULT_SUCCED {
+		return nil, errors.New(fmt.Sprintf("call error: error code %d", callResultCommand.Result))
+	}
+
+	response := protobuf.LockDBListWaitResponse{}
+	err = response.Unmarshal(callResultCommand.Data)
+	if err != nil {
+		return nil, err
+	}
+	return &response, nil
 }
 
 func (self *Database) GenRequestId() [16]byte {

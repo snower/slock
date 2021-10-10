@@ -1,0 +1,73 @@
+syntax = "proto3";
+
+package protobuf;
+
+message LockDBLock {
+  bytes lock_key = 1;
+  uint32 locked_count = 2;
+}
+
+message LockDBLockCommand {
+  bytes request_id = 1;
+  uint32 flag = 2;
+  bytes lock_id = 3;
+  bytes lock_key = 4;
+  uint32 timeout_flag = 5;
+  uint32 timeout = 6;
+  uint32 expried_flag = 7;
+  uint32 expried = 8;
+  uint32 count = 9;
+  uint32 rcount = 10;
+}
+
+message LockDBLockLocked {
+  bytes lock_id = 1;
+  uint64 start_time = 2;
+  uint64 timeout_time = 3;
+  uint64 expried_time = 4;
+  uint32 locked_count = 5;
+  uint32 aof_time = 6;
+  bool is_timeouted = 7;
+  bool is_expried = 8;
+  bool is_aof = 9;
+  bool is_long_time = 10;
+  LockDBLockCommand command = 11;
+}
+
+message LockDBLockWait {
+  bytes lock_id = 1;
+  uint64 start_time = 2;
+  uint64 timeout_time = 3;
+  bool is_long_time = 4;
+  LockDBLockCommand command = 5;
+}
+
+message LockDBListLockRequest {
+  uint32 db_id = 1;
+}
+
+message LockDBListLockResponse {
+  repeated LockDBLock locks = 1;
+}
+
+message LockDBListLockedRequest {
+  uint32 db_id = 1;
+  bytes lock_key = 2;
+}
+
+message LockDBListLockedResponse {
+  bytes lock_key = 1;
+  uint32 locked_count = 2;
+  repeated LockDBLockLocked locks = 3;
+}
+
+message LockDBListWaitRequest {
+  uint32 db_id = 1;
+  bytes lock_key = 2;
+}
+
+message LockDBListWaitResponse {
+  bytes lock_key = 1;
+  uint32 locked_count = 2;
+  repeated LockDBLockWait locks = 3;
+}

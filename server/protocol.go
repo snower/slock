@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/snower/slock/protocol"
+	"github.com/snower/slock/protocol/protobuf"
 	"io"
 	"math/rand"
 	"net"
@@ -272,6 +273,10 @@ func NewBinaryServerProtocol(slock *SLock, stream *Stream) *BinaryServerProtocol
 func (self *BinaryServerProtocol) FindCallMethod(methodName string) (BinaryServerProtocolCallHandler, error) {
 	if self.callMethods == nil {
 		self.callMethods = make(map[string]BinaryServerProtocolCallHandler, 8)
+		self.callMethods["LIST_LOCK"] = self.commandHandleListLockCommand
+		self.callMethods["LIST_LOCKED"] = self.commandHandleListLockedCommand
+		self.callMethods["LIST_WAIT"] = self.commandHandleListWaitCommand
+
 		for name, handler := range self.slock.GetReplicationManager().GetCallMethods() {
 			self.callMethods[name] = handler
 		}
@@ -1113,6 +1118,166 @@ func (self *BinaryServerProtocol) FreeLockCommandLocked(command *protocol.LockCo
 	}
 	self.glock.Unlock()
 	return nil
+}
+
+func (self *BinaryServerProtocol) commandHandleListLockCommand(_ *BinaryServerProtocol, command *protocol.CallCommand) (*protocol.CallResultCommand, error) {
+	if self.slock.state != STATE_LEADER {
+		return protocol.NewCallResultCommand(command, protocol.RESULT_STATE_ERROR, "STATE_ERROR", nil), nil
+	}
+
+	request := protobuf.LockDBListLockRequest{}
+	err := request.Unmarshal(command.Data)
+	if err != nil {
+		return protocol.NewCallResultCommand(command, protocol.RESULT_ERROR, "DECODE_ERROR", nil), nil
+	}
+
+	db := self.slock.dbs[request.DbId]
+	if db == nil {
+		return protocol.NewCallResultCommand(command, protocol.RESULT_UNKNOWN_DB, "UNKNOWN_DB_ERROR", nil), nil
+	}
+
+	locks := make([]*protobuf.LockDBLock, 0)
+	for _, value := range db.fastLocks {
+		lockManager := value.manager
+		if lockManager != nil && lockManager.locked > 0 {
+			locks = append(locks, &protobuf.LockDBLock{LockKey:lockManager.lockKey[:], LockedCount:lockManager.locked})
+		}
+	}
+
+	db.glock.Lock()
+	for _, lockManager := range db.locks {
+		if lockManager.locked > 0 {
+			locks = append(locks, &protobuf.LockDBLock{LockKey:lockManager.lockKey[:], LockedCount:lockManager.locked})
+		}
+	}
+	db.glock.Unlock()
+
+	response := protobuf.LockDBListLockResponse{Locks:locks}
+	data, err := response.Marshal()
+	if err != nil {
+		return protocol.NewCallResultCommand(command, protocol.RESULT_ERROR, "ENCODE_ERROR", nil), nil
+	}
+	return protocol.NewCallResultCommand(command, protocol.RESULT_SUCCED, "", data), nil
+}
+
+func (self *BinaryServerProtocol) commandHandleListLockedCommand(_ *BinaryServerProtocol, command *protocol.CallCommand) (*protocol.CallResultCommand, error) {
+	if self.slock.state != STATE_LEADER {
+		return protocol.NewCallResultCommand(command, protocol.RESULT_STATE_ERROR, "STATE_ERROR", nil), nil
+	}
+
+	request := protobuf.LockDBListLockedRequest{}
+	err := request.Unmarshal(command.Data)
+	if err != nil {
+		return protocol.NewCallResultCommand(command, protocol.RESULT_ERROR, "DECODE_ERROR", nil), nil
+	}
+
+	db := self.slock.dbs[request.DbId]
+	if db == nil {
+		return protocol.NewCallResultCommand(command, protocol.RESULT_UNKNOWN_DB, "UNKNOWN_DB_ERROR", nil), nil
+	}
+
+	lockKey := [16]byte{}
+	copy(lockKey[:], request.LockKey)
+	lockCommand := protocol.LockCommand{LockKey:lockKey}
+	lockManager := db.GetLockManager(&lockCommand)
+	if lockManager == nil || lockManager.locked <= 0 {
+		return protocol.NewCallResultCommand(command, protocol.RESULT_UNKNOWN_DB, "LOCK_MANAGER_ERROR", nil), nil
+	}
+
+	locks := make([]*protobuf.LockDBLockLocked, 0)
+	lockManager.glock.Lock()
+	if lockManager.currentLock != nil {
+		lock := lockManager.currentLock
+
+		lockedCommand := &protobuf.LockDBLockCommand{RequestId:lock.command.RequestId[:], Flag:uint32(lock.command.Flag),LockId:lock.command.LockId[:],
+			LockKey:lock.command.LockKey[:], TimeoutFlag:uint32(lock.command.TimeoutFlag), Timeout:uint32(lock.command.Timeout), ExpriedFlag:uint32(lock.command.ExpriedFlag),
+			Expried:uint32(lock.command.Expried), Count:uint32(lock.command.Count), Rcount:uint32(lock.command.Rcount)}
+		lockedLock := &protobuf.LockDBLockLocked{LockId:lock.command.LockId[:], StartTime:uint64(lock.startTime), TimeoutTime:uint64(lock.timeoutTime),
+			ExpriedTime:uint64(lock.expriedTime), LockedCount:uint32(lock.locked), AofTime:uint32(lock.aofTime), IsTimeouted:lock.timeouted, IsExpried:lock.expried,
+			IsAof:lock.isAof, IsLongTime:lock.longWaitIndex > 0, Command:lockedCommand}
+		locks = append(locks, lockedLock)
+
+	}
+
+	if lockManager.locks != nil {
+		for i, _ := range lockManager.locks.IterNodes() {
+			nodeQueues := lockManager.locks.IterNodeQueues(int32(i))
+			for _, lock := range nodeQueues {
+				if lock.locked == 0 {
+					continue
+				}
+
+				lockedCommand := &protobuf.LockDBLockCommand{RequestId:lock.command.RequestId[:], Flag:uint32(lock.command.Flag),LockId:lock.command.LockId[:],
+					LockKey:lock.command.LockKey[:], TimeoutFlag:uint32(lock.command.TimeoutFlag), Timeout:uint32(lock.command.Timeout), ExpriedFlag:uint32(lock.command.ExpriedFlag),
+					Expried:uint32(lock.command.Expried), Count:uint32(lock.command.Count), Rcount:uint32(lock.command.Rcount)}
+				lockedLock := &protobuf.LockDBLockLocked{LockId:lock.command.LockId[:], StartTime:uint64(lock.startTime), TimeoutTime:uint64(lock.timeoutTime),
+					ExpriedTime:uint64(lock.expriedTime), LockedCount:uint32(lock.locked), AofTime:uint32(lock.aofTime), IsTimeouted:lock.timeouted, IsExpried:lock.expried,
+					IsAof:lock.isAof, IsLongTime:lock.longWaitIndex > 0, Command:lockedCommand}
+				locks = append(locks, lockedLock)
+			}
+		}
+	}
+	lockManager.glock.Unlock()
+
+	response := protobuf.LockDBListLockedResponse{LockKey:lockManager.lockKey[:], LockedCount:lockManager.locked, Locks:locks}
+	data, err := response.Marshal()
+	if err != nil {
+		return protocol.NewCallResultCommand(command, protocol.RESULT_ERROR, "ENCODE_ERROR", nil), nil
+	}
+	return protocol.NewCallResultCommand(command, protocol.RESULT_SUCCED, "", data), nil
+}
+
+func (self *BinaryServerProtocol) commandHandleListWaitCommand(_ *BinaryServerProtocol, command *protocol.CallCommand) (*protocol.CallResultCommand, error) {
+	if self.slock.state != STATE_LEADER {
+		return protocol.NewCallResultCommand(command, protocol.RESULT_STATE_ERROR, "STATE_ERROR", nil), nil
+	}
+
+	request := protobuf.LockDBListWaitRequest{}
+	err := request.Unmarshal(command.Data)
+	if err != nil {
+		return protocol.NewCallResultCommand(command, protocol.RESULT_ERROR, "DECODE_ERROR", nil), nil
+	}
+
+	db := self.slock.dbs[request.DbId]
+	if db == nil {
+		return protocol.NewCallResultCommand(command, protocol.RESULT_UNKNOWN_DB, "UNKNOWN_DB_ERROR", nil), nil
+	}
+
+	lockKey := [16]byte{}
+	copy(lockKey[:], request.LockKey)
+	lockCommand := protocol.LockCommand{LockKey:lockKey}
+	lockManager := db.GetLockManager(&lockCommand)
+	if lockManager == nil || lockManager.locked <= 0 {
+		return protocol.NewCallResultCommand(command, protocol.RESULT_UNKNOWN_DB, "LOCK_MANAGER_ERROR", nil), nil
+	}
+
+	locks := make([]*protobuf.LockDBLockWait, 0)
+	lockManager.glock.Lock()
+	if lockManager.waitLocks != nil {
+		for i, _ := range lockManager.waitLocks.IterNodes() {
+			nodeQueues := lockManager.waitLocks.IterNodeQueues(int32(i))
+			for _, lock := range nodeQueues {
+				if lock.timeouted {
+					continue
+				}
+
+				waitCommand := &protobuf.LockDBLockCommand{RequestId:lock.command.RequestId[:], Flag:uint32(lock.command.Flag),LockId:lock.command.LockId[:],
+					LockKey:lock.command.LockKey[:], TimeoutFlag:uint32(lock.command.TimeoutFlag), Timeout:uint32(lock.command.Timeout), ExpriedFlag:uint32(lock.command.ExpriedFlag),
+					Expried:uint32(lock.command.Expried), Count:uint32(lock.command.Count), Rcount:uint32(lock.command.Rcount)}
+				waitLock := &protobuf.LockDBLockWait{LockId:lock.command.LockId[:], StartTime:uint64(lock.startTime), TimeoutTime:uint64(lock.timeoutTime),
+					IsLongTime:lock.longWaitIndex > 0, Command:waitCommand}
+				locks = append(locks, waitLock)
+			}
+		}
+	}
+	lockManager.glock.Unlock()
+
+	response := protobuf.LockDBListWaitResponse{LockKey:lockManager.lockKey[:], LockedCount:lockManager.locked, Locks:locks}
+	data, err := response.Marshal()
+	if err != nil {
+		return protocol.NewCallResultCommand(command, protocol.RESULT_ERROR, "ENCODE_ERROR", nil), nil
+	}
+	return protocol.NewCallResultCommand(command, protocol.RESULT_SUCCED, "", data), nil
 }
 
 type TextServerProtocolCommandHandler func(*TextServerProtocol, []string) error

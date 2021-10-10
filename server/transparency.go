@@ -147,6 +147,12 @@ func (self *TransparencyBinaryClientProtocol) processBinaryProcotol(command prot
 		}
 		initResultCommand.InitType = 2
 		return serverProtocol.Write(initResultCommand)
+	case *protocol.CallResultCommand:
+		callResultCommand := command.(*protocol.CallResultCommand)
+		if self.latestRequestId == callResultCommand.RequestId {
+			self.latestCommandType = 0xff
+		}
+		return serverProtocol.Write(callResultCommand)
 	}
 	return nil
 }
@@ -178,10 +184,15 @@ func (self *TransparencyBinaryClientProtocol) rollbackLatestCommand() {
 	if self.latestCommandType != 0xff {
 		command := protocol.ResultCommand{Magic: protocol.MAGIC, Version: protocol.VERSION, CommandType: self.latestCommandType,
 			RequestId: self.latestRequestId, Result: protocol.RESULT_ERROR}
-		if self.latestCommandType == protocol.COMMAND_INIT {
+		switch self.latestCommandType {
+		case protocol.COMMAND_LOCK:
 			resultCommand = &protocol.LockResultCommand{ResultCommand: command}
-		} else {
-			resultCommand = &protocol.InitResultCommand{ResultCommand: command}
+		case protocol.COMMAND_UNLOCK:
+			resultCommand = &protocol.LockResultCommand{ResultCommand: command}
+		case protocol.COMMAND_INIT:
+			resultCommand = &protocol.LockResultCommand{ResultCommand: command}
+		case protocol.COMMAND_CALL:
+			resultCommand = &protocol.CallResultCommand{ResultCommand: command}
 		}
 	}
 
@@ -216,8 +227,14 @@ type TransparencyBinaryServerProtocol struct {
 }
 
 func NewTransparencyBinaryServerProtocol(slock *SLock, stream *Stream, serverProtocol *BinaryServerProtocol) *TransparencyBinaryServerProtocol {
-	return &TransparencyBinaryServerProtocol{slock, slock.replicationManager.transparencyManager, &sync.Mutex{}, stream,
+	transparencyServerProtocol := &TransparencyBinaryServerProtocol{slock, slock.replicationManager.transparencyManager, &sync.Mutex{}, stream,
 		serverProtocol, nil, false}
+
+	_, _ = serverProtocol.FindCallMethod("LIST_LOCK")
+	serverProtocol.callMethods["LIST_LOCK"] = transparencyServerProtocol.commandHandleListLockCommand
+	serverProtocol.callMethods["LIST_LOCKED"] = transparencyServerProtocol.commandHandleListLockedCommand
+	serverProtocol.callMethods["LIST_WAIT"] = transparencyServerProtocol.commandHandleListWaitCommand
+	return transparencyServerProtocol
 }
 
 func (self *TransparencyBinaryServerProtocol) Init(clientId [16]byte) error {
@@ -693,6 +710,57 @@ func (self *TransparencyBinaryServerProtocol) FreeLockCommand(command *protocol.
 
 func (self *TransparencyBinaryServerProtocol) FreeLockCommandLocked(command *protocol.LockCommand) error {
 	return self.serverProtocol.FreeLockCommandLocked(command)
+}
+
+func (self *TransparencyBinaryServerProtocol) commandHandleListLockCommand(serverProtocol *BinaryServerProtocol, command *protocol.CallCommand) (*protocol.CallResultCommand, error) {
+	if self.slock.state == STATE_LEADER {
+		return self.serverProtocol.commandHandleListLockCommand(serverProtocol, command)
+	}
+
+	clientProtocol, err := self.CheckClient()
+	if err != nil || clientProtocol == nil {
+		return protocol.NewCallResultCommand(command, protocol.RESULT_ERROR, "CLIENT_ERROR", nil), nil
+	}
+
+	err = clientProtocol.Write(command)
+	if err != nil {
+		return protocol.NewCallResultCommand(command, protocol.RESULT_ERROR, "WRITE_ERROR", nil), nil
+	}
+	return nil, nil
+}
+
+func (self *TransparencyBinaryServerProtocol) commandHandleListLockedCommand(serverProtocol *BinaryServerProtocol, command *protocol.CallCommand) (*protocol.CallResultCommand, error) {
+	if self.slock.state == STATE_LEADER {
+		return self.serverProtocol.commandHandleListLockedCommand(serverProtocol, command)
+	}
+
+	clientProtocol, err := self.CheckClient()
+	if err != nil || clientProtocol == nil {
+		return protocol.NewCallResultCommand(command, protocol.RESULT_ERROR, "CLIENT_ERROR", nil), nil
+	}
+
+	err = clientProtocol.Write(command)
+	if err != nil {
+		return protocol.NewCallResultCommand(command, protocol.RESULT_ERROR, "WRITE_ERROR", nil), nil
+	}
+	return nil, nil
+}
+
+func (self *TransparencyBinaryServerProtocol) commandHandleListWaitCommand(serverProtocol *BinaryServerProtocol, command *protocol.CallCommand) (*protocol.CallResultCommand, error) {
+	if self.slock.state == STATE_LEADER {
+		return self.serverProtocol.commandHandleListWaitCommand(serverProtocol, command)
+	}
+
+	clientProtocol, err := self.CheckClient()
+	if err != nil || clientProtocol == nil {
+		return protocol.NewCallResultCommand(command, protocol.RESULT_ERROR, "CLIENT_ERROR", nil), nil
+	}
+
+	err = clientProtocol.Write(command)
+	if err != nil {
+		return protocol.NewCallResultCommand(command, protocol.RESULT_ERROR, "WRITE_ERROR", nil), nil
+	}
+	return nil, nil
 }
 
 type TransparencyTextServerProtocol struct {
