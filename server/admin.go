@@ -374,6 +374,10 @@ func (self *Admin) commandHandleShowCommand(serverProtocol *TextServerProtocol, 
 	if len(args) == 1 || (len(args) == 2 && args[1] == "*") {
 		return self.commandHandleShowDBCommand(serverProtocol, args, db)
 	}
+
+	if len(args) == 3 && strings.ToUpper(args[2]) == "WAIT" {
+		return self.commandHandleShowLockWaitCommand(serverProtocol, args, db)
+	}
 	return self.commandHandleShowLockCommand(serverProtocol, args, db)
 }
 
@@ -450,6 +454,52 @@ func (self *Admin) commandHandleShowLockCommand(serverProtocol *TextServerProtoc
 					continue
 				}
 
+				state := uint8(0)
+				if lock.timeouted {
+					state |= 0x01
+				}
+
+				if lock.expried {
+					state |= 0x02
+				}
+
+				if lock.longWaitIndex > 0 {
+					state |= 0x04
+				}
+
+				if lock.isAof {
+					state |= 0x08
+				}
+
+				lockInfos = append(lockInfos, fmt.Sprintf("%x", lock.command.LockId))
+				lockInfos = append(lockInfos, fmt.Sprintf("%d", lock.startTime))
+				lockInfos = append(lockInfos, fmt.Sprintf("%d", lock.timeoutTime))
+				lockInfos = append(lockInfos, fmt.Sprintf("%d", lock.expriedTime))
+				lockInfos = append(lockInfos, fmt.Sprintf("%d", lock.locked))
+				lockInfos = append(lockInfos, fmt.Sprintf("%d", lock.aofTime))
+				lockInfos = append(lockInfos, fmt.Sprintf("%d", state))
+			}
+		}
+	}
+	lockManager.glock.Unlock()
+	return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(true, "", lockInfos))
+}
+
+func (self *Admin) commandHandleShowLockWaitCommand(serverProtocol *TextServerProtocol, args []string, db *LockDB) error {
+	command := protocol.LockCommand{}
+	serverProtocol.ArgsToLockComandParseId(args[1], &command.LockKey)
+
+	lockManager := db.GetLockManager(&command)
+	if lockManager == nil {
+		return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(false, "ERR Unknown Lock Manager Error", nil))
+	}
+
+	lockInfos := make([]string, 0)
+	lockManager.glock.Lock()
+	if lockManager.waitLocks != nil {
+		for i, _ := range lockManager.waitLocks.IterNodes() {
+			nodeQueues := lockManager.waitLocks.IterNodeQueues(int32(i))
+			for _, lock := range nodeQueues {
 				state := uint8(0)
 				if lock.timeouted {
 					state |= 0x01
