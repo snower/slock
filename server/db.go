@@ -1927,6 +1927,9 @@ func (self *LockDB) cancelWaitLock(lockManager *LockManager, command *protocol.L
 
 	lockLocked := waitLock.locked
 	waitLock.timeouted = true
+	if waitLock.longWaitIndex > 0 {
+		self.RemoveLongTimeOut(waitLock)
+	}
 	lockProtocol, lockCommand := waitLock.protocol, waitLock.command
 
 	if lockLocked > 0 {
@@ -1941,12 +1944,8 @@ func (self *LockDB) cancelWaitLock(lockManager *LockManager, command *protocol.L
 		}
 	}
 
-	waitLock.refCount--
-	if waitLock.refCount == 0 {
-		lockManager.FreeLock(waitLock)
-		if lockManager.refCount == 0 {
-			self.RemoveLockManager(lockManager)
-		}
+	if lockManager.refCount == 0 {
+		self.RemoveLockManager(lockManager)
 	}
 	lockManager.glock.Unlock()
 
