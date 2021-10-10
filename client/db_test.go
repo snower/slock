@@ -48,7 +48,6 @@ func TestDB_ListLocks(t *testing.T) {
 	})
 }
 
-
 func TestDB_ListLockeds(t *testing.T) {
 	testWithClient(t, func(client *Client) {
 		lock := client.Lock(testString2Key("TestListLockeds"), 5, 5)
@@ -82,7 +81,6 @@ func TestDB_ListLockeds(t *testing.T) {
 		}
 	})
 }
-
 
 func TestDB_ListWaits(t *testing.T) {
 	testWithClient(t, func(client *Client) {

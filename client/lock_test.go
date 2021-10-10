@@ -128,7 +128,6 @@ func TestLock_UnLockHead(t *testing.T) {
 	})
 }
 
-
 func TestLock_CancelWait(t *testing.T) {
 	testWithClient(t, func(client *Client) {
 		lock := client.Lock(testString2Key("TestCancelWait"), 5, 5)

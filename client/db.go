@@ -145,7 +145,7 @@ func (self *Database) State() *protocol.StateResultCommand {
 }
 
 func (self *Database) ListLocks(timeout int) (*protobuf.LockDBListLockResponse, error) {
-	request := protobuf.LockDBListLockRequest{DbId:uint32(self.dbId)}
+	request := protobuf.LockDBListLockRequest{DbId: uint32(self.dbId)}
 	data, err := request.Marshal()
 	if err != nil {
 		return nil, err
@@ -171,7 +171,7 @@ func (self *Database) ListLocks(timeout int) (*protobuf.LockDBListLockResponse, 
 }
 
 func (self *Database) ListLockLockeds(lockKey [16]byte, timeout int) (*protobuf.LockDBListLockedResponse, error) {
-	request := protobuf.LockDBListLockedRequest{DbId:uint32(self.dbId), LockKey:lockKey[:]}
+	request := protobuf.LockDBListLockedRequest{DbId: uint32(self.dbId), LockKey: lockKey[:]}
 	data, err := request.Marshal()
 	if err != nil {
 		return nil, err
@@ -197,7 +197,7 @@ func (self *Database) ListLockLockeds(lockKey [16]byte, timeout int) (*protobuf.
 }
 
 func (self *Database) ListLockWaits(lockKey [16]byte, timeout int) (*protobuf.LockDBListWaitResponse, error) {
-	request := protobuf.LockDBListWaitRequest{DbId:uint32(self.dbId), LockKey:lockKey[:]}
+	request := protobuf.LockDBListWaitRequest{DbId: uint32(self.dbId), LockKey: lockKey[:]}
 	data, err := request.Marshal()
 	if err != nil {
 		return nil, err
