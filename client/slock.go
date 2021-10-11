@@ -15,11 +15,17 @@ var LETTERS = []byte("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
 var requestIdIndex uint32 = 0
 var lockIdIndex uint32 = 0
 
+type CommandRequest struct {
+	command        protocol.ICommand
+	waiter         chan protocol.ICommand
+	clientProtocol ClientProtocol
+}
+
 type Client struct {
 	glock            *sync.Mutex
 	protocols        []ClientProtocol
 	dbs              []*Database
-	requests         map[[16]byte]chan protocol.ICommand
+	requests         map[[16]byte]*CommandRequest
 	requestLock      *sync.Mutex
 	hosts            []string
 	clientId         [16]byte
@@ -31,14 +37,14 @@ type Client struct {
 func NewClient(host string, port uint) *Client {
 	address := fmt.Sprintf("%s:%d", host, port)
 	client := &Client{&sync.Mutex{}, make([]ClientProtocol, 0), make([]*Database, 256),
-		make(map[[16]byte]chan protocol.ICommand, 64), &sync.Mutex{}, []string{address},
+		make(map[[16]byte]*CommandRequest, 64), &sync.Mutex{}, []string{address},
 		[16]byte{}, false, &sync.WaitGroup{}, make(map[string]chan bool, 4)}
 	return client
 }
 
 func NewReplsetClient(hosts []string) *Client {
 	client := &Client{&sync.Mutex{}, make([]ClientProtocol, 0),
-		make([]*Database, 256), make(map[[16]byte]chan protocol.ICommand, 64), &sync.Mutex{},
+		make([]*Database, 256), make(map[[16]byte]*CommandRequest, 64), &sync.Mutex{},
 		hosts, [16]byte{}, false, &sync.WaitGroup{}, make(map[string]chan bool, 4)}
 	return client
 }
@@ -55,19 +61,19 @@ func (self *Client) Open() error {
 
 	protocols := make(map[string]ClientProtocol, 4)
 	for _, host := range self.hosts {
-		client_protocol, cerr := self.connect(host)
+		clientProtocol, cerr := self.connect(host)
 		if cerr != nil {
 			err = cerr
 		}
-		protocols[host] = client_protocol
+		protocols[host] = clientProtocol
 	}
 
 	if len(self.protocols) == 0 {
 		return err
 	}
 
-	for host, client_protocol := range protocols {
-		go self.process(host, client_protocol)
+	for host, clientProtocol := range protocols {
+		go self.process(host, clientProtocol)
 		self.closedWaiter.Add(1)
 	}
 	return nil
@@ -81,13 +87,13 @@ func (self *Client) Close() error {
 	}
 
 	self.closed = true
-	for request_id := range self.requests {
-		close(self.requests[request_id])
+	for requestId := range self.requests {
+		close(self.requests[requestId].waiter)
 	}
-	self.requests = make(map[[16]byte]chan protocol.ICommand, 0)
+	self.requests = make(map[[16]byte]*CommandRequest, 0)
 	self.glock.Unlock()
 
-	for db_id, db := range self.dbs {
+	for dbId, db := range self.dbs {
 		if db == nil {
 			continue
 		}
@@ -96,11 +102,11 @@ func (self *Client) Close() error {
 		if err != nil {
 			return err
 		}
-		self.dbs[db_id] = nil
+		self.dbs[dbId] = nil
 	}
 
-	for _, client_protocol := range self.protocols {
-		_ = client_protocol.Close()
+	for _, clientProtocol := range self.protocols {
+		_ = clientProtocol.Close()
 	}
 
 	self.glock.Lock()
@@ -119,30 +125,48 @@ func (self *Client) connect(host string) (ClientProtocol, error) {
 	}
 
 	stream := NewStream(conn)
-	client_protocol := NewBinaryClientProtocol(stream)
+	clientProtocol := NewBinaryClientProtocol(stream)
 	if len(self.hosts) == 1 {
-		err = self.initProtocol(client_protocol)
+		err = self.initProtocol(clientProtocol)
 		if err != nil {
-			_ = client_protocol.Close()
+			_ = clientProtocol.Close()
 			return nil, err
 		}
 	}
-	self.addProtocol(client_protocol)
-	return client_protocol, nil
+	self.addProtocol(clientProtocol)
+	return clientProtocol, nil
 }
 
-func (self *Client) reconnect(host string) ClientProtocol {
+func (self *Client) reconnect(host string, clientProtocol ClientProtocol) ClientProtocol {
 	self.glock.Lock()
 	waiter := make(chan bool, 1)
 	self.reconnectWaiters[host] = waiter
 	self.glock.Unlock()
+
+	if len(self.hosts) > 1 && clientProtocol != nil {
+		self.glock.Lock()
+		for requestId := range self.requests {
+			if self.requests[requestId].clientProtocol == clientProtocol {
+				close(self.requests[requestId].waiter)
+				delete(self.requests, requestId)
+			}
+		}
+		self.glock.Unlock()
+
+		for _, db := range self.dbs {
+			if db == nil {
+				continue
+			}
+			_ = db.reconnect(host, clientProtocol)
+		}
+	}
 
 	for !self.closed {
 		select {
 		case <-waiter:
 			continue
 		case <-time.After(3 * time.Second):
-			client_protocol, err := self.connect(host)
+			clientProtocol, err := self.connect(host)
 			if err != nil {
 				continue
 			}
@@ -152,7 +176,7 @@ func (self *Client) reconnect(host string) ClientProtocol {
 				delete(self.reconnectWaiters, host)
 			}
 			self.glock.Unlock()
-			return client_protocol
+			return clientProtocol
 		}
 	}
 
@@ -164,17 +188,17 @@ func (self *Client) reconnect(host string) ClientProtocol {
 	return nil
 }
 
-func (self *Client) addProtocol(client_protocol ClientProtocol) {
+func (self *Client) addProtocol(clientProtocol ClientProtocol) {
 	self.glock.Lock()
-	self.protocols = append(self.protocols, client_protocol)
+	self.protocols = append(self.protocols, clientProtocol)
 	self.glock.Unlock()
 }
 
-func (self *Client) removeProtocol(client_protocol ClientProtocol) {
+func (self *Client) removeProtocol(clientProtocol ClientProtocol) {
 	self.glock.Lock()
 	protocols := make([]ClientProtocol, 0)
 	for _, p := range self.protocols {
-		if p != client_protocol {
+		if p != clientProtocol {
 			protocols = append(protocols, p)
 		}
 	}
@@ -190,32 +214,39 @@ func (self *Client) initClientId() {
 	}
 }
 
-func (self *Client) initProtocol(client_protocol ClientProtocol) error {
-	init_command := &protocol.InitCommand{Command: protocol.Command{Magic: protocol.MAGIC, Version: protocol.VERSION, CommandType: protocol.COMMAND_INIT, RequestId: self.clientId}, ClientId: self.clientId}
-	if err := client_protocol.Write(init_command); err != nil {
+func (self *Client) initProtocol(clientProtocol ClientProtocol) error {
+	initCommand := &protocol.InitCommand{Command: protocol.Command{Magic: protocol.MAGIC, Version: protocol.VERSION, CommandType: protocol.COMMAND_INIT, RequestId: self.clientId}, ClientId: self.clientId}
+	if err := clientProtocol.Write(initCommand); err != nil {
 		return err
 	}
-	result, rerr := client_protocol.Read()
+	result, rerr := clientProtocol.Read()
 	if rerr != nil {
 		return rerr
 	}
 
-	if init_result_command, ok := result.(*protocol.InitResultCommand); ok {
-		if init_result_command.Result != protocol.RESULT_SUCCED {
-			return errors.New(fmt.Sprintf("init stream error: %d", init_result_command.Result))
+	if initResultCommand, ok := result.(*protocol.InitResultCommand); ok {
+		if initResultCommand.Result != protocol.RESULT_SUCCED {
+			return errors.New(fmt.Sprintf("init stream error: %d", initResultCommand.Result))
 		}
 
-		if init_result_command.InitType != 1 {
+		if initResultCommand.InitType != 1 {
+			self.glock.Lock()
+			for requestId := range self.requests {
+				close(self.requests[requestId].waiter)
+				delete(self.requests, requestId)
+			}
+			self.glock.Unlock()
+
 			for _, db := range self.dbs {
 				if db == nil {
 					continue
 				}
 
 				db.glock.Lock()
-				for request_id := range db.requests {
-					close(db.requests[request_id])
+				for requestId := range db.requests {
+					close(db.requests[requestId].waiter)
+					delete(db.requests, requestId)
 				}
-				db.requests = make(map[[16]byte]chan protocol.ICommand, 0)
 				db.glock.Unlock()
 			}
 		}
@@ -224,18 +255,18 @@ func (self *Client) initProtocol(client_protocol ClientProtocol) error {
 	return errors.New("init fail")
 }
 
-func (self *Client) process(host string, client_protocol ClientProtocol) {
+func (self *Client) process(host string, clientProtocol ClientProtocol) {
 	for !self.closed {
-		if client_protocol == nil {
-			client_protocol = self.reconnect(host)
+		if clientProtocol == nil {
+			clientProtocol = self.reconnect(host, nil)
 			continue
 		}
 
-		command, err := client_protocol.Read()
+		command, err := clientProtocol.Read()
 		if err != nil {
-			_ = client_protocol.Close()
-			self.removeProtocol(client_protocol)
-			self.reconnect(host)
+			_ = clientProtocol.Close()
+			self.removeProtocol(clientProtocol)
+			self.reconnect(host, clientProtocol)
 			continue
 		}
 		if command == nil {
@@ -244,8 +275,8 @@ func (self *Client) process(host string, client_protocol ClientProtocol) {
 		_ = self.handleCommand(command.(protocol.ICommand))
 	}
 
-	if client_protocol != nil {
-		_ = client_protocol.Close()
+	if clientProtocol != nil {
+		_ = clientProtocol.Close()
 	}
 	self.closedWaiter.Done()
 }
@@ -257,17 +288,17 @@ func (self *Client) getPrococol() ClientProtocol {
 		return nil
 	}
 
-	client_protocol := self.protocols[0]
+	clientProtocol := self.protocols[0]
 	self.glock.Unlock()
-	return client_protocol
+	return clientProtocol
 }
 
-func (self *Client) getOrNewDB(db_id uint8) *Database {
+func (self *Client) getOrNewDB(dbId uint8) *Database {
 	self.glock.Lock()
-	db := self.dbs[db_id]
+	db := self.dbs[dbId]
 	if db == nil {
-		db = NewDatabase(db_id, self)
-		self.dbs[db_id] = db
+		db = NewDatabase(dbId, self)
+		self.dbs[dbId] = db
 	}
 	self.glock.Unlock()
 	return db
@@ -276,73 +307,73 @@ func (self *Client) getOrNewDB(db_id uint8) *Database {
 func (self *Client) handleCommand(command protocol.ICommand) error {
 	switch command.GetCommandType() {
 	case protocol.COMMAND_LOCK:
-		lock_command := command.(*protocol.LockResultCommand)
-		db := self.dbs[lock_command.DbId]
+		lockCommand := command.(*protocol.LockResultCommand)
+		db := self.dbs[lockCommand.DbId]
 		if db == nil {
-			db = self.getOrNewDB(lock_command.DbId)
+			db = self.getOrNewDB(lockCommand.DbId)
 		}
-		return db.handleCommandResult(lock_command)
+		return db.handleCommandResult(lockCommand)
 
 	case protocol.COMMAND_UNLOCK:
-		lock_command := command.(*protocol.LockResultCommand)
-		db := self.dbs[lock_command.DbId]
+		lockCommand := command.(*protocol.LockResultCommand)
+		db := self.dbs[lockCommand.DbId]
 		if db == nil {
-			db = self.getOrNewDB(lock_command.DbId)
+			db = self.getOrNewDB(lockCommand.DbId)
 		}
-		return db.handleCommandResult(lock_command)
+		return db.handleCommandResult(lockCommand)
 
 	case protocol.COMMAND_STATE:
-		state_command := command.(*protocol.StateResultCommand)
-		db := self.dbs[state_command.DbId]
+		stateCommand := command.(*protocol.StateResultCommand)
+		db := self.dbs[stateCommand.DbId]
 		if db == nil {
-			db = self.getOrNewDB(state_command.DbId)
+			db = self.getOrNewDB(stateCommand.DbId)
 		}
-		return db.handleCommandResult(state_command)
+		return db.handleCommandResult(stateCommand)
 	}
 
-	request_id := command.GetRequestId()
+	requestId := command.GetRequestId()
 	self.requestLock.Lock()
-	if request, ok := self.requests[request_id]; ok {
-		delete(self.requests, request_id)
+	if request, ok := self.requests[requestId]; ok {
+		delete(self.requests, requestId)
 		self.requestLock.Unlock()
 
-		request <- command
+		request.waiter <- command
 		return nil
 	}
 	self.requestLock.Unlock()
 	return nil
 }
 
-func (self *Client) SelectDB(db_id uint8) *Database {
-	db := self.dbs[db_id]
+func (self *Client) SelectDB(dbId uint8) *Database {
+	db := self.dbs[dbId]
 	if db == nil {
-		db = self.getOrNewDB(db_id)
+		db = self.getOrNewDB(dbId)
 	}
 	return db
 }
 
 func (self *Client) ExecuteCommand(command protocol.ICommand, timeout int) (protocol.ICommand, error) {
-	client_protocol := self.getPrococol()
-	if client_protocol == nil {
+	clientProtocol := self.getPrococol()
+	if clientProtocol == nil {
 		return nil, errors.New("client is not opened")
 	}
 
-	request_id := command.GetRequestId()
+	requestId := command.GetRequestId()
 	self.requestLock.Lock()
-	if _, ok := self.requests[request_id]; ok {
+	if _, ok := self.requests[requestId]; ok {
 		self.requestLock.Unlock()
 		return nil, errors.New("request is used")
 	}
 
 	waiter := make(chan protocol.ICommand, 1)
-	self.requests[request_id] = waiter
+	self.requests[requestId] = &CommandRequest{command, waiter, clientProtocol}
 	self.requestLock.Unlock()
 
-	err := client_protocol.Write(command)
+	err := clientProtocol.Write(command)
 	if err != nil {
 		self.requestLock.Lock()
-		if _, ok := self.requests[request_id]; ok {
-			delete(self.requests, request_id)
+		if _, ok := self.requests[requestId]; ok {
+			delete(self.requests, requestId)
 		}
 		self.requestLock.Unlock()
 		return nil, err
@@ -356,8 +387,8 @@ func (self *Client) ExecuteCommand(command protocol.ICommand, timeout int) (prot
 		return r, nil
 	case <-time.After(time.Duration(timeout+1) * time.Second):
 		self.requestLock.Lock()
-		if _, ok := self.requests[request_id]; ok {
-			delete(self.requests, request_id)
+		if _, ok := self.requests[requestId]; ok {
+			delete(self.requests, requestId)
 		}
 		self.requestLock.Unlock()
 		return nil, errors.New("timeout")
@@ -365,36 +396,36 @@ func (self *Client) ExecuteCommand(command protocol.ICommand, timeout int) (prot
 }
 
 func (self *Client) SendCommand(command protocol.ICommand) error {
-	client_protocol := self.getPrococol()
-	if client_protocol == nil {
+	clientProtocol := self.getPrococol()
+	if clientProtocol == nil {
 		return errors.New("client is not opened")
 	}
 
-	return client_protocol.Write(command)
+	return clientProtocol.Write(command)
 }
 
-func (self *Client) Lock(lock_key [16]byte, timeout uint32, expried uint32) *Lock {
-	return self.SelectDB(0).Lock(lock_key, timeout, expried)
+func (self *Client) Lock(lockKey [16]byte, timeout uint32, expried uint32) *Lock {
+	return self.SelectDB(0).Lock(lockKey, timeout, expried)
 }
 
-func (self *Client) Event(event_key [16]byte, timeout uint32, expried uint32, default_seted bool) *Event {
-	return self.SelectDB(0).Event(event_key, timeout, expried, default_seted)
+func (self *Client) Event(eventKey [16]byte, timeout uint32, expried uint32, defaultSeted bool) *Event {
+	return self.SelectDB(0).Event(eventKey, timeout, expried, defaultSeted)
 }
 
-func (self *Client) Semaphore(semaphore_key [16]byte, timeout uint32, expried uint32, count uint16) *Semaphore {
-	return self.SelectDB(0).Semaphore(semaphore_key, timeout, expried, count)
+func (self *Client) Semaphore(semaphoreKey [16]byte, timeout uint32, expried uint32, count uint16) *Semaphore {
+	return self.SelectDB(0).Semaphore(semaphoreKey, timeout, expried, count)
 }
 
-func (self *Client) RWLock(lock_key [16]byte, timeout uint32, expried uint32) *RWLock {
-	return self.SelectDB(0).RWLock(lock_key, timeout, expried)
+func (self *Client) RWLock(lockKey [16]byte, timeout uint32, expried uint32) *RWLock {
+	return self.SelectDB(0).RWLock(lockKey, timeout, expried)
 }
 
-func (self *Client) RLock(lock_key [16]byte, timeout uint32, expried uint32) *RLock {
-	return self.SelectDB(0).RLock(lock_key, timeout, expried)
+func (self *Client) RLock(lockKey [16]byte, timeout uint32, expried uint32) *RLock {
+	return self.SelectDB(0).RLock(lockKey, timeout, expried)
 }
 
-func (self *Client) State(db_id uint8) *protocol.StateResultCommand {
-	return self.SelectDB(db_id).State()
+func (self *Client) State(dbId uint8) *protocol.StateResultCommand {
+	return self.SelectDB(dbId).State()
 }
 
 func (self *Client) GenRequestId() [16]byte {

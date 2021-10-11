@@ -14,22 +14,34 @@ import (
 type Database struct {
 	dbId     uint8
 	client   *Client
-	requests map[[16]byte]chan protocol.ICommand
+	requests map[[16]byte]*CommandRequest
 	glock    *sync.Mutex
 }
 
 func NewDatabase(dbId uint8, client *Client) *Database {
-	return &Database{dbId, client, make(map[[16]byte]chan protocol.ICommand, 4096), &sync.Mutex{}}
+	return &Database{dbId, client, make(map[[16]byte]*CommandRequest, 4096), &sync.Mutex{}}
 }
 
 func (self *Database) Close() error {
 	self.glock.Lock()
 
 	for requestId := range self.requests {
-		close(self.requests[requestId])
+		close(self.requests[requestId].waiter)
 	}
-	self.requests = make(map[[16]byte]chan protocol.ICommand, 0)
+	self.requests = make(map[[16]byte]*CommandRequest, 0)
 	self.client = nil
+	self.glock.Unlock()
+	return nil
+}
+
+func (self *Database) reconnect(_ string, clientProtocol ClientProtocol) error {
+	self.glock.Lock()
+	for requestId := range self.requests {
+		if self.requests[requestId].clientProtocol == clientProtocol {
+			close(self.requests[requestId].waiter)
+			delete(self.requests, requestId)
+		}
+	}
 	self.glock.Unlock()
 	return nil
 }
@@ -41,7 +53,7 @@ func (self *Database) handleCommandResult(command protocol.ICommand) error {
 		delete(self.requests, requestId)
 		self.glock.Unlock()
 
-		request <- command
+		request.waiter <- command
 		return nil
 	}
 	self.glock.Unlock()
@@ -65,7 +77,7 @@ func (self *Database) executeCommand(command protocol.ICommand, timeout int) (pr
 	}
 
 	waiter := make(chan protocol.ICommand, 1)
-	self.requests[requestId] = waiter
+	self.requests[requestId] = &CommandRequest{command, waiter, clientProtocol}
 	self.glock.Unlock()
 
 	err := clientProtocol.Write(command)
