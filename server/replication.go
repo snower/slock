@@ -740,9 +740,23 @@ func (self *ReplicationServer) sendFiles() error {
 		aofFilenames = append(aofFilenames, rewriteFile)
 	}
 	aofFilenames = append(aofFilenames, appendFiles...)
-	err = self.aof.LoadAofFiles(aofFilenames, func(filename string, aofFile *AofFile, lock *AofLock, firstLock bool) (bool, error) {
+	lockCommand := &protocol.LockCommand{}
+	err = self.aof.LoadAofFiles(aofFilenames, time.Now().Unix(), func(filename string, aofFile *AofFile, lock *AofLock, firstLock bool) (bool, error) {
 		if lock.AofIndex >= self.waofLock.AofIndex && lock.AofId >= self.waofLock.AofId {
 			return false, nil
+		}
+
+		db := self.manager.slock.GetDB(lock.DbId)
+		if db == nil {
+			return true, nil
+		}
+
+		lockCommand.CommandType = lock.CommandType
+		lockCommand.DbId = lock.DbId
+		lockCommand.LockId = lock.LockId
+		lockCommand.LockKey = lock.LockKey
+		if !db.HasLock(lockCommand) {
+			return true, nil
 		}
 
 		err := self.stream.WriteBytes(lock.buf)

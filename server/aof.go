@@ -779,7 +779,7 @@ func (self *Aof) LoadAndInit() error {
 		aofFilenames = append(aofFilenames, rewriteFile)
 	}
 	aofFilenames = append(aofFilenames, appendFiles...)
-	err = self.LoadAofFiles(aofFilenames, func(filename string, aofFile *AofFile, lock *AofLock, firstLock bool) (bool, error) {
+	err = self.LoadAofFiles(aofFilenames, time.Now().Unix(), func(filename string, aofFile *AofFile, lock *AofLock, firstLock bool) (bool, error) {
 		err := self.LoadLock(lock)
 		if err != nil {
 			return true, err
@@ -899,12 +899,11 @@ func (self *Aof) FindAofFiles() ([]string, string, error) {
 	return appendFiles, rewriteFile, nil
 }
 
-func (self *Aof) LoadAofFiles(filenames []string, iterFunc func(string, *AofFile, *AofLock, bool) (bool, error)) error {
+func (self *Aof) LoadAofFiles(filenames []string, expriedTime int64, iterFunc func(string, *AofFile, *AofLock, bool) (bool, error)) error {
 	lock := NewAofLock()
-	now := time.Now().Unix()
 
 	for _, filename := range filenames {
-		err := self.LoadAofFile(filename, lock, now, iterFunc)
+		err := self.LoadAofFile(filename, lock, expriedTime, iterFunc)
 		if err != nil {
 			if err == io.EOF {
 				return nil
@@ -915,7 +914,7 @@ func (self *Aof) LoadAofFiles(filenames []string, iterFunc func(string, *AofFile
 	return nil
 }
 
-func (self *Aof) LoadAofFile(filename string, lock *AofLock, now int64, iterFunc func(string, *AofFile, *AofLock, bool) (bool, error)) error {
+func (self *Aof) LoadAofFile(filename string, lock *AofLock, expriedTime int64, iterFunc func(string, *AofFile, *AofLock, bool) (bool, error)) error {
 	aofFile := NewAofFile(self, filepath.Join(self.dataDir, filename), os.O_RDONLY, int(Config.AofFileBufferSize))
 	err := aofFile.Open()
 	if err != nil {
@@ -943,7 +942,7 @@ func (self *Aof) LoadAofFile(filename string, lock *AofLock, now int64, iterFunc
 		}
 
 		if lock.ExpriedFlag&protocol.EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME == 0 {
-			if int64(lock.CommandTime+uint64(lock.ExpriedTime)) <= now {
+			if int64(lock.CommandTime+uint64(lock.ExpriedTime)) <= expriedTime {
 				continue
 			}
 		}
@@ -1341,12 +1340,15 @@ func (self *Aof) loadRewriteAofFiles(aofFilenames []string) (*AofFile, []*AofFil
 		return nil, nil, err
 	}
 
-	now := uint64(time.Now().Unix())
 	lockCommand := &protocol.LockCommand{}
 	aofFiles := make([]*AofFile, 0)
 	aofId := uint32(0)
 
-	lerr := self.LoadAofFiles(aofFilenames, func(filename string, aofFile *AofFile, lock *AofLock, firstLock bool) (bool, error) {
+	expriedTime := time.Now().Unix()
+	if self.slock.state != STATE_LEADER {
+		expriedTime -= 300
+	}
+	lerr := self.LoadAofFiles(aofFilenames, expriedTime, func(filename string, aofFile *AofFile, lock *AofLock, firstLock bool) (bool, error) {
 		db := self.slock.GetDB(lock.DbId)
 		if db == nil {
 			return true, nil
@@ -1356,7 +1358,7 @@ func (self *Aof) loadRewriteAofFiles(aofFilenames []string) (*AofFile, []*AofFil
 		lockCommand.DbId = lock.DbId
 		lockCommand.LockId = lock.LockId
 		lockCommand.LockKey = lock.LockKey
-		if now-lock.CommandTime > 300 && !db.HasLock(lockCommand) {
+		if !db.HasLock(lockCommand) {
 			return true, nil
 		}
 
