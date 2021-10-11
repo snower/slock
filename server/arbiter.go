@@ -597,7 +597,7 @@ func (self *ArbiterMember) UpdateStatus() error {
 	callResultCommand, err := self.client.Request(callCommand)
 	if err != nil {
 		self.lastError++
-		if self.lastError >= 3 {
+		if self.lastError >= 3 && self.client != nil && self.client.protocol != nil {
 			_ = self.client.protocol.Close()
 		}
 		return err
@@ -605,7 +605,7 @@ func (self *ArbiterMember) UpdateStatus() error {
 
 	if callResultCommand.Result != 0 || callResultCommand.ErrType != "" {
 		self.lastError++
-		if self.lastError >= 3 {
+		if self.lastError >= 3 && self.client != nil && self.client.protocol != nil {
 			_ = self.client.protocol.Close()
 		}
 		self.manager.slock.Log().Warnf("Arbiter member %s update status error %v", self.host, err)
