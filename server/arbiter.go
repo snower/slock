@@ -1575,6 +1575,7 @@ func (self *ArbiterManager) updateStatus() error {
 					self.slock.startLeader()
 					self.loaded = true
 					self.DoAnnouncement()
+					_ = self.voter.WakeupRetryVote()
 					return nil
 				}
 
@@ -1596,6 +1597,7 @@ func (self *ArbiterManager) updateStatus() error {
 			} else {
 				_ = self.QuitLeader()
 			}
+			_ = self.voter.WakeupRetryVote()
 		}
 		return nil
 	}
@@ -1612,6 +1614,7 @@ func (self *ArbiterManager) updateStatus() error {
 				self.slock.Log().Errorf("Arbiter update status change transparency address error %v", err)
 			}
 			self.loaded = true
+			_ = self.voter.WakeupRetryVote()
 			return nil
 		}
 
@@ -1623,6 +1626,7 @@ func (self *ArbiterManager) updateStatus() error {
 		if err != nil {
 			self.slock.Log().Errorf("Arbiter update status change follower error %v", err)
 		}
+		_ = self.voter.WakeupRetryVote()
 		return nil
 	}
 
@@ -1634,6 +1638,7 @@ func (self *ArbiterManager) updateStatus() error {
 	if err != nil {
 		self.slock.Log().Errorf("Arbiter update status reset transparency address error %v", err)
 	}
+	_ = self.voter.WakeupRetryVote()
 	return nil
 }
 
