@@ -24,6 +24,7 @@ const AOF_LOCK_TYPE_LOAD = 1
 const AOF_LOCK_TYPE_ACK_FILE = 2
 const AOF_LOCK_TYPE_ACK_ACKED = 3
 
+const AOF_FLAG_REWRITEd = 0x0001
 const AOF_FLAG_REQUIRE_ACKED = 0x1000
 
 type AofLock struct {
@@ -1342,8 +1343,6 @@ func (self *Aof) loadRewriteAofFiles(aofFilenames []string) (*AofFile, []*AofFil
 
 	lockCommand := &protocol.LockCommand{}
 	aofFiles := make([]*AofFile, 0)
-	aofId := uint32(0)
-
 	expriedTime := time.Now().Unix()
 	if self.slock.state != STATE_LEADER {
 		expriedTime -= 300
@@ -1362,8 +1361,8 @@ func (self *Aof) loadRewriteAofFiles(aofFilenames []string) (*AofFile, []*AofFil
 			return true, nil
 		}
 
-		aofId++
-		_ = lock.UpdateAofIndexId(0, aofId)
+		lock.AofFlag |= AOF_FLAG_REWRITEd
+		lock.buf[55] |= AOF_FLAG_REWRITEd
 		err = rewriteAofFile.WriteLock(lock)
 		if err != nil {
 			return true, err

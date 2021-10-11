@@ -396,7 +396,11 @@ func (self *ReplicationClient) recvFiles() error {
 			return nil
 		}
 
-		if self.aofLock.AofIndex != aofIndex || aofFile == nil {
+		currentAofIndex := self.aofLock.AofIndex
+		if self.aofLock.AofFlag&AOF_FLAG_REWRITEd != 0 {
+			currentAofIndex = 0
+		}
+		if currentAofIndex != aofIndex || aofFile == nil {
 			if aofFile != nil {
 				_ = aofFile.Flush()
 				err := aofFile.Close()
@@ -409,7 +413,7 @@ func (self *ReplicationClient) recvFiles() error {
 			if err != nil {
 				return err
 			}
-			aofIndex = self.aofLock.AofIndex
+			aofIndex = currentAofIndex
 			if aofIndex == 0 {
 				self.manager.slock.logger.Infof("Replication client recv file rewrite.aof")
 			} else {
