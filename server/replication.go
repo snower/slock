@@ -409,7 +409,7 @@ func (self *ReplicationClient) recvFiles() error {
 				}
 			}
 
-			aofFile, err = self.aof.OpenAofFile(aofIndex)
+			aofFile, err = self.aof.OpenAofFile(currentAofIndex)
 			if err != nil {
 				return err
 			}
