@@ -476,8 +476,8 @@ func (self *AofChannel) Push(lock *Lock, commandType uint8, command *protocol.Lo
 	}
 
 	aofLock.HandleType = AOF_LOCK_TYPE_FILE
-	self.channel <- aofLock
 	atomic.AddUint32(&self.aof.channelLockCount, 1)
+	self.channel <- aofLock
 	return nil
 }
 
@@ -499,8 +499,8 @@ func (self *AofChannel) Load(lock *AofLock) error {
 	}
 	copy(aofLock.buf, lock.buf)
 	aofLock.HandleType = AOF_LOCK_TYPE_LOAD
-	self.channel <- aofLock
 	atomic.AddUint32(&self.aof.channelLockCount, 1)
+	self.channel <- aofLock
 	return nil
 }
 
@@ -527,8 +527,8 @@ func (self *AofChannel) AofAcked(buf []byte, succed bool) error {
 		aofLock.Result = protocol.RESULT_ERROR
 	}
 	aofLock.HandleType = AOF_LOCK_TYPE_ACK_FILE
-	self.channel <- aofLock
 	atomic.AddUint32(&self.aof.channelLockCount, 1)
+	self.channel <- aofLock
 	return nil
 }
 
@@ -564,8 +564,8 @@ func (self *AofChannel) Acked(commandResult *protocol.LockResultCommand) error {
 	aofLock.Lcount = commandResult.Lcount
 	aofLock.Lrcount = commandResult.Lrcount
 	aofLock.HandleType = AOF_LOCK_TYPE_ACK_ACKED
-	self.channel <- aofLock
 	atomic.AddUint32(&self.aof.channelLockCount, 1)
+	self.channel <- aofLock
 	return nil
 }
 
