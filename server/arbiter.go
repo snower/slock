@@ -103,7 +103,7 @@ func (self *ArbiterStore) Load(manager *ArbiterManager) error {
 	}
 	manager.members = members
 	manager.gid = replset.Gid
-	manager.version = replset.Version - 1
+	manager.version = replset.Version
 	manager.vertime = replset.Vertime
 	manager.voter.commitId = replset.CommitId
 	_ = file.Close()
@@ -1222,8 +1222,6 @@ func (self *ArbiterManager) Close() error {
 	if self.ownMember.role == ARBITER_ROLE_LEADER && len(self.members) > 1 {
 		self.ownMember.abstianed = true
 		_ = self.QuitLeader()
-	} else {
-		_ = self.store.Save(self)
 	}
 	self.stoped = true
 	self.glock.Unlock()
