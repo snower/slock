@@ -477,6 +477,7 @@ func (self *AofChannel) Push(lock *Lock, commandType uint8, command *protocol.Lo
 
 	aofLock.HandleType = AOF_LOCK_TYPE_FILE
 	self.channel <- aofLock
+	atomic.AddUint32(&self.aof.channelLockCount, 1)
 	return nil
 }
 
@@ -499,6 +500,7 @@ func (self *AofChannel) Load(lock *AofLock) error {
 	copy(aofLock.buf, lock.buf)
 	aofLock.HandleType = AOF_LOCK_TYPE_LOAD
 	self.channel <- aofLock
+	atomic.AddUint32(&self.aof.channelLockCount, 1)
 	return nil
 }
 
@@ -526,6 +528,7 @@ func (self *AofChannel) AofAcked(buf []byte, succed bool) error {
 	}
 	aofLock.HandleType = AOF_LOCK_TYPE_ACK_FILE
 	self.channel <- aofLock
+	atomic.AddUint32(&self.aof.channelLockCount, 1)
 	return nil
 }
 
@@ -562,22 +565,23 @@ func (self *AofChannel) Acked(commandResult *protocol.LockResultCommand) error {
 	aofLock.Lrcount = commandResult.Lrcount
 	aofLock.HandleType = AOF_LOCK_TYPE_ACK_ACKED
 	self.channel <- aofLock
+	atomic.AddUint32(&self.aof.channelLockCount, 1)
 	return nil
 }
 
 func (self *AofChannel) Run() {
 	exited := false
-	self.aof.activeAofChannel(self)
 	for {
 		select {
 		case aofLock := <-self.channel:
 			if aofLock != nil {
 				self.Handle(aofLock)
+				atomic.AddUint32(&self.aof.channelLockCount, 0xffffffff)
 				continue
 			}
 			exited = self.closed
 		default:
-			self.aof.unactiveAofChannel(self)
+			self.aof.waitLockAofChannel(self)
 			if exited {
 				_ = self.serverProtocol.Close()
 				self.aof.RemoveAofChannel(self)
@@ -586,9 +590,9 @@ func (self *AofChannel) Run() {
 			}
 
 			aofLock := <-self.channel
-			self.aof.activeAofChannel(self)
 			if aofLock != nil {
 				self.Handle(aofLock)
+				atomic.AddUint32(&self.aof.channelLockCount, 0xffffffff)
 				continue
 			}
 			exited = self.closed
@@ -696,24 +700,24 @@ func (self *AofChannel) HandleAcked(aofLock *AofLock) {
 }
 
 type Aof struct {
-	slock               *SLock
-	glock               *sync.Mutex
-	dataDir             string
-	aofFileIndex        uint32
-	aofFile             *AofFile
-	aofGlock            *sync.Mutex
-	replGlock           *sync.Mutex
-	channels            []*AofChannel
-	channelCount        uint32
-	activedChannelCount uint32
-	channelFlushWaiter  chan bool
-	rewritedWaiter      chan bool
-	rewriteSize         uint32
-	aofLockCount        uint64
-	aofId               uint32
-	isRewriting         bool
-	inited              bool
-	closed              bool
+	slock              *SLock
+	glock              *sync.Mutex
+	dataDir            string
+	aofFileIndex       uint32
+	aofFile            *AofFile
+	aofGlock           *sync.Mutex
+	replGlock          *sync.Mutex
+	channels           []*AofChannel
+	channelCount       uint32
+	channelLockCount   uint32
+	channelFlushWaiter chan bool
+	rewritedWaiter     chan bool
+	rewriteSize        uint32
+	aofLockCount       uint64
+	aofId              uint32
+	isRewriting        bool
+	inited             bool
+	closed             bool
 }
 
 func NewAof() *Aof {
@@ -1017,13 +1021,8 @@ func (self *Aof) RemoveAofChannel(aofChannel *AofChannel) *AofChannel {
 	return aofChannel
 }
 
-func (self *Aof) activeAofChannel(_ *AofChannel) {
-	atomic.AddUint32(&self.activedChannelCount, 1)
-}
-
-func (self *Aof) unactiveAofChannel(_ *AofChannel) {
-	atomic.AddUint32(&self.activedChannelCount, 0xffffffff)
-	if !atomic.CompareAndSwapUint32(&self.activedChannelCount, 0, 0) {
+func (self *Aof) waitLockAofChannel(_ *AofChannel) {
+	if !atomic.CompareAndSwapUint32(&self.channelLockCount, 0, 0) {
 		return
 	}
 
@@ -1039,7 +1038,7 @@ func (self *Aof) unactiveAofChannel(_ *AofChannel) {
 func (self *Aof) WaitFlushAofChannel() error {
 	self.aofGlock.Lock()
 	self.channelFlushWaiter = make(chan bool, 1)
-	if atomic.CompareAndSwapUint32(&self.activedChannelCount, 0, 0) {
+	if atomic.CompareAndSwapUint32(&self.channelLockCount, 0, 0) {
 		self.channelFlushWaiter = nil
 		self.aofGlock.Unlock()
 		return nil
@@ -1146,13 +1145,9 @@ func (self *Aof) lockLoaded(_ *MemWaiterServerProtocol, command *protocol.LockCo
 }
 
 func (self *Aof) Flush() {
-	for !self.closed {
-		err := self.aofFile.Flush()
-		if err != nil {
-			self.slock.Log().Errorf("Aof flush file error %v", err)
-			time.Sleep(1e10)
-		}
-		break
+	err := self.aofFile.Flush()
+	if err != nil {
+		self.slock.Log().Errorf("Aof flush file error %v", err)
 	}
 }
 
