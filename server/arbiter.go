@@ -597,18 +597,16 @@ func (self *ArbiterMember) UpdateStatus() error {
 	callResultCommand, err := self.client.Request(callCommand)
 	if err != nil {
 		self.lastError++
-		if self.lastError >= 5 {
+		if self.lastError >= 3 {
 			_ = self.client.protocol.Close()
-			self.lastError = 0
 		}
 		return err
 	}
 
 	if callResultCommand.Result != 0 || callResultCommand.ErrType != "" {
 		self.lastError++
-		if self.lastError >= 5 {
+		if self.lastError >= 3 {
 			_ = self.client.protocol.Close()
-			self.lastError = 0
 		}
 		self.manager.slock.Log().Warnf("Arbiter member %s update status error %v", self.host, err)
 		return errors.New(fmt.Sprintf("call error %d %s", callResultCommand.Result, callResultCommand.ErrType))
