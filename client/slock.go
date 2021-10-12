@@ -412,6 +412,14 @@ func (self *Client) RLock(lockKey [16]byte, timeout uint32, expried uint32) *RLo
 	return self.SelectDB(0).RLock(lockKey, timeout, expried)
 }
 
+func (self *Client) MaxConcurrentFlow(flowKey [16]byte, count uint16, timeout uint32, expried uint32) *MaxConcurrentFlow {
+	return self.SelectDB(0).MaxConcurrentFlow(flowKey, count, timeout, expried)
+}
+
+func (self *Client) TokenBucketFlow(flowKey [16]byte, count uint16, timeout uint32, period float64) *TokenBucketFlow {
+	return self.SelectDB(0).TokenBucketFlow(flowKey, count, timeout, period)
+}
+
 func (self *Client) State(dbId uint8) *protocol.StateResultCommand {
 	return self.SelectDB(dbId).State()
 }

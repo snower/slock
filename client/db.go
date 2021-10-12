@@ -141,6 +141,14 @@ func (self *Database) RLock(lockKey [16]byte, timeout uint32, expried uint32) *R
 	return NewRLock(self, lockKey, timeout, expried)
 }
 
+func (self *Database) MaxConcurrentFlow(flowKey [16]byte, count uint16, timeout uint32, expried uint32) *MaxConcurrentFlow {
+	return NewMaxConcurrentFlow(self, flowKey, count, timeout, expried)
+}
+
+func (self *Database) TokenBucketFlow(flowKey [16]byte, count uint16, timeout uint32, period float64) *TokenBucketFlow {
+	return NewTokenBucketFlow(self, flowKey, count, timeout, period)
+}
+
 func (self *Database) State() *protocol.StateResultCommand {
 	requestId := self.client.GenRequestId()
 	command := &protocol.StateCommand{Command: protocol.Command{Magic: protocol.MAGIC, Version: protocol.VERSION, CommandType: protocol.COMMAND_STATE, RequestId: requestId},
