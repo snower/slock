@@ -1143,7 +1143,7 @@ func (self *LockDB) RemoveLongTimeOut(lock *Lock) {
 	lock.refCount--
 }
 
-func (self *LockDB) doTimeOut(lock *Lock, _ bool) {
+func (self *LockDB) doTimeOut(lock *Lock, forcedExpried bool) {
 	lockManager := lock.manager
 	lockManager.glock.Lock()
 	if lock.timeouted {
@@ -1157,6 +1157,18 @@ func (self *LockDB) doTimeOut(lock *Lock, _ bool) {
 
 		lockManager.glock.Unlock()
 		return
+	}
+
+	if !forcedExpried {
+		if lock.command.TimeoutFlag&protocol.TIMEOUT_FLAG_KEEPLIVED != 0 {
+			stream := lock.protocol.GetStream()
+			if stream != nil && !stream.closed {
+				lock.timeoutTime = self.currentTime + int64(lock.command.Timeout)
+				self.AddTimeOut(lock)
+				lockManager.glock.Unlock()
+				return
+			}
+		}
 	}
 
 	lockLocked := lock.locked
