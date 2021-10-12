@@ -29,6 +29,8 @@ const ARBITER_MEMBER_STATUS_CONNECTED = 3
 const ARBITER_MEMBER_STATUS_OFFLINE = 4
 const ARBITER_MEMBER_STATUS_ONLINE = 5
 
+var ProposalRejectError = errors.New("Proposal Reject")
+
 type ArbiterStore struct {
 	filename string
 }
@@ -756,6 +758,10 @@ func (self *ArbiterMember) DoProposal(proposalId uint64, host string, aofId [16]
 	}
 
 	if callResultCommand.Result != 0 || callResultCommand.ErrType != "" {
+		if callResultCommand.ErrType == "ERR_REJECT" {
+			return nil, ProposalRejectError
+		}
+
 		if callResultCommand.ErrType == "ERR_PROPOSALID" {
 			response := protobuf.ArbiterProposalResponse{}
 			err = response.Unmarshal(callResultCommand.Data)
@@ -1045,10 +1051,18 @@ func (self *ArbiterVoter) DoVote() error {
 
 func (self *ArbiterVoter) DoProposal() error {
 	self.proposalId++
+	isReject := false
 	responses := self.DoRequests("do proposal", func(member *ArbiterMember) (interface{}, error) {
-		return member.DoProposal(self.proposalId, self.voteHost, self.voteAofId)
+		response, err := member.DoProposal(self.proposalId, self.voteHost, self.voteAofId)
+		if err == ProposalRejectError {
+			isReject = true
+		}
+		return response, err
 	})
 
+	if isReject {
+		return errors.New("member accept proposal is reject")
+	}
 	if len(responses) < len(self.manager.members)/2+1 {
 		return errors.New("member accept proposal count too small")
 	}
@@ -1764,9 +1778,15 @@ func (self *ArbiterManager) CompareAofId(a [16]byte, b [16]byte) int {
 	bcommandTime := uint64(b[8]) | uint64(b[9])<<8 | uint64(b[10])<<16 | uint64(b[11])<<24 | uint64(b[12])<<32 | uint64(b[13])<<40 | uint64(b[14])<<48 | uint64(b[15])<<56
 
 	if aid > bid {
+		if aid-bid >= 0x7fffffff00000000 {
+			return -1
+		}
 		return 1
 	}
 	if aid < bid {
+		if bid-aid >= 0x7fffffff00000000 {
+			return 1
+		}
 		return -1
 	}
 	if acommandTime > bcommandTime {
@@ -1865,6 +1885,10 @@ func (self *ArbiterManager) commandHandleProposalCommand(serverProtocol *BinaryS
 
 	if self.ownMember == nil || len(self.members) == 0 {
 		return protocol.NewCallResultCommand(command, 0, "ERR_UNINIT", nil), nil
+	}
+
+	if !self.ownMember.abstianed && self.ownMember.arbiter == 0 && self.CompareAofId(self.GetCurrentAofID(), self.DecodeAofId(request.AofId)) > 0 {
+		return protocol.NewCallResultCommand(command, 0, "ERR_REJECT", nil), nil
 	}
 
 	if self.ownMember.role == ARBITER_ROLE_LEADER {
