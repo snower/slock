@@ -1189,9 +1189,9 @@ func (self *ArbiterManager) Load() error {
 	aofId, err := self.slock.aof.LoadMaxId()
 	if err != nil {
 		self.slock.Log().Errorf("Arbiter load aof file maxid error %v", err)
-	} else {
-		self.slock.Log().Infof("Arbiter load aof file maxid %x", aofId)
+		return err
 	}
+	self.slock.Log().Infof("Arbiter load aof file maxid %x", aofId)
 	self.slock.replicationManager.currentRequestId = aofId
 	self.voter.proposalId = self.voter.commitId
 	return nil

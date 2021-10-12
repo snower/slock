@@ -9,7 +9,6 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -875,21 +874,28 @@ func (self *Aof) GetCurrentAofID() [16]byte {
 func (self *Aof) FindAofFiles() ([]string, string, error) {
 	appendFiles := make([]string, 0)
 	rewriteFile := ""
+	aofIndexs := make(map[int]string)
+	maxAofIndex, minAofIndex := 0, 0xffffffff
 
 	err := filepath.Walk(self.dataDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
-
 		if info.IsDir() {
 			return nil
 		}
 
 		fileName := info.Name()
 		if len(fileName) >= 11 && fileName[:10] == "append.aof" {
-			_, err := strconv.Atoi(fileName[11:])
+			aofIndex, err := strconv.Atoi(fileName[11:])
 			if err == nil {
-				appendFiles = append(appendFiles, fileName)
+				aofIndexs[aofIndex] = fileName
+				if aofIndex > maxAofIndex {
+					maxAofIndex = aofIndex
+				}
+				if aofIndex < minAofIndex {
+					minAofIndex = aofIndex
+				}
 			}
 		} else if fileName == "rewrite.aof" {
 			rewriteFile = fileName
@@ -900,7 +906,31 @@ func (self *Aof) FindAofFiles() ([]string, string, error) {
 		return nil, "", err
 	}
 
-	sort.Strings(appendFiles)
+	if minAofIndex != 0xffffffff && maxAofIndex-minAofIndex >= 0x7fffffff {
+		for i := maxAofIndex; i <= 0xffffffff; i++ {
+			if fileName, ok := aofIndexs[i]; ok {
+				appendFiles = append(appendFiles, fileName)
+			} else {
+				return nil, "", errors.New("append.aof file index error")
+			}
+		}
+		for i := 0; i <= minAofIndex; i++ {
+			if fileName, ok := aofIndexs[i]; ok {
+				appendFiles = append(appendFiles, fileName)
+			} else {
+				return nil, "", errors.New("append.aof file index error")
+			}
+		}
+	} else {
+		for i := minAofIndex; i <= maxAofIndex; i++ {
+			if fileName, ok := aofIndexs[i]; ok {
+				appendFiles = append(appendFiles, fileName)
+			} else {
+				return nil, "", errors.New("append.aof file index error")
+			}
+		}
+	}
+
 	return appendFiles, rewriteFile, nil
 }
 

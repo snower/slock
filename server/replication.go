@@ -347,6 +347,7 @@ func (self *ReplicationClient) sendStarted() error {
 	aofLock.CommandType = protocol.COMMAND_INIT
 	aofLock.AofIndex = 0xffffffff
 	aofLock.AofId = 0xffffffff
+	aofLock.CommandTime = 0xffffffffffffffff
 	err := aofLock.Encode()
 	if err != nil {
 		return err
@@ -383,7 +384,8 @@ func (self *ReplicationClient) recvFiles() error {
 			return err
 		}
 
-		if self.aofLock.CommandType == protocol.COMMAND_INIT && self.aofLock.AofIndex == 0xffffffff && self.aofLock.AofId == 0xffffffff {
+		if self.aofLock.CommandType == protocol.COMMAND_INIT && self.aofLock.AofIndex == 0xffffffff &&
+			self.aofLock.AofId == 0xffffffff && self.aofLock.CommandTime == 0xffffffffffffffff {
 			if aofFile != nil {
 				_ = aofFile.Flush()
 				err := aofFile.Close()
@@ -806,7 +808,8 @@ func (self *ReplicationServer) waitStarted() error {
 			return err
 		}
 
-		if self.raofLock.CommandType == protocol.COMMAND_INIT && self.raofLock.AofIndex == 0xffffffff && self.raofLock.AofId == 0xffffffff {
+		if self.raofLock.CommandType == protocol.COMMAND_INIT && self.raofLock.AofIndex == 0xffffffff &&
+			self.raofLock.AofId == 0xffffffff && self.raofLock.CommandTime == 0xffffffffffffffff {
 			return nil
 		}
 	}
@@ -818,6 +821,7 @@ func (self *ReplicationServer) sendFilesFinished() error {
 	aofLock.CommandType = protocol.COMMAND_INIT
 	aofLock.AofIndex = 0xffffffff
 	aofLock.AofId = 0xffffffff
+	aofLock.CommandTime = 0xffffffffffffffff
 	err := aofLock.Encode()
 	if err != nil {
 		return err
