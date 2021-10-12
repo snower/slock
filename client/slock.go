@@ -28,7 +28,7 @@ type Client struct {
 	requests         map[[16]byte]*CommandRequest
 	requestLock      *sync.Mutex
 	hosts            []string
-	clientId         [16]byte
+	clientIds        map[string][16]byte
 	closed           bool
 	closedWaiter     *sync.WaitGroup
 	reconnectWaiters map[string]chan bool
@@ -38,14 +38,14 @@ func NewClient(host string, port uint) *Client {
 	address := fmt.Sprintf("%s:%d", host, port)
 	client := &Client{&sync.Mutex{}, make([]ClientProtocol, 0), make([]*Database, 256),
 		make(map[[16]byte]*CommandRequest, 64), &sync.Mutex{}, []string{address},
-		[16]byte{}, false, &sync.WaitGroup{}, make(map[string]chan bool, 4)}
+		make(map[string][16]byte, 4), false, &sync.WaitGroup{}, make(map[string]chan bool, 4)}
 	return client
 }
 
 func NewReplsetClient(hosts []string) *Client {
 	client := &Client{&sync.Mutex{}, make([]ClientProtocol, 0),
 		make([]*Database, 256), make(map[[16]byte]*CommandRequest, 64), &sync.Mutex{},
-		hosts, [16]byte{}, false, &sync.WaitGroup{}, make(map[string]chan bool, 4)}
+		hosts, make(map[string][16]byte, 4), false, &sync.WaitGroup{}, make(map[string]chan bool, 4)}
 	return client
 }
 
@@ -55,13 +55,10 @@ func (self *Client) Open() error {
 	}
 
 	var err error
-	if len(self.hosts) == 1 {
-		self.initClientId()
-	}
-
 	protocols := make(map[string]ClientProtocol, 4)
 	for _, host := range self.hosts {
-		clientProtocol, cerr := self.connect(host)
+		self.clientIds[host] = self.genClientId()
+		clientProtocol, cerr := self.connect(host, self.clientIds[host])
 		if cerr != nil {
 			err = cerr
 		}
@@ -73,7 +70,7 @@ func (self *Client) Open() error {
 	}
 
 	for host, clientProtocol := range protocols {
-		go self.process(host, clientProtocol)
+		go self.process(host, self.clientIds[host], clientProtocol)
 		self.closedWaiter.Add(1)
 	}
 	return nil
@@ -118,7 +115,7 @@ func (self *Client) Close() error {
 	return nil
 }
 
-func (self *Client) connect(host string) (ClientProtocol, error) {
+func (self *Client) connect(host string, clientId [16]byte) (ClientProtocol, error) {
 	conn, err := net.Dial("tcp", host)
 	if err != nil {
 		return nil, err
@@ -126,47 +123,27 @@ func (self *Client) connect(host string) (ClientProtocol, error) {
 
 	stream := NewStream(conn)
 	clientProtocol := NewBinaryClientProtocol(stream)
-	if len(self.hosts) == 1 {
-		err = self.initProtocol(clientProtocol)
-		if err != nil {
-			_ = clientProtocol.Close()
-			return nil, err
-		}
+	err = self.initProtocol(clientProtocol, clientId)
+	if err != nil {
+		_ = clientProtocol.Close()
+		return nil, err
 	}
 	self.addProtocol(clientProtocol)
 	return clientProtocol, nil
 }
 
-func (self *Client) reconnect(host string, clientProtocol ClientProtocol) ClientProtocol {
+func (self *Client) reconnect(host string, clientId [16]byte, _ ClientProtocol) ClientProtocol {
 	self.glock.Lock()
 	waiter := make(chan bool, 1)
 	self.reconnectWaiters[host] = waiter
 	self.glock.Unlock()
-
-	if len(self.hosts) > 1 && clientProtocol != nil {
-		self.glock.Lock()
-		for requestId := range self.requests {
-			if self.requests[requestId].clientProtocol == clientProtocol {
-				close(self.requests[requestId].waiter)
-				delete(self.requests, requestId)
-			}
-		}
-		self.glock.Unlock()
-
-		for _, db := range self.dbs {
-			if db == nil {
-				continue
-			}
-			_ = db.reconnect(host, clientProtocol)
-		}
-	}
 
 	for !self.closed {
 		select {
 		case <-waiter:
 			continue
 		case <-time.After(3 * time.Second):
-			clientProtocol, err := self.connect(host)
+			clientProtocol, err := self.connect(host, clientId)
 			if err != nil {
 				continue
 			}
@@ -206,16 +183,16 @@ func (self *Client) removeProtocol(clientProtocol ClientProtocol) {
 	self.glock.Unlock()
 }
 
-func (self *Client) initClientId() {
+func (self *Client) genClientId() [16]byte {
 	now := uint32(time.Now().Unix())
-	self.clientId = [16]byte{
+	return [16]byte{
 		byte(now >> 24), byte(now >> 16), byte(now >> 8), byte(now), LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)],
 		LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)],
 	}
 }
 
-func (self *Client) initProtocol(clientProtocol ClientProtocol) error {
-	initCommand := &protocol.InitCommand{Command: protocol.Command{Magic: protocol.MAGIC, Version: protocol.VERSION, CommandType: protocol.COMMAND_INIT, RequestId: self.clientId}, ClientId: self.clientId}
+func (self *Client) initProtocol(clientProtocol ClientProtocol, clientId [16]byte) error {
+	initCommand := &protocol.InitCommand{Command: protocol.Command{Magic: protocol.MAGIC, Version: protocol.VERSION, CommandType: protocol.COMMAND_INIT, RequestId: self.GenRequestId()}, ClientId: clientId}
 	if err := clientProtocol.Write(initCommand); err != nil {
 		return err
 	}
@@ -225,40 +202,48 @@ func (self *Client) initProtocol(clientProtocol ClientProtocol) error {
 	}
 
 	if initResultCommand, ok := result.(*protocol.InitResultCommand); ok {
-		if initResultCommand.Result != protocol.RESULT_SUCCED {
-			return errors.New(fmt.Sprintf("init stream error: %d", initResultCommand.Result))
-		}
-
-		if initResultCommand.InitType != 1 {
-			self.glock.Lock()
-			for requestId := range self.requests {
-				close(self.requests[requestId].waiter)
-				delete(self.requests, requestId)
-			}
-			self.glock.Unlock()
-
-			for _, db := range self.dbs {
-				if db == nil {
-					continue
-				}
-
-				db.glock.Lock()
-				for requestId := range db.requests {
-					close(db.requests[requestId].waiter)
-					delete(db.requests, requestId)
-				}
-				db.glock.Unlock()
-			}
-		}
-		return nil
+		return self.handleInitCommandResult(clientProtocol, initResultCommand)
 	}
 	return errors.New("init fail")
 }
 
-func (self *Client) process(host string, clientProtocol ClientProtocol) {
+func (self *Client) handleInitCommandResult(clientProtocol ClientProtocol, initResultCommand *protocol.InitResultCommand) error {
+	if initResultCommand.Result != protocol.RESULT_SUCCED {
+		return errors.New(fmt.Sprintf("init stream error: %d", initResultCommand.Result))
+	}
+
+	if initResultCommand.InitType != 0 && initResultCommand.InitType != 2 {
+		self.glock.Lock()
+		for requestId := range self.requests {
+			if self.requests[requestId].clientProtocol == clientProtocol {
+				close(self.requests[requestId].waiter)
+				delete(self.requests, requestId)
+			}
+		}
+		self.glock.Unlock()
+
+		for _, db := range self.dbs {
+			if db == nil {
+				continue
+			}
+
+			db.glock.Lock()
+			for requestId := range db.requests {
+				if db.requests[requestId].clientProtocol == clientProtocol {
+					close(db.requests[requestId].waiter)
+					delete(db.requests, requestId)
+				}
+			}
+			db.glock.Unlock()
+		}
+	}
+	return nil
+}
+
+func (self *Client) process(host string, clientId [16]byte, clientProtocol ClientProtocol) {
 	for !self.closed {
 		if clientProtocol == nil {
-			clientProtocol = self.reconnect(host, nil)
+			clientProtocol = self.reconnect(host, clientId, clientProtocol)
 			continue
 		}
 
@@ -266,13 +251,13 @@ func (self *Client) process(host string, clientProtocol ClientProtocol) {
 		if err != nil {
 			_ = clientProtocol.Close()
 			self.removeProtocol(clientProtocol)
-			self.reconnect(host, clientProtocol)
+			self.reconnect(host, clientId, clientProtocol)
 			continue
 		}
 		if command == nil {
 			continue
 		}
-		_ = self.handleCommand(command.(protocol.ICommand))
+		_ = self.handleCommand(clientProtocol, command.(protocol.ICommand))
 	}
 
 	if clientProtocol != nil {
@@ -304,7 +289,7 @@ func (self *Client) getOrNewDB(dbId uint8) *Database {
 	return db
 }
 
-func (self *Client) handleCommand(command protocol.ICommand) error {
+func (self *Client) handleCommand(clientProtocol ClientProtocol, command protocol.ICommand) error {
 	switch command.GetCommandType() {
 	case protocol.COMMAND_LOCK:
 		lockCommand := command.(*protocol.LockResultCommand)
@@ -329,6 +314,9 @@ func (self *Client) handleCommand(command protocol.ICommand) error {
 			db = self.getOrNewDB(stateCommand.DbId)
 		}
 		return db.handleCommandResult(stateCommand)
+	case protocol.COMMAND_INIT:
+		initCOmmand := command.(*protocol.InitResultCommand)
+		return self.handleInitCommandResult(clientProtocol, initCOmmand)
 	}
 
 	requestId := command.GetRequestId()
