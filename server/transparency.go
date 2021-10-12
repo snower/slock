@@ -147,8 +147,12 @@ func (self *TransparencyBinaryClientProtocol) processBinaryProcotol(command prot
 		if self.latestRequestId == initResultCommand.RequestId {
 			self.latestCommandType = 0xff
 		}
-		self.initResultCommand = initResultCommand
 		initResultCommand.InitType += 2
+		if initResultCommand.Result == 0 {
+			self.initResultCommand = initResultCommand
+		} else {
+			self.initResultCommand = nil
+		}
 		return serverProtocol.Write(initResultCommand)
 	case *protocol.CallResultCommand:
 		callResultCommand := command.(*protocol.CallResultCommand)
