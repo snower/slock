@@ -126,13 +126,13 @@ func (self *Event) IsSet() (bool, error) {
 		return false, err
 	}
 
-	self.checkLock = &Lock{self.db, self.db.GenLockId(), self.eventKey, 0, 0, 0, 0}
+	self.checkLock = &Lock{self.db, self.db.GenLockId(), self.eventKey, 0x02000000, 0, 1, 0}
 	err := self.checkLock.Lock()
 	if err == nil {
-		return false, nil
-	}
-	if err.Result == protocol.RESULT_TIMEOUT {
 		return true, nil
+	}
+	if err.Result == protocol.RESULT_UNOWN_ERROR || err.Result == protocol.RESULT_TIMEOUT {
+		return false, nil
 	}
 	return false, err
 }
