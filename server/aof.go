@@ -408,6 +408,7 @@ type AofChannel struct {
 	aof            *Aof
 	lockDb         *LockDB
 	channel        chan *AofLock
+	lockCount      uint32
 	serverProtocol ServerProtocol
 	freeLocks      []*AofLock
 	freeLockIndex  int32
@@ -475,7 +476,7 @@ func (self *AofChannel) Push(lock *Lock, commandType uint8, command *protocol.Lo
 	}
 
 	aofLock.HandleType = AOF_LOCK_TYPE_FILE
-	atomic.AddUint32(&self.aof.channelLockCount, 1)
+	atomic.AddUint32(&self.lockCount, 1)
 	self.channel <- aofLock
 	return nil
 }
@@ -498,7 +499,7 @@ func (self *AofChannel) Load(lock *AofLock) error {
 	}
 	copy(aofLock.buf, lock.buf)
 	aofLock.HandleType = AOF_LOCK_TYPE_LOAD
-	atomic.AddUint32(&self.aof.channelLockCount, 1)
+	atomic.AddUint32(&self.lockCount, 1)
 	self.channel <- aofLock
 	return nil
 }
@@ -526,7 +527,7 @@ func (self *AofChannel) AofAcked(buf []byte, succed bool) error {
 		aofLock.Result = protocol.RESULT_ERROR
 	}
 	aofLock.HandleType = AOF_LOCK_TYPE_ACK_FILE
-	atomic.AddUint32(&self.aof.channelLockCount, 1)
+	atomic.AddUint32(&self.lockCount, 1)
 	self.channel <- aofLock
 	return nil
 }
@@ -563,7 +564,7 @@ func (self *AofChannel) Acked(commandResult *protocol.LockResultCommand) error {
 	aofLock.Lcount = commandResult.Lcount
 	aofLock.Lrcount = commandResult.Lrcount
 	aofLock.HandleType = AOF_LOCK_TYPE_ACK_ACKED
-	atomic.AddUint32(&self.aof.channelLockCount, 1)
+	atomic.AddUint32(&self.lockCount, 1)
 	self.channel <- aofLock
 	return nil
 }
@@ -575,7 +576,7 @@ func (self *AofChannel) Run() {
 		case aofLock := <-self.channel:
 			if aofLock != nil {
 				self.Handle(aofLock)
-				atomic.AddUint32(&self.aof.channelLockCount, 0xffffffff)
+				atomic.AddUint32(&self.lockCount, 0xffffffff)
 				continue
 			}
 			exited = self.closed
@@ -591,7 +592,7 @@ func (self *AofChannel) Run() {
 			aofLock := <-self.channel
 			if aofLock != nil {
 				self.Handle(aofLock)
-				atomic.AddUint32(&self.aof.channelLockCount, 0xffffffff)
+				atomic.AddUint32(&self.lockCount, 0xffffffff)
 				continue
 			}
 			exited = self.closed
@@ -708,7 +709,6 @@ type Aof struct {
 	replGlock          *sync.Mutex
 	channels           []*AofChannel
 	channelCount       uint32
-	channelLockCount   uint32
 	channelFlushWaiter chan bool
 	rewritedWaiter     chan bool
 	rewriteSize        uint32
@@ -721,7 +721,7 @@ type Aof struct {
 
 func NewAof() *Aof {
 	return &Aof{nil, &sync.Mutex{}, "", 0, nil, &sync.Mutex{}, &sync.Mutex{},
-		make([]*AofChannel, 0), 0, 0, nil, nil, 0, 0, 0,
+		make([]*AofChannel, 0), 0, nil, nil, 0, 0, 0,
 		false, false, false}
 }
 
@@ -1019,7 +1019,7 @@ func (self *Aof) NewAofChannel(lockDb *LockDB) *AofChannel {
 	self.glock.Lock()
 	serverProtocol := NewMemWaiterServerProtocol(self.slock)
 	aofChannel := &AofChannel{self.slock, &sync.Mutex{}, self, lockDb, make(chan *AofLock, Config.AofQueueSize),
-		serverProtocol, make([]*AofLock, Config.AofQueueSize+4), 0, int32(Config.AofQueueSize + 4),
+		0, serverProtocol, make([]*AofLock, Config.AofQueueSize+4), 0, int32(Config.AofQueueSize + 4),
 		false, make(chan bool, 1)}
 	_ = serverProtocol.SetResultCallback(self.lockLoaded)
 	self.channels = append(self.channels, aofChannel)
@@ -1052,9 +1052,14 @@ func (self *Aof) RemoveAofChannel(aofChannel *AofChannel) *AofChannel {
 }
 
 func (self *Aof) waitLockAofChannel(_ *AofChannel) {
-	if !atomic.CompareAndSwapUint32(&self.channelLockCount, 0, 0) {
-		return
+	self.glock.Lock()
+	for _, channel := range self.channels {
+		if !atomic.CompareAndSwapUint32(&channel.lockCount, 0, 0) {
+			self.glock.Unlock()
+			return
+		}
 	}
+	self.glock.Unlock()
 
 	self.aofGlock.Lock()
 	self.Flush()
@@ -1066,15 +1071,35 @@ func (self *Aof) waitLockAofChannel(_ *AofChannel) {
 }
 
 func (self *Aof) WaitFlushAofChannel() error {
+	var channelFlushWaiter chan bool
 	self.aofGlock.Lock()
-	self.channelFlushWaiter = make(chan bool, 1)
-	if atomic.CompareAndSwapUint32(&self.channelLockCount, 0, 0) {
-		self.channelFlushWaiter = nil
+	if self.channelFlushWaiter == nil {
+		channelFlushWaiter = make(chan bool, 1)
+		self.channelFlushWaiter = channelFlushWaiter
+	} else {
+		channelFlushWaiter = self.channelFlushWaiter
+	}
+	self.aofGlock.Unlock()
+
+	activeCount := 0
+	self.glock.Lock()
+	for _, channel := range self.channels {
+		if !atomic.CompareAndSwapUint32(&channel.lockCount, 0, 0) {
+			activeCount += 1
+		}
+	}
+	self.glock.Unlock()
+
+	if activeCount == 0 {
+		self.aofGlock.Lock()
+		if channelFlushWaiter == self.channelFlushWaiter {
+			self.channelFlushWaiter = nil
+		}
 		self.aofGlock.Unlock()
 		return nil
 	}
-	self.aofGlock.Unlock()
-	<-self.channelFlushWaiter
+
+	<-channelFlushWaiter
 	return nil
 }
 
