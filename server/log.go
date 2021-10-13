@@ -6,18 +6,18 @@ import (
 	"time"
 )
 
-func GetFormatter() logging.Formatter {
+func getFormatter() logging.Formatter {
 	formatter := logging.NewStandardFormatter("%(asctime)s %(levelname)s %(message)s", "%Y-%m-%d %H:%M:%S.%3n")
 	return formatter
 }
 
-func InitConsoleLogger(formatter logging.Formatter) logging.Handler {
+func initConsoleLogger(formatter logging.Formatter) logging.Handler {
 	handler := logging.NewStdoutHandler()
 	handler.SetFormatter(formatter)
 	return handler
 }
 
-func InitFileLogger(logFile string, formatter logging.Formatter) logging.Handler {
+func initFileLogger(logFile string, formatter logging.Formatter) logging.Handler {
 	handler := logging.MustNewRotatingFileHandler(
 		logFile, os.O_APPEND, int(Config.LogBufferSize), time.Duration(Config.LogBufferFlushTime)*time.Second, 64,
 		uint64(Config.LogRotatingSize), uint32(Config.LogBackupCount))
@@ -28,7 +28,7 @@ func InitFileLogger(logFile string, formatter logging.Formatter) logging.Handler
 
 func InitLogger(logFile string, logLevel string) logging.Logger {
 	logger := logging.GetLogger("")
-	formatter := GetFormatter()
+	formatter := getFormatter()
 
 	loggingLevel := logging.LevelInfo
 	switch logLevel {
@@ -43,13 +43,13 @@ func InitLogger(logFile string, logLevel string) logging.Logger {
 	}
 
 	if logFile == "" || logFile == "-" {
-		handler := InitConsoleLogger(formatter)
+		handler := initConsoleLogger(formatter)
 		_ = handler.SetLevel(loggingLevel)
 		_ = logger.SetLevel(loggingLevel)
 		logger.AddHandler(handler)
 		logger.Infof("Logger start consolelogger %s %s", logLevel, logFile)
 	} else {
-		handler := InitFileLogger(logFile, formatter)
+		handler := initFileLogger(logFile, formatter)
 		_ = handler.SetLevel(loggingLevel)
 		_ = logger.SetLevel(loggingLevel)
 		logger.AddHandler(handler)
