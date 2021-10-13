@@ -763,7 +763,7 @@ func (self *Aof) LoadAndInit() error {
 	}
 
 	if len(appendFiles) > 0 {
-		aofFileIndex, err := strconv.Atoi(appendFiles[len(appendFiles)-1][11:])
+		aofFileIndex, err := strconv.ParseInt(appendFiles[len(appendFiles)-1][11:], 10, 64)
 		if err != nil {
 			return err
 		}
@@ -824,7 +824,7 @@ func (self *Aof) LoadMaxId() ([16]byte, error) {
 	aofLock.AofIndex = 1
 	fileAofId := aofLock.GetRequestId()
 	if len(appendFiles) > 0 {
-		aofFileIndex, err := strconv.Atoi(appendFiles[len(appendFiles)-1][11:])
+		aofFileIndex, err := strconv.ParseInt(appendFiles[len(appendFiles)-1][11:], 10, 64)
 		if err == nil {
 			aofLock.AofIndex = uint32(aofFileIndex)
 			aofLock.AofId = 0
@@ -874,8 +874,8 @@ func (self *Aof) GetCurrentAofID() [16]byte {
 func (self *Aof) FindAofFiles() ([]string, string, error) {
 	appendFiles := make([]string, 0)
 	rewriteFile := ""
-	aofIndexs := make(map[int]string)
-	maxAofIndex, minAofIndex := 0, 0xffffffff
+	aofIndexs := make(map[uint32]string)
+	maxAofIndex, minAofIndex := uint32(0), uint32(0xffffffff)
 
 	err := filepath.Walk(self.dataDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -887,14 +887,14 @@ func (self *Aof) FindAofFiles() ([]string, string, error) {
 
 		fileName := info.Name()
 		if len(fileName) >= 11 && fileName[:10] == "append.aof" {
-			aofIndex, err := strconv.Atoi(fileName[11:])
+			aofIndex, err := strconv.ParseInt(fileName[11:], 10, 64)
 			if err == nil {
-				aofIndexs[aofIndex] = fileName
-				if aofIndex > maxAofIndex {
-					maxAofIndex = aofIndex
+				aofIndexs[uint32(aofIndex)] = fileName
+				if uint32(aofIndex) > maxAofIndex {
+					maxAofIndex = uint32(aofIndex)
 				}
-				if aofIndex < minAofIndex {
-					minAofIndex = aofIndex
+				if uint32(aofIndex) < minAofIndex {
+					minAofIndex = uint32(aofIndex)
 				}
 			}
 		} else if fileName == "rewrite.aof" {
@@ -907,14 +907,14 @@ func (self *Aof) FindAofFiles() ([]string, string, error) {
 	}
 
 	if minAofIndex != 0xffffffff && maxAofIndex-minAofIndex >= 0x7fffffff {
-		for i := maxAofIndex; i <= 0xffffffff; i++ {
+		for i := maxAofIndex; i > 0; i++ {
 			if fileName, ok := aofIndexs[i]; ok {
 				appendFiles = append(appendFiles, fileName)
 			} else {
 				return nil, "", errors.New("append.aof file index error")
 			}
 		}
-		for i := 0; i <= minAofIndex; i++ {
+		for i := uint32(0); i <= minAofIndex; i++ {
 			if fileName, ok := aofIndexs[i]; ok {
 				appendFiles = append(appendFiles, fileName)
 			} else {
@@ -1258,13 +1258,9 @@ func (self *Aof) RewriteAofFile() error {
 		if err != nil {
 			self.slock.Log().Errorf("Aof close file %s.%d error %v", "append.aof", self.aofFileIndex, err)
 		}
-		self.aofFile = nil
 	}
 
-	aofFilename := "rewrite.aof"
-	if self.aofFileIndex > 0 {
-		aofFilename = fmt.Sprintf("%s.%d", "append.aof", self.aofFileIndex+1)
-	}
+	aofFilename := fmt.Sprintf("%s.%d", "append.aof", self.aofFileIndex+1)
 	aofFile := NewAofFile(self, filepath.Join(self.dataDir, aofFilename), os.O_WRONLY, int(Config.AofFileBufferSize))
 	err := aofFile.Open()
 	if err != nil {
@@ -1345,13 +1341,15 @@ func (self *Aof) findRewriteAofFiles() ([]string, error) {
 		aofFilenames = append(aofFilenames, rewriteFile)
 	}
 	for _, appendFile := range appendFiles {
-		aofFileIndex, err := strconv.Atoi(appendFile[11:])
+		aofFileIndex, err := strconv.ParseInt(appendFile[11:], 10, 64)
 		if err != nil {
 			continue
 		}
 
 		if uint32(aofFileIndex) >= self.aofFileIndex {
-			continue
+			if uint32(aofFileIndex)-self.aofFileIndex < 0x7fffffff {
+				continue
+			}
 		}
 		aofFilenames = append(aofFilenames, appendFile)
 	}

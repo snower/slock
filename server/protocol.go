@@ -1923,27 +1923,27 @@ func (self *TextServerProtocol) ArgsToLockComand(args []string) (*protocol.LockC
 			self.ArgsToLockComandParseId(args[i+1], &command.LockId)
 			hasLockId = true
 		case "FLAG":
-			flag, err := strconv.Atoi(args[i+1])
+			flag, err := strconv.ParseInt(args[i+1], 10, 64)
 			if err != nil {
 				return nil, errors.New("Command Parse FLAG Error")
 			}
 			command.Flag = uint8(flag)
 		case "TIMEOUT":
-			timeout, err := strconv.Atoi(args[i+1])
+			timeout, err := strconv.ParseInt(args[i+1], 10, 64)
 			if err != nil {
 				return nil, errors.New("Command Parse TIMEOUT Error")
 			}
 			command.Timeout = uint16(timeout & 0xffff)
 			command.TimeoutFlag = uint16(timeout >> 16 & 0xffff)
 		case "EXPRIED":
-			expried, err := strconv.Atoi(args[i+1])
+			expried, err := strconv.ParseInt(args[i+1], 10, 64)
 			if err != nil {
 				return nil, errors.New("Command Parse EXPRIED Error")
 			}
 			command.Expried = uint16(expried & 0xffff)
 			command.ExpriedFlag = uint16(expried >> 16 & 0xffff)
 		case "COUNT":
-			count, err := strconv.Atoi(args[i+1])
+			count, err := strconv.ParseInt(args[i+1], 10, 64)
 			if err != nil {
 				return nil, errors.New("Command Parse COUNT Error")
 			}
@@ -1953,7 +1953,7 @@ func (self *TextServerProtocol) ArgsToLockComand(args []string) (*protocol.LockC
 				command.Count = uint16(count)
 			}
 		case "RCOUNT":
-			rcount, err := strconv.Atoi(args[i+1])
+			rcount, err := strconv.ParseInt(args[i+1], 10, 64)
 			if err != nil {
 				return nil, errors.New("Command Parse RCOUNT Error")
 			}
@@ -1963,7 +1963,7 @@ func (self *TextServerProtocol) ArgsToLockComand(args []string) (*protocol.LockC
 				command.Rcount = uint8(rcount)
 			}
 		case "WILL":
-			willType, err := strconv.Atoi(args[i+1])
+			willType, err := strconv.ParseInt(args[i+1], 10, 64)
 			if err != nil {
 				return nil, errors.New("Command Parse WILL Error")
 			}
@@ -1992,7 +1992,7 @@ func (self *TextServerProtocol) commandHandlerSelectDB(_ *TextServerProtocol, ar
 		return self.stream.WriteBytes(self.parser.BuildResponse(false, "ERR Command Parse Len Error", nil))
 	}
 
-	dbId, err := strconv.Atoi(args[1])
+	dbId, err := strconv.ParseInt(args[1], 10, 64)
 	if err != nil {
 		return self.stream.WriteBytes(self.parser.BuildResponse(false, "ERR Command Parse DB_ID Error", nil))
 	}
