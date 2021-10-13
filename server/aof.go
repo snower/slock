@@ -1008,7 +1008,7 @@ func (self *Aof) Close() {
 
 	if self.aofFile != nil {
 		self.aofGlock.Lock()
-		self.aofFile.Close()
+		_ = self.aofFile.Close()
 		self.aofFile = nil
 		self.aofGlock.Unlock()
 	}

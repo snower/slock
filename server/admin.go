@@ -593,7 +593,7 @@ func (self *Admin) commandHandleConfigSetCommand(serverProtocol *TextServerProto
 			}
 		}
 	case "AOF_FILE_REWRITE_SIZE":
-		aofFileRewriteSize, err := strconv.Atoi(args[3])
+		aofFileRewriteSize, err := strconv.ParseInt(args[3], 10, 64)
 		if err != nil {
 			return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(false, "ERR Parameter Value Error", nil))
 		}

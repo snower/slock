@@ -67,8 +67,12 @@ func (self *ArbiterStore) Load(manager *ArbiterManager) error {
 	file, err := os.OpenFile(self.filename, os.O_RDONLY, 0644)
 	if err != nil {
 		manager.slock.Log().Errorf("Arbiter open meta file error %v", err)
+		if os.IsNotExist(err) {
+			return nil
+		}
 		return err
 	}
+
 	data, err := ioutil.ReadAll(file)
 	if err != nil {
 		manager.slock.Log().Errorf("Arbiter read meta file error %v", err)
@@ -1184,6 +1188,7 @@ func (self *ArbiterManager) Load() error {
 	err := self.store.Load(self)
 	if err != nil {
 		self.slock.Log().Errorf("Arbiter load meta file error %v", err)
+		return err
 	}
 
 	aofId, err := self.slock.aof.LoadMaxId()
