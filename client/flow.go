@@ -102,7 +102,7 @@ func (self *TokenBucketFlow) SetExpriedFlag(flag uint16) uint16 {
 func (self *TokenBucketFlow) Acquire() *LockError {
 	self.glock.Lock()
 	expried := uint32(0)
-	now := time.Now().Nanosecond() / 1e6
+	now := time.Now().UnixNano() / 1e6
 	if self.period <= 1 {
 		expried = (1000 - uint32(now%1000)) | 0x04000000
 	} else {
@@ -110,7 +110,7 @@ func (self *TokenBucketFlow) Acquire() *LockError {
 		if uint32(self.period)%60 == 0 {
 			expried = uint32(((now/60+1)*60)%120 + (60 - (now % 60)))
 		} else {
-			expried = uint32(int(self.period) - (now % int(self.period)))
+			expried = uint32(int64(self.period) - (now % int64(self.period)))
 		}
 	}
 	expried |= uint32(self.expriedFlag) << 16

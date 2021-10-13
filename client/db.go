@@ -250,7 +250,7 @@ func (self *Database) GenRequestId() [16]byte {
 }
 
 func (self *Database) GenLockId() [16]byte {
-	now := uint64(time.Now().Nanosecond() / 1e6)
+	now := uint64(time.Now().UnixNano() / 1e6)
 	lid := atomic.AddUint32(&lockIdIndex, 1)
 	return [16]byte{
 		byte(now >> 40), byte(now >> 32), byte(now >> 24), byte(now >> 16), byte(now >> 8), byte(now), LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)],
