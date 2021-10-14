@@ -387,9 +387,13 @@ func (self *ReplicationClient) recvFiles() error {
 		if self.aofLock.CommandType == protocol.COMMAND_INIT && self.aofLock.AofIndex == 0xffffffff &&
 			self.aofLock.AofId == 0xffffffff && self.aofLock.CommandTime == 0xffffffffffffffff {
 			if aofFile != nil {
-				_ = aofFile.Flush()
-				err := aofFile.Close()
+				err := aofFile.Flush()
 				if err != nil {
+					self.manager.slock.logger.Errorf("Replication client flush aof file %s error %v", aofFile.filename, err)
+				}
+				err = aofFile.Close()
+				if err != nil {
+					self.manager.slock.logger.Errorf("Replication client close aof file %s error %v", aofFile.filename, err)
 					return err
 				}
 			}
@@ -404,9 +408,13 @@ func (self *ReplicationClient) recvFiles() error {
 		}
 		if currentAofIndex != aofIndex || aofFile == nil {
 			if aofFile != nil {
-				_ = aofFile.Flush()
-				err := aofFile.Close()
+				err := aofFile.Flush()
 				if err != nil {
+					self.manager.slock.logger.Errorf("Replication client flush aof file %s error %v", aofFile.filename, err)
+				}
+				err = aofFile.Close()
+				if err != nil {
+					self.manager.slock.logger.Errorf("Replication client close aof file %s error %v", aofFile.filename, err)
 					return err
 				}
 			}

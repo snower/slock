@@ -360,16 +360,22 @@ func (self *AofFile) Flush() error {
 	}
 	self.windex = 0
 
-	err := self.file.Sync()
-	if err != nil {
-		self.ackIndex = 0
-		return err
-	}
-
 	for i := 0; i < self.ackIndex; i++ {
 		_ = self.aof.lockAcked(self.ackRequests[i], true)
 	}
 	self.ackIndex = 0
+	return nil
+}
+
+func (self *AofFile) Sync() error {
+	if self.file == nil {
+		return errors.New("File Unopen")
+	}
+
+	err := self.file.Sync()
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -1199,6 +1205,12 @@ func (self *Aof) Flush() {
 	err := self.aofFile.Flush()
 	if err != nil {
 		self.slock.Log().Errorf("Aof flush file error %v", err)
+		return
+	}
+	err = self.aofFile.Sync()
+	if err != nil {
+		self.slock.Log().Errorf("Aof Sync file error %v", err)
+		return
 	}
 }
 
