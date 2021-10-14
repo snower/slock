@@ -106,7 +106,7 @@ func NewDefaultServerProtocol(slock *SLock) *DefaultServerProtocol {
 	return serverProtocol
 }
 
-func (self *DefaultServerProtocol) Init(clientId [16]byte) error {
+func (self *DefaultServerProtocol) Init(_ [16]byte) error {
 	return nil
 }
 
@@ -138,11 +138,11 @@ func (self *DefaultServerProtocol) Process() error {
 	return io.EOF
 }
 
-func (self *DefaultServerProtocol) ProcessParse(buf []byte) error {
+func (self *DefaultServerProtocol) ProcessParse(_ []byte) error {
 	return io.EOF
 }
 
-func (self *DefaultServerProtocol) ProcessBuild(command protocol.ICommand) error {
+func (self *DefaultServerProtocol) ProcessBuild(_ protocol.ICommand) error {
 	return nil
 }
 
@@ -208,11 +208,11 @@ func (self *DefaultServerProtocol) ProcessLockCommand(lockCommand *protocol.Lock
 	return db.UnLock(self, lockCommand)
 }
 
-func (self *DefaultServerProtocol) ProcessLockResultCommand(command *protocol.LockCommand, result uint8, lcount uint16, lrcount uint8) error {
+func (self *DefaultServerProtocol) ProcessLockResultCommand(_ *protocol.LockCommand, _ uint8, _ uint16, _ uint8) error {
 	return nil
 }
 
-func (self *DefaultServerProtocol) ProcessLockResultCommandLocked(command *protocol.LockCommand, result uint8, lcount uint16, lrcount uint8) error {
+func (self *DefaultServerProtocol) ProcessLockResultCommandLocked(_ *protocol.LockCommand, _ uint8, _ uint16, _ uint8) error {
 	return nil
 }
 
@@ -228,7 +228,7 @@ func (self *DefaultServerProtocol) GetProxy() *ServerProtocolProxy {
 	return self.protocolProxy
 }
 
-func (self *DefaultServerProtocol) AddProxy(proxy *ServerProtocolProxy) error {
+func (self *DefaultServerProtocol) AddProxy(_ *ServerProtocolProxy) error {
 	return nil
 }
 
@@ -2340,7 +2340,7 @@ func (self *TextServerProtocol) ArgsToLockComand(args []string) (*protocol.LockC
 	return command, nil
 }
 
-func (self *TextServerProtocol) commandHandlerUnknownCommand(serverProtocol *TextServerProtocol, args []string) error {
+func (self *TextServerProtocol) commandHandlerUnknownCommand(_ *TextServerProtocol, _ []string) error {
 	return self.stream.WriteBytes(self.parser.BuildResponse(false, "ERR Unknown Command", nil))
 }
 
