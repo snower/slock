@@ -109,8 +109,8 @@ func (self *SLock) initLeader() error {
 	return nil
 }
 
-func (self *SLock) initFollower(leader_address string) error {
-	_, err := net.ResolveTCPAddr("tcp", leader_address)
+func (self *SLock) initFollower(leaderAddress string) error {
+	_, err := net.ResolveTCPAddr("tcp", leaderAddress)
 	if err != nil {
 		return errors.New("host invalid error")
 	}
@@ -123,7 +123,7 @@ func (self *SLock) initFollower(leader_address string) error {
 	}
 
 	self.updateState(STATE_SYNC)
-	err = self.replicationManager.Init(leader_address)
+	err = self.replicationManager.Init(leaderAddress)
 	if err != nil {
 		self.logger.Errorf("Replication init error %v", err)
 		return err
@@ -239,17 +239,17 @@ func (self *SLock) doUnLockComamnd(db *LockDB, serverProtocol ServerProtocol, co
 }
 
 func (self *SLock) GetState(serverProtocol ServerProtocol, command *protocol.StateCommand) error {
-	db_state := uint8(0)
+	dbState := uint8(0)
 
 	db := self.dbs[command.DbId]
 	if db != nil {
-		db_state = 1
+		dbState = 1
 	}
 
 	if db == nil {
-		return serverProtocol.Write(protocol.NewStateResultCommand(command, protocol.RESULT_SUCCED, 0, db_state, nil))
+		return serverProtocol.Write(protocol.NewStateResultCommand(command, protocol.RESULT_SUCCED, 0, dbState, nil))
 	}
-	return serverProtocol.Write(protocol.NewStateResultCommand(command, protocol.RESULT_SUCCED, 0, db_state, db.GetState()))
+	return serverProtocol.Write(protocol.NewStateResultCommand(command, protocol.RESULT_SUCCED, 0, dbState, db.GetState()))
 }
 
 func (self *SLock) Log() logging.Logger {
@@ -289,66 +289,73 @@ func (self *SLock) removeServerProtocol(serverProtocolSession *ServerProtocolSes
 }
 
 func (self *SLock) checkServerProtocolSession() error {
-	removedSessions := make([]*ServerProtocolSession, 0)
+	sessions := make([]*ServerProtocolSession, 0)
+	self.protocolSessionsGlock.Lock()
 	for _, session := range self.protocolSessions {
+		sessions = append(sessions, session)
+	}
+	self.protocolSessionsGlock.Unlock()
+
+	for _, session := range sessions {
 		var freeLockCommands *LockCommandQueue = nil
 		totalCommandCount := uint64(0)
 		switch session.serverProtocol.(type) {
 		case *MemWaiterServerProtocol:
-			serverprotocol := session.serverProtocol.(*MemWaiterServerProtocol)
-			if serverprotocol.closed {
-				removedSessions = append(removedSessions, session)
+			serverProtocol := session.serverProtocol.(*MemWaiterServerProtocol)
+			if serverProtocol.closed {
+				_ = self.removeServerProtocol(session)
 				continue
 			}
-			freeLockCommands = serverprotocol.lockedFreeCommands
-			totalCommandCount = serverprotocol.totalCommandCount
-			if len(serverprotocol.proxys) > 4 {
-				serverprotocol.Lock()
-				for i := 4; i < len(serverprotocol.proxys); i++ {
-					serverprotocol.proxys[i].serverProtocol = defaultServerProtocol
+			freeLockCommands = serverProtocol.lockedFreeCommands
+			totalCommandCount = serverProtocol.totalCommandCount
+			if len(serverProtocol.proxys) > 4 {
+				serverProtocol.Lock()
+				for i := 4; i < len(serverProtocol.proxys); i++ {
+					serverProtocol.proxys[i].serverProtocol = defaultServerProtocol
 				}
-				serverprotocol.proxys = serverprotocol.proxys[:4]
-				serverprotocol.Unlock()
+				serverProtocol.proxys = serverProtocol.proxys[:4]
+				serverProtocol.Unlock()
 			}
 		case *BinaryServerProtocol:
-			serverprotocol := session.serverProtocol.(*BinaryServerProtocol)
-			if serverprotocol.closed {
-				removedSessions = append(removedSessions, session)
+			serverProtocol := session.serverProtocol.(*BinaryServerProtocol)
+			if serverProtocol.closed {
+				_ = self.removeServerProtocol(session)
 				continue
 			}
-			freeLockCommands = serverprotocol.lockedFreeCommands
-			totalCommandCount = serverprotocol.totalCommandCount
-			if len(serverprotocol.proxys) > 4 {
-				serverprotocol.Lock()
-				for i := 4; i < len(serverprotocol.proxys); i++ {
-					serverprotocol.proxys[i].serverProtocol = defaultServerProtocol
+			freeLockCommands = serverProtocol.lockedFreeCommands
+			totalCommandCount = serverProtocol.totalCommandCount
+			if len(serverProtocol.proxys) > 4 {
+				serverProtocol.Lock()
+				for i := 4; i < len(serverProtocol.proxys); i++ {
+					serverProtocol.proxys[i].serverProtocol = defaultServerProtocol
 				}
-				serverprotocol.proxys = serverprotocol.proxys[:4]
-				serverprotocol.Unlock()
+				serverProtocol.proxys = serverProtocol.proxys[:4]
+				serverProtocol.Unlock()
 			}
 		case *TextServerProtocol:
-			serverprotocol := session.serverProtocol.(*TextServerProtocol)
-			if serverprotocol.closed {
-				removedSessions = append(removedSessions, session)
+			serverProtocol := session.serverProtocol.(*TextServerProtocol)
+			if serverProtocol.closed {
+				_ = self.removeServerProtocol(session)
 				continue
 			}
-			freeLockCommands = serverprotocol.lockedFreeCommands
-			totalCommandCount = serverprotocol.totalCommandCount
-			if len(serverprotocol.proxys) > 4 {
-				serverprotocol.Lock()
-				for i := 4; i < len(serverprotocol.proxys); i++ {
-					serverprotocol.proxys[i].serverProtocol = defaultServerProtocol
+			freeLockCommands = serverProtocol.lockedFreeCommands
+			totalCommandCount = serverProtocol.totalCommandCount
+			if len(serverProtocol.proxys) > 4 {
+				serverProtocol.Lock()
+				for i := 4; i < len(serverProtocol.proxys); i++ {
+					serverProtocol.proxys[i].serverProtocol = defaultServerProtocol
 				}
-				serverprotocol.proxys = serverprotocol.proxys[:4]
-				serverprotocol.Unlock()
+				serverProtocol.proxys = serverProtocol.proxys[:4]
+				serverProtocol.Unlock()
 			}
 		default:
-			removedSessions = append(removedSessions, session)
+			_ = self.removeServerProtocol(session)
 			continue
 		}
 
-		freeCount := int((uint64(freeLockCommands.Len()) - (totalCommandCount-session.totalCommandCount)*2) / 2)
-		if freeCount > 0 {
+		avgTotalCommandCount := (totalCommandCount - session.totalCommandCount) / 60
+		if avgTotalCommandCount > uint64(freeLockCommands.Len()) {
+			freeCount := int((uint64(freeLockCommands.Len()) - avgTotalCommandCount) / 2)
 			for i := 0; i < freeCount; i++ {
 				session.serverProtocol.Lock()
 				lockCommand := freeLockCommands.PopRight()
@@ -362,12 +369,6 @@ func (self *SLock) checkServerProtocolSession() error {
 			}
 		}
 		session.totalCommandCount = totalCommandCount
-	}
-
-	if len(removedSessions) > 0 {
-		for _, session := range removedSessions {
-			_ = self.removeServerProtocol(session)
-		}
 	}
 	return nil
 }
