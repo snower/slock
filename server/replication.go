@@ -521,20 +521,34 @@ func (self *ReplicationClient) getLock() error {
 				return io.EOF
 			}
 
-			self.aof.aofGlock.Lock()
-			self.aof.Flush()
-			self.aof.aofGlock.Unlock()
-			buf := <-self.rbufChannel
-			if buf == nil {
-				return io.EOF
-			}
+			select {
+			case buf := <-self.rbufChannel:
+				if buf == nil {
+					return io.EOF
+				}
 
-			self.aofLock.buf = buf
-			err := self.aofLock.Decode()
-			if err != nil {
-				return err
+				self.aofLock.buf = buf
+				err := self.aofLock.Decode()
+				if err != nil {
+					return err
+				}
+				return nil
+			case <-time.After(200 * time.Millisecond):
+				self.aof.aofGlock.Lock()
+				self.aof.Flush()
+				self.aof.aofGlock.Unlock()
+				buf := <-self.rbufChannel
+				if buf == nil {
+					return io.EOF
+				}
+
+				self.aofLock.buf = buf
+				err := self.aofLock.Decode()
+				if err != nil {
+					return err
+				}
+				return nil
 			}
-			return nil
 		}
 	}
 }

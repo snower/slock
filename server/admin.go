@@ -318,11 +318,7 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 	aof := self.slock.GetAof()
 	infos = append(infos, "\r\n# Persistence")
 	infos = append(infos, fmt.Sprintf("aof_channel_count:%d", aof.channelCount))
-	channelLockCount := uint32(0)
-	for _, channel := range aof.channels {
-		channelLockCount += channel.lockCount
-	}
-	infos = append(infos, fmt.Sprintf("aof_channel_handing_count:%d", channelLockCount))
+	infos = append(infos, fmt.Sprintf("aof_channel_active_count:%d", aof.channelActiveCount))
 	infos = append(infos, fmt.Sprintf("aof_count:%d", aof.aofLockCount))
 	if aof.aofFile != nil {
 		infos = append(infos, fmt.Sprintf("aof_file_name:%s", aof.aofFile.filename))
