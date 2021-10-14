@@ -354,7 +354,7 @@ func (self *SLock) checkServerProtocolSession() error {
 		}
 
 		avgTotalCommandCount := (totalCommandCount - session.totalCommandCount) / 60
-		if avgTotalCommandCount > uint64(freeLockCommands.Len()) {
+		if avgTotalCommandCount < uint64(freeLockCommands.Len()) {
 			freeCount := int((uint64(freeLockCommands.Len()) - avgTotalCommandCount) / 2)
 			for i := 0; i < freeCount; i++ {
 				session.serverProtocol.Lock()
