@@ -1085,7 +1085,7 @@ func (self *Aof) WaitFlushAofChannel() error {
 	self.glock.Lock()
 	for _, channel := range self.channels {
 		if !atomic.CompareAndSwapUint32(&channel.lockCount, 0, 0) {
-			activeCount += 1
+			activeCount++
 		}
 	}
 	self.glock.Unlock()

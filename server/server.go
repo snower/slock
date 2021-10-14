@@ -8,12 +8,13 @@ import (
 	"os/signal"
 	"sync"
 	"syscall"
+	"time"
 )
 
 type Server struct {
 	slock           *SLock
 	server          net.Listener
-	streams         []*Stream
+	streams         *Stream
 	glock           *sync.Mutex
 	connectedCount  uint32
 	connectingCount uint32
@@ -22,7 +23,8 @@ type Server struct {
 }
 
 func NewServer(slock *SLock) *Server {
-	server := &Server{slock, nil, make([]*Stream, 0), &sync.Mutex{}, 0, 0, false, make(chan bool, 1)}
+	server := &Server{slock, nil, nil, &sync.Mutex{},
+		0, 0, false, make(chan bool, 1)}
 	admin := slock.GetAdmin()
 	admin.server = server
 	return server
@@ -47,9 +49,15 @@ func (self *Server) Close() {
 	if err != nil {
 		self.slock.Log().Errorf("Server close error %v", err)
 	}
+	streams := make([]*Stream, 0)
+	currentStream := self.streams
+	for currentStream != nil {
+		streams = append(streams, currentStream)
+		currentStream = currentStream.nextStream
+	}
 	self.glock.Unlock()
 
-	for _, stream := range self.streams {
+	for _, stream := range streams {
 		if stream.streamType != STREAM_TYPE_NORMAL {
 			continue
 		}
@@ -65,38 +73,70 @@ func (self *Server) Close() {
 }
 
 func (self *Server) addStream(stream *Stream) error {
-	defer self.glock.Unlock()
 	self.glock.Lock()
-	self.streams = append(self.streams, stream)
+	if self.streams == nil {
+		self.streams = stream
+	} else {
+		self.streams.lastStream = stream
+		stream.nextStream = self.streams
+		self.streams = stream
+	}
 	self.connectingCount++
 	self.connectedCount++
+	self.glock.Unlock()
 	return nil
 }
 
 func (self *Server) removeStream(stream *Stream) error {
-	defer self.glock.Unlock()
 	self.glock.Lock()
-	streams := self.streams
-	self.streams = make([]*Stream, 0)
-
-	for _, v := range streams {
-		if stream != v {
-			self.streams = append(self.streams, v)
-		} else {
-			self.connectingCount--
-		}
+	if stream.nextStream == nil && stream.lastStream == nil {
+		self.glock.Unlock()
+		return nil
 	}
+
+	if self.streams == stream {
+		self.streams = stream.nextStream
+	}
+	if stream.lastStream != nil {
+		stream.lastStream.nextStream = stream.nextStream
+	}
+	if stream.nextStream != nil {
+		stream.nextStream.lastStream = stream.lastStream
+	}
+	self.connectingCount--
+	self.glock.Unlock()
 	return nil
 }
 
 func (self *Server) CloseStreams() error {
-	for _, stream := range self.streams {
+	self.glock.Lock()
+	streams := make([]*Stream, 0)
+	currentStream := self.streams
+	for currentStream != nil {
+		streams = append(streams, currentStream)
+		currentStream = currentStream.nextStream
+	}
+	self.glock.Unlock()
+
+	for _, stream := range streams {
 		if stream.streamType != STREAM_TYPE_NORMAL {
 			continue
 		}
 		_ = stream.Close()
 	}
 	return nil
+}
+
+func (self *Server) GetStreams() []*Stream {
+	self.glock.Lock()
+	streams := make([]*Stream, 0)
+	currentStream := self.streams
+	for currentStream != nil {
+		streams = append(streams, currentStream)
+		currentStream = currentStream.nextStream
+	}
+	self.glock.Unlock()
+	return streams
 }
 
 func (self *Server) Serve() {
@@ -110,6 +150,7 @@ func (self *Server) Serve() {
 
 	self.slock.Log().Infof("Server start serve %s", fmt.Sprintf("%s:%d", Config.Bind, Config.Port))
 	go self.slock.Start()
+	go self.checkProtocolFreeCommandQueue()
 	for !self.stoped {
 		conn, err := self.server.Accept()
 		if err != nil {
@@ -130,6 +171,19 @@ func (self *Server) Serve() {
 	}
 	<-self.stopedWaiter
 	self.slock.Log().Infof("Server shutdown finish")
+}
+
+func (self *Server) checkProtocolFreeCommandQueue() {
+	for !self.stoped {
+		select {
+		case <-self.stopedWaiter:
+			return
+		case <-time.After(120 * time.Second):
+			if self.slock != nil {
+				_ = self.slock.checkServerProtocolSession()
+			}
+		}
+	}
 }
 
 func (self *Server) checkProtocol(stream *Stream) (ServerProtocol, error) {

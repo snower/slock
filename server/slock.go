@@ -30,7 +30,10 @@ type SLock struct {
 	arbiterManager         *ArbiterManager
 	admin                  *Admin
 	logger                 logging.Logger
-	streams                map[[16]byte]ServerProtocol
+	protocolSessions       map[uint32]*ServerProtocolSession
+	protocolSessionsGlock  *sync.Mutex
+	clients                map[[16]byte]ServerProtocol
+	clientsGlock           *sync.Mutex
 	uptime                 *time.Time
 	freeLockCommandQueue   *LockCommandQueue
 	freeLockCommandLock    *sync.Mutex
@@ -48,12 +51,13 @@ func NewSLock(config *ServerConfig) *SLock {
 	now := time.Now()
 	logger := InitLogger(Config.Log, Config.LogLevel)
 	slock := &SLock{nil, make([]*LockDB, 256), &sync.Mutex{}, aof, replicationManager, nil, admin, logger,
-		make(map[[16]byte]ServerProtocol, STREAMS_INIT_COUNT), &now, NewLockCommandQueue(16, 64, FREE_COMMAND_QUEUE_INIT_SIZE*16),
-		&sync.Mutex{}, 0, 0, STATE_INIT}
+		make(map[uint32]*ServerProtocolSession, STREAMS_INIT_COUNT), &sync.Mutex{}, make(map[[16]byte]ServerProtocol, STREAMS_INIT_COUNT), &sync.Mutex{}, &now,
+		NewLockCommandQueue(16, 64, FREE_COMMAND_QUEUE_INIT_SIZE*16), &sync.Mutex{}, 0, 0, STATE_INIT}
 	aof.slock = slock
 	replicationManager.slock = slock
 	replicationManager.transparencyManager.slock = slock
 	admin.slock = slock
+	defaultServerProtocol = NewDefaultServerProtocol(slock)
 	return slock
 }
 
@@ -252,11 +256,125 @@ func (self *SLock) Log() logging.Logger {
 	return self.logger
 }
 
-func (self *SLock) freeLockCommand(command *protocol.LockCommand) *protocol.LockCommand {
-	self.freeLockCommandLock.Lock()
-	if self.freeLockCommandQueue.Push(command) != nil {
+func (self *SLock) addServerProtocol(serverProtocol ServerProtocol) *ServerProtocolSession {
+	self.protocolSessionsGlock.Lock()
+	session := &ServerProtocolSession{0, serverProtocol, 0}
+	for {
+		serverProtocolSessionIdIndex++
+		if serverProtocolSessionIdIndex == 0 {
+			continue
+		}
+		if _, ok := self.protocolSessions[serverProtocolSessionIdIndex]; ok {
+			continue
+		}
+		session.sessionId = serverProtocolSessionIdIndex
+		break
+	}
+	self.protocolSessions[session.sessionId] = session
+	self.protocolSessionsGlock.Unlock()
+	return nil
+}
+
+func (self *SLock) removeServerProtocol(serverProtocolSession *ServerProtocolSession) error {
+	if serverProtocolSession == nil {
 		return nil
 	}
+
+	self.protocolSessionsGlock.Lock()
+	if _, ok := self.protocolSessions[serverProtocolSession.sessionId]; ok {
+		delete(self.protocolSessions, serverProtocolSession.sessionId)
+	}
+	self.protocolSessionsGlock.Unlock()
+	return nil
+}
+
+func (self *SLock) checkServerProtocolSession() error {
+	removedSessions := make([]*ServerProtocolSession, 0)
+	for _, session := range self.protocolSessions {
+		var freeLockCommands *LockCommandQueue = nil
+		totalCommandCount := uint64(0)
+		switch session.serverProtocol.(type) {
+		case *MemWaiterServerProtocol:
+			serverprotocol := session.serverProtocol.(*MemWaiterServerProtocol)
+			if serverprotocol.closed {
+				removedSessions = append(removedSessions, session)
+				continue
+			}
+			freeLockCommands = serverprotocol.lockedFreeCommands
+			totalCommandCount = serverprotocol.totalCommandCount
+			if len(serverprotocol.proxys) > 4 {
+				serverprotocol.Lock()
+				for i := 4; i < len(serverprotocol.proxys); i++ {
+					serverprotocol.proxys[i].serverProtocol = defaultServerProtocol
+				}
+				serverprotocol.proxys = serverprotocol.proxys[:4]
+				serverprotocol.Unlock()
+			}
+		case *BinaryServerProtocol:
+			serverprotocol := session.serverProtocol.(*BinaryServerProtocol)
+			if serverprotocol.closed {
+				removedSessions = append(removedSessions, session)
+				continue
+			}
+			freeLockCommands = serverprotocol.lockedFreeCommands
+			totalCommandCount = serverprotocol.totalCommandCount
+			if len(serverprotocol.proxys) > 4 {
+				serverprotocol.Lock()
+				for i := 4; i < len(serverprotocol.proxys); i++ {
+					serverprotocol.proxys[i].serverProtocol = defaultServerProtocol
+				}
+				serverprotocol.proxys = serverprotocol.proxys[:4]
+				serverprotocol.Unlock()
+			}
+		case *TextServerProtocol:
+			serverprotocol := session.serverProtocol.(*TextServerProtocol)
+			if serverprotocol.closed {
+				removedSessions = append(removedSessions, session)
+				continue
+			}
+			freeLockCommands = serverprotocol.lockedFreeCommands
+			totalCommandCount = serverprotocol.totalCommandCount
+			if len(serverprotocol.proxys) > 4 {
+				serverprotocol.Lock()
+				for i := 4; i < len(serverprotocol.proxys); i++ {
+					serverprotocol.proxys[i].serverProtocol = defaultServerProtocol
+				}
+				serverprotocol.proxys = serverprotocol.proxys[:4]
+				serverprotocol.Unlock()
+			}
+		default:
+			removedSessions = append(removedSessions, session)
+			continue
+		}
+
+		freeCount := int((uint64(freeLockCommands.Len()) - (totalCommandCount-session.totalCommandCount)*2) / 2)
+		if freeCount > 0 {
+			for i := 0; i < freeCount; i++ {
+				session.serverProtocol.Lock()
+				lockCommand := freeLockCommands.PopRight()
+				session.serverProtocol.Unlock()
+				if lockCommand != nil {
+					self.freeLockCommandLock.Lock()
+					_ = self.freeLockCommandQueue.Push(lockCommand)
+					self.freeLockCommandCount++
+					self.freeLockCommandLock.Unlock()
+				}
+			}
+		}
+		session.totalCommandCount = totalCommandCount
+	}
+
+	if len(removedSessions) > 0 {
+		for _, session := range removedSessions {
+			_ = self.removeServerProtocol(session)
+		}
+	}
+	return nil
+}
+
+func (self *SLock) freeLockCommand(command *protocol.LockCommand) *protocol.LockCommand {
+	self.freeLockCommandLock.Lock()
+	_ = self.freeLockCommandQueue.Push(command)
 	self.freeLockCommandCount++
 	self.freeLockCommandLock.Unlock()
 	return command
@@ -275,7 +393,8 @@ func (self *SLock) getLockCommand() *protocol.LockCommand {
 func (self *SLock) freeLockCommands(commands []*protocol.LockCommand) error {
 	self.freeLockCommandLock.Lock()
 	for _, command := range commands {
-		if self.freeLockCommandQueue.Push(command) != nil {
+		err := self.freeLockCommandQueue.Push(command)
+		if err != nil {
 			continue
 		}
 		self.freeLockCommandCount++

@@ -34,6 +34,8 @@ type ServerProtocol interface {
 	ProcessLockResultCommandLocked(command *protocol.LockCommand, result uint8, lcount uint16, lrcount uint8) error
 	Close() error
 	GetStream() *Stream
+	GetProxy() *ServerProtocolProxy
+	AddProxy(proxy *ServerProtocolProxy) error
 	RemoteAddr() net.Addr
 	GetLockCommand() *protocol.LockCommand
 	FreeLockCommand(command *protocol.LockCommand) error
@@ -41,22 +43,248 @@ type ServerProtocol interface {
 }
 
 var AGAIN = errors.New("AGAIN")
+var serverProtocolSessionIdIndex uint32 = 0
+
+type ServerProtocolSession struct {
+	sessionId         uint32
+	serverProtocol    ServerProtocol
+	totalCommandCount uint64
+}
+
+type ServerProtocolProxy struct {
+	clientId       [16]byte
+	serverProtocol ServerProtocol
+}
+
+func (self *ServerProtocolProxy) ProcessLockResultCommandLocked(command *protocol.LockCommand, result uint8, lcount uint16, lrcount uint8) error {
+	if self.serverProtocol == defaultServerProtocol {
+		defaultServerProtocol.slock.clientsGlock.Lock()
+		if self.serverProtocol == defaultServerProtocol {
+			if serverProtocol, ok := defaultServerProtocol.slock.clients[self.clientId]; ok {
+				defaultServerProtocol.slock.clientsGlock.Unlock()
+				_ = serverProtocol.AddProxy(self)
+				self.serverProtocol = serverProtocol
+				return serverProtocol.ProcessLockResultCommandLocked(command, result, lcount, lrcount)
+			}
+			defaultServerProtocol.slock.clientsGlock.Unlock()
+			return errors.New("Protocol Closed")
+		}
+		defaultServerProtocol.slock.clientsGlock.Unlock()
+	}
+	return self.serverProtocol.ProcessLockResultCommandLocked(command, result, lcount, lrcount)
+}
+
+func (self *ServerProtocolProxy) FreeLockCommandLocked(command *protocol.LockCommand) error {
+	return self.serverProtocol.FreeLockCommandLocked(command)
+}
+
+func (self *ServerProtocolProxy) GetStream() *Stream {
+	if self.serverProtocol != nil {
+		return self.serverProtocol.GetStream()
+	}
+	return nil
+}
+
+func (self *ServerProtocolProxy) RemoteAddr() net.Addr {
+	if self.serverProtocol != nil {
+		return self.serverProtocol.RemoteAddr()
+	}
+	return &net.TCPAddr{IP: []byte("0.0.0.0"), Port: 0, Zone: ""}
+}
+
+type DefaultServerProtocol struct {
+	slock         *SLock
+	protocolProxy *ServerProtocolProxy
+}
+
+func NewDefaultServerProtocol(slock *SLock) *DefaultServerProtocol {
+	proxy := &ServerProtocolProxy{[16]byte{}, nil}
+	serverProtocol := &DefaultServerProtocol{slock, proxy}
+	proxy.serverProtocol = serverProtocol
+	return serverProtocol
+}
+
+func (self *DefaultServerProtocol) Init(clientId [16]byte) error {
+	return nil
+}
+
+func (self *DefaultServerProtocol) Lock() {
+
+}
+
+func (self *DefaultServerProtocol) Unlock() {
+
+}
+
+func (self *DefaultServerProtocol) Read() (protocol.CommandDecode, error) {
+	return nil, errors.New("not support")
+}
+
+func (self *DefaultServerProtocol) Write(protocol.CommandEncode) error {
+	return errors.New("not support")
+}
+
+func (self *DefaultServerProtocol) ReadCommand() (protocol.CommandDecode, error) {
+	return nil, errors.New("not support")
+}
+
+func (self *DefaultServerProtocol) WriteCommand(protocol.CommandEncode) error {
+	return errors.New("not support")
+}
+
+func (self *DefaultServerProtocol) Process() error {
+	return io.EOF
+}
+
+func (self *DefaultServerProtocol) ProcessParse(buf []byte) error {
+	return io.EOF
+}
+
+func (self *DefaultServerProtocol) ProcessBuild(command protocol.ICommand) error {
+	return nil
+}
+
+func (self *DefaultServerProtocol) ProcessCommad(command protocol.ICommand) error {
+	switch command.GetCommandType() {
+	case protocol.COMMAND_LOCK:
+		lockCommand := command.(*protocol.LockCommand)
+
+		if lockCommand.DbId == 0xff {
+			err := self.ProcessLockResultCommand(lockCommand, protocol.RESULT_UNKNOWN_DB, 0, 0)
+			_ = self.FreeLockCommand(lockCommand)
+			return err
+		}
+
+		db := self.slock.dbs[lockCommand.DbId]
+		if db == nil {
+			db = self.slock.GetOrNewDB(lockCommand.DbId)
+		}
+		return db.Lock(self, lockCommand)
+
+	case protocol.COMMAND_UNLOCK:
+		lockCommand := command.(*protocol.LockCommand)
+
+		if lockCommand.DbId == 0xff {
+			err := self.ProcessLockResultCommand(lockCommand, protocol.RESULT_UNKNOWN_DB, 0, 0)
+			_ = self.FreeLockCommand(lockCommand)
+			return err
+		}
+
+		db := self.slock.dbs[lockCommand.DbId]
+		if db == nil {
+			err := self.ProcessLockResultCommand(lockCommand, protocol.RESULT_UNKNOWN_DB, 0, 0)
+			_ = self.FreeLockCommand(lockCommand)
+			return err
+		}
+		return db.UnLock(self, lockCommand)
+
+	default:
+		return self.Write(protocol.NewResultCommand(command, protocol.RESULT_UNKNOWN_COMMAND))
+	}
+}
+
+func (self *DefaultServerProtocol) ProcessLockCommand(lockCommand *protocol.LockCommand) error {
+	if lockCommand.DbId == 0xff {
+		err := self.ProcessLockResultCommand(lockCommand, protocol.RESULT_UNKNOWN_DB, 0, 0)
+		_ = self.FreeLockCommand(lockCommand)
+		return err
+	}
+
+	db := self.slock.dbs[lockCommand.DbId]
+	if lockCommand.CommandType == protocol.COMMAND_LOCK {
+		if db == nil {
+			db = self.slock.GetOrNewDB(lockCommand.DbId)
+		}
+		return db.Lock(self, lockCommand)
+	}
+
+	if db == nil {
+		err := self.ProcessLockResultCommand(lockCommand, protocol.RESULT_UNKNOWN_DB, 0, 0)
+		_ = self.FreeLockCommand(lockCommand)
+		return err
+	}
+	return db.UnLock(self, lockCommand)
+}
+
+func (self *DefaultServerProtocol) ProcessLockResultCommand(command *protocol.LockCommand, result uint8, lcount uint16, lrcount uint8) error {
+	return nil
+}
+
+func (self *DefaultServerProtocol) ProcessLockResultCommandLocked(command *protocol.LockCommand, result uint8, lcount uint16, lrcount uint8) error {
+	return nil
+}
+
+func (self *DefaultServerProtocol) Close() error {
+	return nil
+}
+
+func (self *DefaultServerProtocol) GetStream() *Stream {
+	return nil
+}
+
+func (self *DefaultServerProtocol) GetProxy() *ServerProtocolProxy {
+	return self.protocolProxy
+}
+
+func (self *DefaultServerProtocol) AddProxy(proxy *ServerProtocolProxy) error {
+	return nil
+}
+
+func (self *DefaultServerProtocol) RemoteAddr() net.Addr {
+	return &net.TCPAddr{IP: []byte("0.0.0.0"), Port: 0, Zone: ""}
+}
+
+func (self *DefaultServerProtocol) GetLockCommand() *protocol.LockCommand {
+	self.slock.freeLockCommandLock.Lock()
+	lockCommand := self.slock.freeLockCommandQueue.PopRight()
+	if lockCommand != nil {
+		self.slock.freeLockCommandCount--
+		self.slock.freeLockCommandLock.Unlock()
+		return lockCommand
+	}
+	self.slock.freeLockCommandLock.Unlock()
+	return &protocol.LockCommand{Command: protocol.Command{Magic: protocol.MAGIC, Version: protocol.VERSION}}
+}
+
+func (self *DefaultServerProtocol) FreeLockCommand(command *protocol.LockCommand) error {
+	return self.FreeLockCommandLocked(command)
+}
+
+func (self *DefaultServerProtocol) FreeLockCommandLocked(command *protocol.LockCommand) error {
+	self.slock.freeLockCommandLock.Lock()
+	_ = self.slock.freeLockCommandQueue.Push(command)
+	self.slock.freeLockCommandCount++
+	self.slock.freeLockCommandLock.Unlock()
+	return nil
+}
+
+var defaultServerProtocol *DefaultServerProtocol = nil
 
 type MemWaiterServerProtocolResultCallback func(*MemWaiterServerProtocol, *protocol.LockCommand, uint8, uint16, uint8) error
 
 type MemWaiterServerProtocol struct {
-	slock          *SLock
-	glock          *sync.Mutex
-	freeCommands   *LockCommandQueue
-	waiters        map[[16]byte]chan *protocol.LockResultCommand
-	resultCallback MemWaiterServerProtocolResultCallback
-	closed         bool
+	slock              *SLock
+	glock              *sync.Mutex
+	session            *ServerProtocolSession
+	proxys             []*ServerProtocolProxy
+	freeCommands       []*protocol.LockCommand
+	freeCommandIndex   int
+	lockedFreeCommands *LockCommandQueue
+	waiters            map[[16]byte]chan *protocol.LockResultCommand
+	resultCallback     MemWaiterServerProtocolResultCallback
+	totalCommandCount  uint64
+	closed             bool
 }
 
 func NewMemWaiterServerProtocol(slock *SLock) *MemWaiterServerProtocol {
-	memWaiterServerProtocol := &MemWaiterServerProtocol{slock, &sync.Mutex{}, NewLockCommandQueue(4, 64, FREE_COMMAND_QUEUE_INIT_SIZE),
-		make(map[[16]byte]chan *protocol.LockResultCommand, 4096), nil, false}
+	proxy := &ServerProtocolProxy{[16]byte{}, nil}
+	memWaiterServerProtocol := &MemWaiterServerProtocol{slock, &sync.Mutex{}, nil, make([]*ServerProtocolProxy, 0), make([]*protocol.LockCommand, FREE_COMMAND_MAX_SIZE),
+		0, NewLockCommandQueue(4, 64, FREE_COMMAND_QUEUE_INIT_SIZE),
+		make(map[[16]byte]chan *protocol.LockResultCommand, 4096), nil, 0, false}
+	proxy.serverProtocol = memWaiterServerProtocol
 	memWaiterServerProtocol.InitLockCommand()
+	memWaiterServerProtocol.session = slock.addServerProtocol(memWaiterServerProtocol)
+	_ = memWaiterServerProtocol.AddProxy(proxy)
 	return memWaiterServerProtocol
 }
 
@@ -106,6 +334,7 @@ func (self *MemWaiterServerProtocol) ProcessCommad(_ protocol.ICommand) error {
 
 func (self *MemWaiterServerProtocol) ProcessLockCommand(lockCommand *protocol.LockCommand) error {
 	db := self.slock.dbs[lockCommand.DbId]
+	self.totalCommandCount++
 	switch lockCommand.CommandType {
 	case protocol.COMMAND_LOCK:
 		if db == nil {
@@ -142,12 +371,43 @@ func (self *MemWaiterServerProtocol) ProcessLockResultCommandLocked(command *pro
 }
 
 func (self *MemWaiterServerProtocol) Close() error {
-	self.UnInitLockCommand()
+	self.glock.Lock()
+	if self.closed {
+		self.glock.Unlock()
+		return nil
+	}
+
 	self.closed = true
+	for _, proxy := range self.proxys {
+		proxy.serverProtocol = defaultServerProtocol
+	}
+	self.proxys = self.proxys[:1]
+	_ = self.slock.removeServerProtocol(self.session)
+	self.glock.Unlock()
+
+	self.slock.clientsGlock.Lock()
+	self.slock.statsTotalCommandCount += self.totalCommandCount
+	self.slock.clientsGlock.Unlock()
+
+	self.glock.Lock()
+	self.UnInitLockCommand()
+	self.session = nil
+	self.glock.Unlock()
 	return nil
 }
 
 func (self *MemWaiterServerProtocol) GetStream() *Stream {
+	return nil
+}
+
+func (self *MemWaiterServerProtocol) GetProxy() *ServerProtocolProxy {
+	return self.proxys[0]
+}
+
+func (self *MemWaiterServerProtocol) AddProxy(proxy *ServerProtocolProxy) error {
+	self.glock.Lock()
+	self.proxys = append(self.proxys, proxy)
+	self.glock.Unlock()
 	return nil
 }
 
@@ -160,17 +420,22 @@ func (self *MemWaiterServerProtocol) InitLockCommand() {
 	lockCommand := self.slock.freeLockCommandQueue.PopRight()
 	if lockCommand != nil {
 		self.slock.freeLockCommandCount--
-		_ = self.freeCommands.Push(lockCommand)
-	} else {
-		_ = self.freeCommands.Push(&protocol.LockCommand{Command: protocol.Command{Magic: protocol.MAGIC, Version: protocol.VERSION}})
+		self.freeCommands[self.freeCommandIndex] = lockCommand
+		self.freeCommandIndex++
 	}
 	self.slock.freeLockCommandLock.Unlock()
 }
 
 func (self *MemWaiterServerProtocol) UnInitLockCommand() {
 	self.slock.freeLockCommandLock.Lock()
+	for self.freeCommandIndex > 0 {
+		self.freeCommandIndex--
+		_ = self.slock.freeLockCommandQueue.Push(self.freeCommands[self.freeCommandIndex])
+		self.slock.freeLockCommandCount++
+	}
+
 	for {
-		command := self.freeCommands.PopRight()
+		command := self.lockedFreeCommands.PopRight()
 		if command == nil {
 			break
 		}
@@ -181,38 +446,49 @@ func (self *MemWaiterServerProtocol) UnInitLockCommand() {
 }
 
 func (self *MemWaiterServerProtocol) GetLockCommand() *protocol.LockCommand {
-	lockCommand := self.freeCommands.PopRight()
-	if lockCommand == nil {
-		self.slock.freeLockCommandLock.Lock()
-		lockCommand := self.slock.freeLockCommandQueue.PopRight()
-		if lockCommand != nil {
-			self.slock.freeLockCommandCount--
-			self.slock.freeLockCommandLock.Unlock()
-			return lockCommand
-		}
-		self.slock.freeLockCommandLock.Unlock()
-		return &protocol.LockCommand{Command: protocol.Command{Magic: protocol.MAGIC, Version: protocol.VERSION}}
+	if self.freeCommandIndex > 0 {
+		self.freeCommandIndex--
+		return self.freeCommands[self.freeCommandIndex]
 	}
-	return lockCommand
+
+	lockCommand := self.lockedFreeCommands.PopRight()
+	if lockCommand != nil {
+		return lockCommand
+	}
+
+	self.slock.freeLockCommandLock.Lock()
+	lockCommand = self.slock.freeLockCommandQueue.PopRight()
+	if lockCommand != nil {
+		self.slock.freeLockCommandCount--
+		self.slock.freeLockCommandLock.Unlock()
+		return lockCommand
+	}
+	self.slock.freeLockCommandLock.Unlock()
+	return &protocol.LockCommand{Command: protocol.Command{Magic: protocol.MAGIC, Version: protocol.VERSION}}
+
 }
 
 func (self *MemWaiterServerProtocol) FreeLockCommand(command *protocol.LockCommand) error {
-	self.glock.Lock()
-	_ = self.freeCommands.Push(command)
-	self.glock.Unlock()
-	return nil
+	if self.freeCommandIndex < FREE_COMMAND_MAX_SIZE {
+		self.freeCommands[self.freeCommandIndex] = command
+		self.freeCommandIndex++
+		return nil
+	}
+	return self.FreeLockCommandLocked(command)
 }
 
 func (self *MemWaiterServerProtocol) FreeLockCommandLocked(command *protocol.LockCommand) error {
 	self.glock.Lock()
 	if self.closed {
+		self.glock.Unlock()
 		self.slock.freeLockCommandLock.Lock()
 		_ = self.slock.freeLockCommandQueue.Push(command)
 		self.slock.freeLockCommandCount++
 		self.slock.freeLockCommandLock.Unlock()
-	} else {
-		_ = self.freeCommands.Push(command)
+		return nil
 	}
+
+	_ = self.lockedFreeCommands.Push(command)
 	self.glock.Unlock()
 	return nil
 }
@@ -247,8 +523,10 @@ type BinaryServerProtocol struct {
 	slock              *SLock
 	glock              *sync.Mutex
 	stream             *Stream
-	clientId           [16]byte
-	freeCommands       *LockCommandQueue
+	session            *ServerProtocolSession
+	proxys             []*ServerProtocolProxy
+	freeCommands       []*protocol.LockCommand
+	freeCommandIndex   int
 	lockedFreeCommands *LockCommandQueue
 	rbuf               []byte
 	wbuf               []byte
@@ -262,11 +540,15 @@ type BinaryServerProtocol struct {
 }
 
 func NewBinaryServerProtocol(slock *SLock, stream *Stream) *BinaryServerProtocol {
-	serverProtocol := &BinaryServerProtocol{slock, &sync.Mutex{}, stream, [16]byte{}, NewLockCommandQueue(4, 64, FREE_COMMAND_QUEUE_INIT_SIZE),
-		NewLockCommandQueue(4, 64, FREE_COMMAND_QUEUE_INIT_SIZE), make([]byte, 1024), make([]byte, 64),
+	proxy := &ServerProtocolProxy{[16]byte{}, nil}
+	serverProtocol := &BinaryServerProtocol{slock, &sync.Mutex{}, stream, nil, make([]*ServerProtocolProxy, 0), make([]*protocol.LockCommand, FREE_COMMAND_MAX_SIZE),
+		0, NewLockCommandQueue(4, 64, FREE_COMMAND_QUEUE_INIT_SIZE), make([]byte, 1024), make([]byte, 64),
 		0, 0, nil, nil, 0, false, false}
+	proxy.serverProtocol = serverProtocol
 	serverProtocol.InitLockCommand()
+	serverProtocol.session = slock.addServerProtocol(serverProtocol)
 	stream.protocol = serverProtocol
+	_ = serverProtocol.AddProxy(proxy)
 	return serverProtocol
 }
 
@@ -295,16 +577,16 @@ func (self *BinaryServerProtocol) FindCallMethod(methodName string) (BinaryServe
 
 func (self *BinaryServerProtocol) Init(clientId [16]byte) error {
 	if self.inited {
-		self.slock.glock.Lock()
-		if sp, ok := self.slock.streams[self.clientId]; ok {
+		self.slock.clientsGlock.Lock()
+		if sp, ok := self.slock.clients[self.proxys[0].clientId]; ok {
 			if sp == self {
-				delete(self.slock.streams, self.clientId)
+				delete(self.slock.clients, self.proxys[0].clientId)
 			}
 		}
-		self.slock.glock.Unlock()
+		self.slock.clientsGlock.Unlock()
 	}
 
-	self.clientId = clientId
+	self.proxys[0].clientId = clientId
 	self.inited = true
 	return nil
 }
@@ -317,6 +599,11 @@ func (self *BinaryServerProtocol) Close() error {
 	}
 
 	self.closed = true
+	for _, proxy := range self.proxys {
+		proxy.serverProtocol = defaultServerProtocol
+	}
+	self.proxys = self.proxys[:1]
+	_ = self.slock.removeServerProtocol(self.session)
 	willCommands := self.willCommands
 	if willCommands != nil {
 		self.willCommands = nil
@@ -333,17 +620,17 @@ func (self *BinaryServerProtocol) Close() error {
 		self.glock.Unlock()
 	}
 
-	self.slock.glock.Lock()
+	self.slock.clientsGlock.Lock()
 	if self.inited {
 		self.inited = false
-		if sp, ok := self.slock.streams[self.clientId]; ok {
+		if sp, ok := self.slock.clients[self.proxys[0].clientId]; ok {
 			if sp == self {
-				delete(self.slock.streams, self.clientId)
+				delete(self.slock.clients, self.proxys[0].clientId)
 			}
 		}
 	}
 	self.slock.statsTotalCommandCount += self.totalCommandCount
-	self.slock.glock.Unlock()
+	self.slock.clientsGlock.Unlock()
 
 	self.glock.Lock()
 	if self.stream != nil {
@@ -355,6 +642,7 @@ func (self *BinaryServerProtocol) Close() error {
 	}
 
 	self.UnInitLockCommand()
+	self.session = nil
 	self.glock.Unlock()
 	return nil
 }
@@ -623,11 +911,14 @@ func (self *BinaryServerProtocol) ProcessParse(buf []byte) error {
 	}
 
 	self.totalCommandCount++
+	var lockCommand *protocol.LockCommand
 	commandType := uint8(buf[2])
 	switch commandType {
 	case protocol.COMMAND_LOCK:
-		lockCommand := self.freeCommands.PopRight()
-		if lockCommand == nil {
+		if self.freeCommandIndex > 0 {
+			self.freeCommandIndex--
+			lockCommand = self.freeCommands[self.freeCommandIndex]
+		} else {
 			lockCommand = self.GetLockCommandLocked()
 		}
 
@@ -669,8 +960,10 @@ func (self *BinaryServerProtocol) ProcessParse(buf []byte) error {
 		}
 		return nil
 	case protocol.COMMAND_UNLOCK:
-		lockCommand := self.freeCommands.PopRight()
-		if lockCommand == nil {
+		if self.freeCommandIndex > 0 {
+			self.freeCommandIndex--
+			lockCommand = self.freeCommands[self.freeCommandIndex]
+		} else {
 			lockCommand = self.GetLockCommandLocked()
 		}
 
@@ -826,13 +1119,13 @@ func (self *BinaryServerProtocol) ProcessCommad(command protocol.ICommand) error
 				return self.Write(protocol.NewInitResultCommand(initCommand, protocol.RESULT_ERROR, 0))
 			}
 
-			self.slock.glock.Lock()
+			self.slock.clientsGlock.Lock()
 			initType := uint8(0)
-			if _, ok := self.slock.streams[initCommand.ClientId]; ok {
+			if _, ok := self.slock.clients[initCommand.ClientId]; ok {
 				initType = 1
 			}
-			self.slock.streams[initCommand.ClientId] = self
-			self.slock.glock.Unlock()
+			self.slock.clients[initCommand.ClientId] = self
+			self.slock.clientsGlock.Unlock()
 			return self.Write(protocol.NewInitResultCommand(initCommand, protocol.RESULT_SUCCED, initType))
 
 		case protocol.COMMAND_STATE:
@@ -950,14 +1243,13 @@ func (self *BinaryServerProtocol) ProcessLockResultCommand(command *protocol.Loc
 			return errors.New("Protocol Closed")
 		}
 
-		self.slock.glock.Lock()
-		if serverProtocol, ok := self.slock.streams[self.clientId]; ok {
-			self.slock.glock.Unlock()
+		self.slock.clientsGlock.Lock()
+		if serverProtocol, ok := self.slock.clients[self.proxys[0].clientId]; ok {
+			self.slock.clientsGlock.Unlock()
 			return serverProtocol.ProcessLockResultCommandLocked(command, result, lcount, lrcount)
-		} else {
-			self.slock.glock.Unlock()
-			return errors.New("Protocol Closed")
 		}
+		self.slock.clientsGlock.Unlock()
+		return errors.New("Protocol Closed")
 	}
 
 	buf := self.wbuf
@@ -1016,6 +1308,17 @@ func (self *BinaryServerProtocol) GetStream() *Stream {
 	return self.stream
 }
 
+func (self *BinaryServerProtocol) GetProxy() *ServerProtocolProxy {
+	return self.proxys[0]
+}
+
+func (self *BinaryServerProtocol) AddProxy(proxy *ServerProtocolProxy) error {
+	self.glock.Lock()
+	self.proxys = append(self.proxys, proxy)
+	self.glock.Unlock()
+	return nil
+}
+
 func (self *BinaryServerProtocol) RemoteAddr() net.Addr {
 	if self.stream == nil {
 		return &net.TCPAddr{IP: []byte("0.0.0.0"), Port: 0, Zone: ""}
@@ -1027,23 +1330,21 @@ func (self *BinaryServerProtocol) InitLockCommand() {
 	self.slock.freeLockCommandLock.Lock()
 	for i := 0; i < 4; i++ {
 		lockCommand := self.slock.freeLockCommandQueue.PopRight()
-		if lockCommand != nil {
-			self.slock.freeLockCommandCount--
-			_ = self.freeCommands.Push(lockCommand)
-			continue
+		if lockCommand == nil {
+			break
 		}
-		_ = self.freeCommands.Push(&protocol.LockCommand{Command: protocol.Command{Magic: protocol.MAGIC, Version: protocol.VERSION}})
+		self.slock.freeLockCommandCount--
+		self.freeCommands[self.freeCommandIndex] = lockCommand
+		self.freeCommandIndex++
 	}
 	self.slock.freeLockCommandLock.Unlock()
 }
 
 func (self *BinaryServerProtocol) UnInitLockCommand() {
 	self.slock.freeLockCommandLock.Lock()
-	for {
-		command := self.freeCommands.PopRight()
-		if command == nil {
-			break
-		}
+	for self.freeCommandIndex > 0 {
+		self.freeCommandIndex--
+		command := self.freeCommands[self.freeCommandIndex]
 		_ = self.slock.freeLockCommandQueue.Push(command)
 		self.slock.freeLockCommandCount++
 	}
@@ -1060,24 +1361,17 @@ func (self *BinaryServerProtocol) UnInitLockCommand() {
 }
 
 func (self *BinaryServerProtocol) GetLockCommand() *protocol.LockCommand {
-	lockCommand := self.freeCommands.PopRight()
-	if lockCommand == nil {
-		return self.GetLockCommandLocked()
+	if self.freeCommandIndex > 0 {
+		self.freeCommandIndex--
+		return self.freeCommands[self.freeCommandIndex]
 	}
-	return lockCommand
+	return self.GetLockCommandLocked()
 }
 
 func (self *BinaryServerProtocol) GetLockCommandLocked() *protocol.LockCommand {
 	self.glock.Lock()
 	lockCommand := self.lockedFreeCommands.PopRight()
 	if lockCommand != nil {
-		for {
-			flockCommand := self.lockedFreeCommands.PopRight()
-			if flockCommand == nil {
-				break
-			}
-			_ = self.freeCommands.Push(flockCommand)
-		}
 		self.glock.Unlock()
 		return lockCommand
 	}
@@ -1087,14 +1381,6 @@ func (self *BinaryServerProtocol) GetLockCommandLocked() *protocol.LockCommand {
 	lockCommand = self.slock.freeLockCommandQueue.PopRight()
 	if lockCommand != nil {
 		self.slock.freeLockCommandCount--
-		for i := 0; i < 8; i++ {
-			flockCommand := self.slock.freeLockCommandQueue.PopRight()
-			if flockCommand == nil {
-				break
-			}
-			self.slock.freeLockCommandCount--
-			_ = self.freeCommands.Push(flockCommand)
-		}
 		self.slock.freeLockCommandLock.Unlock()
 		return lockCommand
 	}
@@ -1103,19 +1389,25 @@ func (self *BinaryServerProtocol) GetLockCommandLocked() *protocol.LockCommand {
 }
 
 func (self *BinaryServerProtocol) FreeLockCommand(command *protocol.LockCommand) error {
-	return self.freeCommands.Push(command)
+	if self.freeCommandIndex < FREE_COMMAND_MAX_SIZE {
+		self.freeCommands[self.freeCommandIndex] = command
+		self.freeCommandIndex++
+		return nil
+	}
+	return self.FreeLockCommandLocked(command)
 }
 
 func (self *BinaryServerProtocol) FreeLockCommandLocked(command *protocol.LockCommand) error {
 	self.glock.Lock()
 	if self.closed {
+		self.glock.Unlock()
 		self.slock.freeLockCommandLock.Lock()
 		_ = self.slock.freeLockCommandQueue.Push(command)
 		self.slock.freeLockCommandCount++
 		self.slock.freeLockCommandLock.Unlock()
-	} else {
-		_ = self.lockedFreeCommands.Push(command)
+		return nil
 	}
+	_ = self.lockedFreeCommands.Push(command)
 	self.glock.Unlock()
 	return nil
 }
@@ -1283,29 +1575,37 @@ func (self *BinaryServerProtocol) commandHandleListWaitCommand(_ *BinaryServerPr
 type TextServerProtocolCommandHandler func(*TextServerProtocol, []string) error
 
 type TextServerProtocol struct {
-	slock             *SLock
-	glock             *sync.Mutex
-	stream            *Stream
-	freeCommands      *LockCommandQueue
-	freeCommandResult *protocol.LockResultCommand
-	parser            *protocol.TextParser
-	handlers          map[string]TextServerProtocolCommandHandler
-	lockWaiter        chan *protocol.LockResultCommand
-	lockRequestId     [16]byte
-	lockId            [16]byte
-	willCommands      *LockCommandQueue
-	totalCommandCount uint64
-	dbId              uint8
-	closed            bool
+	slock              *SLock
+	glock              *sync.Mutex
+	stream             *Stream
+	session            *ServerProtocolSession
+	proxys             []*ServerProtocolProxy
+	freeCommands       []*protocol.LockCommand
+	freeCommandIndex   int
+	lockedFreeCommands *LockCommandQueue
+	freeCommandResult  *protocol.LockResultCommand
+	parser             *protocol.TextParser
+	handlers           map[string]TextServerProtocolCommandHandler
+	lockWaiter         chan *protocol.LockResultCommand
+	lockRequestId      [16]byte
+	lockId             [16]byte
+	willCommands       *LockCommandQueue
+	totalCommandCount  uint64
+	dbId               uint8
+	closed             bool
 }
 
 func NewTextServerProtocol(slock *SLock, stream *Stream) *TextServerProtocol {
+	proxy := &ServerProtocolProxy{[16]byte{}, nil}
 	parser := protocol.NewTextParser(make([]byte, 1024), make([]byte, 1024))
-	serverProtocol := &TextServerProtocol{slock, &sync.Mutex{}, stream, NewLockCommandQueue(4, 16, FREE_COMMAND_QUEUE_INIT_SIZE),
-		nil, parser, nil, make(chan *protocol.LockResultCommand, 4),
-		[16]byte{}, [16]byte{}, nil, 0, 0, false}
+	serverProtocol := &TextServerProtocol{slock, &sync.Mutex{}, stream, nil, make([]*ServerProtocolProxy, 0), make([]*protocol.LockCommand, FREE_COMMAND_MAX_SIZE),
+		0, NewLockCommandQueue(4, 64, FREE_COMMAND_QUEUE_INIT_SIZE), nil, parser,
+		nil, make(chan *protocol.LockResultCommand, 4), [16]byte{}, [16]byte{}, nil, 0, 0, false}
+	proxy.serverProtocol = serverProtocol
 	serverProtocol.InitLockCommand()
+	serverProtocol.session = slock.addServerProtocol(serverProtocol)
 	stream.protocol = serverProtocol
+	_ = serverProtocol.AddProxy(proxy)
 	return serverProtocol
 }
 
@@ -1347,23 +1647,30 @@ func (self *TextServerProtocol) Close() error {
 	}
 
 	self.closed = true
+	for _, proxy := range self.proxys {
+		proxy.serverProtocol = defaultServerProtocol
+	}
+	self.proxys = self.proxys[:1]
+	_ = self.slock.removeServerProtocol(self.session)
+	willCommands := self.willCommands
 	if self.willCommands != nil {
+		self.willCommands = nil
 		self.glock.Unlock()
+
 		for {
-			command := self.willCommands.Pop()
+			command := willCommands.Pop()
 			if command == nil {
 				break
 			}
 			_ = self.ProcessCommad(command)
 		}
-		self.willCommands = nil
-		self.glock.Lock()
+	} else {
+		self.glock.Unlock()
 	}
-	self.glock.Unlock()
 
-	self.slock.glock.Lock()
+	self.slock.clientsGlock.Lock()
 	self.slock.statsTotalCommandCount += self.totalCommandCount
-	self.slock.glock.Unlock()
+	self.slock.clientsGlock.Unlock()
 
 	self.glock.Lock()
 	if self.stream != nil {
@@ -1375,6 +1682,7 @@ func (self *TextServerProtocol) Close() error {
 	}
 
 	self.UnInitLockCommand()
+	self.session = nil
 	self.glock.Unlock()
 	return nil
 }
@@ -1634,13 +1942,13 @@ func (self *TextServerProtocol) ProcessCommad(command protocol.ICommand) error {
 			if self.Init(initCommand.ClientId) != nil {
 				return self.Write(protocol.NewInitResultCommand(initCommand, protocol.RESULT_ERROR, 0))
 			}
-			self.slock.glock.Lock()
+			self.slock.clientsGlock.Lock()
 			initType := uint8(0)
-			if _, ok := self.slock.streams[initCommand.ClientId]; ok {
+			if _, ok := self.slock.clients[initCommand.ClientId]; ok {
 				initType = 1
 			}
-			self.slock.streams[initCommand.ClientId] = self
-			self.slock.glock.Unlock()
+			self.slock.clients[initCommand.ClientId] = self
+			self.slock.clientsGlock.Unlock()
 			return self.Write(protocol.NewInitResultCommand(initCommand, protocol.RESULT_SUCCED, initType))
 
 		case protocol.COMMAND_STATE:
@@ -1781,6 +2089,17 @@ func (self *TextServerProtocol) GetStream() *Stream {
 	return self.stream
 }
 
+func (self *TextServerProtocol) GetProxy() *ServerProtocolProxy {
+	return self.proxys[0]
+}
+
+func (self *TextServerProtocol) AddProxy(proxy *ServerProtocolProxy) error {
+	self.glock.Lock()
+	self.proxys = append(self.proxys, proxy)
+	self.glock.Unlock()
+	return nil
+}
+
 func (self *TextServerProtocol) RemoteAddr() net.Addr {
 	if self.stream == nil {
 		return &net.TCPAddr{IP: []byte("0.0.0.0"), Port: 0, Zone: ""}
@@ -1793,17 +2112,23 @@ func (self *TextServerProtocol) InitLockCommand() {
 	lockCommand := self.slock.freeLockCommandQueue.PopRight()
 	if lockCommand != nil {
 		self.slock.freeLockCommandCount--
-		_ = self.freeCommands.Push(lockCommand)
-	} else {
-		_ = self.freeCommands.Push(&protocol.LockCommand{Command: protocol.Command{Magic: protocol.MAGIC, Version: protocol.VERSION}})
+		self.freeCommands[self.freeCommandIndex] = lockCommand
+		self.freeCommandIndex++
 	}
 	self.slock.freeLockCommandLock.Unlock()
 }
 
 func (self *TextServerProtocol) UnInitLockCommand() {
 	self.slock.freeLockCommandLock.Lock()
+	for self.freeCommandIndex > 0 {
+		self.freeCommandIndex--
+		command := self.freeCommands[self.freeCommandIndex]
+		_ = self.slock.freeLockCommandQueue.Push(command)
+		self.slock.freeLockCommandCount++
+	}
+
 	for {
-		command := self.freeCommands.PopRight()
+		command := self.lockedFreeCommands.PopRight()
 		if command == nil {
 			break
 		}
@@ -1814,38 +2139,53 @@ func (self *TextServerProtocol) UnInitLockCommand() {
 }
 
 func (self *TextServerProtocol) GetLockCommand() *protocol.LockCommand {
-	lockCommand := self.freeCommands.PopRight()
-	if lockCommand == nil {
-		self.slock.freeLockCommandLock.Lock()
-		lockCommand := self.slock.freeLockCommandQueue.PopRight()
-		if lockCommand != nil {
-			self.slock.freeLockCommandCount--
-			self.slock.freeLockCommandLock.Unlock()
-			return lockCommand
-		}
-		self.slock.freeLockCommandLock.Unlock()
-		return &protocol.LockCommand{Command: protocol.Command{Magic: protocol.MAGIC, Version: protocol.VERSION}}
+	if self.freeCommandIndex > 0 {
+		self.freeCommandIndex--
+		return self.freeCommands[self.freeCommandIndex]
 	}
-	return lockCommand
+	return self.GetLockCommandLocked()
+}
+
+func (self *TextServerProtocol) GetLockCommandLocked() *protocol.LockCommand {
+	self.glock.Lock()
+	lockCommand := self.lockedFreeCommands.PopRight()
+	if lockCommand != nil {
+		self.glock.Unlock()
+		return lockCommand
+	}
+	self.glock.Unlock()
+
+	self.slock.freeLockCommandLock.Lock()
+	lockCommand = self.slock.freeLockCommandQueue.PopRight()
+	if lockCommand != nil {
+		self.slock.freeLockCommandCount--
+		self.slock.freeLockCommandLock.Unlock()
+		return lockCommand
+	}
+	self.slock.freeLockCommandLock.Unlock()
+	return &protocol.LockCommand{Command: protocol.Command{Magic: protocol.MAGIC, Version: protocol.VERSION}}
 }
 
 func (self *TextServerProtocol) FreeLockCommand(command *protocol.LockCommand) error {
-	self.glock.Lock()
-	_ = self.freeCommands.Push(command)
-	self.glock.Unlock()
-	return nil
+	if self.freeCommandIndex < FREE_COMMAND_MAX_SIZE {
+		self.freeCommands[self.freeCommandIndex] = command
+		self.freeCommandIndex++
+		return nil
+	}
+	return self.FreeLockCommandLocked(command)
 }
 
 func (self *TextServerProtocol) FreeLockCommandLocked(command *protocol.LockCommand) error {
 	self.glock.Lock()
 	if self.closed {
+		self.glock.Unlock()
 		self.slock.freeLockCommandLock.Lock()
 		_ = self.slock.freeLockCommandQueue.Push(command)
 		self.slock.freeLockCommandCount++
 		self.slock.freeLockCommandLock.Unlock()
-	} else {
-		_ = self.freeCommands.Push(command)
+		return nil
 	}
+	_ = self.lockedFreeCommands.Push(command)
 	self.glock.Unlock()
 	return nil
 }

@@ -406,11 +406,14 @@ func (self *TransparencyBinaryServerProtocol) ProcessParse(buf []byte) error {
 	}
 
 	self.serverProtocol.totalCommandCount++
+	var lockCommand *protocol.LockCommand
 	commandType := uint8(buf[2])
 	switch commandType {
 	case protocol.COMMAND_LOCK:
-		lockCommand := self.serverProtocol.freeCommands.PopRight()
-		if lockCommand == nil {
+		if self.serverProtocol.freeCommandIndex > 0 {
+			self.serverProtocol.freeCommandIndex--
+			lockCommand = self.serverProtocol.freeCommands[self.serverProtocol.freeCommandIndex]
+		} else {
 			lockCommand = self.serverProtocol.GetLockCommandLocked()
 		}
 
@@ -466,8 +469,10 @@ func (self *TransparencyBinaryServerProtocol) ProcessParse(buf []byte) error {
 		_ = self.serverProtocol.FreeLockCommand(lockCommand)
 		return nil
 	case protocol.COMMAND_UNLOCK:
-		lockCommand := self.serverProtocol.freeCommands.PopRight()
-		if lockCommand == nil {
+		if self.serverProtocol.freeCommandIndex > 0 {
+			self.serverProtocol.freeCommandIndex--
+			lockCommand = self.serverProtocol.freeCommands[self.serverProtocol.freeCommandIndex]
+		} else {
 			lockCommand = self.serverProtocol.GetLockCommandLocked()
 		}
 
@@ -654,10 +659,10 @@ func (self *TransparencyBinaryServerProtocol) ProcessCommad(command protocol.ICo
 				return self.Write(protocol.NewInitResultCommand(initCommand, protocol.RESULT_ERROR, 0))
 			}
 
-			self.slock.glock.Lock()
-			self.slock.streams[initCommand.ClientId] = self.serverProtocol
+			self.slock.clientsGlock.Lock()
+			self.slock.clients[initCommand.ClientId] = self.serverProtocol
 			self.initCommand = initCommand
-			self.slock.glock.Unlock()
+			self.slock.clientsGlock.Unlock()
 
 			clientProtocol, err := self.CheckClient()
 			if err != nil || clientProtocol == nil {
@@ -691,6 +696,14 @@ func (self *TransparencyBinaryServerProtocol) ProcessLockResultCommandLocked(com
 
 func (self *TransparencyBinaryServerProtocol) GetStream() *Stream {
 	return self.stream
+}
+
+func (self *TransparencyBinaryServerProtocol) GetProxy() *ServerProtocolProxy {
+	return self.serverProtocol.GetProxy()
+}
+
+func (self *TransparencyBinaryServerProtocol) AddProxy(proxy *ServerProtocolProxy) error {
+	return self.serverProtocol.AddProxy(proxy)
 }
 
 func (self *TransparencyBinaryServerProtocol) RemoteAddr() net.Addr {
@@ -1018,6 +1031,14 @@ func (self *TransparencyTextServerProtocol) ProcessLockResultCommandLocked(comma
 
 func (self *TransparencyTextServerProtocol) GetStream() *Stream {
 	return self.stream
+}
+
+func (self *TransparencyTextServerProtocol) GetProxy() *ServerProtocolProxy {
+	return self.serverProtocol.GetProxy()
+}
+
+func (self *TransparencyTextServerProtocol) AddProxy(proxy *ServerProtocolProxy) error {
+	return self.serverProtocol.AddProxy(proxy)
 }
 
 func (self *TransparencyTextServerProtocol) RemoteAddr() net.Addr {

@@ -23,12 +23,14 @@ type Stream struct {
 	streamType   uint8
 	closed       bool
 	closedWaiter chan bool
+	nextStream   *Stream
+	lastStream   *Stream
 }
 
 func NewStream(conn net.Conn) *Stream {
 	now := time.Now()
 	stream := &Stream{conn, nil, &now, atomic.AddUint64(&clientId, 1),
-		STREAM_TYPE_NORMAL, false, make(chan bool, 1)}
+		STREAM_TYPE_NORMAL, false, make(chan bool, 1), nil, nil}
 	return stream
 }
 

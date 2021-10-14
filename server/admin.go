@@ -187,7 +187,7 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 	dbCount := 0
 	freeLockManagerCount := 0
 	freeLockCount := 0
-	freeLockCommandCount := 0
+	freeLockCommandCount, cacheLockCommandCount := 0, 0
 	totalCommandCount := uint64(0)
 	for _, db := range self.slock.dbs {
 		if db != nil {
@@ -208,17 +208,23 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 
 	freeLockCommandCount += int(self.slock.freeLockCommandCount)
 	totalCommandCount += self.slock.statsTotalCommandCount
-	for _, stream := range self.server.streams {
+	for _, stream := range self.server.GetStreams() {
 		if stream.protocol != nil {
 			switch stream.protocol.(type) {
+			case *MemWaiterServerProtocol:
+				memWaitProtocol := stream.protocol.(*MemWaiterServerProtocol)
+				cacheLockCommandCount += int(memWaitProtocol.freeCommandIndex)
+				cacheLockCommandCount += int(memWaitProtocol.lockedFreeCommands.Len())
+				totalCommandCount += memWaitProtocol.totalCommandCount
 			case *BinaryServerProtocol:
 				binaryProtocol := stream.protocol.(*BinaryServerProtocol)
-				freeLockCommandCount += int(binaryProtocol.freeCommands.Len())
-				freeLockCommandCount += int(binaryProtocol.lockedFreeCommands.Len())
+				cacheLockCommandCount += int(binaryProtocol.freeCommandIndex)
+				cacheLockCommandCount += int(binaryProtocol.lockedFreeCommands.Len())
 				totalCommandCount += binaryProtocol.totalCommandCount
 			case *TextServerProtocol:
 				textProtocol := stream.protocol.(*TextServerProtocol)
-				freeLockCommandCount += int(textProtocol.freeCommands.Len())
+				cacheLockCommandCount += int(textProtocol.freeCommandIndex)
+				cacheLockCommandCount += int(textProtocol.lockedFreeCommands.Len())
 				totalCommandCount += textProtocol.totalCommandCount
 			}
 		}
@@ -304,6 +310,7 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 	infos = append(infos, "\r\n# Stats")
 	infos = append(infos, fmt.Sprintf("db_count:%d", dbCount))
 	infos = append(infos, fmt.Sprintf("free_command_count:%d", freeLockCommandCount))
+	infos = append(infos, fmt.Sprintf("cache_command_count:%d", cacheLockCommandCount))
 	infos = append(infos, fmt.Sprintf("free_lock_manager_count:%d", freeLockManagerCount))
 	infos = append(infos, fmt.Sprintf("free_lock_count:%d", freeLockCount))
 	infos = append(infos, fmt.Sprintf("total_commands_processed:%d", totalCommandCount))
@@ -642,14 +649,14 @@ func (self *Admin) commandHandleClientCommand(serverProtocol *TextServerProtocol
 
 func (self *Admin) commandHandleClientListCommand(serverProtocol *TextServerProtocol, _ []string) error {
 	infos := make([]string, 0)
-	for _, stream := range self.server.streams {
+	for _, stream := range self.server.GetStreams() {
 		protocolName, clientId, commandCount := "", [16]byte{}, uint64(0)
 		if stream.protocol != nil {
 			switch stream.protocol.(type) {
 			case *BinaryServerProtocol:
 				binaryProtocol := stream.protocol.(*BinaryServerProtocol)
 				protocolName = "binary"
-				clientId = binaryProtocol.clientId
+				clientId = binaryProtocol.proxys[0].clientId
 				commandCount += binaryProtocol.totalCommandCount
 			case *TextServerProtocol:
 				textProtocol := stream.protocol.(*TextServerProtocol)
@@ -677,7 +684,7 @@ func (self *Admin) commandHandleClientKillCommand(serverProtocol *TextServerProt
 		return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(false, "ERR Command Arguments Error", nil))
 	}
 
-	for _, stream := range self.server.streams {
+	for _, stream := range self.server.GetStreams() {
 		if stream.RemoteAddr().String() == args[2] {
 			err := stream.Close()
 			if err != nil {

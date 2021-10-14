@@ -275,7 +275,7 @@ func (self *LockManager) GetOrNewLock(server_protocol ServerProtocol, command *p
 
 	lock.manager = self
 	lock.command = command
-	lock.protocol = server_protocol
+	lock.protocol = server_protocol.GetProxy()
 	lock.startTime = now
 	if lock.command.TimeoutFlag&protocol.TIMEOUT_FLAG_UNRENEW_EXPRIED_TIME_WHEN_TIMEOUT != 0 {
 		if lock.command.ExpriedFlag&protocol.EXPRIED_FLAG_MILLISECOND_TIME == 0 {
@@ -301,7 +301,7 @@ func (self *LockManager) GetOrNewLock(server_protocol ServerProtocol, command *p
 type Lock struct {
 	manager             *LockManager
 	command             *protocol.LockCommand
-	protocol            ServerProtocol
+	protocol            *ServerProtocolProxy
 	startTime           int64
 	expriedTime         int64
 	timeoutTime         int64
@@ -319,7 +319,7 @@ type Lock struct {
 
 func NewLock(manager *LockManager, protocol ServerProtocol, command *protocol.LockCommand) *Lock {
 	now := manager.lockDb.currentTime
-	return &Lock{manager, command, protocol, now, 0, now + int64(command.Timeout),
+	return &Lock{manager, command, protocol.GetProxy(), now, 0, now + int64(command.Timeout),
 		0, 0, 0, 0, 0, 0, false, false, 0, false}
 }
 

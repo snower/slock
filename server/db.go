@@ -1135,7 +1135,7 @@ func (self *LockDB) AddTimeOut(lock *Lock) {
 
 func (self *LockDB) RemoveTimeOut(lock *Lock) {
 	lock.timeouted = true
-	lock.manager.state.WaitCount -= 1
+	lock.manager.state.WaitCount--
 }
 
 func (self *LockDB) RemoveLongTimeOut(lock *Lock) {
@@ -1189,7 +1189,7 @@ func (self *LockDB) doTimeOut(lock *Lock, forcedExpried bool) {
 		if lockManager.GetWaitLock() == nil {
 			lockManager.waited = false
 		}
-		lockManager.state.WaitCount -= 1
+		lockManager.state.WaitCount--
 	}
 
 	lock.refCount--
@@ -1199,7 +1199,7 @@ func (self *LockDB) doTimeOut(lock *Lock, forcedExpried bool) {
 			self.RemoveLockManager(lockManager)
 		}
 	}
-	lockManager.state.TimeoutedCount += 1
+	lockManager.state.TimeoutedCount++
 	lockManager.glock.Unlock()
 
 	timeoutFlag := lockCommand.TimeoutFlag
@@ -1231,7 +1231,7 @@ func (self *LockDB) doTimeOut(lock *Lock, forcedExpried bool) {
 				lockKey[15], lockKey[14], lockKey[13], lockKey[12], lockKey[11], lockKey[10], lockKey[9], lockKey[8],
 				lockKey[7], lockKey[6], lockKey[5], lockKey[4], lockKey[3], lockKey[2], lockKey[1], lockKey[0]
 
-			_ = self.Lock(lockProtocol, lockCommand)
+			_ = self.Lock(lockProtocol.serverProtocol, lockCommand)
 		}
 	}
 }
@@ -1306,7 +1306,7 @@ func (self *LockDB) AddExpried(lock *Lock) {
 
 func (self *LockDB) RemoveExpried(lock *Lock) {
 	lock.expried = true
-	lock.manager.state.ExpriedCount -= 1
+	lock.manager.state.ExpriedCount--
 }
 
 func (self *LockDB) RemoveLongExpried(lock *Lock) {
@@ -1378,7 +1378,7 @@ func (self *LockDB) doExpried(lock *Lock, forcedExpried bool) {
 		}
 	}
 	lockManager.state.LockedCount -= uint32(lockLocked)
-	lockManager.state.ExpriedCount += 1
+	lockManager.state.ExpriedCount++
 	lockManager.glock.Unlock()
 
 	expriedFlag := lockCommand.ExpriedFlag
@@ -1406,7 +1406,7 @@ func (self *LockDB) doExpried(lock *Lock, forcedExpried bool) {
 			lockKey[15], lockKey[14], lockKey[13], lockKey[12], lockKey[11], lockKey[10], lockKey[9], lockKey[8],
 			lockKey[7], lockKey[6], lockKey[5], lockKey[4], lockKey[3], lockKey[2], lockKey[1], lockKey[0]
 
-		_ = self.Lock(lockProtocol, lockCommand)
+		_ = self.Lock(lockProtocol.serverProtocol, lockCommand)
 	}
 }
 
@@ -1532,8 +1532,8 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 				if currentLock.isAof {
 					_ = lockManager.PushLockAof(currentLock)
 				}
-				lockManager.state.LockCount += 1
-				lockManager.state.LockedCount += 1
+				lockManager.state.LockCount++
+				lockManager.state.LockedCount++
 				lockManager.glock.Unlock()
 
 				_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, uint16(lockManager.locked), currentLock.locked)
@@ -1592,8 +1592,8 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 				self.AddMillisecondExpried(lock)
 			}
 			lock.refCount++
-			lockManager.state.LockCount += 1
-			lockManager.state.LockedCount += 1
+			lockManager.state.LockCount++
+			lockManager.state.LockedCount++
 			lockManager.glock.Unlock()
 
 			_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, uint16(lockManager.locked), lock.locked)
@@ -1608,7 +1608,7 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 		if lockManager.refCount == 0 {
 			self.RemoveLockManager(lockManager)
 		}
-		lockManager.state.LockCount += 1
+		lockManager.state.LockCount++
 		lockManager.glock.Unlock()
 
 		_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, uint16(lockManager.locked), lock.locked)
@@ -1628,7 +1628,7 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 			self.AddMillisecondTimeOut(lock)
 		}
 		lock.refCount++
-		lockManager.state.WaitCount += 1
+		lockManager.state.WaitCount++
 		lockManager.glock.Unlock()
 		return nil
 	}
@@ -1663,7 +1663,7 @@ func (self *LockDB) UnLock(serverProtocol ServerProtocol, command *protocol.Lock
 	lockManager.glock.Lock()
 	if self.status != STATE_LEADER {
 		if command.Flag&protocol.UNLOCK_FLAG_FROM_AOF == 0 {
-			lockManager.state.UnlockErrorCount += 1
+			lockManager.state.UnlockErrorCount++
 			lockManager.glock.Unlock()
 
 			_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_STATE_ERROR, uint16(lockManager.locked), 0)
@@ -1677,7 +1677,7 @@ func (self *LockDB) UnLock(serverProtocol ServerProtocol, command *protocol.Lock
 			self.cancelWaitLock(lockManager, command, serverProtocol)
 			return nil
 		}
-		lockManager.state.UnlockErrorCount += 1
+		lockManager.state.UnlockErrorCount++
 		lockManager.glock.Unlock()
 
 		_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_UNLOCK_ERROR, uint16(lockManager.locked), 0)
@@ -1691,7 +1691,7 @@ func (self *LockDB) UnLock(serverProtocol ServerProtocol, command *protocol.Lock
 			currentLock = lockManager.currentLock
 
 			if currentLock == nil {
-				lockManager.state.UnlockErrorCount += 1
+				lockManager.state.UnlockErrorCount++
 				lockManager.glock.Unlock()
 
 				_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_UNOWN_ERROR, uint16(lockManager.locked), 0)
@@ -1708,7 +1708,7 @@ func (self *LockDB) UnLock(serverProtocol ServerProtocol, command *protocol.Lock
 			self.cancelWaitLock(lockManager, command, serverProtocol)
 			return nil
 		} else {
-			lockManager.state.UnlockErrorCount += 1
+			lockManager.state.UnlockErrorCount++
 			lockManager.glock.Unlock()
 
 			_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_UNOWN_ERROR, uint16(lockManager.locked), 0)
@@ -1728,8 +1728,8 @@ func (self *LockDB) UnLock(serverProtocol ServerProtocol, command *protocol.Lock
 				if currentLock.isAof {
 					_ = lockManager.PushUnLockAof(currentLock, command, true)
 				}
-				lockManager.state.UnLockCount += 1
-				lockManager.state.LockedCount -= 1
+				lockManager.state.UnLockCount++
+				lockManager.state.LockedCount--
 				lockManager.glock.Unlock()
 
 				_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, uint16(lockManager.locked), currentLock.locked)
@@ -1796,8 +1796,8 @@ func (self *LockDB) UnLock(serverProtocol ServerProtocol, command *protocol.Lock
 			}
 			lockManager.locked--
 		}
-		lockManager.state.UnLockCount += 1
-		lockManager.state.LockedCount -= 1
+		lockManager.state.UnLockCount++
+		lockManager.state.LockedCount--
 		lockManager.glock.Unlock()
 
 		_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, uint16(lockManager.locked), currentLock.locked)
@@ -1883,13 +1883,13 @@ func (self *LockDB) wakeUpWaitLock(lockManager *LockManager, waitLock *Lock, ser
 		}
 		waitLock.refCount++
 		waitLockProtocol, waitLockCommand := waitLock.protocol, waitLock.command
-		lockManager.state.LockCount += 1
-		lockManager.state.LockedCount += 1
-		lockManager.state.WaitCount -= 1
+		lockManager.state.LockCount++
+		lockManager.state.LockedCount++
+		lockManager.state.WaitCount--
 		lockManager.glock.Unlock()
 
-		if waitLockProtocol == serverProtocol {
-			_ = waitLockProtocol.ProcessLockResultCommand(waitLockCommand, protocol.RESULT_SUCCED, uint16(lockManager.locked), waitLock.locked)
+		if waitLockProtocol.serverProtocol == serverProtocol {
+			_ = serverProtocol.ProcessLockResultCommand(waitLockCommand, protocol.RESULT_SUCCED, uint16(lockManager.locked), waitLock.locked)
 		} else {
 			_ = waitLockProtocol.ProcessLockResultCommandLocked(waitLockCommand, protocol.RESULT_SUCCED, uint16(lockManager.locked), waitLock.locked)
 		}
@@ -1897,12 +1897,12 @@ func (self *LockDB) wakeUpWaitLock(lockManager *LockManager, waitLock *Lock, ser
 	}
 
 	waitLockProtocol, waitLockCommand := waitLock.protocol, waitLock.command
-	lockManager.state.LockCount += 1
-	lockManager.state.WaitCount -= 1
+	lockManager.state.LockCount++
+	lockManager.state.WaitCount--
 	lockManager.glock.Unlock()
 
-	if waitLockProtocol == serverProtocol {
-		_ = waitLockProtocol.ProcessLockResultCommand(waitLockCommand, protocol.RESULT_SUCCED, uint16(lockManager.locked), waitLock.locked)
+	if waitLockProtocol.serverProtocol == serverProtocol {
+		_ = serverProtocol.ProcessLockResultCommand(waitLockCommand, protocol.RESULT_SUCCED, uint16(lockManager.locked), waitLock.locked)
 		_ = serverProtocol.FreeLockCommand(waitLockCommand)
 	} else {
 		_ = waitLockProtocol.ProcessLockResultCommandLocked(waitLockCommand, protocol.RESULT_SUCCED, uint16(lockManager.locked), waitLock.locked)
@@ -1928,7 +1928,7 @@ func (self *LockDB) cancelWaitLock(lockManager *LockManager, command *protocol.L
 	}
 
 	if waitLock == nil {
-		lockManager.state.UnlockErrorCount += 1
+		lockManager.state.UnlockErrorCount++
 		lockManager.glock.Unlock()
 
 		_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_UNLOCK_ERROR, uint16(lockManager.locked), 0)
@@ -1953,13 +1953,13 @@ func (self *LockDB) cancelWaitLock(lockManager *LockManager, command *protocol.L
 		if lockManager.GetWaitLock() == nil {
 			lockManager.waited = false
 		}
-		lockManager.state.WaitCount -= 1
+		lockManager.state.WaitCount--
 	}
 
 	if lockManager.refCount == 0 {
 		self.RemoveLockManager(lockManager)
 	}
-	lockManager.state.UnLockCount += 1
+	lockManager.state.UnLockCount++
 	lockManager.glock.Unlock()
 
 	_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_LOCKED_ERROR, uint16(lockManager.locked), waitLock.locked)
@@ -2009,8 +2009,8 @@ func (self *LockDB) DoAckLock(lock *Lock, succed bool) {
 			self.AddMillisecondExpried(lock)
 		}
 		lockProtocol, lockCommand := lock.protocol, lock.command
-		lockManager.state.LockCount += 1
-		lockManager.state.LockedCount += 1
+		lockManager.state.LockCount++
+		lockManager.state.LockedCount++
 		lockManager.glock.Unlock()
 
 		_ = lockProtocol.ProcessLockResultCommandLocked(lockCommand, protocol.RESULT_SUCCED, uint16(lockManager.locked), lock.locked)
