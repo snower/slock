@@ -4,16 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"github.com/snower/slock/protocol"
-	"math/rand"
 	"net"
 	"sync"
-	"sync/atomic"
 	"time"
 )
-
-var LETTERS = []byte("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
-var requestIdIndex uint32 = 0
-var lockIdIndex uint32 = 0
 
 type CommandRequest struct {
 	command        protocol.ICommand
@@ -184,11 +178,7 @@ func (self *Client) removeProtocol(clientProtocol ClientProtocol) {
 }
 
 func (self *Client) genClientId() [16]byte {
-	now := uint32(time.Now().Unix())
-	return [16]byte{
-		byte(now >> 24), byte(now >> 16), byte(now >> 8), byte(now), LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)],
-		LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)],
-	}
+	return protocol.GenClientId()
 }
 
 func (self *Client) initProtocol(clientProtocol ClientProtocol, clientId [16]byte) error {
@@ -425,10 +415,5 @@ func (self *Client) State(dbId uint8) *protocol.StateResultCommand {
 }
 
 func (self *Client) GenRequestId() [16]byte {
-	now := uint64(time.Now().UnixNano() / 1e6)
-	rid := atomic.AddUint32(&requestIdIndex, 1)
-	return [16]byte{
-		byte(now >> 24), byte(now >> 16), byte(now >> 8), byte(now), LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)],
-		LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], byte(rid >> 24), byte(rid >> 16), byte(rid >> 8), byte(rid),
-	}
+	return protocol.GenRequestId()
 }

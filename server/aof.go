@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"github.com/snower/slock/protocol"
 	"io"
-	"math/rand"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -14,9 +13,6 @@ import (
 	"sync/atomic"
 	"time"
 )
-
-var LETTERS = []byte("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
-var requestIdIndex uint64 = 0
 
 const AOF_LOCK_TYPE_FILE = 0
 const AOF_LOCK_TYPE_LOAD = 1
@@ -1485,13 +1481,4 @@ func (self *Aof) clearAofFiles() error {
 		return nil
 	})
 	return err
-}
-
-func (self *Aof) GetRequestId() [16]byte {
-	now := uint32(time.Now().Unix())
-	rii := atomic.AddUint64(&requestIdIndex, 1)
-	return [16]byte{
-		byte(now >> 24), byte(now >> 16), byte(now >> 8), byte(now), LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)],
-		LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], byte(rii >> 40), byte(rii >> 32), byte(rii >> 24), byte(rii >> 16), byte(rii >> 8), byte(rii),
-	}
 }

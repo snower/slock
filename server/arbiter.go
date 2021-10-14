@@ -1277,7 +1277,7 @@ func (self *ArbiterManager) Config(host string, weight uint32, arbiter uint32) e
 	self.members = append(self.members, member)
 	go member.Run()
 	self.slock.updateState(STATE_VOTE)
-	self.gid = self.EncodeAofId(protocol.GenRequestId())
+	self.gid = self.EncodeAofId(protocol.GenClientId())
 	self.version++
 	self.vertime = uint64(time.Now().UnixNano()) / 1e6
 	self.voter.proposalId = uint64(self.version)

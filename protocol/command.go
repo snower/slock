@@ -2,10 +2,7 @@ package protocol
 
 import (
 	"errors"
-	"math/rand"
 	"strings"
-	"sync/atomic"
-	"time"
 )
 
 const MAGIC = 0x56
@@ -96,18 +93,6 @@ var ERROR_MSG []string = []string{
 	"EXPRIED",
 	"RESULT_STATE_ERROR",
 	"UNKNOWN_ERROR",
-}
-
-var LETTERS = []byte("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
-var requestIdIndex uint64 = 0
-
-func GenRequestId() [16]byte {
-	now := uint32(time.Now().Unix())
-	rii := atomic.AddUint64(&requestIdIndex, 1)
-	return [16]byte{
-		byte(now >> 24), byte(now >> 16), byte(now >> 8), byte(now), LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)],
-		LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], byte(rii >> 40), byte(rii >> 32), byte(rii >> 24), byte(rii >> 16), byte(rii >> 8), byte(rii),
-	}
 }
 
 type ICommand interface {

@@ -8,13 +8,10 @@ import (
 	"github.com/snower/slock/protocol"
 	"github.com/snower/slock/protocol/protobuf"
 	"io"
-	"math/rand"
 	"net"
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
-	"time"
 )
 
 type ServerProtocol interface {
@@ -2559,10 +2556,5 @@ func (self *TextServerProtocol) commandHandlerPush(_ *TextServerProtocol, args [
 }
 
 func (self *TextServerProtocol) GetRequestId() [16]byte {
-	now := uint32(time.Now().Unix())
-	rii := atomic.AddUint64(&requestIdIndex, 1)
-	return [16]byte{
-		byte(now >> 24), byte(now >> 16), byte(now >> 8), byte(now), LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)],
-		LETTERS[rand.Intn(52)], LETTERS[rand.Intn(52)], byte(rii >> 40), byte(rii >> 32), byte(rii >> 24), byte(rii >> 16), byte(rii >> 8), byte(rii),
-	}
+	return protocol.GenRequestId()
 }
