@@ -1493,6 +1493,7 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 				} else {
 					lockManager.UpdateLockedLock(currentLock, command.TimeoutFlag, command.Timeout, command.Expried, command.ExpriedFlag, command.Count, command.Rcount)
 				}
+				currentLock.protocol = serverProtocol.GetProxy()
 				if currentLock.isAof {
 					_ = lockManager.PushLockAof(currentLock)
 				}
@@ -1529,6 +1530,7 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 				} else {
 					lockManager.UpdateLockedLock(currentLock, command.Timeout, command.TimeoutFlag, command.Expried, command.ExpriedFlag, command.Count, command.Rcount)
 				}
+				currentLock.protocol = serverProtocol.GetProxy()
 				if currentLock.isAof {
 					_ = lockManager.PushLockAof(currentLock)
 				}

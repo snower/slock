@@ -62,8 +62,10 @@ func (self *ServerProtocolProxy) ProcessLockResultCommandLocked(command *protoco
 		if self.serverProtocol == defaultServerProtocol {
 			if serverProtocol, ok := defaultServerProtocol.slock.clients[self.clientId]; ok {
 				defaultServerProtocol.slock.clientsGlock.Unlock()
-				_ = serverProtocol.AddProxy(self)
-				self.serverProtocol = serverProtocol
+				err := serverProtocol.AddProxy(self)
+				if err == nil {
+					self.serverProtocol = serverProtocol
+				}
 				return serverProtocol.ProcessLockResultCommandLocked(command, result, lcount, lrcount)
 			}
 			defaultServerProtocol.slock.clientsGlock.Unlock()
@@ -406,6 +408,11 @@ func (self *MemWaiterServerProtocol) GetProxy() *ServerProtocolProxy {
 
 func (self *MemWaiterServerProtocol) AddProxy(proxy *ServerProtocolProxy) error {
 	self.glock.Lock()
+	if self.closed {
+		self.glock.Unlock()
+		return errors.New("closed")
+	}
+
 	self.proxys = append(self.proxys, proxy)
 	self.glock.Unlock()
 	return nil
@@ -1314,6 +1321,11 @@ func (self *BinaryServerProtocol) GetProxy() *ServerProtocolProxy {
 
 func (self *BinaryServerProtocol) AddProxy(proxy *ServerProtocolProxy) error {
 	self.glock.Lock()
+	if self.closed {
+		self.glock.Unlock()
+		return errors.New("closed")
+	}
+
 	self.proxys = append(self.proxys, proxy)
 	self.glock.Unlock()
 	return nil
@@ -2095,6 +2107,11 @@ func (self *TextServerProtocol) GetProxy() *ServerProtocolProxy {
 
 func (self *TextServerProtocol) AddProxy(proxy *ServerProtocolProxy) error {
 	self.glock.Lock()
+	if self.closed {
+		self.glock.Unlock()
+		return errors.New("closed")
+	}
+
 	self.proxys = append(self.proxys, proxy)
 	self.glock.Unlock()
 	return nil
