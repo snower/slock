@@ -158,6 +158,7 @@ type AofFile struct {
 	windex      int
 	size        int
 	ackRequests [][]byte
+	dirtied     bool
 	ackIndex    int
 }
 
@@ -165,7 +166,7 @@ func NewAofFile(aof *Aof, filename string, mode int, buf_size int) *AofFile {
 	buf_size = buf_size - buf_size%64
 	ackRequests := make([][]byte, buf_size/64)
 	return &AofFile{aof.slock, aof, filename, nil, mode, buf_size,
-		make([]byte, 64), nil, nil, 0, 0, ackRequests, 0}
+		make([]byte, 64), nil, nil, 0, 0, ackRequests, false, 0}
 }
 
 func (self *AofFile) Open() error {
@@ -361,6 +362,7 @@ func (self *AofFile) Flush() error {
 		tn += n
 	}
 	self.windex = 0
+	self.dirtied = true
 
 	for i := 0; i < self.ackIndex; i++ {
 		_ = self.aof.lockAcked(self.ackRequests[i], true)
@@ -370,6 +372,9 @@ func (self *AofFile) Flush() error {
 }
 
 func (self *AofFile) Sync() error {
+	if !self.dirtied {
+		return nil
+	}
 	if self.file == nil {
 		return errors.New("File Unopen")
 	}
@@ -378,10 +383,18 @@ func (self *AofFile) Sync() error {
 	if err != nil {
 		return err
 	}
+	self.dirtied = false
 	return nil
 }
 
 func (self *AofFile) Close() error {
+	if self.windex > 0 {
+		_ = self.Flush()
+	}
+	if self.dirtied {
+		_ = self.Sync()
+	}
+
 	if self.ackIndex > 0 {
 		for i := 0; i < self.ackIndex; i++ {
 			_ = self.aof.lockAcked(self.ackRequests[i], false)
@@ -581,8 +594,9 @@ func (self *AofChannel) Run() {
 			}
 			exited = self.closed
 		default:
+			self.aof.waitLockAofChannel(self)
 			if exited {
-				self.aof.waitLockAofChannel(self)
+				self.aof.syncFileAofChannel(self)
 				_ = self.serverProtocol.Close()
 				self.aof.RemoveAofChannel(self)
 				close(self.closedWaiter)
@@ -591,13 +605,14 @@ func (self *AofChannel) Run() {
 
 			select {
 			case aofLock := <-self.channel:
+				self.aof.handeLockAofChannel(self)
 				if aofLock != nil {
 					self.Handle(aofLock)
 					continue
 				}
 				exited = self.closed
 			case <-time.After(200 * time.Millisecond):
-				self.aof.waitLockAofChannel(self)
+				self.aof.syncFileAofChannel(self)
 				aofLock := <-self.channel
 				self.aof.handeLockAofChannel(self)
 				if aofLock != nil {
@@ -1073,12 +1088,27 @@ func (self *Aof) waitLockAofChannel(_ *AofChannel) {
 	}
 
 	self.aofGlock.Lock()
-	if self.aofFile.windex > 0 {
-		self.Flush()
+	if self.aofFile.windex > 0 && self.aofFile.ackIndex > 0 {
+		err := self.aofFile.Flush()
+		if err != nil {
+			self.slock.Log().Errorf("Aof flush file error %v", err)
+		}
 	}
 	if self.channelFlushWaiter != nil {
 		close(self.channelFlushWaiter)
 		self.channelFlushWaiter = nil
+	}
+	self.aofGlock.Unlock()
+}
+
+func (self *Aof) syncFileAofChannel(_ *AofChannel) {
+	if !atomic.CompareAndSwapUint32(&self.channelActiveCount, 0, 0) {
+		return
+	}
+
+	self.aofGlock.Lock()
+	if self.aofFile.windex > 0 || self.aofFile.dirtied {
+		self.Flush()
 	}
 	self.aofGlock.Unlock()
 }
