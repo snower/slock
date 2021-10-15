@@ -148,34 +148,33 @@ PUSH lock_key [TIMEOUT seconds] [EXPRIED seconds] [LOCK_ID lock_id_string] [FLAG
 # Intel(R) Core(TM) i5-4590 CPU @ 3.30GHz 4 Processor
 # MemTotal: 8038144 kB
 
-go run benchmarks/benchmark2/benchmark.go
 Run 1 Client, 1 concurrentc, 2000000 Count Lock and Unlock
 Client Opened 1
-2000064 8.000514s 249991.953173r/s
+2000064 6.426136s 311238.965232r/s
 
 Run 16 Client, 16 concurrentc, 5000000 Count Lock and Unlock
 Client Opened 16
-5001024 5.016842s 996847.011356r/s
+5001024 3.738898s 1337566.282457r/s
 
 Run 32 Client, 32 concurrentc, 5000000 Count Lock and Unlock
 Client Opened 32
-5001984 4.004664s 1249039.521556r/s
+5002048 3.375306s 1481953.845101r/s
 
 Run 64 Client, 64 concurrentc, 5000000 Count Lock and Unlock
 Client Opened 64
-5004096 4.007319s 1248739.082514r/s
+5004096 3.148570s 1589323.402086r/s
 
 Run 128 Client, 128 concurrentc, 5000000 Count Lock and Unlock
 Client Opened 128
-5008128 5.003915s 1000841.934160r/s
+5008192 3.713254s 1348734.158725r/s
 
 Run 256 Client, 256 concurrentc, 5000000 Count Lock and Unlock
 Client Opened 256
-5016384 6.042036s 830247.293000r/s
+5016384 4.233933s 1184804.690796r/s
 
 Run 512 Client, 512 concurrentc, 5000000 Count Lock and Unlock
 Client Opened 512
-5032768 7.000784s 718886.349061r/s
+5032768 4.738539s 1062092.867154r/s
 
 Succed
 ```
