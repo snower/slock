@@ -3,6 +3,7 @@ package server
 import (
 	"github.com/snower/slock/protocol"
 	"sync"
+	"sync/atomic"
 )
 
 type LockManager struct {
@@ -12,7 +13,7 @@ type LockManager struct {
 	locks        *LockQueue
 	lockMaps     map[[16]byte]*Lock
 	waitLocks    *LockQueue
-	glock        *sync.Mutex
+	glock        *PriorityMutex
 	freeLocks    *LockQueue
 	fastKeyValue *FastKeyValue
 	refCount     uint32
@@ -24,7 +25,7 @@ type LockManager struct {
 	state        *protocol.LockDBState
 }
 
-func NewLockManager(lockDb *LockDB, command *protocol.LockCommand, glock *sync.Mutex, glockIndex uint16, freeLocks *LockQueue) *LockManager {
+func NewLockManager(lockDb *LockDB, command *protocol.LockCommand, glock *PriorityMutex, glockIndex uint16, freeLocks *LockQueue) *LockManager {
 	return &LockManager{lockDb, command.LockKey,
 		nil, nil, nil, nil, glock, freeLocks, nil, 0, 0,
 		glockIndex, command.DbId, false, true, nil}
@@ -328,4 +329,53 @@ func (self *Lock) GetDB() *LockDB {
 		return nil
 	}
 	return self.manager.GetDB()
+}
+
+type PriorityMutex struct {
+	mutex                    sync.Mutex
+	priority                 uint32
+	highPriorityAcquireCount uint32
+	lowPrioritywaiter        sync.Mutex
+}
+
+func (self *PriorityMutex) Lock() {
+	if self.priority == 1 {
+		if atomic.CompareAndSwapUint32(&self.priority, 1, 1) {
+			self.lowPrioritywaiter.Lock()
+			self.lowPrioritywaiter.Unlock()
+		}
+	}
+	self.mutex.Lock()
+}
+
+func (self *PriorityMutex) Unlock() {
+	self.mutex.Unlock()
+}
+
+func (self *PriorityMutex) UpPriority() {
+	if atomic.CompareAndSwapUint32(&self.priority, 0, 1) {
+		self.lowPrioritywaiter.Lock()
+	}
+	if atomic.CompareAndSwapUint32(&self.highPriorityAcquireCount, 0, 0) {
+		self.DownPriority()
+	}
+}
+
+func (self *PriorityMutex) DownPriority() {
+	if atomic.CompareAndSwapUint32(&self.priority, 1, 0) {
+		self.lowPrioritywaiter.Unlock()
+	}
+}
+
+func (self *PriorityMutex) HighPriorityLock() {
+	atomic.AddUint32(&self.highPriorityAcquireCount, 1)
+	self.mutex.Lock()
+}
+
+func (self *PriorityMutex) HighPriorityUnlock() {
+	atomic.AddUint32(&self.highPriorityAcquireCount, 0xffffffff)
+	if atomic.CompareAndSwapUint32(&self.highPriorityAcquireCount, 0, 0) {
+		self.DownPriority()
+	}
+	self.mutex.Unlock()
 }

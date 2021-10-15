@@ -46,7 +46,7 @@ type LockDB struct {
 	checkTimeoutTime          int64
 	checkExpriedTime          int64
 	glock                     *sync.Mutex
-	managerGlocks             []*sync.Mutex
+	managerGlocks             []*PriorityMutex
 	freeLockManagers          []*LockManager
 	freeLocks                 []*LockQueue
 	freeLongWaitQueues        []*LongWaitLockFreeQueue
@@ -67,14 +67,14 @@ type LockDB struct {
 func NewLockDB(slock *SLock, dbId uint8) *LockDB {
 	managerMaxGlocks := uint16(Config.DBConcurrentLock)
 	maxFreeLockManagerCount := uint32(managerMaxGlocks) * MANAGER_MAX_GLOCKS_INIT_SIZE
-	managerGlocks := make([]*sync.Mutex, managerMaxGlocks)
+	managerGlocks := make([]*PriorityMutex, managerMaxGlocks)
 	freeLocks := make([]*LockQueue, managerMaxGlocks)
 	freeLongWaitQueues := make([]*LongWaitLockFreeQueue, managerMaxGlocks)
 	freeMillisecondWaitQueues := make([]*MillisecondWaitLockFreeQueue, managerMaxGlocks)
 	aofChannels := make([]*AofChannel, managerMaxGlocks)
 	states := make([]*protocol.LockDBState, managerMaxGlocks+1)
 	for i := uint16(0); i < managerMaxGlocks; i++ {
-		managerGlocks[i] = &sync.Mutex{}
+		managerGlocks[i] = &PriorityMutex{sync.Mutex{}, 0, 0, sync.Mutex{}}
 		freeLocks[i] = NewLockQueue(2, 16, FREE_LOCK_QUEUE_INIT_SIZE)
 		freeLongWaitQueues[i] = &LongWaitLockFreeQueue{make([]*LongWaitLockQueue, FREE_LONG_WAIT_QUEUE_INIT_SIZE), -1, FREE_LONG_WAIT_QUEUE_INIT_SIZE - 1}
 		freeMillisecondWaitQueues[i] = &MillisecondWaitLockFreeQueue{make([]*LockQueue, FREE_MILLISECOND_WAIT_QUEUE_INIT_SIZE), -1, FREE_MILLISECOND_WAIT_QUEUE_INIT_SIZE - 1}
@@ -190,23 +190,40 @@ func (self *LockDB) FlushDB() error {
 }
 
 func (self *LockDB) startCheckLoop() {
-	timeoutWaiter, expriedWaiter := make(chan bool, 16), make(chan bool, 16)
-	go self.updateCurrentTime(timeoutWaiter, expriedWaiter)
+	timeoutWaiter, expriedWaiter, priorityWaiter := make(chan bool, 16), make(chan bool, 16), make(chan bool, 16)
+	go self.updateCurrentTime(timeoutWaiter, expriedWaiter, priorityWaiter)
 	go self.checkTimeOut(timeoutWaiter)
 	go self.checkExpried(expriedWaiter)
+	go self.checkPriority(priorityWaiter)
 	go self.restructuringLongTimeOutQueue()
 	go self.restructuringLongExpriedQueue()
 }
 
-func (self *LockDB) updateCurrentTime(timeoutWaiter chan bool, expriedWaiter chan bool) {
+func (self *LockDB) updateCurrentTime(timeoutWaiter chan bool, expriedWaiter chan bool, priorityWaiter chan bool) {
+	priorityCheckTime := 200 * time.Millisecond
 	for self.status != STATE_CLOSE {
 		self.currentTime = time.Now().Unix()
 		timeoutWaiter <- true
 		expriedWaiter <- true
+		time.Sleep(priorityCheckTime - time.Duration(time.Now().Nanosecond()))
+		priorityWaiter <- true
 		time.Sleep(time.Second - time.Duration(time.Now().Nanosecond()))
 	}
 	timeoutWaiter <- false
 	expriedWaiter <- false
+	priorityWaiter <- false
+}
+
+func (self *LockDB) checkPriority(waiter chan bool) {
+	<-waiter
+	for self.status != STATE_CLOSE {
+		for i := uint16(0); i < self.managerMaxGlocks; i++ {
+			if self.managerGlocks[i].highPriorityAcquireCount > 0 {
+				self.managerGlocks[i].UpPriority()
+			}
+		}
+		<-waiter
+	}
 }
 
 func (self *LockDB) checkTimeOut(waiter chan bool) {
@@ -244,7 +261,7 @@ func (self *LockDB) checkTimeTimeOut(checkTimeoutTime int64, now int64, glockInd
 		doTimeoutLockQueues[checkTimeoutTime%5] = nil
 	}
 
-	self.managerGlocks[glockIndex].Lock()
+	self.managerGlocks[glockIndex].HighPriorityLock()
 	lock := timeoutLocks[glockIndex].Pop()
 	for lock != nil {
 		if !lock.timeouted {
@@ -273,9 +290,7 @@ func (self *LockDB) checkTimeTimeOut(checkTimeoutTime int64, now int64, glockInd
 	}
 
 	_ = timeoutLocks[glockIndex].Rellac()
-	self.managerGlocks[glockIndex].Unlock()
 
-	self.managerGlocks[glockIndex].Lock()
 	if longLocks, ok := self.longTimeoutLocks[glockIndex][checkTimeoutTime]; ok {
 		longLockCount := longLocks.locks.Len()
 		for longLockCount > 0 {
@@ -307,7 +322,7 @@ func (self *LockDB) checkTimeTimeOut(checkTimeoutTime int64, now int64, glockInd
 			freeLongWaitQueue.queues[freeLongWaitQueue.freeIndex] = longLocks
 		}
 	}
-	self.managerGlocks[glockIndex].Unlock()
+	self.managerGlocks[glockIndex].HighPriorityUnlock()
 
 	lock = doTimeoutLocks.Pop()
 	for lock != nil {
@@ -324,55 +339,57 @@ func (self *LockDB) checkMillisecondTimeOut(ms int64, glockIndex uint16) {
 		time.Sleep(time.Duration(sleepMs) * time.Millisecond)
 	}
 
-	self.managerGlocks[glockIndex].Lock()
+	self.managerGlocks[glockIndex].HighPriorityLock()
 	lockQueue := self.millisecondTimeoutLocks[glockIndex][ms%1000]
-	if lockQueue != nil {
-		self.millisecondTimeoutLocks[glockIndex][ms%1000] = nil
+	if lockQueue == nil {
+		self.managerGlocks[glockIndex].HighPriorityUnlock()
+		return
+	}
 
-		for i := range lockQueue.IterNodes() {
-			nodeQueues := lockQueue.IterNodeQueues(int32(i))
-			for j, lock := range nodeQueues {
-				if !lock.timeouted {
-					timeoutSeconds := int64(lock.command.Timeout / 1000)
-					lock.timeoutTime = self.currentTime + timeoutSeconds + 1
-					if timeoutSeconds > 0 {
-						self.AddTimeOut(lock)
-						nodeQueues[j] = nil
-						continue
-					}
+	self.millisecondTimeoutLocks[glockIndex][ms%1000] = nil
+	for i := range lockQueue.IterNodes() {
+		nodeQueues := lockQueue.IterNodeQueues(int32(i))
+		for j, lock := range nodeQueues {
+			if !lock.timeouted {
+				timeoutSeconds := int64(lock.command.Timeout / 1000)
+				lock.timeoutTime = self.currentTime + timeoutSeconds + 1
+				if timeoutSeconds > 0 {
+					self.AddTimeOut(lock)
+					nodeQueues[j] = nil
 					continue
 				}
+				continue
+			}
 
-				lockManager := lock.manager
-				lock.refCount--
-				if lock.refCount == 0 {
-					lockManager.FreeLock(lock)
-					if lockManager.refCount == 0 {
-						self.RemoveLockManager(lockManager)
-					}
+			lockManager := lock.manager
+			lock.refCount--
+			if lock.refCount == 0 {
+				lockManager.FreeLock(lock)
+				if lockManager.refCount == 0 {
+					self.RemoveLockManager(lockManager)
 				}
+			}
+			nodeQueues[j] = nil
+		}
+	}
+	self.managerGlocks[glockIndex].HighPriorityUnlock()
+
+	for i := range lockQueue.IterNodes() {
+		nodeQueues := lockQueue.IterNodeQueues(int32(i))
+		for j, lock := range nodeQueues {
+			if lock != nil {
+				self.doTimeOut(lock, false)
 				nodeQueues[j] = nil
 			}
 		}
-		self.managerGlocks[glockIndex].Unlock()
+	}
 
-		for i := range lockQueue.IterNodes() {
-			nodeQueues := lockQueue.IterNodeQueues(int32(i))
-			for j, lock := range nodeQueues {
-				if lock != nil {
-					self.doTimeOut(lock, false)
-					nodeQueues[j] = nil
-				}
-			}
-		}
-
-		self.managerGlocks[glockIndex].Lock()
-		freeMillisecondWaitQueue := self.freeMillisecondWaitQueues[glockIndex]
-		if freeMillisecondWaitQueue.freeIndex < freeMillisecondWaitQueue.maxFreeCount {
-			_ = lockQueue.Reset()
-			freeMillisecondWaitQueue.freeIndex++
-			freeMillisecondWaitQueue.queues[freeMillisecondWaitQueue.freeIndex] = lockQueue
-		}
+	self.managerGlocks[glockIndex].Lock()
+	freeMillisecondWaitQueue := self.freeMillisecondWaitQueues[glockIndex]
+	if freeMillisecondWaitQueue.freeIndex < freeMillisecondWaitQueue.maxFreeCount {
+		_ = lockQueue.Reset()
+		freeMillisecondWaitQueue.freeIndex++
+		freeMillisecondWaitQueue.queues[freeMillisecondWaitQueue.freeIndex] = lockQueue
 	}
 	self.managerGlocks[glockIndex].Unlock()
 }
@@ -571,7 +588,7 @@ func (self *LockDB) checkTimeExpried(checkExpriedTime int64, now int64, glockInd
 		doExpriedLockQueues[checkExpriedTime%5] = nil
 	}
 
-	self.managerGlocks[glockIndex].Lock()
+	self.managerGlocks[glockIndex].HighPriorityLock()
 	lock := expriedLocks[glockIndex].Pop()
 	for lock != nil {
 		if !lock.expried {
@@ -598,11 +615,8 @@ func (self *LockDB) checkTimeExpried(checkExpriedTime int64, now int64, glockInd
 		}
 		lock = expriedLocks[glockIndex].Pop()
 	}
-
 	_ = expriedLocks[glockIndex].Rellac()
-	self.managerGlocks[glockIndex].Unlock()
 
-	self.managerGlocks[glockIndex].Lock()
 	if longLocks, ok := self.longExpriedLocks[glockIndex][checkExpriedTime]; ok {
 		longLockCount := longLocks.locks.Len()
 		for longLockCount > 0 {
@@ -634,7 +648,7 @@ func (self *LockDB) checkTimeExpried(checkExpriedTime int64, now int64, glockInd
 			freeLongWaitQueue.queues[freeLongWaitQueue.freeIndex] = longLocks
 		}
 	}
-	self.managerGlocks[glockIndex].Unlock()
+	self.managerGlocks[glockIndex].HighPriorityUnlock()
 
 	lock = doExpriedLocks.Pop()
 	for lock != nil {
@@ -651,55 +665,57 @@ func (self *LockDB) checkMillisecondExpried(ms int64, glockIndex uint16) {
 		time.Sleep(time.Duration(sleepMs) * time.Millisecond)
 	}
 
-	self.managerGlocks[glockIndex].Lock()
+	self.managerGlocks[glockIndex].HighPriorityLock()
 	lockQueue := self.millisecondExpriedLocks[glockIndex][ms%1000]
-	if lockQueue != nil {
-		self.millisecondExpriedLocks[glockIndex][ms%1000] = nil
+	if lockQueue == nil {
+		self.managerGlocks[glockIndex].HighPriorityUnlock()
+		return
+	}
 
-		for i := range lockQueue.IterNodes() {
-			nodeQueues := lockQueue.IterNodeQueues(int32(i))
-			for j, lock := range nodeQueues {
-				if !lock.expried {
-					expriedSeconds := int64(lock.command.Expried / 1000)
-					lock.expriedTime = self.currentTime + expriedSeconds + 1
-					if expriedSeconds > 0 {
-						self.AddExpried(lock)
-						nodeQueues[j] = nil
-						continue
-					}
+	self.millisecondExpriedLocks[glockIndex][ms%1000] = nil
+	for i := range lockQueue.IterNodes() {
+		nodeQueues := lockQueue.IterNodeQueues(int32(i))
+		for j, lock := range nodeQueues {
+			if !lock.expried {
+				expriedSeconds := int64(lock.command.Expried / 1000)
+				lock.expriedTime = self.currentTime + expriedSeconds + 1
+				if expriedSeconds > 0 {
+					self.AddExpried(lock)
+					nodeQueues[j] = nil
 					continue
 				}
+				continue
+			}
 
-				lockManager := lock.manager
-				lock.refCount--
-				if lock.refCount == 0 {
-					lockManager.FreeLock(lock)
-					if lockManager.refCount == 0 {
-						self.RemoveLockManager(lockManager)
-					}
+			lockManager := lock.manager
+			lock.refCount--
+			if lock.refCount == 0 {
+				lockManager.FreeLock(lock)
+				if lockManager.refCount == 0 {
+					self.RemoveLockManager(lockManager)
 				}
+			}
+			nodeQueues[j] = nil
+		}
+	}
+	self.managerGlocks[glockIndex].HighPriorityUnlock()
+
+	for i := range lockQueue.IterNodes() {
+		nodeQueues := lockQueue.IterNodeQueues(int32(i))
+		for j, lock := range nodeQueues {
+			if lock != nil {
+				self.doExpried(lock, false)
 				nodeQueues[j] = nil
 			}
 		}
-		self.managerGlocks[glockIndex].Unlock()
+	}
 
-		for i := range lockQueue.IterNodes() {
-			nodeQueues := lockQueue.IterNodeQueues(int32(i))
-			for j, lock := range nodeQueues {
-				if lock != nil {
-					self.doExpried(lock, false)
-					nodeQueues[j] = nil
-				}
-			}
-		}
-
-		self.managerGlocks[glockIndex].Lock()
-		freeMillisecondWaitQueue := self.freeMillisecondWaitQueues[glockIndex]
-		if freeMillisecondWaitQueue.freeIndex < freeMillisecondWaitQueue.maxFreeCount {
-			_ = lockQueue.Reset()
-			freeMillisecondWaitQueue.freeIndex++
-			freeMillisecondWaitQueue.queues[freeMillisecondWaitQueue.freeIndex] = lockQueue
-		}
+	self.managerGlocks[glockIndex].Lock()
+	freeMillisecondWaitQueue := self.freeMillisecondWaitQueues[glockIndex]
+	if freeMillisecondWaitQueue.freeIndex < freeMillisecondWaitQueue.maxFreeCount {
+		_ = lockQueue.Reset()
+		freeMillisecondWaitQueue.freeIndex++
+		freeMillisecondWaitQueue.queues[freeMillisecondWaitQueue.freeIndex] = lockQueue
 	}
 	self.managerGlocks[glockIndex].Unlock()
 }
@@ -870,6 +886,15 @@ func (self *LockDB) flushExpriedCheckLock(lockQueue *LockQueue, lock *Lock, doEx
 
 func (self *LockDB) initNewLockManager(dbId uint8) {
 	lockManagers := make([]LockManager, 16)
+
+	for i := uint16(0); i < self.managerMaxGlocks; i++ {
+		if self.managerGlocks[i].priority == 1 {
+			self.glock.Unlock()
+			self.managerGlocks[i].Lock()
+			self.managerGlocks[i].Unlock()
+			self.glock.Lock()
+		}
+	}
 
 	for i := 0; i < 16; i++ {
 		freeLockManagerHead := atomic.AddUint32(&self.freeLockManagerHead, 1) % self.maxFreeLockManagerCount
