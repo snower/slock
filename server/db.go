@@ -2,6 +2,7 @@ package server
 
 import (
 	"github.com/snower/slock/protocol"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -66,6 +67,9 @@ type LockDB struct {
 
 func NewLockDB(slock *SLock, dbId uint8) *LockDB {
 	managerMaxGlocks := uint16(Config.DBConcurrentLock)
+	if managerMaxGlocks == 0 {
+		managerMaxGlocks = uint16(runtime.NumCPU()) * 2
+	}
 	maxFreeLockManagerCount := uint32(managerMaxGlocks) * MANAGER_MAX_GLOCKS_INIT_SIZE
 	managerGlocks := make([]*PriorityMutex, managerMaxGlocks)
 	freeLocks := make([]*LockQueue, managerMaxGlocks)
@@ -200,7 +204,7 @@ func (self *LockDB) startCheckLoop() {
 }
 
 func (self *LockDB) updateCurrentTime(timeoutWaiter chan bool, expriedWaiter chan bool, priorityWaiter chan bool) {
-	priorityCheckTime := 200 * time.Millisecond
+	priorityCheckTime := 20 * time.Millisecond
 	for self.status != STATE_CLOSE {
 		self.currentTime = time.Now().Unix()
 		timeoutWaiter <- true
@@ -885,17 +889,20 @@ func (self *LockDB) flushExpriedCheckLock(lockQueue *LockQueue, lock *Lock, doEx
 }
 
 func (self *LockDB) initNewLockManager(dbId uint8) {
-	lockManagers := make([]LockManager, 16)
-
 	for i := uint16(0); i < self.managerMaxGlocks; i++ {
 		if self.managerGlocks[i].priority == 1 {
 			self.glock.Unlock()
 			self.managerGlocks[i].Lock()
 			self.managerGlocks[i].Unlock()
 			self.glock.Lock()
+			lockManager := self.freeLockManagers[(self.freeLockManagerTail+1)%self.maxFreeLockManagerCount]
+			if lockManager != nil {
+				return
+			}
 		}
 	}
 
+	lockManagers := make([]LockManager, 16)
 	for i := 0; i < 16; i++ {
 		freeLockManagerHead := atomic.AddUint32(&self.freeLockManagerHead, 1) % self.maxFreeLockManagerCount
 		if self.freeLockManagers[freeLockManagerHead] != nil {
