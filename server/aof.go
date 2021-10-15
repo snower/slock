@@ -20,6 +20,8 @@ const AOF_LOCK_TYPE_ACK_FILE = 2
 const AOF_LOCK_TYPE_ACK_ACKED = 3
 
 const AOF_FLAG_REWRITEd = 0x0001
+const AOF_FLAG_TIMEOUTED = 0x0002
+const AOF_FLAG_EXPRIED = 0x0004
 const AOF_FLAG_REQUIRE_ACKED = 0x1000
 
 type AofLock struct {
@@ -418,7 +420,7 @@ type AofChannel struct {
 	closedWaiter   chan bool
 }
 
-func (self *AofChannel) Push(lock *Lock, commandType uint8, command *protocol.LockCommand) error {
+func (self *AofChannel) Push(lock *Lock, commandType uint8, command *protocol.LockCommand, aofFlag uint16) error {
 	if self.closed {
 		return io.EOF
 	}
@@ -475,6 +477,7 @@ func (self *AofChannel) Push(lock *Lock, commandType uint8, command *protocol.Lo
 	} else {
 		aofLock.lock = nil
 	}
+	aofLock.AofFlag |= aofFlag
 
 	aofLock.HandleType = AOF_LOCK_TYPE_FILE
 	self.channel <- aofLock
@@ -1070,7 +1073,9 @@ func (self *Aof) waitLockAofChannel(_ *AofChannel) {
 	}
 
 	self.aofGlock.Lock()
-	self.Flush()
+	if self.aofFile.windex > 0 {
+		self.Flush()
+	}
 	if self.channelFlushWaiter != nil {
 		close(self.channelFlushWaiter)
 		self.channelFlushWaiter = nil
@@ -1199,9 +1204,6 @@ func (self *Aof) lockLoaded(_ *MemWaiterServerProtocol, command *protocol.LockCo
 }
 
 func (self *Aof) Flush() {
-	if self.aofFile.windex == 0 {
-		return
-	}
 	err := self.aofFile.Flush()
 	if err != nil {
 		self.slock.Log().Errorf("Aof flush file error %v", err)

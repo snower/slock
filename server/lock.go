@@ -217,7 +217,7 @@ func (self *LockManager) PushLockAof(lock *Lock) error {
 	}
 
 	fashHash := (uint32(self.lockKey[0])<<24 | uint32(self.lockKey[1])<<16 | uint32(self.lockKey[2])<<8 | uint32(self.lockKey[3])) ^ (uint32(self.lockKey[4])<<24 | uint32(self.lockKey[5])<<16 | uint32(self.lockKey[6])<<8 | uint32(self.lockKey[7])) ^ (uint32(self.lockKey[8])<<24 | uint32(self.lockKey[9])<<16 | uint32(self.lockKey[10])<<8 | uint32(self.lockKey[11])) ^ (uint32(self.lockKey[12])<<24 | uint32(self.lockKey[13])<<16 | uint32(self.lockKey[14])<<8 | uint32(self.lockKey[15]))
-	err := self.lockDb.aofChannels[fashHash%uint32(self.lockDb.managerMaxGlocks)].Push(lock, protocol.COMMAND_LOCK, nil)
+	err := self.lockDb.aofChannels[fashHash%uint32(self.lockDb.managerMaxGlocks)].Push(lock, protocol.COMMAND_LOCK, nil, 0)
 	if err != nil {
 		self.lockDb.slock.Log().Errorf("Database lock push aof error DbId:%d LockKey:%x LockId:%x",
 			lock.command.DbId, lock.command.LockKey, lock.command.LockId)
@@ -227,7 +227,7 @@ func (self *LockManager) PushLockAof(lock *Lock) error {
 	return nil
 }
 
-func (self *LockManager) PushUnLockAof(lock *Lock, command *protocol.LockCommand, isAof bool) error {
+func (self *LockManager) PushUnLockAof(lock *Lock, command *protocol.LockCommand, isAof bool, aofFlag uint16) error {
 	if command == nil {
 		if self.lockDb.status != STATE_LEADER {
 			lock.isAof = isAof
@@ -241,7 +241,7 @@ func (self *LockManager) PushUnLockAof(lock *Lock, command *protocol.LockCommand
 	}
 
 	fashHash := (uint32(self.lockKey[0])<<24 | uint32(self.lockKey[1])<<16 | uint32(self.lockKey[2])<<8 | uint32(self.lockKey[3])) ^ (uint32(self.lockKey[4])<<24 | uint32(self.lockKey[5])<<16 | uint32(self.lockKey[6])<<8 | uint32(self.lockKey[7])) ^ (uint32(self.lockKey[8])<<24 | uint32(self.lockKey[9])<<16 | uint32(self.lockKey[10])<<8 | uint32(self.lockKey[11])) ^ (uint32(self.lockKey[12])<<24 | uint32(self.lockKey[13])<<16 | uint32(self.lockKey[14])<<8 | uint32(self.lockKey[15]))
-	err := self.lockDb.aofChannels[fashHash%uint32(self.lockDb.managerMaxGlocks)].Push(lock, protocol.COMMAND_UNLOCK, command)
+	err := self.lockDb.aofChannels[fashHash%uint32(self.lockDb.managerMaxGlocks)].Push(lock, protocol.COMMAND_UNLOCK, command, aofFlag)
 	if err != nil {
 		self.lockDb.slock.Log().Errorf("Database lock push aof error DbId:%d LockKey:%x LockId:%x",
 			lock.command.DbId, lock.command.LockKey, lock.command.LockId)
