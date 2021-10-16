@@ -38,10 +38,16 @@ func (self *LockManager) GetDB() *LockDB {
 func (self *LockManager) AddLock(lock *Lock) *Lock {
 	if lock.command.TimeoutFlag&protocol.TIMEOUT_FLAG_UNRENEW_EXPRIED_TIME_WHEN_TIMEOUT == 0 {
 		lock.startTime = self.lockDb.currentTime
-		if lock.command.ExpriedFlag&protocol.EXPRIED_FLAG_MILLISECOND_TIME == 0 {
-			lock.expriedTime = lock.startTime + int64(lock.command.Expried) + 1
-		} else if lock.command.ExpriedFlag&protocol.EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME != 0 {
+		if lock.command.ExpriedFlag&protocol.EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME != 0 {
 			lock.expriedTime = 0x7fffffffffffffff
+		} else if lock.command.ExpriedFlag&protocol.EXPRIED_FLAG_MILLISECOND_TIME == 0 {
+			if lock.command.ExpriedFlag&protocol.EXPRIED_FLAG_MINUTE_TIME != 0 {
+				lock.expriedTime = lock.startTime + int64(lock.command.Expried)*60 + 1
+			} else {
+				lock.expriedTime = lock.startTime + int64(lock.command.Expried) + 1
+			}
+		} else {
+			lock.expriedTime = 0
 		}
 	}
 
@@ -147,15 +153,23 @@ func (self *LockManager) UpdateLockedLock(lock *Lock, timeout uint16, timeout_fl
 
 	lock.startTime = self.lockDb.currentTime
 	if timeout_flag&protocol.TIMEOUT_FLAG_MILLISECOND_TIME == 0 {
-		lock.timeoutTime = lock.startTime + int64(timeout) + 1
+		if timeout_flag&protocol.TIMEOUT_FLAG_MINUTE_TIME != 0 {
+			lock.timeoutTime = lock.startTime + int64(timeout)*60 + 1
+		} else {
+			lock.timeoutTime = lock.startTime + int64(timeout) + 1
+		}
 	} else {
 		lock.timeoutTime = 0
 	}
 
-	if expried_flag&protocol.EXPRIED_FLAG_MILLISECOND_TIME == 0 {
-		lock.expriedTime = lock.startTime + int64(expried) + 1
-	} else if lock.command.ExpriedFlag&protocol.EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME != 0 {
+	if lock.command.ExpriedFlag&protocol.EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME != 0 {
 		lock.expriedTime = 0x7fffffffffffffff
+	} else if lock.command.ExpriedFlag&protocol.EXPRIED_FLAG_MILLISECOND_TIME == 0 {
+		if lock.command.ExpriedFlag&protocol.EXPRIED_FLAG_MINUTE_TIME != 0 {
+			lock.expriedTime = lock.startTime + int64(lock.command.Expried)*60 + 1
+		} else {
+			lock.expriedTime = lock.startTime + int64(lock.command.Expried) + 1
+		}
 	} else {
 		lock.expriedTime = 0
 	}
@@ -279,16 +293,26 @@ func (self *LockManager) GetOrNewLock(server_protocol ServerProtocol, command *p
 	lock.protocol = server_protocol.GetProxy()
 	lock.startTime = now
 	if lock.command.TimeoutFlag&protocol.TIMEOUT_FLAG_UNRENEW_EXPRIED_TIME_WHEN_TIMEOUT != 0 {
-		if lock.command.ExpriedFlag&protocol.EXPRIED_FLAG_MILLISECOND_TIME == 0 {
-			lock.expriedTime = lock.startTime + int64(lock.command.Expried) + 1
-		} else if lock.command.ExpriedFlag&protocol.EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME != 0 {
+		if lock.command.ExpriedFlag&protocol.EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME != 0 {
 			lock.expriedTime = 0x7fffffffffffffff
+		} else if lock.command.ExpriedFlag&protocol.EXPRIED_FLAG_MILLISECOND_TIME == 0 {
+			if lock.command.ExpriedFlag&protocol.EXPRIED_FLAG_MINUTE_TIME != 0 {
+				lock.expriedTime = lock.startTime + int64(lock.command.Expried)*60 + 1
+			} else {
+				lock.expriedTime = lock.startTime + int64(lock.command.Expried) + 1
+			}
+		} else {
+			lock.expriedTime = 0
 		}
 	} else {
 		lock.expriedTime = 0
 	}
 	if lock.command.TimeoutFlag&protocol.TIMEOUT_FLAG_MILLISECOND_TIME == 0 {
-		lock.timeoutTime = now + int64(command.Timeout) + 1
+		if lock.command.TimeoutFlag&protocol.TIMEOUT_FLAG_MINUTE_TIME != 0 {
+			lock.timeoutTime = now + int64(command.Timeout)*60 + 1
+		} else {
+			lock.timeoutTime = now + int64(command.Timeout) + 1
+		}
 	} else {
 		lock.timeoutTime = 0
 	}

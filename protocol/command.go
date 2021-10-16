@@ -20,6 +20,8 @@ const (
 	COMMAND_WILL_LOCK   = 8
 	COMMAND_WILL_UNLOCK = 9
 	COMMAND_LEADER      = 10
+	COMMAND_SUBSCRIBE   = 11
+	COMMAND_PUBLISH     = 12
 )
 
 const (
@@ -50,6 +52,8 @@ const (
 )
 
 const (
+	TIMEOUT_FLAG_PUSH_SUBSCRIBE                        = 0x0020
+	TIMEOUT_FLAG_MINUTE_TIME                           = 0x0040
 	TIMEOUT_FLAG_REVERSE_KEY_LOCK_WHEN_TIMEOUT         = 0x0080
 	TIMEOUT_FLAG_UNRENEW_EXPRIED_TIME_WHEN_TIMEOUT     = 0x0100
 	TIMEOUT_FLAG_LOCK_WAIT_WHEN_UNLOCK                 = 0x0200
@@ -61,6 +65,8 @@ const (
 )
 
 const (
+	EXPRIED_FLAG_PUSH_SUBSCRIBE                        = 0x0020
+	EXPRIED_FLAG_MINUTE_TIME                           = 0x0040
 	EXPRIED_FLAG_REVERSE_KEY_LOCK_WHEN_EXPRIED         = 0x0080
 	EXPRIED_FLAG_ZEOR_AOF_TIME                         = 0x0100
 	EXPRIED_FLAG_UNLIMITED_AOF_TIME                    = 0x0200
@@ -323,16 +329,16 @@ type LockCommand struct {
 	LockKey     [16]byte
 	TimeoutFlag uint16
 	/*
-	   |    15  |                13                   |  12 |        11      |       10       |      9       |           8        |             7          |6                        0|
-	   |--------|-------------------------------------|-----|----------------|----------------|--------------|--------------------|------------------------|--------------------------|
-	   |keeplive|update_no_reset_timeout_checked_count|acked|timeout_is_error|millisecond_time|unlock_to_wait|unrenew_expried_time|timeout_reverse_key_lock|                          |
+	   |    15  |                13                   |  12 |        11      |       10       |      9       |           8        |             7          |      6    |       5      |4           0|
+	   |--------|-------------------------------------|-----|----------------|----------------|--------------|--------------------|------------------------|-----------|--------------|-------------|
+	   |keeplive|update_no_reset_timeout_checked_count|acked|timeout_is_error|millisecond_time|unlock_to_wait|unrenew_expried_time|timeout_reverse_key_lock|minute_time|push_subscribe|             |
 	*/
 	Timeout     uint16
 	ExpriedFlag uint16
 	/*
-	   |    15  |          14          |                13                   |                12         |        11      |       10       |         9        |        8    |            7           |6           0|
-	   |--------|----------------------|-------------------------------------|---------------------------|----------------|----------------|------------------|-------------|------------------------|-------------|
-	   |keeplive|unlimited_expried_time|update_no_reset_expried_checked_count|aof_time_of_expried_parcent|expried_is_error|millisecond_time|unlimited_aof_time|zeor_aof_time|expried_reverse_key_lock|             |                                    |
+	   |    15  |          14          |                13                   |                12         |        11      |       10       |         9        |        8    |            7           |     6     |    5         |4            0|
+	   |--------|----------------------|-------------------------------------|---------------------------|----------------|----------------|------------------|-------------|------------------------|-----------|--------------|--------------|
+	   |keeplive|unlimited_expried_time|update_no_reset_expried_checked_count|aof_time_of_expried_parcent|expried_is_error|millisecond_time|unlimited_aof_time|zeor_aof_time|expried_reverse_key_lock|minute_time|push_subscribe|              |
 	*/
 	Expried uint16
 	Count   uint16
@@ -1146,6 +1152,147 @@ func (self *LeaderResultCommand) Encode(buf []byte) error {
 		} else {
 			buf[27+i] = self.Host[i]
 		}
+	}
+	return nil
+}
+
+type SubscribeCommand struct {
+	Command
+	Flag          uint8
+	SubscribeId   uint64
+	SubscribeType uint8
+	LockKeyMask   [16]byte
+	Expried       uint32
+	MaxSize       uint32
+	Blank         [11]byte
+}
+
+func NewSubscribeCommand(subscribeId uint64, subscribeType uint8, lockKeyMask [16]byte, expried uint32, maxSize uint32) *SubscribeCommand {
+	command := Command{Magic: MAGIC, Version: VERSION, CommandType: COMMAND_LEADER, RequestId: GenRequestId()}
+	leaderCommand := SubscribeCommand{Command: command, Flag: 0, SubscribeId: subscribeId,
+		SubscribeType: subscribeType, LockKeyMask: lockKeyMask, Expried: expried, MaxSize: maxSize, Blank: [11]byte{}}
+	return &leaderCommand
+}
+
+func (self *SubscribeCommand) Decode(buf []byte) error {
+	self.Magic = uint8(buf[0])
+	self.Version = uint8(buf[1])
+	self.CommandType = uint8(buf[2])
+
+	self.RequestId[0], self.RequestId[1], self.RequestId[2], self.RequestId[3], self.RequestId[4], self.RequestId[5], self.RequestId[6], self.RequestId[7],
+		self.RequestId[8], self.RequestId[9], self.RequestId[10], self.RequestId[11], self.RequestId[12], self.RequestId[13], self.RequestId[14], self.RequestId[15] =
+		buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
+		buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18]
+
+	self.Flag = uint8(buf[19])
+	self.SubscribeId = uint64(buf[20]) | uint64(buf[21])<<8 | uint64(buf[22])<<16 | uint64(buf[23])<<24 | uint64(buf[24])<<32 | uint64(buf[25])<<40 | uint64(buf[26])<<48 | uint64(buf[27])<<56
+	self.Flag = uint8(buf[28])
+
+	self.LockKeyMask[0], self.LockKeyMask[1], self.LockKeyMask[2], self.LockKeyMask[3], self.LockKeyMask[4], self.LockKeyMask[5], self.LockKeyMask[6], self.LockKeyMask[7],
+		self.LockKeyMask[8], self.LockKeyMask[9], self.LockKeyMask[10], self.LockKeyMask[11], self.LockKeyMask[12], self.LockKeyMask[13], self.LockKeyMask[14], self.LockKeyMask[15] =
+		buf[29], buf[30], buf[31], buf[32], buf[33], buf[34], buf[35], buf[36],
+		buf[37], buf[38], buf[39], buf[40], buf[41], buf[42], buf[43], buf[44]
+
+	self.Expried = uint32(buf[45]) | uint32(buf[46])<<8 | uint32(buf[47])<<16 | uint32(buf[48])<<24
+	self.MaxSize = uint32(buf[49]) | uint32(buf[50])<<8 | uint32(buf[51])<<16 | uint32(buf[52])<<24
+	return nil
+}
+
+func (self *SubscribeCommand) Encode(buf []byte) error {
+	buf[0] = byte(self.Magic)
+	buf[1] = byte(self.Version)
+	buf[2] = byte(self.CommandType)
+
+	buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
+		buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18] =
+		self.RequestId[0], self.RequestId[1], self.RequestId[2], self.RequestId[3], self.RequestId[4], self.RequestId[5], self.RequestId[6], self.RequestId[7],
+		self.RequestId[8], self.RequestId[9], self.RequestId[10], self.RequestId[11], self.RequestId[12], self.RequestId[13], self.RequestId[14], self.RequestId[15]
+
+	buf[19] = byte(self.Flag)
+
+	buf[20] = byte(self.SubscribeId)
+	buf[21] = byte(self.SubscribeId >> 8)
+	buf[22] = byte(self.SubscribeId >> 16)
+	buf[23] = byte(self.SubscribeId >> 24)
+	buf[24] = byte(self.SubscribeId >> 32)
+	buf[25] = byte(self.SubscribeId >> 40)
+	buf[26] = byte(self.SubscribeId >> 48)
+	buf[27] = byte(self.SubscribeId >> 56)
+
+	buf[28] = byte(self.SubscribeType)
+
+	buf[29], buf[30], buf[31], buf[32], buf[33], buf[34], buf[35], buf[36],
+		buf[37], buf[38], buf[39], buf[40], buf[41], buf[42], buf[43], buf[44] =
+		self.LockKeyMask[0], self.LockKeyMask[1], self.LockKeyMask[2], self.LockKeyMask[3], self.LockKeyMask[4], self.LockKeyMask[5], self.LockKeyMask[6], self.LockKeyMask[7],
+		self.LockKeyMask[8], self.LockKeyMask[9], self.LockKeyMask[10], self.LockKeyMask[11], self.LockKeyMask[12], self.LockKeyMask[13], self.LockKeyMask[14], self.LockKeyMask[15]
+
+	buf[45] = byte(self.Expried)
+	buf[46] = byte(self.Expried >> 8)
+	buf[47] = byte(self.Expried >> 16)
+	buf[48] = byte(self.Expried >> 24)
+
+	buf[49] = byte(self.MaxSize)
+	buf[50] = byte(self.MaxSize >> 8)
+	buf[51] = byte(self.MaxSize >> 16)
+	buf[52] = byte(self.MaxSize >> 24)
+
+	for i := 0; i < 11; i++ {
+		buf[53+i] = 0x00
+	}
+	return nil
+}
+
+type SubscribeResultCommand struct {
+	ResultCommand
+	Flag        uint8
+	SubscribeId uint64
+	Blank       [35]byte
+}
+
+func NewSubscribeResultCommand(command *SubscribeCommand, result uint8, subscribeId uint64) *SubscribeResultCommand {
+	resultCommand := ResultCommand{MAGIC, VERSION, command.CommandType, command.RequestId, result}
+	return &SubscribeResultCommand{resultCommand, 0, subscribeId, [35]byte{}}
+}
+
+func (self *SubscribeResultCommand) Decode(buf []byte) error {
+	self.Magic = uint8(buf[0])
+	self.Version = uint8(buf[1])
+	self.CommandType = uint8(buf[2])
+
+	self.RequestId[0], self.RequestId[1], self.RequestId[2], self.RequestId[3], self.RequestId[4], self.RequestId[5], self.RequestId[6], self.RequestId[7],
+		self.RequestId[8], self.RequestId[9], self.RequestId[10], self.RequestId[11], self.RequestId[12], self.RequestId[13], self.RequestId[14], self.RequestId[15] =
+		buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
+		buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18]
+
+	self.Result, self.Flag = uint8(buf[19]), uint8(buf[20])
+	self.SubscribeId = uint64(buf[21]) | uint64(buf[22])<<8 | uint64(buf[23])<<16 | uint64(buf[24])<<24 | uint64(buf[25])<<32 | uint64(buf[26])<<40 | uint64(buf[27])<<48 | uint64(buf[28])<<56
+	return nil
+}
+
+func (self *SubscribeResultCommand) Encode(buf []byte) error {
+	buf[0] = byte(self.Magic)
+	buf[1] = byte(self.Version)
+	buf[2] = byte(self.CommandType)
+
+	buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
+		buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18] =
+		self.RequestId[0], self.RequestId[1], self.RequestId[2], self.RequestId[3], self.RequestId[4], self.RequestId[5], self.RequestId[6], self.RequestId[7],
+		self.RequestId[8], self.RequestId[9], self.RequestId[10], self.RequestId[11], self.RequestId[12], self.RequestId[13], self.RequestId[14], self.RequestId[15]
+
+	buf[19] = uint8(self.Result)
+	buf[20] = byte(self.Flag)
+
+	buf[21] = byte(self.SubscribeId)
+	buf[22] = byte(self.SubscribeId >> 8)
+	buf[23] = byte(self.SubscribeId >> 16)
+	buf[24] = byte(self.SubscribeId >> 24)
+	buf[25] = byte(self.SubscribeId >> 32)
+	buf[26] = byte(self.SubscribeId >> 40)
+	buf[27] = byte(self.SubscribeId >> 48)
+	buf[28] = byte(self.SubscribeId >> 56)
+
+	for i := 0; i < 35; i++ {
+		buf[29+i] = 0x00
 	}
 	return nil
 }

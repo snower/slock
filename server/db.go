@@ -53,6 +53,7 @@ type LockDB struct {
 	freeLongWaitQueues        []*LongWaitLockFreeQueue
 	freeMillisecondWaitQueues []*MillisecondWaitLockFreeQueue
 	aofChannels               []*AofChannel
+	subscribeChannels         []*SubscribeChannel
 	fastKeyCount              uint32
 	freeLockManagerHead       uint32
 	freeLockManagerTail       uint32
@@ -76,6 +77,7 @@ func NewLockDB(slock *SLock, dbId uint8) *LockDB {
 	freeLongWaitQueues := make([]*LongWaitLockFreeQueue, managerMaxGlocks)
 	freeMillisecondWaitQueues := make([]*MillisecondWaitLockFreeQueue, managerMaxGlocks)
 	aofChannels := make([]*AofChannel, managerMaxGlocks)
+	subscribeChannels := make([]*SubscribeChannel, managerMaxGlocks)
 	states := make([]*protocol.LockDBState, managerMaxGlocks+1)
 	for i := uint16(0); i < managerMaxGlocks; i++ {
 		managerGlocks[i] = &PriorityMutex{sync.Mutex{}, 0, 0, sync.Mutex{}}
@@ -108,6 +110,7 @@ func NewLockDB(slock *SLock, dbId uint8) *LockDB {
 		freeLongWaitQueues:        freeLongWaitQueues,
 		freeMillisecondWaitQueues: freeMillisecondWaitQueues,
 		aofChannels:               aofChannels,
+		subscribeChannels:         subscribeChannels,
 		fastKeyCount:              uint32(Config.DBFastKeyCount),
 		freeLockManagerHead:       0,
 		freeLockManagerTail:       0,
@@ -121,6 +124,7 @@ func NewLockDB(slock *SLock, dbId uint8) *LockDB {
 	}
 
 	db.resizeAofChannels()
+	db.resizesubScribeChannels()
 	db.resizeTimeOut()
 	db.resizeExpried()
 	db.startCheckLoop()
@@ -130,6 +134,12 @@ func NewLockDB(slock *SLock, dbId uint8) *LockDB {
 func (self *LockDB) resizeAofChannels() {
 	for i := uint16(0); i < self.managerMaxGlocks; i++ {
 		self.aofChannels[i] = self.slock.GetAof().NewAofChannel(self)
+	}
+}
+
+func (self *LockDB) resizesubScribeChannels() {
+	for i := uint16(0); i < self.managerMaxGlocks; i++ {
+		self.subscribeChannels[i] = self.slock.GetSubscribeManager().NewSubscribeChannel(self)
 	}
 }
 
@@ -292,7 +302,6 @@ func (self *LockDB) checkTimeTimeOut(checkTimeoutTime int64, now int64, glockInd
 
 		lock = timeoutLocks[glockIndex].Pop()
 	}
-
 	_ = timeoutLocks[glockIndex].Rellac()
 
 	if longLocks, ok := self.longTimeoutLocks[glockIndex][checkTimeoutTime]; ok {
@@ -1223,6 +1232,9 @@ func (self *LockDB) doTimeOut(lock *Lock, forcedExpried bool) {
 		}
 		lockManager.state.WaitCount--
 	}
+	if lock.command.TimeoutFlag&protocol.TIMEOUT_FLAG_PUSH_SUBSCRIBE != 0 {
+		_ = self.subscribeChannels[lockManager.glockIndex].Push(lockCommand, protocol.RESULT_TIMEOUT, uint16(lockManager.locked), lock.locked)
+	}
 
 	lock.refCount--
 	if lock.refCount == 0 {
@@ -1368,14 +1380,16 @@ func (self *LockDB) doExpried(lock *Lock, forcedExpried bool) {
 
 	if !forcedExpried {
 		if self.status != STATE_LEADER {
-			if lock.command.ExpriedFlag&protocol.EXPRIED_FLAG_MILLISECOND_TIME == 0 {
-				if lock.command.Expried > 30 {
+			if lock.command.ExpriedFlag&protocol.EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME != 0 {
+				lock.expriedTime = 0x7fffffffffffffff
+			} else if lock.command.ExpriedFlag&protocol.EXPRIED_FLAG_MILLISECOND_TIME == 0 {
+				if lock.command.ExpriedFlag&protocol.EXPRIED_FLAG_MINUTE_TIME != 0 {
+					lock.expriedTime = lock.startTime + int64(lock.command.Expried)*60 + 1
+				} else if lock.command.Expried > 30 {
 					lock.expriedTime = self.currentTime + 30
 				} else {
 					lock.expriedTime = self.currentTime + int64(lock.command.Expried) + 1
 				}
-			} else if lock.command.ExpriedFlag&protocol.EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME != 0 {
-				lock.expriedTime = 0x7fffffffffffffff
 			}
 			self.AddExpried(lock)
 			lockManager.glock.Unlock()
@@ -1400,6 +1414,9 @@ func (self *LockDB) doExpried(lock *Lock, forcedExpried bool) {
 	lockManager.RemoveLock(lock)
 	if lock.isAof {
 		_ = lockManager.PushUnLockAof(lock, nil, false, AOF_FLAG_EXPRIED)
+	}
+	if lockCommand.ExpriedFlag&protocol.EXPRIED_FLAG_PUSH_SUBSCRIBE != 0 {
+		_ = self.subscribeChannels[lockManager.glockIndex].Push(lockCommand, protocol.RESULT_EXPRIED, uint16(lockManager.locked), lock.locked)
 	}
 
 	lock.refCount--
@@ -2031,10 +2048,16 @@ func (self *LockDB) DoAckLock(lock *Lock, succed bool) {
 
 	if succed {
 		lock.ackCount = 0xff
-		if lock.command.ExpriedFlag&protocol.EXPRIED_FLAG_MILLISECOND_TIME == 0 {
-			lock.expriedTime = self.currentTime + int64(lock.command.Expried) + 1
-		} else if lock.command.ExpriedFlag&protocol.EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME != 0 {
+		if lock.command.ExpriedFlag&protocol.EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME != 0 {
 			lock.expriedTime = 0x7fffffffffffffff
+		} else if lock.command.ExpriedFlag&protocol.EXPRIED_FLAG_MILLISECOND_TIME == 0 {
+			if lock.command.ExpriedFlag&protocol.EXPRIED_FLAG_MINUTE_TIME != 0 {
+				lock.expriedTime = lock.startTime + int64(lock.command.Expried)*60 + 1
+			} else {
+				lock.expriedTime = lock.startTime + int64(lock.command.Expried) + 1
+			}
+		} else {
+			lock.expriedTime = 0
 		}
 
 		if lock.command.ExpriedFlag&protocol.EXPRIED_FLAG_MILLISECOND_TIME == 0 {

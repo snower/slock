@@ -28,6 +28,7 @@ type SLock struct {
 	aof                    *Aof
 	replicationManager     *ReplicationManager
 	arbiterManager         *ArbiterManager
+	subscribeManager       *SubscribeManager
 	admin                  *Admin
 	logger                 logging.Logger
 	protocolSessions       map[uint32]*ServerProtocolSession
@@ -47,15 +48,17 @@ func NewSLock(config *ServerConfig) *SLock {
 
 	aof := NewAof()
 	replicationManager := NewReplicationManager()
+	subscribeManager := NewSubscribeManager()
 	admin := NewAdmin()
 	now := time.Now()
 	logger := InitLogger(Config.Log, Config.LogLevel)
-	slock := &SLock{nil, make([]*LockDB, 256), &sync.Mutex{}, aof, replicationManager, nil, admin, logger,
+	slock := &SLock{nil, make([]*LockDB, 256), &sync.Mutex{}, aof, replicationManager, nil, subscribeManager, admin, logger,
 		make(map[uint32]*ServerProtocolSession, STREAMS_INIT_COUNT), &sync.Mutex{}, make(map[[16]byte]ServerProtocol, STREAMS_INIT_COUNT), &sync.Mutex{}, &now,
 		NewLockCommandQueue(16, 64, FREE_COMMAND_QUEUE_INIT_SIZE*16), &sync.Mutex{}, 0, 0, STATE_INIT}
 	aof.slock = slock
 	replicationManager.slock = slock
 	replicationManager.transparencyManager.slock = slock
+	subscribeManager.slock = slock
 	admin.slock = slock
 	defaultServerProtocol = NewDefaultServerProtocol(slock)
 	return slock
@@ -128,6 +131,7 @@ func (self *SLock) initFollower(leaderAddress string) error {
 		self.logger.Errorf("Replication init error %v", err)
 		return err
 	}
+	_ = self.subscribeManager.ChangeLeader(leaderAddress)
 	self.logger.Infof("Slock init by follower")
 	return nil
 }
@@ -178,6 +182,7 @@ func (self *SLock) Close() {
 	}
 	self.glock.Unlock()
 	self.admin.Close()
+	self.subscribeManager.Close()
 	self.aof.Close()
 	self.server = nil
 	self.logger.Infof("Slock closed")
@@ -208,6 +213,10 @@ func (self *SLock) GetReplicationManager() *ReplicationManager {
 
 func (self *SLock) GetArbiterManager() *ArbiterManager {
 	return self.arbiterManager
+}
+
+func (self *SLock) GetSubscribeManager() *SubscribeManager {
+	return self.subscribeManager
 }
 
 func (self *SLock) GetAdmin() *Admin {

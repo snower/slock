@@ -325,6 +325,9 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 		infos = append(infos, fmt.Sprintf("aof_file_size:%d", aof.aofFile.size))
 	}
 
+	infos = append(infos, "\r\n# Subscribe")
+	infos = append(infos, fmt.Sprintf("subscriber:%d", len(self.slock.subscribeManager.subscribers)))
+
 	infos = append(infos, "\r\n# Keyspace")
 	for dbId, db := range self.slock.dbs {
 		if db != nil {
