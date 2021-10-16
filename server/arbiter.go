@@ -1420,6 +1420,10 @@ func (self *ArbiterManager) QuitLeader() error {
 	if err != nil {
 		self.slock.Log().Errorf("Arbiter quit leader change transparency address error %v", err)
 	}
+	err = self.slock.subscribeManager.ChangeLeader("")
+	if err != nil {
+		self.slock.Log().Errorf("Arbiter quit leader change subscribe address error %v", err)
+	}
 	err = self.slock.replicationManager.SwitchToFollower("")
 	if err != nil {
 		self.slock.Log().Errorf("Arbiter equit leader change to follower error %v", err)
@@ -1524,6 +1528,10 @@ func (self *ArbiterManager) voteSucced() error {
 			if err != nil {
 				self.slock.Log().Errorf("Arbiter election succed change transparency address error %v", err)
 			}
+			err = self.slock.subscribeManager.ChangeLeader("")
+			if err != nil {
+				self.slock.Log().Errorf("Arbiter election succed change subscribe address error %v", err)
+			}
 			err = self.slock.replicationManager.SwitchToFollower("")
 			if err != nil {
 				self.slock.Log().Errorf("Arbiter election succed change to follower error %v", err)
@@ -1566,6 +1574,10 @@ func (self *ArbiterManager) updateStatus() error {
 		err := self.slock.replicationManager.transparencyManager.ChangeLeader("")
 		if err != nil {
 			self.slock.Log().Errorf("Arbiter update status reset transparency address error %v", err)
+		}
+		err = self.slock.subscribeManager.ChangeLeader("")
+		if err != nil {
+			self.slock.Log().Errorf("Arbiter update status reset subscribe address error %v", err)
 		}
 		err = self.slock.replicationManager.SwitchToFollower("")
 		if err != nil {
@@ -1610,6 +1622,10 @@ func (self *ArbiterManager) updateStatus() error {
 				if err != nil {
 					self.slock.Log().Errorf("Arbiter update status change transparency address error %v", err)
 				}
+				err = self.slock.subscribeManager.ChangeLeader("")
+				if err != nil {
+					self.slock.Log().Errorf("Arbiter update status change subscribe address error %v", err)
+				}
 				self.DoAnnouncement()
 			} else {
 				_ = self.QuitLeader()
@@ -1630,6 +1646,10 @@ func (self *ArbiterManager) updateStatus() error {
 			if err != nil {
 				self.slock.Log().Errorf("Arbiter update status change transparency address error %v", err)
 			}
+			err = self.slock.subscribeManager.ChangeLeader(self.leaderMember.host)
+			if err != nil {
+				self.slock.Log().Errorf("Arbiter update status change subscribe address error %v", err)
+			}
 			self.loaded = true
 			_ = self.voter.WakeupRetryVote()
 			return nil
@@ -1638,6 +1658,10 @@ func (self *ArbiterManager) updateStatus() error {
 		err := self.slock.replicationManager.transparencyManager.ChangeLeader(self.leaderMember.host)
 		if err != nil {
 			self.slock.Log().Errorf("Arbiter update status change transparency address error %v", err)
+		}
+		err = self.slock.subscribeManager.ChangeLeader(self.leaderMember.host)
+		if err != nil {
+			self.slock.Log().Errorf("Arbiter update status change subscribe address error %v", err)
 		}
 		err = self.slock.replicationManager.SwitchToFollower(self.leaderMember.host)
 		if err != nil {
@@ -1653,7 +1677,11 @@ func (self *ArbiterManager) updateStatus() error {
 	}
 	err = self.slock.replicationManager.transparencyManager.ChangeLeader(self.leaderMember.host)
 	if err != nil {
-		self.slock.Log().Errorf("Arbiter update status reset transparency address error %v", err)
+		self.slock.Log().Errorf("Arbiter update status change transparency address error %v", err)
+	}
+	err = self.slock.subscribeManager.ChangeLeader(self.leaderMember.host)
+	if err != nil {
+		self.slock.Log().Errorf("Arbiter update status change subscribe address error %v", err)
 	}
 	_ = self.voter.WakeupRetryVote()
 	return nil
