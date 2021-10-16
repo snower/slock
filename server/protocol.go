@@ -800,6 +800,13 @@ func (self *BinaryServerProtocol) ReadParse(buf []byte) (protocol.CommandDecode,
 				return nil, err
 			}
 			return leaderCommand, nil
+		case protocol.COMMAND_SUBSCRIBE:
+			leaderCommand := &protocol.SubscribeCommand{}
+			err := leaderCommand.Decode(buf)
+			if err != nil {
+				return nil, err
+			}
+			return leaderCommand, nil
 		}
 	}
 	return nil, errors.New("Unknown Command")
@@ -1061,6 +1068,8 @@ func (self *BinaryServerProtocol) ProcessParse(buf []byte) error {
 			command = self.GetLockCommand()
 		case protocol.COMMAND_LEADER:
 			command = &protocol.LeaderCommand{}
+		case protocol.COMMAND_SUBSCRIBE:
+			command = &protocol.SubscribeCommand{}
 		default:
 			command = &protocol.Command{}
 		}
@@ -1212,6 +1221,13 @@ func (self *BinaryServerProtocol) ProcessCommad(command protocol.ICommand) error
 		case protocol.COMMAND_LEADER:
 			leaderCommand := command.(*protocol.LeaderCommand)
 			return self.Write(protocol.NewLeaderResultCommand(leaderCommand, protocol.RESULT_SUCCED, self.slock.replicationManager.transparencyManager.leaderAddress))
+		case protocol.COMMAND_SUBSCRIBE:
+			subscribeCommand := command.(*protocol.SubscribeCommand)
+			subscribeResultCommand, err := self.slock.subscribeManager.handleSubscribeCommand(self, subscribeCommand)
+			if err != nil {
+				return err
+			}
+			return self.Write(subscribeResultCommand)
 		default:
 			return self.Write(protocol.NewResultCommand(command, protocol.RESULT_UNKNOWN_COMMAND))
 		}

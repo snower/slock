@@ -21,6 +21,8 @@ type Client struct {
 	dbs              []*Database
 	requests         map[[16]byte]*CommandRequest
 	requestLock      *sync.Mutex
+	subscribes       map[uint64]*Subscriber
+	subscribeLock    *sync.Mutex
 	hosts            []string
 	clientIds        map[string][16]byte
 	closed           bool
@@ -31,15 +33,17 @@ type Client struct {
 func NewClient(host string, port uint) *Client {
 	address := fmt.Sprintf("%s:%d", host, port)
 	client := &Client{&sync.Mutex{}, make([]ClientProtocol, 0), make([]*Database, 256),
-		make(map[[16]byte]*CommandRequest, 64), &sync.Mutex{}, []string{address},
-		make(map[string][16]byte, 4), false, &sync.WaitGroup{}, make(map[string]chan bool, 4)}
+		make(map[[16]byte]*CommandRequest, 64), &sync.Mutex{}, make(map[uint64]*Subscriber, 4),
+		&sync.Mutex{}, []string{address}, make(map[string][16]byte, 4),
+		false, &sync.WaitGroup{}, make(map[string]chan bool, 4)}
 	return client
 }
 
 func NewReplsetClient(hosts []string) *Client {
 	client := &Client{&sync.Mutex{}, make([]ClientProtocol, 0),
-		make([]*Database, 256), make(map[[16]byte]*CommandRequest, 64), &sync.Mutex{},
-		hosts, make(map[string][16]byte, 4), false, &sync.WaitGroup{}, make(map[string]chan bool, 4)}
+		make([]*Database, 256), make(map[[16]byte]*CommandRequest, 64), &sync.Mutex{}, make(map[uint64]*Subscriber, 4),
+		&sync.Mutex{}, hosts, make(map[string][16]byte, 4), false, &sync.WaitGroup{},
+		make(map[string]chan bool, 4)}
 	return client
 }
 
@@ -76,8 +80,33 @@ func (self *Client) Close() error {
 		self.glock.Unlock()
 		return nil
 	}
+	self.glock.Unlock()
 
+	subscriberClosedWaiters := make([]chan bool, 0)
+	self.subscribeLock.Lock()
+	for _, subscriber := range self.subscribes {
+		go func(subscriber *Subscriber) {
+			err := self.CloseSubscribe(subscriber)
+			if err != nil {
+				self.subscribeLock.Lock()
+				if _, ok := self.subscribes[subscriber.subscribeId]; ok {
+					delete(self.subscribes, subscriber.subscribeId)
+				}
+				subscriber.closed = true
+				close(subscriber.channel)
+				close(subscriber.closedWaiter)
+				self.subscribeLock.Unlock()
+			}
+		}(subscriber)
+		subscriberClosedWaiters = append(subscriberClosedWaiters, subscriber.closedWaiter)
+	}
 	self.closed = true
+	self.subscribeLock.Unlock()
+	for _, closedWaiter := range subscriberClosedWaiters {
+		<-closedWaiter
+	}
+
+	self.glock.Lock()
 	for requestId := range self.requests {
 		close(self.requests[requestId].waiter)
 	}
@@ -147,6 +176,7 @@ func (self *Client) reconnect(host string, clientId [16]byte, _ ClientProtocol) 
 				delete(self.reconnectWaiters, host)
 			}
 			self.glock.Unlock()
+			self.reconnectUpdateSubcribers(host)
 			return clientProtocol
 		}
 	}
@@ -157,6 +187,23 @@ func (self *Client) reconnect(host string, clientId [16]byte, _ ClientProtocol) 
 	}
 	self.glock.Unlock()
 	return nil
+}
+
+func (self *Client) reconnectUpdateSubcribers(host string) {
+	self.subscribeLock.Lock()
+	for _, subscriber := range self.subscribes {
+		if subscriber.subscribeHost != host {
+			continue
+		}
+
+		go func(subscriber *Subscriber) {
+			err := self.UpdateSubscribe(subscriber)
+			if err != nil {
+				_ = self.CloseSubscribe(subscriber)
+			}
+		}(subscriber)
+	}
+	self.subscribeLock.Unlock()
 }
 
 func (self *Client) addProtocol(clientProtocol ClientProtocol) {
@@ -305,8 +352,17 @@ func (self *Client) handleCommand(clientProtocol ClientProtocol, command protoco
 		}
 		return db.handleCommandResult(stateCommand)
 	case protocol.COMMAND_INIT:
-		initCOmmand := command.(*protocol.InitResultCommand)
-		return self.handleInitCommandResult(clientProtocol, initCOmmand)
+		initCommand := command.(*protocol.InitResultCommand)
+		return self.handleInitCommandResult(clientProtocol, initCommand)
+	case protocol.COMMAND_PUBLISH:
+		lockCommand := command.(*protocol.LockResultCommand)
+		subscribeId := uint64(lockCommand.RequestId[8]) | uint64(lockCommand.RequestId[9])<<8 | uint64(lockCommand.RequestId[10])<<16 | uint64(lockCommand.RequestId[11])<<24 | uint64(lockCommand.RequestId[12])<<32 | uint64(lockCommand.RequestId[13])<<40 | uint64(lockCommand.RequestId[14])<<48 | uint64(lockCommand.RequestId[15])<<56
+		self.subscribeLock.Lock()
+		if subscriber, ok := self.subscribes[subscribeId]; ok {
+			self.subscribeLock.Unlock()
+			return subscriber.Push(lockCommand)
+		}
+		return nil
 	}
 
 	requestId := command.GetRequestId()
@@ -334,6 +390,13 @@ func (self *Client) ExecuteCommand(command protocol.ICommand, timeout int) (prot
 	clientProtocol := self.getPrococol()
 	if clientProtocol == nil {
 		return nil, errors.New("client is not opened")
+	}
+	return self.doExecuteCommand(clientProtocol, command, timeout)
+}
+
+func (self *Client) doExecuteCommand(clientProtocol ClientProtocol, command protocol.ICommand, timeout int) (protocol.ICommand, error) {
+	if self.closed {
+		return nil, errors.New("closed")
 	}
 
 	requestId := command.GetRequestId()
@@ -412,6 +475,115 @@ func (self *Client) TokenBucketFlow(flowKey [16]byte, count uint16, timeout uint
 
 func (self *Client) State(dbId uint8) *protocol.StateResultCommand {
 	return self.SelectDB(dbId).State()
+}
+
+func (self *Client) Subscribe(lockKeyMask [16]byte, expried uint32, maxSize uint32) (*Subscriber, error) {
+	command := protocol.NewSubscribeCommand(0, 0, lockKeyMask, expried, maxSize)
+	clientProtocol := self.getPrococol()
+	if clientProtocol == nil {
+		return nil, errors.New("client is not opened")
+	}
+	resultCommand, err := self.doExecuteCommand(clientProtocol, command, 5)
+	if err != nil {
+		return nil, err
+	}
+	subscribeResultCommand, ok := resultCommand.(*protocol.SubscribeResultCommand)
+	if !ok {
+		return nil, errors.New("unknown command")
+	}
+	if subscribeResultCommand.Result != protocol.RESULT_SUCCED {
+		return nil, errors.New(fmt.Sprintf("command error: code %d", subscribeResultCommand.Result))
+	}
+
+	subscriber := NewSubscriber(self, clientProtocol.GetStream().RemoteAddr().String(), subscribeResultCommand.SubscribeId,
+		lockKeyMask, expried, maxSize)
+	self.subscribeLock.Lock()
+	self.subscribes[subscriber.subscribeId] = subscriber
+	self.subscribeLock.Unlock()
+	return subscriber, nil
+}
+
+func (self *Client) CloseSubscribe(subscriber *Subscriber) error {
+	if subscriber.closed {
+		return nil
+	}
+
+	command := protocol.NewSubscribeCommand(0, 1, subscriber.lockKeyMask, subscriber.expried, subscriber.maxSize)
+	var clientProtocol ClientProtocol = nil
+	self.glock.Lock()
+	for _, cp := range self.protocols {
+		stream := cp.GetStream()
+		if stream == nil {
+			continue
+		}
+		if stream.RemoteAddr().String() == subscriber.subscribeHost {
+			clientProtocol = cp
+			break
+		}
+	}
+	self.glock.Unlock()
+	if clientProtocol == nil {
+		return errors.New("client stream unconnected")
+	}
+
+	resultCommand, err := self.doExecuteCommand(clientProtocol, command, 5)
+	if err != nil {
+		return err
+	}
+	subscribeResultCommand, ok := resultCommand.(*protocol.SubscribeResultCommand)
+	if !ok {
+		return errors.New("unknown command")
+	}
+	if subscribeResultCommand.Result != protocol.RESULT_SUCCED {
+		return errors.New(fmt.Sprintf("command error: code %d", subscribeResultCommand.Result))
+	}
+
+	self.subscribeLock.Lock()
+	if _, ok := self.subscribes[subscriber.subscribeId]; ok {
+		delete(self.subscribes, subscriber.subscribeId)
+	}
+	subscriber.closed = true
+	close(subscriber.channel)
+	close(subscriber.closedWaiter)
+	self.subscribeLock.Unlock()
+	return nil
+}
+
+func (self *Client) UpdateSubscribe(subscriber *Subscriber) error {
+	if subscriber.closed {
+		return nil
+	}
+
+	command := protocol.NewSubscribeCommand(0, 0, subscriber.lockKeyMask, subscriber.expried, subscriber.maxSize)
+	var clientProtocol ClientProtocol = nil
+	self.glock.Lock()
+	for _, cp := range self.protocols {
+		stream := cp.GetStream()
+		if stream == nil {
+			continue
+		}
+		if stream.RemoteAddr().String() == subscriber.subscribeHost {
+			clientProtocol = cp
+			break
+		}
+	}
+	self.glock.Unlock()
+	if clientProtocol == nil {
+		return nil
+	}
+
+	resultCommand, err := self.doExecuteCommand(clientProtocol, command, 5)
+	if err != nil {
+		return err
+	}
+	subscribeResultCommand, ok := resultCommand.(*protocol.SubscribeResultCommand)
+	if !ok {
+		return errors.New("unknown command")
+	}
+	if subscribeResultCommand.Result != protocol.RESULT_SUCCED {
+		return errors.New(fmt.Sprintf("command error: code %d", subscribeResultCommand.Result))
+	}
+	return nil
 }
 
 func (self *Client) GenRequestId() [16]byte {
