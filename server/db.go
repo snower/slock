@@ -186,6 +186,7 @@ func (self *LockDB) Close() {
 		self.flushTimeOut(i, true)
 		self.flushExpried(i, false)
 		self.slock.GetAof().CloseAofChannel(self.aofChannels[i])
+		self.slock.GetSubscribeManager().CloseSubscribeChannel(self.subscribeChannels[i])
 		self.managerGlocks[i].Unlock()
 	}
 }

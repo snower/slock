@@ -759,16 +759,15 @@ func (self *SubscribeManager) WaitFlushSubscribeChannel() error {
 	} else {
 		channelFlushWaiter = self.channelFlushWaiter
 	}
-	self.glock.Unlock()
 
 	if atomic.CompareAndSwapUint32(&self.channelActiveCount, 0, 0) {
-		self.glock.Lock()
 		if channelFlushWaiter == self.channelFlushWaiter {
 			self.channelFlushWaiter = nil
 		}
 		self.glock.Unlock()
 		return nil
 	}
+	self.glock.Unlock()
 
 	<-channelFlushWaiter
 	return nil
@@ -872,7 +871,6 @@ func (self *SubscribeManager) openClient() error {
 
 func (self *SubscribeManager) ChangeLeader(address string) error {
 	self.glock.Lock()
-
 	if self.leaderAddress == address {
 		self.glock.Unlock()
 		return nil
@@ -884,6 +882,8 @@ func (self *SubscribeManager) ChangeLeader(address string) error {
 		if self.leaderAddress != "" && len(self.fastSubscribers) > 0 {
 			self.glock.Unlock()
 			_ = self.openClient()
+		} else {
+			self.glock.Unlock()
 		}
 	} else {
 		if self.leaderAddress == "" {
@@ -893,6 +893,9 @@ func (self *SubscribeManager) ChangeLeader(address string) error {
 			if self.client.protocol != nil {
 				_ = self.client.protocol.Close()
 			}
+			self.glock.Unlock()
+		} else {
+			self.glock.Unlock()
 		}
 	}
 	self.slock.Log().Infof("Subscribe finish change leader to %s", address)
