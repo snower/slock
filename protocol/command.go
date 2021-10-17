@@ -1159,7 +1159,8 @@ func (self *LeaderResultCommand) Encode(buf []byte) error {
 type SubscribeCommand struct {
 	Command
 	Flag          uint8
-	SubscribeId   uint64
+	ClientId      uint32
+	SubscribeId   uint32
 	SubscribeType uint8
 	LockKeyMask   [16]byte
 	Expried       uint32
@@ -1167,9 +1168,9 @@ type SubscribeCommand struct {
 	Blank         [11]byte
 }
 
-func NewSubscribeCommand(subscribeId uint64, subscribeType uint8, lockKeyMask [16]byte, expried uint32, maxSize uint32) *SubscribeCommand {
+func NewSubscribeCommand(clientId uint32, subscribeId uint32, subscribeType uint8, lockKeyMask [16]byte, expried uint32, maxSize uint32) *SubscribeCommand {
 	command := Command{Magic: MAGIC, Version: VERSION, CommandType: COMMAND_SUBSCRIBE, RequestId: GenRequestId()}
-	leaderCommand := SubscribeCommand{Command: command, Flag: 0, SubscribeId: subscribeId,
+	leaderCommand := SubscribeCommand{Command: command, Flag: 0, ClientId: clientId, SubscribeId: subscribeId,
 		SubscribeType: subscribeType, LockKeyMask: lockKeyMask, Expried: expried, MaxSize: maxSize, Blank: [11]byte{}}
 	return &leaderCommand
 }
@@ -1185,7 +1186,8 @@ func (self *SubscribeCommand) Decode(buf []byte) error {
 		buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18]
 
 	self.Flag = uint8(buf[19])
-	self.SubscribeId = uint64(buf[20]) | uint64(buf[21])<<8 | uint64(buf[22])<<16 | uint64(buf[23])<<24 | uint64(buf[24])<<32 | uint64(buf[25])<<40 | uint64(buf[26])<<48 | uint64(buf[27])<<56
+	self.ClientId = uint32(buf[20]) | uint32(buf[21])<<8 | uint32(buf[22])<<16 | uint32(buf[23])<<24
+	self.SubscribeId = uint32(buf[24]) | uint32(buf[25])<<8 | uint32(buf[26])<<16 | uint32(buf[27])<<24
 	self.SubscribeType = uint8(buf[28])
 
 	self.LockKeyMask[0], self.LockKeyMask[1], self.LockKeyMask[2], self.LockKeyMask[3], self.LockKeyMask[4], self.LockKeyMask[5], self.LockKeyMask[6], self.LockKeyMask[7],
@@ -1210,14 +1212,14 @@ func (self *SubscribeCommand) Encode(buf []byte) error {
 
 	buf[19] = byte(self.Flag)
 
-	buf[20] = byte(self.SubscribeId)
-	buf[21] = byte(self.SubscribeId >> 8)
-	buf[22] = byte(self.SubscribeId >> 16)
-	buf[23] = byte(self.SubscribeId >> 24)
-	buf[24] = byte(self.SubscribeId >> 32)
-	buf[25] = byte(self.SubscribeId >> 40)
-	buf[26] = byte(self.SubscribeId >> 48)
-	buf[27] = byte(self.SubscribeId >> 56)
+	buf[20] = byte(self.ClientId)
+	buf[21] = byte(self.ClientId >> 8)
+	buf[22] = byte(self.ClientId >> 16)
+	buf[23] = byte(self.ClientId >> 24)
+	buf[24] = byte(self.SubscribeId)
+	buf[25] = byte(self.SubscribeId >> 8)
+	buf[26] = byte(self.SubscribeId >> 16)
+	buf[27] = byte(self.SubscribeId >> 24)
 
 	buf[28] = byte(self.SubscribeType)
 
@@ -1245,13 +1247,14 @@ func (self *SubscribeCommand) Encode(buf []byte) error {
 type SubscribeResultCommand struct {
 	ResultCommand
 	Flag        uint8
-	SubscribeId uint64
+	ClientId    uint32
+	SubscribeId uint32
 	Blank       [35]byte
 }
 
-func NewSubscribeResultCommand(command *SubscribeCommand, result uint8, subscribeId uint64) *SubscribeResultCommand {
+func NewSubscribeResultCommand(command *SubscribeCommand, result uint8, subscribeId uint32) *SubscribeResultCommand {
 	resultCommand := ResultCommand{MAGIC, VERSION, command.CommandType, command.RequestId, result}
-	return &SubscribeResultCommand{resultCommand, 0, subscribeId, [35]byte{}}
+	return &SubscribeResultCommand{resultCommand, 0, command.ClientId, subscribeId, [35]byte{}}
 }
 
 func (self *SubscribeResultCommand) Decode(buf []byte) error {
@@ -1265,7 +1268,8 @@ func (self *SubscribeResultCommand) Decode(buf []byte) error {
 		buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18]
 
 	self.Result, self.Flag = uint8(buf[19]), uint8(buf[20])
-	self.SubscribeId = uint64(buf[21]) | uint64(buf[22])<<8 | uint64(buf[23])<<16 | uint64(buf[24])<<24 | uint64(buf[25])<<32 | uint64(buf[26])<<40 | uint64(buf[27])<<48 | uint64(buf[28])<<56
+	self.ClientId = uint32(buf[21]) | uint32(buf[22])<<8 | uint32(buf[23])<<16 | uint32(buf[24])<<24
+	self.SubscribeId = uint32(buf[25]) | uint32(buf[26])<<8 | uint32(buf[27])<<16 | uint32(buf[28])<<24
 	return nil
 }
 
@@ -1282,14 +1286,14 @@ func (self *SubscribeResultCommand) Encode(buf []byte) error {
 	buf[19] = uint8(self.Result)
 	buf[20] = byte(self.Flag)
 
-	buf[21] = byte(self.SubscribeId)
-	buf[22] = byte(self.SubscribeId >> 8)
-	buf[23] = byte(self.SubscribeId >> 16)
-	buf[24] = byte(self.SubscribeId >> 24)
-	buf[25] = byte(self.SubscribeId >> 32)
-	buf[26] = byte(self.SubscribeId >> 40)
-	buf[27] = byte(self.SubscribeId >> 48)
-	buf[28] = byte(self.SubscribeId >> 56)
+	buf[21] = byte(self.ClientId)
+	buf[22] = byte(self.ClientId >> 8)
+	buf[23] = byte(self.ClientId >> 16)
+	buf[24] = byte(self.ClientId >> 24)
+	buf[25] = byte(self.SubscribeId)
+	buf[26] = byte(self.SubscribeId >> 8)
+	buf[27] = byte(self.SubscribeId >> 16)
+	buf[28] = byte(self.SubscribeId >> 24)
 
 	for i := 0; i < 35; i++ {
 		buf[29+i] = 0x00

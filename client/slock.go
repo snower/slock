@@ -21,7 +21,7 @@ type Client struct {
 	dbs               []*Database
 	requests          map[[16]byte]*CommandRequest
 	requestLock       *sync.Mutex
-	subscribes        map[uint64]*Subscriber
+	subscribes        map[uint32]*Subscriber
 	subscribeLock     *sync.Mutex
 	hosts             []string
 	clientIds         map[string][16]byte
@@ -34,7 +34,7 @@ type Client struct {
 func NewClient(host string, port uint) *Client {
 	address := fmt.Sprintf("%s:%d", host, port)
 	client := &Client{&sync.Mutex{}, make([]ClientProtocol, 0), make([]*Database, 256),
-		make(map[[16]byte]*CommandRequest, 64), &sync.Mutex{}, make(map[uint64]*Subscriber, 4),
+		make(map[[16]byte]*CommandRequest, 64), &sync.Mutex{}, make(map[uint32]*Subscriber, 4),
 		&sync.Mutex{}, []string{address}, make(map[string][16]byte, 4),
 		false, &sync.WaitGroup{}, make(map[string]chan bool, 4), nil}
 	return client
@@ -42,7 +42,7 @@ func NewClient(host string, port uint) *Client {
 
 func NewReplsetClient(hosts []string) *Client {
 	client := &Client{&sync.Mutex{}, make([]ClientProtocol, 0),
-		make([]*Database, 256), make(map[[16]byte]*CommandRequest, 64), &sync.Mutex{}, make(map[uint64]*Subscriber, 4),
+		make([]*Database, 256), make(map[[16]byte]*CommandRequest, 64), &sync.Mutex{}, make(map[uint32]*Subscriber, 4),
 		&sync.Mutex{}, hosts, make(map[string][16]byte, 4), false, &sync.WaitGroup{},
 		make(map[string]chan bool, 4), nil}
 	return client
@@ -101,11 +101,11 @@ func (self *Client) Close() error {
 		}(subscriber)
 		subscriberClosedWaiters = append(subscriberClosedWaiters, subscriber.closedWaiter)
 	}
-	self.closed = true
 	self.subscribeLock.Unlock()
 	for _, closedWaiter := range subscriberClosedWaiters {
 		<-closedWaiter
 	}
+	self.closed = true
 
 	self.glock.Lock()
 	for requestId := range self.requests {
@@ -367,7 +367,7 @@ func (self *Client) handleCommand(clientProtocol ClientProtocol, command protoco
 		return self.handleInitCommandResult(clientProtocol, initCommand)
 	case protocol.COMMAND_PUBLISH:
 		lockCommand := command.(*protocol.LockResultCommand)
-		subscribeId := uint64(lockCommand.RequestId[8]) | uint64(lockCommand.RequestId[9])<<8 | uint64(lockCommand.RequestId[10])<<16 | uint64(lockCommand.RequestId[11])<<24 | uint64(lockCommand.RequestId[12])<<32 | uint64(lockCommand.RequestId[13])<<40 | uint64(lockCommand.RequestId[14])<<48 | uint64(lockCommand.RequestId[15])<<56
+		subscribeId := uint32(lockCommand.RequestId[12]) | uint32(lockCommand.RequestId[13])<<8 | uint32(lockCommand.RequestId[14])<<16 | uint32(lockCommand.RequestId[15])<<24
 		self.subscribeLock.Lock()
 		if subscriber, ok := self.subscribes[subscribeId]; ok {
 			self.subscribeLock.Unlock()
@@ -494,7 +494,11 @@ func (self *Client) Subscribe(expried uint32, maxSize uint32) (*Subscriber, erro
 }
 
 func (self *Client) SubscribeMask(lockKeyMask [16]byte, expried uint32, maxSize uint32) (*Subscriber, error) {
-	command := protocol.NewSubscribeCommand(0, 0, lockKeyMask, expried, maxSize)
+	self.glock.Lock()
+	subscriberClientIdIndex++
+	clientId := subscriberClientIdIndex
+	self.glock.Unlock()
+	command := protocol.NewSubscribeCommand(clientId, 0, 0, lockKeyMask, expried, maxSize)
 	clientProtocol := self.getPrococol()
 	if clientProtocol == nil {
 		return nil, errors.New("client is not opened")
@@ -511,7 +515,7 @@ func (self *Client) SubscribeMask(lockKeyMask [16]byte, expried uint32, maxSize 
 		return nil, errors.New(fmt.Sprintf("command error: code %d", subscribeResultCommand.Result))
 	}
 
-	subscriber := NewSubscriber(self, clientProtocol.GetStream().RemoteAddr().String(), subscribeResultCommand.SubscribeId,
+	subscriber := NewSubscriber(self, clientProtocol.GetStream().RemoteAddr().String(), clientId, subscribeResultCommand.SubscribeId,
 		lockKeyMask, expried, maxSize)
 	self.subscribeLock.Lock()
 	self.subscribes[subscriber.subscribeId] = subscriber
@@ -524,7 +528,7 @@ func (self *Client) CloseSubscribe(subscriber *Subscriber) error {
 		return nil
 	}
 
-	command := protocol.NewSubscribeCommand(subscriber.subscribeId, 1, subscriber.lockKeyMask, subscriber.expried, subscriber.maxSize)
+	command := protocol.NewSubscribeCommand(subscriber.clientId, subscriber.subscribeId, 1, subscriber.lockKeyMask, subscriber.expried, subscriber.maxSize)
 	var clientProtocol ClientProtocol = nil
 	self.glock.Lock()
 	for _, cp := range self.protocols {
@@ -570,7 +574,7 @@ func (self *Client) UpdateSubscribe(subscriber *Subscriber) error {
 		return nil
 	}
 
-	command := protocol.NewSubscribeCommand(subscriber.subscribeId, 0, subscriber.lockKeyMask, subscriber.expried, subscriber.maxSize)
+	command := protocol.NewSubscribeCommand(subscriber.clientId, subscriber.subscribeId, 0, subscriber.lockKeyMask, subscriber.expried, subscriber.maxSize)
 	var clientProtocol ClientProtocol = nil
 	self.glock.Lock()
 	for _, cp := range self.protocols {

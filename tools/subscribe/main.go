@@ -68,15 +68,16 @@ func subscribe(subscriber *client.Subscriber, finishWaiter chan bool) {
 
 		now := time.Now().Format("2006-01-02 15:04:05.999999999-0700")
 		publishId := uint64(command.RequestId[0]) | uint64(command.RequestId[1])<<8 | uint64(command.RequestId[2])<<16 | uint64(command.RequestId[3])<<24 | uint64(command.RequestId[4])<<32 | uint64(command.RequestId[5])<<40 | uint64(command.RequestId[6])<<48 | uint64(command.RequestId[7])<<56
-		subscribeId := uint64(command.RequestId[8]) | uint64(command.RequestId[9])<<8 | uint64(command.RequestId[10])<<16 | uint64(command.RequestId[11])<<24 | uint64(command.RequestId[12])<<32 | uint64(command.RequestId[13])<<40 | uint64(command.RequestId[14])<<48 | uint64(command.RequestId[15])<<56
+		versionId := uint32(command.RequestId[8]) | uint32(command.RequestId[9])<<8 | uint32(command.RequestId[10])<<16 | uint32(command.RequestId[11])<<24
+		subscribeId := uint32(command.RequestId[12]) | uint32(command.RequestId[13])<<8 | uint32(command.RequestId[14])<<16 | uint32(command.RequestId[15])<<24
 		resultType := "unknown"
 		if command.Result == protocol.RESULT_TIMEOUT {
 			resultType = "timeout"
 		} else if command.Result == protocol.RESULT_EXPRIED {
 			resultType = "expried"
 		}
-		fmt.Printf("%s SubscribeId:%d,PublishId:%d,DBId:%d,LockKey:%x,LockId:%x,type:%s,Count:%d,LCount:%d,RCount:%d,LRCount:%d\n", now, subscribeId,
-			publishId, command.DbId, command.LockKey, command.LockId, resultType, command.Count, command.Lcount, command.Rcount, command.Lrcount)
+		fmt.Printf("%s SubscribeId:%d,PublishId:%d,versionId:%d,DBId:%d,LockKey:%x,LockId:%x,type:%s,Count:%d,LCount:%d,RCount:%d,LRCount:%d\n", now, subscribeId,
+			publishId, versionId, command.DbId, command.LockKey, command.LockId, resultType, command.Count, command.Lcount, command.Rcount, command.Lrcount)
 	}
 }
 

@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-var subscriberIdIndex uint64 = 0
+var subscriberIdIndex uint32 = 0
 
 type PublishLock struct {
 	Magic       uint8
@@ -112,7 +112,7 @@ type SubscribeClient struct {
 	manager       *SubscribeManager
 	glock         *sync.Mutex
 	leaderAddress string
-	subscriberId  uint64
+	subscriberId  uint32
 	stream        *client.Stream
 	protocol      *client.BinaryClientProtocol
 	publishLock   *PublishLock
@@ -170,7 +170,7 @@ func (self *SubscribeClient) Close() error {
 
 func (self *SubscribeClient) initSubscribe() error {
 	lockKeyMask := [16]byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
-	command := protocol.NewSubscribeCommand(self.subscriberId, 0, lockKeyMask, 30, 67108864)
+	command := protocol.NewSubscribeCommand(1, self.subscriberId, 0, lockKeyMask, 30, 67108864)
 	err := self.protocol.Write(command)
 	if err != nil {
 		return err
@@ -208,7 +208,7 @@ func (self *SubscribeClient) uninitSubscribe() error {
 	self.glock.Unlock()
 
 	lockKeyMask := [16]byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
-	command := protocol.NewSubscribeCommand(self.subscriberId, 1, lockKeyMask, 30, 67108864)
+	command := protocol.NewSubscribeCommand(1, self.subscriberId, 1, lockKeyMask, 30, 67108864)
 	err := self.protocol.Write(command)
 	if err != nil {
 		return err
@@ -382,7 +382,8 @@ func (self *SubscribeClient) WakeupRetryConnect() error {
 type Subscriber struct {
 	manager                    *SubscribeManager
 	glock                      *sync.Mutex
-	subscriberId               uint64
+	clientId                   uint32
+	subscriberId               uint32
 	lockKeyMasks               [][2]uint64
 	bufferHead                 *SubscribeBuffer
 	bufferTail                 *SubscribeBuffer
@@ -398,8 +399,8 @@ type Subscriber struct {
 	closedWaiter               chan bool
 }
 
-func NewSubscriber(manager *SubscribeManager, serverProtocol ServerProtocol, subscriberId uint64) *Subscriber {
-	subscriber := &Subscriber{manager, &sync.Mutex{}, subscriberId, make([][2]uint64, 0),
+func NewSubscriber(manager *SubscribeManager, serverProtocol ServerProtocol, clientId uint32, subscriberId uint32) *Subscriber {
+	subscriber := &Subscriber{manager, &sync.Mutex{}, clientId, subscriberId, make([][2]uint64, 0),
 		nil, nil, 0, serverProtocol, 0,
 		serverProtocol.GetStream().closedWaiter, 0, 0,
 		false, make(chan bool, 4), false, make(chan bool, 1)}
@@ -592,15 +593,19 @@ func (self *Subscriber) Push(lock *PublishLock) error {
 			}
 		}
 
+		versionId := uint32(0)
+		if self.manager.slock.arbiterManager != nil {
+			versionId = self.manager.slock.arbiterManager.version
+		}
 		copy(self.bufferTail.buf[self.bufferTail.windex:], lock.buf)
-		self.bufferTail.buf[self.bufferTail.windex+11] = byte(self.subscriberId)
-		self.bufferTail.buf[self.bufferTail.windex+12] = byte(self.subscriberId >> 8)
-		self.bufferTail.buf[self.bufferTail.windex+13] = byte(self.subscriberId >> 16)
-		self.bufferTail.buf[self.bufferTail.windex+14] = byte(self.subscriberId >> 24)
-		self.bufferTail.buf[self.bufferTail.windex+15] = byte(self.subscriberId >> 32)
-		self.bufferTail.buf[self.bufferTail.windex+16] = byte(self.subscriberId >> 40)
-		self.bufferTail.buf[self.bufferTail.windex+17] = byte(self.subscriberId >> 48)
-		self.bufferTail.buf[self.bufferTail.windex+18] = byte(self.subscriberId >> 56)
+		self.bufferTail.buf[self.bufferTail.windex+11] = byte(versionId)
+		self.bufferTail.buf[self.bufferTail.windex+12] = byte(versionId >> 8)
+		self.bufferTail.buf[self.bufferTail.windex+13] = byte(versionId >> 16)
+		self.bufferTail.buf[self.bufferTail.windex+14] = byte(versionId >> 24)
+		self.bufferTail.buf[self.bufferTail.windex+15] = byte(self.subscriberId)
+		self.bufferTail.buf[self.bufferTail.windex+16] = byte(self.subscriberId >> 8)
+		self.bufferTail.buf[self.bufferTail.windex+17] = byte(self.subscriberId >> 16)
+		self.bufferTail.buf[self.bufferTail.windex+18] = byte(self.subscriberId >> 24)
 		self.bufferTail.windex += 64
 
 		if self.pulled {
@@ -787,7 +792,7 @@ type SubscribeManager struct {
 	channelCount       uint32
 	channelActiveCount uint32
 	channelFlushWaiter chan bool
-	subscribers        map[uint64]*Subscriber
+	subscribers        map[uint32]*Subscriber
 	fastSubscribers    []*Subscriber
 	leaderAddress      string
 	client             *SubscribeClient
@@ -798,7 +803,7 @@ type SubscribeManager struct {
 
 func NewSubscribeManager() *SubscribeManager {
 	return &SubscribeManager{nil, &sync.Mutex{}, make([]*SubscribeChannel, 0), 0, 0,
-		nil, make(map[uint64]*Subscriber, 64), nil, "",
+		nil, make(map[uint32]*Subscriber, 64), nil, "",
 		nil, nil, 0, false}
 }
 
@@ -904,6 +909,10 @@ func (self *SubscribeManager) handleSubscribeCommand(serverProtocol ServerProtoc
 	var subscriber *Subscriber
 	if command.SubscribeId > 0 {
 		if s, ok := self.subscribers[command.SubscribeId]; ok {
+			if s.clientId != command.ClientId {
+				self.glock.Unlock()
+				return protocol.NewSubscribeResultCommand(command, protocol.RESULT_ERROR, subscriber.subscriberId), nil
+			}
 			subscriber = s
 		}
 	}
@@ -916,9 +925,10 @@ func (self *SubscribeManager) handleSubscribeCommand(serverProtocol ServerProtoc
 			}
 			break
 		}
-		subscriber = NewSubscriber(self, serverProtocol, subscriberIdIndex)
+		subscriber = NewSubscriber(self, serverProtocol, command.ClientId, subscriberIdIndex)
 		err := self.addSubscriber(subscriber)
 		if err != nil {
+			self.glock.Unlock()
 			return protocol.NewSubscribeResultCommand(command, protocol.RESULT_ERROR, subscriber.subscriberId), nil
 		}
 	}
