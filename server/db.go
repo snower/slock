@@ -1385,7 +1385,7 @@ func (self *LockDB) doExpried(lock *Lock, forcedExpried bool) {
 				lock.expriedTime = 0x7fffffffffffffff
 			} else if lock.command.ExpriedFlag&protocol.EXPRIED_FLAG_MILLISECOND_TIME == 0 {
 				if lock.command.ExpriedFlag&protocol.EXPRIED_FLAG_MINUTE_TIME != 0 {
-					lock.expriedTime = lock.startTime + int64(lock.command.Expried)*60 + 1
+					lock.expriedTime = self.currentTime + 30
 				} else if lock.command.Expried > 30 {
 					lock.expriedTime = self.currentTime + 30
 				} else {
@@ -1656,6 +1656,9 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 			return nil
 		}
 
+		if command.ExpriedFlag&protocol.EXPRIED_FLAG_PUSH_SUBSCRIBE != 0 {
+			_ = self.subscribeChannels[lockManager.glockIndex].Push(command, protocol.RESULT_EXPRIED, uint16(lockManager.locked), lock.locked)
+		}
 		lockManager.FreeLock(lock)
 		if lockManager.refCount == 0 {
 			self.RemoveLockManager(lockManager)
@@ -1685,6 +1688,9 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 		return nil
 	}
 
+	if lock.command.TimeoutFlag&protocol.TIMEOUT_FLAG_PUSH_SUBSCRIBE != 0 {
+		_ = self.subscribeChannels[lockManager.glockIndex].Push(command, protocol.RESULT_TIMEOUT, uint16(lockManager.locked), lock.locked)
+	}
 	lockManager.FreeLock(lock)
 	if lockManager.refCount == 0 {
 		self.RemoveLockManager(lockManager)
@@ -1951,6 +1957,9 @@ func (self *LockDB) wakeUpWaitLock(lockManager *LockManager, waitLock *Lock, ser
 	waitLockProtocol, waitLockCommand := waitLock.protocol, waitLock.command
 	lockManager.state.LockCount++
 	lockManager.state.WaitCount--
+	if waitLockCommand.ExpriedFlag&protocol.EXPRIED_FLAG_PUSH_SUBSCRIBE != 0 {
+		_ = self.subscribeChannels[lockManager.glockIndex].Push(waitLockCommand, protocol.RESULT_EXPRIED, uint16(lockManager.locked), waitLock.locked)
+	}
 	lockManager.glock.Unlock()
 
 	if waitLockProtocol.serverProtocol == serverProtocol {

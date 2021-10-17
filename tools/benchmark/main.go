@@ -44,23 +44,19 @@ func main() {
 
 	benchFunc(1, 1, 200000, *key, *port, *host, *timeoutFlag, *expriedFlag)
 
-	benchFunc(1, 64, 300000, *key, *port, *host, *timeoutFlag, *expriedFlag)
-
-	benchFunc(64, 64, 500000, *key, *port, *host, *timeoutFlag, *expriedFlag)
+	benchFunc(1, 16, 300000, *key, *port, *host, *timeoutFlag, *expriedFlag)
 
 	benchFunc(8, 64, 500000, *key, *port, *host, *timeoutFlag, *expriedFlag)
 
 	benchFunc(16, 64, 500000, *key, *port, *host, *timeoutFlag, *expriedFlag)
+
+	benchFunc(64, 64, 500000, *key, *port, *host, *timeoutFlag, *expriedFlag)
 
 	benchFunc(16, 256, 500000, *key, *port, *host, *timeoutFlag, *expriedFlag)
 
 	benchFunc(64, 512, 500000, *key, *port, *host, *timeoutFlag, *expriedFlag)
 
 	benchFunc(512, 512, 500000, *key, *port, *host, *timeoutFlag, *expriedFlag)
-
-	benchFunc(64, 4096, 500000, *key, *port, *host, *timeoutFlag, *expriedFlag)
-
-	benchFunc(4096, 4096, 500000, *key, *port, *host, *timeoutFlag, *expriedFlag)
 
 	fmt.Println("Succed")
 }
