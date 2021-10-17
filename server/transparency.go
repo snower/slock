@@ -580,6 +580,8 @@ func (self *TransparencyBinaryServerProtocol) ProcessParse(buf []byte) error {
 			command = self.serverProtocol.GetLockCommand()
 		case protocol.COMMAND_LEADER:
 			command = &protocol.LeaderCommand{}
+		case protocol.COMMAND_SUBSCRIBE:
+			command = &protocol.SubscribeCommand{}
 		default:
 			command = &protocol.Command{}
 		}

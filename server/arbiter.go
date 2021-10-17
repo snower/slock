@@ -603,7 +603,7 @@ func (self *ArbiterMember) UpdateStatus() error {
 	callResultCommand, err := self.client.Request(callCommand)
 	if err != nil {
 		self.lastError++
-		if self.lastError >= 3 && self.client != nil && self.client.protocol != nil {
+		if self.lastError >= 2 && self.client != nil && self.client.protocol != nil {
 			_ = self.client.protocol.Close()
 		}
 		return err
@@ -611,7 +611,7 @@ func (self *ArbiterMember) UpdateStatus() error {
 
 	if callResultCommand.Result != 0 || callResultCommand.ErrType != "" {
 		self.lastError++
-		if self.lastError >= 3 && self.client != nil && self.client.protocol != nil {
+		if self.lastError >= 2 && self.client != nil && self.client.protocol != nil {
 			_ = self.client.protocol.Close()
 		}
 		self.manager.slock.Log().Warnf("Arbiter member %s update status error %v", self.host, err)
@@ -674,7 +674,7 @@ func (self *ArbiterMember) Run() {
 		select {
 		case <-self.wakeupSignal:
 			continue
-		case <-time.After(5 * time.Second):
+		case <-time.After(2 * time.Second):
 			self.glock.Lock()
 			self.wakeupSignal = nil
 			self.glock.Unlock()

@@ -181,7 +181,7 @@ func (self *ReplicationClient) Close() error {
 		_ = self.protocol.Close()
 	}
 	_ = self.WakeupRetryConnect()
-	self.manager.slock.logger.Errorf("Replication client %s close", self.manager.leaderAddress)
+	self.manager.slock.logger.Infof("Replication client %s close", self.manager.leaderAddress)
 	return nil
 }
 

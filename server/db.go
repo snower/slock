@@ -1141,21 +1141,17 @@ func (self *LockDB) AddTimeOut(lock *Lock) {
 		if lock.timeoutTime < self.checkTimeoutTime {
 			lock.timeoutTime = self.checkTimeoutTime
 		}
-		timeoutTime := lock.timeoutTime
-		if self.currentTime-timeoutTime > 86400 {
-			timeoutTime = self.currentTime + 86400
-		}
 
-		if longLocks, ok := self.longTimeoutLocks[lock.manager.glockIndex][timeoutTime]; !ok {
+		if longLocks, ok := self.longTimeoutLocks[lock.manager.glockIndex][lock.timeoutTime]; !ok {
 			freeLongWaitQueue := self.freeLongWaitQueues[lock.manager.glockIndex]
 			if freeLongWaitQueue.freeIndex < 0 {
 				longLocks = &LongWaitLockQueue{NewLockQueue(2, 64, LONG_LOCKS_QUEUE_INIT_SIZE), lock.timeoutTime, 0, lock.manager.glockIndex}
 			} else {
 				longLocks = freeLongWaitQueue.queues[freeLongWaitQueue.freeIndex]
 				freeLongWaitQueue.freeIndex--
-				longLocks.lockTime = timeoutTime
+				longLocks.lockTime = lock.timeoutTime
 			}
-			self.longTimeoutLocks[lock.manager.glockIndex][timeoutTime] = longLocks
+			self.longTimeoutLocks[lock.manager.glockIndex][lock.timeoutTime] = longLocks
 			lock.longWaitIndex = uint64(longLocks.locks.tailNodeIndex)<<32 | uint64(longLocks.locks.tailQueueIndex+1)
 			if longLocks.locks.Push(lock) != nil {
 				lock.longWaitIndex = 0
@@ -1312,21 +1308,17 @@ func (self *LockDB) AddExpried(lock *Lock) {
 		if lock.expriedTime < self.checkExpriedTime {
 			lock.expriedTime = self.checkExpriedTime
 		}
-		expriedTime := lock.expriedTime
-		if self.currentTime-expriedTime > 86400 {
-			expriedTime = self.currentTime + 86400
-		}
 
-		if longLocks, ok := self.longExpriedLocks[lock.manager.glockIndex][expriedTime]; !ok {
+		if longLocks, ok := self.longExpriedLocks[lock.manager.glockIndex][lock.expriedTime]; !ok {
 			freeLongWaitQueue := self.freeLongWaitQueues[lock.manager.glockIndex]
 			if freeLongWaitQueue.freeIndex < 0 {
 				longLocks = &LongWaitLockQueue{NewLockQueue(2, 64, LONG_LOCKS_QUEUE_INIT_SIZE), lock.expriedTime, 0, lock.manager.glockIndex}
 			} else {
 				longLocks = freeLongWaitQueue.queues[freeLongWaitQueue.freeIndex]
 				freeLongWaitQueue.freeIndex--
-				longLocks.lockTime = expriedTime
+				longLocks.lockTime = lock.expriedTime
 			}
-			self.longExpriedLocks[lock.manager.glockIndex][expriedTime] = longLocks
+			self.longExpriedLocks[lock.manager.glockIndex][lock.expriedTime] = longLocks
 			lock.longWaitIndex = uint64(longLocks.locks.tailNodeIndex)<<32 | uint64(longLocks.locks.tailQueueIndex+1)
 			if longLocks.locks.Push(lock) != nil {
 				lock.longWaitIndex = 0

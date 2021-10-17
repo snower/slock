@@ -7,12 +7,13 @@ import (
 )
 
 type Stream struct {
-	conn   net.Conn
-	closed bool
+	conn       net.Conn
+	closed     bool
+	closedWait chan bool
 }
 
 func NewStream(conn net.Conn) *Stream {
-	stream := &Stream{conn, false}
+	stream := &Stream{conn, false, make(chan bool, 1)}
 	return stream
 }
 
@@ -84,6 +85,7 @@ func (self *Stream) Close() error {
 	}
 
 	self.closed = true
+	close(self.closedWait)
 	return self.conn.Close()
 }
 

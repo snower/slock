@@ -1148,9 +1148,9 @@ func (self *LeaderResultCommand) Encode(buf []byte) error {
 
 	for i := 0; i < 43; i++ {
 		if i >= len(self.Host) {
-			buf[27+i] = 0x00
+			buf[21+i] = 0x00
 		} else {
-			buf[27+i] = self.Host[i]
+			buf[21+i] = self.Host[i]
 		}
 	}
 	return nil
@@ -1168,7 +1168,7 @@ type SubscribeCommand struct {
 }
 
 func NewSubscribeCommand(subscribeId uint64, subscribeType uint8, lockKeyMask [16]byte, expried uint32, maxSize uint32) *SubscribeCommand {
-	command := Command{Magic: MAGIC, Version: VERSION, CommandType: COMMAND_LEADER, RequestId: GenRequestId()}
+	command := Command{Magic: MAGIC, Version: VERSION, CommandType: COMMAND_SUBSCRIBE, RequestId: GenRequestId()}
 	leaderCommand := SubscribeCommand{Command: command, Flag: 0, SubscribeId: subscribeId,
 		SubscribeType: subscribeType, LockKeyMask: lockKeyMask, Expried: expried, MaxSize: maxSize, Blank: [11]byte{}}
 	return &leaderCommand
@@ -1186,7 +1186,7 @@ func (self *SubscribeCommand) Decode(buf []byte) error {
 
 	self.Flag = uint8(buf[19])
 	self.SubscribeId = uint64(buf[20]) | uint64(buf[21])<<8 | uint64(buf[22])<<16 | uint64(buf[23])<<24 | uint64(buf[24])<<32 | uint64(buf[25])<<40 | uint64(buf[26])<<48 | uint64(buf[27])<<56
-	self.Flag = uint8(buf[28])
+	self.SubscribeType = uint8(buf[28])
 
 	self.LockKeyMask[0], self.LockKeyMask[1], self.LockKeyMask[2], self.LockKeyMask[3], self.LockKeyMask[4], self.LockKeyMask[5], self.LockKeyMask[6], self.LockKeyMask[7],
 		self.LockKeyMask[8], self.LockKeyMask[9], self.LockKeyMask[10], self.LockKeyMask[11], self.LockKeyMask[12], self.LockKeyMask[13], self.LockKeyMask[14], self.LockKeyMask[15] =

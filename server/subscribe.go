@@ -2,6 +2,7 @@ package server
 
 import (
 	"errors"
+	"fmt"
 	"github.com/snower/slock/client"
 	"github.com/snower/slock/protocol"
 	"io"
@@ -34,6 +35,10 @@ func NewPublishLock() *PublishLock {
 	return &PublishLock{protocol.MAGIC, protocol.VERSION, protocol.COMMAND_PUBLISH, [16]byte{}, 0,
 		0, 0, [16]byte{}, [16]byte{}, 0, 0, 0, 0, make([]byte, 64)}
 
+}
+
+func (self *PublishLock) GetCommandType() uint8 {
+	return self.CommandType
 }
 
 func (self *PublishLock) Decode() error {
@@ -114,11 +119,12 @@ type SubscribeClient struct {
 	closed        bool
 	closedWaiter  chan bool
 	wakeupSignal  chan bool
+	uninitWaiter  chan bool
 }
 
 func NewSubscribeClient(manager *SubscribeManager) *SubscribeClient {
 	return &SubscribeClient{manager, &sync.Mutex{}, "", 0, nil, nil,
-		NewPublishLock(), false, make(chan bool, 1), nil}
+		NewPublishLock(), false, make(chan bool, 1), nil, nil}
 }
 
 func (self *SubscribeClient) Open(leaderAddress string) error {
@@ -134,23 +140,37 @@ func (self *SubscribeClient) Open(leaderAddress string) error {
 	clientProtocol := client.NewBinaryClientProtocol(stream)
 	self.stream = stream
 	self.protocol = clientProtocol
+	self.leaderAddress = leaderAddress
 	self.closed = false
 	return nil
 }
 
 func (self *SubscribeClient) Close() error {
-	self.closed = true
+	self.glock.Lock()
+	if self.closed {
+		self.glock.Unlock()
+		return nil
+	}
+	self.glock.Unlock()
+
 	if self.protocol != nil {
+		err := self.uninitSubscribe()
+		if err != nil {
+			self.manager.slock.Log().Errorf("Subscribe client close unSubscribe error %v", err)
+		}
+		self.closed = true
 		_ = self.protocol.Close()
+	} else {
+		self.closed = true
 	}
 	_ = self.WakeupRetryConnect()
-	self.manager.slock.logger.Errorf("Subscribe client %s close", self.leaderAddress)
+	self.manager.slock.logger.Infof("Subscribe client %s close", self.leaderAddress)
 	return nil
 }
 
 func (self *SubscribeClient) initSubscribe() error {
 	lockKeyMask := [16]byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
-	command := protocol.NewSubscribeCommand(self.subscriberId, 0, lockKeyMask, 7200, 67108864)
+	command := protocol.NewSubscribeCommand(self.subscriberId, 0, lockKeyMask, 30, 67108864)
 	err := self.protocol.Write(command)
 	if err != nil {
 		return err
@@ -161,10 +181,70 @@ func (self *SubscribeClient) initSubscribe() error {
 	}
 
 	if subscribeResultCommand, ok := resultCommand.(*protocol.SubscribeResultCommand); ok {
+		if subscribeResultCommand.Result != 0 {
+			return errors.New(fmt.Sprintf("command error: code %d", subscribeResultCommand.Result))
+		}
+
 		self.subscriberId = subscribeResultCommand.SubscribeId
 		return nil
 	}
 	return errors.New("unknown command")
+}
+
+func (self *SubscribeClient) uninitSubscribe() error {
+	self.glock.Lock()
+	if self.protocol == nil {
+		self.glock.Unlock()
+		return errors.New("closed")
+	}
+	if self.uninitWaiter != nil {
+		self.glock.Unlock()
+		return errors.New("uniniting")
+	}
+	if self.subscriberId == 0 {
+		self.glock.Unlock()
+		return nil
+	}
+	self.glock.Unlock()
+
+	lockKeyMask := [16]byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
+	command := protocol.NewSubscribeCommand(self.subscriberId, 1, lockKeyMask, 30, 67108864)
+	err := self.protocol.Write(command)
+	if err != nil {
+		return err
+	}
+
+	self.glock.Lock()
+	self.uninitWaiter = make(chan bool, 1)
+	self.glock.Unlock()
+	<-self.uninitWaiter
+	self.uninitWaiter = nil
+
+	if self.subscriberId != 0 {
+		return errors.New("unsubscriber fail")
+	}
+	return nil
+}
+
+func (self *SubscribeClient) handleUninitSubscribe(buf []byte) error {
+	subscribeResultCommand := protocol.SubscribeResultCommand{}
+	err := subscribeResultCommand.Decode(buf)
+	if err != nil {
+		return err
+	}
+	if subscribeResultCommand.CommandType != protocol.COMMAND_SUBSCRIBE {
+		return errors.New("unkonwn command")
+	}
+
+	if subscribeResultCommand.Result == 0 {
+		self.subscriberId = 0
+	}
+	self.glock.Lock()
+	if self.uninitWaiter != nil {
+		close(self.uninitWaiter)
+	}
+	self.glock.Unlock()
+	return nil
 }
 
 func (self *SubscribeClient) Run() {
@@ -179,6 +259,9 @@ func (self *SubscribeClient) Run() {
 			self.glock.Lock()
 			self.stream = nil
 			self.protocol = nil
+			if self.uninitWaiter != nil {
+				close(self.uninitWaiter)
+			}
 			self.glock.Unlock()
 			if self.closed {
 				break
@@ -193,7 +276,7 @@ func (self *SubscribeClient) Run() {
 				self.manager.slock.logger.Errorf("Subscribe client init sync error %s %v", self.leaderAddress, err)
 			}
 		} else {
-			self.manager.slock.logger.Infof("Subscribe client connected leader %s", self.leaderAddress)
+			self.manager.slock.logger.Infof("Subscribe client connected leader %s with id %d", self.leaderAddress, self.subscriberId)
 			err = self.Process()
 			if err != nil {
 				if err != io.EOF && !self.closed {
@@ -215,8 +298,17 @@ func (self *SubscribeClient) Run() {
 		_ = self.sleepWhenRetryConnect()
 	}
 
+	self.glock.Lock()
+	if self.uninitWaiter != nil {
+		close(self.uninitWaiter)
+	}
+	self.glock.Unlock()
 	close(self.closedWaiter)
-	self.manager.client = nil
+	self.manager.glock.Lock()
+	if self.manager.client == self {
+		self.manager.client = nil
+	}
+	self.manager.glock.Unlock()
 	self.manager.slock.logger.Infof("Subscribe client connect leader %s closed", self.leaderAddress)
 }
 
@@ -238,6 +330,10 @@ func (self *SubscribeClient) Process() error {
 			}
 		}
 
+		if self.publishLock.buf[2] != protocol.COMMAND_PUBLISH {
+			_ = self.handleUninitSubscribe(self.publishLock.buf)
+			continue
+		}
 		err = self.publishLock.Decode()
 		if err != nil {
 			return err
@@ -247,7 +343,6 @@ func (self *SubscribeClient) Process() error {
 		if db == nil {
 			self.manager.slock.GetOrNewDB(self.publishLock.DbId)
 		}
-
 		publishId := uint64(buf[3]) | uint64(buf[4])<<8 | uint64(buf[5])<<16 | uint64(buf[6])<<24 | uint64(buf[7])<<32 | uint64(buf[8])<<40 | uint64(buf[9])<<48 | uint64(buf[10])<<56
 		err = db.subscribeChannels[publishId%uint64(db.managerMaxGlocks)].ClientPush(self.publishLock)
 		if err != nil {
@@ -288,7 +383,7 @@ type Subscriber struct {
 	manager                    *SubscribeManager
 	glock                      *sync.Mutex
 	subscriberId               uint64
-	publishIds                 [][2]uint64
+	lockKeyMasks               [][2]uint64
 	bufferHead                 *SubscribeBuffer
 	bufferTail                 *SubscribeBuffer
 	bufferSize                 int
@@ -304,10 +399,12 @@ type Subscriber struct {
 }
 
 func NewSubscriber(manager *SubscribeManager, serverProtocol ServerProtocol, subscriberId uint64) *Subscriber {
-	return &Subscriber{manager, &sync.Mutex{}, subscriberId, make([][2]uint64, 0),
+	subscriber := &Subscriber{manager, &sync.Mutex{}, subscriberId, make([][2]uint64, 0),
 		nil, nil, 0, serverProtocol, 0,
 		serverProtocol.GetStream().closedWaiter, 0, 0,
 		false, make(chan bool, 4), false, make(chan bool, 1)}
+	go subscriber.Run()
+	return subscriber
 }
 
 func (self *Subscriber) Close() error {
@@ -330,6 +427,7 @@ func (self *Subscriber) Close() error {
 	for currentBuffer != nil {
 		nextBuffer := currentBuffer.next
 		self.manager.freeBuffer(currentBuffer)
+		self.bufferSize -= len(currentBuffer.buf)
 		currentBuffer = nextBuffer
 	}
 	self.bufferHead = nil
@@ -356,8 +454,12 @@ func (self *Subscriber) Run() {
 			self.pulled = false
 			if self.serverProtocol == nil {
 				self.processCheck()
-			} else if self.bufferHead != self.bufferTail || self.bufferHead.rindex < self.bufferTail.windex {
-				self.processLock()
+			} else {
+				if self.bufferHead != nil && self.bufferTail != nil {
+					if self.bufferHead != self.bufferTail || self.bufferHead.rindex < self.bufferTail.windex {
+						self.processLock()
+					}
+				}
 			}
 			self.glock.Unlock()
 		case <-time.After(time.Duration(timeout) * time.Second):
@@ -386,11 +488,13 @@ func (self *Subscriber) processLock() {
 		}
 		self.glock.Unlock()
 
+		self.serverProtocol.Lock()
 		tn := 0
 		for tn < len(buf) {
 			n, err := stream.Write(buf[tn:])
 			tn += n
 			if err != nil {
+				self.serverProtocol.Unlock()
 				self.glock.Lock()
 				self.bufferHead.rindex += tn - (tn % 64)
 				self.processServerProcotolClose()
@@ -399,15 +503,24 @@ func (self *Subscriber) processLock() {
 		}
 
 		if self.serverProtocol != nil {
+			self.serverProtocol.Unlock()
 			self.glock.Lock()
 			self.bufferHead.rindex += tn
 		}
-		if self.bufferHead.rindex >= len(self.bufferHead.buf) {
-			buffer := self.bufferHead
-			self.bufferHead = self.bufferHead.next
-			self.manager.freeBuffer(buffer)
-			if self.bufferHead == nil {
-				self.bufferTail = nil
+
+		if self.bufferHead == self.bufferTail && self.bufferHead.rindex == self.bufferTail.windex {
+			self.bufferHead.rindex = 0
+			self.bufferTail.windex = 0
+		} else {
+			if self.bufferHead.rindex >= len(self.bufferHead.buf) {
+				buffer := self.bufferHead
+				self.bufferHead = self.bufferHead.next
+				self.manager.freeBuffer(buffer)
+				self.bufferSize -= len(buffer.buf)
+				if self.bufferHead == nil {
+					self.bufferTail = nil
+					return
+				}
 			}
 		}
 	}
@@ -421,9 +534,13 @@ func (self *Subscriber) processCheck() {
 		}
 	}
 
+	if self.closed {
+		return
+	}
 	if self.serverProtocolClosedTime != 0 && uint32(time.Now().Unix()-self.serverProtocolClosedTime) > self.expriedTime {
 		go func() {
 			_ = self.Close()
+			self.manager.slock.Log().Infof("Subscribe subscriber expried %d %d %d", self.subscriberId, self.expriedTime, self.maxSize)
 		}()
 	}
 }
@@ -435,6 +552,7 @@ func (self *Subscriber) processServerProcotolClose() {
 	if self.expriedTime == 0 {
 		go func() {
 			_ = self.Close()
+			self.manager.slock.Log().Infof("Subscribe subscriber stream closed %d %d %d", self.subscriberId, self.expriedTime, self.maxSize)
 		}()
 	}
 }
@@ -447,7 +565,7 @@ func (self *Subscriber) Push(lock *PublishLock) error {
 	self.glock.Lock()
 	hKey := uint64(lock.LockKey[0]) | uint64(lock.LockKey[1])<<8 | uint64(lock.LockKey[2])<<16 | uint64(lock.LockKey[3])<<24 | uint64(lock.LockKey[4])<<32 | uint64(lock.LockKey[5])<<40 | uint64(lock.LockKey[6])<<48 | uint64(lock.LockKey[7])<<56
 	lKey := uint64(lock.LockKey[8]) | uint64(lock.LockKey[9])<<8 | uint64(lock.LockKey[10])<<16 | uint64(lock.LockKey[11])<<24 | uint64(lock.LockKey[12])<<32 | uint64(lock.LockKey[13])<<40 | uint64(lock.LockKey[14])<<48 | uint64(lock.LockKey[15])<<56
-	for _, mask := range self.publishIds {
+	for _, mask := range self.lockKeyMasks {
 		if mask[0]&hKey == 0 && mask[1]&lKey == 0 {
 			continue
 		}
@@ -463,10 +581,11 @@ func (self *Subscriber) Push(lock *PublishLock) error {
 				self.bufferHead = self.bufferTail
 			}
 
-			if uint32(self.bufferSize) >= self.maxSize {
+			if self.maxSize > 0 && uint32(self.bufferSize) >= self.maxSize {
 				buffer := self.bufferHead
 				self.bufferHead = self.bufferHead.next
 				self.manager.freeBuffer(buffer)
+				self.bufferSize -= len(buffer.buf)
 				if self.bufferHead == nil {
 					self.bufferTail = nil
 				}
@@ -508,27 +627,30 @@ func (self *Subscriber) Update(serverProtocol ServerProtocol, subscriberType uin
 
 	if subscriberType == 0 {
 		hasMask := false
-		for _, mask := range self.publishIds {
+		for _, mask := range self.lockKeyMasks {
 			if mask == lkm {
 				hasMask = true
 				break
 			}
 		}
 		if !hasMask {
-			self.publishIds = append(self.publishIds, lkm)
+			self.lockKeyMasks = append(self.lockKeyMasks, lkm)
 		}
+		self.expriedTime = expried
+		self.maxSize = maxSize
 	} else {
 		publishIds := make([][2]uint64, 0)
-		for _, mask := range self.publishIds {
+		for _, mask := range self.lockKeyMasks {
 			if mask != lkm {
 				publishIds = append(publishIds, mask)
 				break
 			}
 		}
-		self.publishIds = publishIds
-		if len(self.publishIds) == 0 {
+		self.lockKeyMasks = publishIds
+		if len(self.lockKeyMasks) == 0 {
 			go func() {
 				_ = self.Close()
+				self.manager.slock.Log().Infof("Subscribe subscriber cancal closed %d %d %d", self.subscriberId, self.expriedTime, self.maxSize)
 			}()
 		}
 	}
@@ -643,8 +765,11 @@ func (self *SubscribeChannel) Run() {
 }
 
 func (self *SubscribeChannel) handle(publishLock *PublishLock) {
-	for _, subscriber := range self.manager.subscribers {
-		_ = subscriber.Push(publishLock)
+	err := publishLock.Encode()
+	if err == nil {
+		for _, subscriber := range self.manager.subscribers {
+			_ = subscriber.Push(publishLock)
+		}
 	}
 
 	self.glock.Lock()
@@ -687,8 +812,9 @@ func (self *SubscribeManager) Close() {
 	self.glock.Unlock()
 
 	if self.client != nil {
+		closedWaiter := self.client.closedWaiter
 		_ = self.client.Close()
-		<-self.client.closedWaiter
+		<-closedWaiter
 	}
 	_ = self.WaitFlushSubscribeChannel()
 	for _, subscriber := range self.fastSubscribers {
@@ -803,9 +929,19 @@ func (self *SubscribeManager) handleSubscribeCommand(serverProtocol ServerProtoc
 	} else {
 		self.glock.Unlock()
 	}
-	err := subscriber.Update(serverProtocol, command.CommandType, command.LockKeyMask, command.Expried, command.MaxSize)
+	err := subscriber.Update(serverProtocol, command.SubscribeType, command.LockKeyMask, command.Expried, command.MaxSize)
 	if err != nil {
+		if len(subscriber.lockKeyMasks) == 0 {
+			_ = subscriber.Close()
+		}
 		return protocol.NewSubscribeResultCommand(command, protocol.RESULT_ERROR, subscriber.subscriberId), nil
+	}
+	if command.SubscribeType == 0 {
+		self.slock.Log().Infof("Subscribe add subscribe %s %d %x %d %d", serverProtocol.GetStream().RemoteAddr().String(),
+			subscriber.subscriberId, command.LockKeyMask, command.Expried, command.MaxSize)
+	} else {
+		self.slock.Log().Infof("Subscribe remove subscribe %s %d %x %d %d", serverProtocol.GetStream().RemoteAddr().String(),
+			subscriber.subscriberId, command.LockKeyMask, command.Expried, command.MaxSize)
 	}
 	return protocol.NewSubscribeResultCommand(command, protocol.RESULT_SUCCED, subscriber.subscriberId), nil
 }
@@ -813,8 +949,8 @@ func (self *SubscribeManager) handleSubscribeCommand(serverProtocol ServerProtoc
 func (self *SubscribeManager) addSubscriber(subscriber *Subscriber) error {
 	self.subscribers[subscriber.subscriberId] = subscriber
 	subscribers := make([]*Subscriber, 0)
-	for _, subscriber := range self.subscribers {
-		subscribers = append(subscribers, subscriber)
+	for _, s := range self.subscribers {
+		subscribers = append(subscribers, s)
 	}
 	self.fastSubscribers = subscribers
 	return nil
@@ -825,8 +961,8 @@ func (self *SubscribeManager) removeSubscriber(subscriber *Subscriber) error {
 	if _, ok := self.subscribers[subscriber.subscriberId]; ok {
 		delete(self.subscribers, subscriber.subscriberId)
 		subscribers := make([]*Subscriber, 0)
-		for _, subscriber := range self.subscribers {
-			subscribers = append(subscribers, subscriber)
+		for _, s := range self.subscribers {
+			subscribers = append(subscribers, s)
 		}
 		self.fastSubscribers = subscribers
 	}
@@ -890,9 +1026,12 @@ func (self *SubscribeManager) ChangeLeader(address string) error {
 			self.glock.Unlock()
 			_ = self.client.Close()
 		} else if self.leaderAddress != self.client.leaderAddress {
-			if self.client.protocol != nil {
-				_ = self.client.protocol.Close()
-			}
+			go func(c *SubscribeClient) {
+				if c != nil {
+					_ = c.Close()
+				}
+			}(self.client)
+			_ = self.openClient()
 			self.glock.Unlock()
 		} else {
 			self.glock.Unlock()
