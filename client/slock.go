@@ -9,69 +9,42 @@ import (
 	"time"
 )
 
-type CommandRequest struct {
-	command        protocol.ICommand
-	waiter         chan protocol.ICommand
-	clientProtocol ClientProtocol
-}
-
 type Client struct {
 	glock             *sync.Mutex
-	protocols         []ClientProtocol
+	replset           *ReplsetClient
+	protocol          ClientProtocol
 	dbs               []*Database
-	requests          map[[16]byte]*CommandRequest
+	requests          map[[16]byte]chan protocol.ICommand
 	requestLock       *sync.Mutex
 	subscribes        map[uint32]*Subscriber
 	subscribeLock     *sync.Mutex
-	hosts             []string
-	clientIds         map[string][16]byte
+	serverAddress     string
+	clientId          [16]byte
 	closed            bool
-	closedWaiter      *sync.WaitGroup
-	reconnectWaiters  map[string]chan bool
+	closedWaiter      chan bool
+	reconnectWaiter   chan bool
 	unavailableWaiter chan bool
 }
 
 func NewClient(host string, port uint) *Client {
 	address := fmt.Sprintf("%s:%d", host, port)
-	client := &Client{&sync.Mutex{}, make([]ClientProtocol, 0), make([]*Database, 256),
-		make(map[[16]byte]*CommandRequest, 64), &sync.Mutex{}, make(map[uint32]*Subscriber, 4),
-		&sync.Mutex{}, []string{address}, make(map[string][16]byte, 4),
-		false, &sync.WaitGroup{}, make(map[string]chan bool, 4), nil}
-	return client
-}
-
-func NewReplsetClient(hosts []string) *Client {
-	client := &Client{&sync.Mutex{}, make([]ClientProtocol, 0),
-		make([]*Database, 256), make(map[[16]byte]*CommandRequest, 64), &sync.Mutex{}, make(map[uint32]*Subscriber, 4),
-		&sync.Mutex{}, hosts, make(map[string][16]byte, 4), false, &sync.WaitGroup{},
-		make(map[string]chan bool, 4), nil}
+	client := &Client{&sync.Mutex{}, nil, nil, make([]*Database, 256),
+		make(map[[16]byte]chan protocol.ICommand, 64), &sync.Mutex{}, make(map[uint32]*Subscriber, 4),
+		&sync.Mutex{}, address, protocol.GenClientId(),
+		false, make(chan bool, 1), nil, nil}
 	return client
 }
 
 func (self *Client) Open() error {
-	if len(self.protocols) > 0 {
+	if self.protocol != nil {
 		return errors.New("Client is Opened")
 	}
 
-	var err error
-	protocols := make(map[string]ClientProtocol, 4)
-	for _, host := range self.hosts {
-		self.clientIds[host] = self.genClientId()
-		clientProtocol, cerr := self.connect(host, self.clientIds[host])
-		if cerr != nil {
-			err = cerr
-		}
-		protocols[host] = clientProtocol
-	}
-
-	if len(self.protocols) == 0 {
+	err := self.connect(self.serverAddress, self.clientId)
+	if err != nil {
 		return err
 	}
-
-	for host, clientProtocol := range protocols {
-		go self.process(host, self.clientIds[host], clientProtocol)
-		self.closedWaiter.Add(1)
-	}
+	go self.process()
 	return nil
 }
 
@@ -109,9 +82,9 @@ func (self *Client) Close() error {
 
 	self.glock.Lock()
 	for requestId := range self.requests {
-		close(self.requests[requestId].waiter)
+		close(self.requests[requestId])
 	}
-	self.requests = make(map[[16]byte]*CommandRequest, 0)
+	self.requests = make(map[[16]byte]chan protocol.ICommand, 0)
 	self.glock.Unlock()
 
 	for dbId, db := range self.dbs {
@@ -126,16 +99,15 @@ func (self *Client) Close() error {
 		self.dbs[dbId] = nil
 	}
 
-	for _, clientProtocol := range self.protocols {
-		_ = clientProtocol.Close()
-	}
-
 	self.glock.Lock()
-	for _, waiter := range self.reconnectWaiters {
-		close(waiter)
+	if self.protocol != nil {
+		_ = self.protocol.Close()
+	}
+	if self.reconnectWaiter != nil {
+		close(self.reconnectWaiter)
 	}
 	self.glock.Unlock()
-	self.closedWaiter.Wait()
+	<-self.closedWaiter
 	if self.unavailableWaiter != nil {
 		close(self.unavailableWaiter)
 		self.unavailableWaiter = nil
@@ -143,10 +115,10 @@ func (self *Client) Close() error {
 	return nil
 }
 
-func (self *Client) connect(host string, clientId [16]byte) (ClientProtocol, error) {
+func (self *Client) connect(host string, clientId [16]byte) error {
 	conn, err := net.Dial("tcp", host)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	stream := NewStream(conn)
@@ -154,59 +126,54 @@ func (self *Client) connect(host string, clientId [16]byte) (ClientProtocol, err
 	err = self.initProtocol(clientProtocol, clientId)
 	if err != nil {
 		_ = clientProtocol.Close()
-		return nil, err
+		return err
 	}
-	self.addProtocol(clientProtocol)
-	return clientProtocol, nil
+
+	self.protocol = clientProtocol
+	if self.replset != nil {
+		self.replset.addAvailableClient(self)
+	}
+	return nil
 }
 
-func (self *Client) reconnect(host string, clientId [16]byte, _ ClientProtocol) ClientProtocol {
+func (self *Client) reconnect() ClientProtocol {
 	self.glock.Lock()
-	waiter := make(chan bool, 1)
-	self.reconnectWaiters[host] = waiter
-	if len(self.protocols) == 0 {
-		if self.unavailableWaiter != nil {
-			close(self.unavailableWaiter)
-			self.unavailableWaiter = nil
-		}
+	if self.reconnectWaiter != nil {
+		self.reconnectWaiter = make(chan bool, 1)
+	}
+	if self.unavailableWaiter != nil {
+		close(self.unavailableWaiter)
+		self.unavailableWaiter = nil
 	}
 	self.glock.Unlock()
 
 	for !self.closed {
 		select {
-		case <-waiter:
+		case <-self.reconnectWaiter:
 			continue
 		case <-time.After(3 * time.Second):
-			clientProtocol, err := self.connect(host, clientId)
+			err := self.connect(self.serverAddress, self.clientId)
 			if err != nil {
 				continue
 			}
 
 			self.glock.Lock()
-			if _, ok := self.reconnectWaiters[host]; ok {
-				delete(self.reconnectWaiters, host)
-			}
+			self.reconnectWaiter = nil
 			self.glock.Unlock()
-			self.reconnectUpdateSubcribers(host)
-			return clientProtocol
+			self.reconnectUpdateSubcribers()
+			return nil
 		}
 	}
 
 	self.glock.Lock()
-	if _, ok := self.reconnectWaiters[host]; ok {
-		delete(self.reconnectWaiters, host)
-	}
+	self.reconnectWaiter = nil
 	self.glock.Unlock()
 	return nil
 }
 
-func (self *Client) reconnectUpdateSubcribers(host string) {
+func (self *Client) reconnectUpdateSubcribers() {
 	self.subscribeLock.Lock()
 	for _, subscriber := range self.subscribes {
-		if subscriber.subscribeHost != host {
-			continue
-		}
-
 		go func(subscriber *Subscriber) {
 			err := self.UpdateSubscribe(subscriber)
 			if err != nil {
@@ -215,28 +182,6 @@ func (self *Client) reconnectUpdateSubcribers(host string) {
 		}(subscriber)
 	}
 	self.subscribeLock.Unlock()
-}
-
-func (self *Client) addProtocol(clientProtocol ClientProtocol) {
-	self.glock.Lock()
-	self.protocols = append(self.protocols, clientProtocol)
-	self.glock.Unlock()
-}
-
-func (self *Client) removeProtocol(clientProtocol ClientProtocol) {
-	self.glock.Lock()
-	protocols := make([]ClientProtocol, 0)
-	for _, p := range self.protocols {
-		if p != clientProtocol {
-			protocols = append(protocols, p)
-		}
-	}
-	self.protocols = protocols
-	self.glock.Unlock()
-}
-
-func (self *Client) genClientId() [16]byte {
-	return protocol.GenClientId()
 }
 
 func (self *Client) initProtocol(clientProtocol ClientProtocol, clientId [16]byte) error {
@@ -250,12 +195,12 @@ func (self *Client) initProtocol(clientProtocol ClientProtocol, clientId [16]byt
 	}
 
 	if initResultCommand, ok := result.(*protocol.InitResultCommand); ok {
-		return self.handleInitCommandResult(clientProtocol, initResultCommand)
+		return self.handleInitCommandResult(initResultCommand)
 	}
 	return errors.New("init fail")
 }
 
-func (self *Client) handleInitCommandResult(clientProtocol ClientProtocol, initResultCommand *protocol.InitResultCommand) error {
+func (self *Client) handleInitCommandResult(initResultCommand *protocol.InitResultCommand) error {
 	if initResultCommand.Result != protocol.RESULT_SUCCED {
 		return errors.New(fmt.Sprintf("init stream error: %d", initResultCommand.Result))
 	}
@@ -263,10 +208,8 @@ func (self *Client) handleInitCommandResult(clientProtocol ClientProtocol, initR
 	if initResultCommand.InitType != 0 && initResultCommand.InitType != 2 {
 		self.glock.Lock()
 		for requestId := range self.requests {
-			if self.requests[requestId].clientProtocol == clientProtocol {
-				close(self.requests[requestId].waiter)
-				delete(self.requests, requestId)
-			}
+			close(self.requests[requestId])
+			delete(self.requests, requestId)
 		}
 		self.glock.Unlock()
 
@@ -277,10 +220,8 @@ func (self *Client) handleInitCommandResult(clientProtocol ClientProtocol, initR
 
 			db.glock.Lock()
 			for requestId := range db.requests {
-				if db.requests[requestId].clientProtocol == clientProtocol {
-					close(db.requests[requestId].waiter)
-					delete(db.requests, requestId)
-				}
+				close(db.requests[requestId])
+				delete(db.requests, requestId)
 			}
 			db.glock.Unlock()
 		}
@@ -288,42 +229,43 @@ func (self *Client) handleInitCommandResult(clientProtocol ClientProtocol, initR
 	return nil
 }
 
-func (self *Client) process(host string, clientId [16]byte, clientProtocol ClientProtocol) {
+func (self *Client) process() {
 	for !self.closed {
-		if clientProtocol == nil {
-			clientProtocol = self.reconnect(host, clientId, clientProtocol)
+		if self.protocol == nil {
+			err := self.reconnect()
+			if err != nil {
+				return
+			}
 			continue
 		}
 
-		command, err := clientProtocol.Read()
+		command, err := self.protocol.Read()
 		if err != nil {
-			_ = clientProtocol.Close()
-			self.removeProtocol(clientProtocol)
-			clientProtocol = self.reconnect(host, clientId, clientProtocol)
+			_ = self.protocol.Close()
+			if self.replset != nil {
+				self.replset.removeAvailableClient(self)
+			}
+			self.protocol = nil
+			err := self.reconnect()
+			if err != nil {
+				return
+			}
 			continue
 		}
-		if command == nil {
-			continue
+
+		if command != nil {
+			_ = self.handleCommand(command.(protocol.ICommand))
 		}
-		_ = self.handleCommand(clientProtocol, command.(protocol.ICommand))
 	}
 
-	if clientProtocol != nil {
-		_ = clientProtocol.Close()
+	if self.protocol != nil {
+		_ = self.protocol.Close()
+		self.protocol = nil
 	}
-	self.closedWaiter.Done()
-}
-
-func (self *Client) getPrococol() ClientProtocol {
-	self.glock.Lock()
-	if self.closed || len(self.protocols) == 0 {
-		self.glock.Unlock()
-		return nil
+	if self.replset != nil {
+		self.replset.removeAvailableClient(self)
 	}
-
-	clientProtocol := self.protocols[0]
-	self.glock.Unlock()
-	return clientProtocol
+	close(self.closedWaiter)
 }
 
 func (self *Client) getOrNewDB(dbId uint8) *Database {
@@ -337,7 +279,7 @@ func (self *Client) getOrNewDB(dbId uint8) *Database {
 	return db
 }
 
-func (self *Client) handleCommand(clientProtocol ClientProtocol, command protocol.ICommand) error {
+func (self *Client) handleCommand(command protocol.ICommand) error {
 	switch command.GetCommandType() {
 	case protocol.COMMAND_LOCK:
 		lockCommand := command.(*protocol.LockResultCommand)
@@ -364,7 +306,7 @@ func (self *Client) handleCommand(clientProtocol ClientProtocol, command protoco
 		return db.handleCommandResult(stateCommand)
 	case protocol.COMMAND_INIT:
 		initCommand := command.(*protocol.InitResultCommand)
-		return self.handleInitCommandResult(clientProtocol, initCommand)
+		return self.handleInitCommandResult(initCommand)
 	case protocol.COMMAND_PUBLISH:
 		lockCommand := command.(*protocol.LockResultCommand)
 		subscribeId := uint32(lockCommand.RequestId[12]) | uint32(lockCommand.RequestId[13])<<8 | uint32(lockCommand.RequestId[14])<<16 | uint32(lockCommand.RequestId[15])<<24
@@ -382,7 +324,7 @@ func (self *Client) handleCommand(clientProtocol ClientProtocol, command protoco
 		delete(self.requests, requestId)
 		self.requestLock.Unlock()
 
-		request.waiter <- command
+		request <- command
 		return nil
 	}
 	self.requestLock.Unlock()
@@ -398,16 +340,8 @@ func (self *Client) SelectDB(dbId uint8) *Database {
 }
 
 func (self *Client) ExecuteCommand(command protocol.ICommand, timeout int) (protocol.ICommand, error) {
-	clientProtocol := self.getPrococol()
-	if clientProtocol == nil {
+	if self.protocol == nil {
 		return nil, errors.New("client is not opened")
-	}
-	return self.doExecuteCommand(clientProtocol, command, timeout)
-}
-
-func (self *Client) doExecuteCommand(clientProtocol ClientProtocol, command protocol.ICommand, timeout int) (protocol.ICommand, error) {
-	if self.closed {
-		return nil, errors.New("closed")
 	}
 
 	requestId := command.GetRequestId()
@@ -418,10 +352,10 @@ func (self *Client) doExecuteCommand(clientProtocol ClientProtocol, command prot
 	}
 
 	waiter := make(chan protocol.ICommand, 1)
-	self.requests[requestId] = &CommandRequest{command, waiter, clientProtocol}
+	self.requests[requestId] = waiter
 	self.requestLock.Unlock()
 
-	err := clientProtocol.Write(command)
+	err := self.protocol.Write(command)
 	if err != nil {
 		self.requestLock.Lock()
 		if _, ok := self.requests[requestId]; ok {
@@ -448,12 +382,10 @@ func (self *Client) doExecuteCommand(clientProtocol ClientProtocol, command prot
 }
 
 func (self *Client) SendCommand(command protocol.ICommand) error {
-	clientProtocol := self.getPrococol()
-	if clientProtocol == nil {
+	if self.protocol == nil {
 		return errors.New("client is not opened")
 	}
-
-	return clientProtocol.Write(command)
+	return self.protocol.Write(command)
 }
 
 func (self *Client) Lock(lockKey [16]byte, timeout uint32, expried uint32) *Lock {
@@ -499,11 +431,7 @@ func (self *Client) SubscribeMask(lockKeyMask [16]byte, expried uint32, maxSize 
 	clientId := subscriberClientIdIndex
 	self.glock.Unlock()
 	command := protocol.NewSubscribeCommand(clientId, 0, 0, lockKeyMask, expried, maxSize)
-	clientProtocol := self.getPrococol()
-	if clientProtocol == nil {
-		return nil, errors.New("client is not opened")
-	}
-	resultCommand, err := self.doExecuteCommand(clientProtocol, command, 5)
+	resultCommand, err := self.ExecuteCommand(command, 5)
 	if err != nil {
 		return nil, err
 	}
@@ -515,8 +443,7 @@ func (self *Client) SubscribeMask(lockKeyMask [16]byte, expried uint32, maxSize 
 		return nil, errors.New(fmt.Sprintf("command error: code %d", subscribeResultCommand.Result))
 	}
 
-	subscriber := NewSubscriber(self, clientProtocol.GetStream().RemoteAddr().String(), clientId, subscribeResultCommand.SubscribeId,
-		lockKeyMask, expried, maxSize)
+	subscriber := NewSubscriber(self, clientId, subscribeResultCommand.SubscribeId, lockKeyMask, expried, maxSize)
 	self.subscribeLock.Lock()
 	self.subscribes[subscriber.subscribeId] = subscriber
 	self.subscribeLock.Unlock()
@@ -529,24 +456,7 @@ func (self *Client) CloseSubscribe(subscriber *Subscriber) error {
 	}
 
 	command := protocol.NewSubscribeCommand(subscriber.clientId, subscriber.subscribeId, 1, subscriber.lockKeyMask, subscriber.expried, subscriber.maxSize)
-	var clientProtocol ClientProtocol = nil
-	self.glock.Lock()
-	for _, cp := range self.protocols {
-		stream := cp.GetStream()
-		if stream == nil {
-			continue
-		}
-		if stream.RemoteAddr().String() == subscriber.subscribeHost {
-			clientProtocol = cp
-			break
-		}
-	}
-	self.glock.Unlock()
-	if clientProtocol == nil {
-		return errors.New("client stream unconnected")
-	}
-
-	resultCommand, err := self.doExecuteCommand(clientProtocol, command, 5)
+	resultCommand, err := self.ExecuteCommand(command, 5)
 	if err != nil {
 		return err
 	}
@@ -575,24 +485,7 @@ func (self *Client) UpdateSubscribe(subscriber *Subscriber) error {
 	}
 
 	command := protocol.NewSubscribeCommand(subscriber.clientId, subscriber.subscribeId, 0, subscriber.lockKeyMask, subscriber.expried, subscriber.maxSize)
-	var clientProtocol ClientProtocol = nil
-	self.glock.Lock()
-	for _, cp := range self.protocols {
-		stream := cp.GetStream()
-		if stream == nil {
-			continue
-		}
-		if stream.RemoteAddr().String() == subscriber.subscribeHost {
-			clientProtocol = cp
-			break
-		}
-	}
-	self.glock.Unlock()
-	if clientProtocol == nil {
-		return nil
-	}
-
-	resultCommand, err := self.doExecuteCommand(clientProtocol, command, 5)
+	resultCommand, err := self.ExecuteCommand(command, 5)
 	if err != nil {
 		return err
 	}
@@ -603,6 +496,7 @@ func (self *Client) UpdateSubscribe(subscriber *Subscriber) error {
 	if subscribeResultCommand.Result != protocol.RESULT_SUCCED {
 		return errors.New(fmt.Sprintf("command error: code %d", subscribeResultCommand.Result))
 	}
+	subscriber.subscribeId = subscribeResultCommand.SubscribeId
 	return nil
 }
 
@@ -611,6 +505,193 @@ func (self *Client) GenRequestId() [16]byte {
 }
 
 func (self *Client) Unavailable() chan bool {
+	self.glock.Lock()
+	if self.unavailableWaiter == nil {
+		self.unavailableWaiter = make(chan bool, 1)
+	}
+	self.glock.Unlock()
+	return self.unavailableWaiter
+}
+
+type ReplsetClient struct {
+	glock             *sync.Mutex
+	clients           []*Client
+	availableClients  []*Client
+	closed            bool
+	closedWaiter      chan bool
+	unavailableWaiter chan bool
+}
+
+func NewReplsetClient(hosts []string) *ReplsetClient {
+	replsetClient := &ReplsetClient{&sync.Mutex{}, make([]*Client, 0),
+		make([]*Client, 0), false, make(chan bool, 1), nil}
+
+	for _, host := range hosts {
+		client := &Client{&sync.Mutex{}, replsetClient, nil, make([]*Database, 256),
+			make(map[[16]byte]chan protocol.ICommand, 64), &sync.Mutex{}, make(map[uint32]*Subscriber, 4),
+			&sync.Mutex{}, host, protocol.GenClientId(),
+			false, make(chan bool, 1), nil, nil}
+		replsetClient.clients = append(replsetClient.clients, client)
+	}
+	return replsetClient
+}
+
+func (self *ReplsetClient) Open() error {
+	if len(self.clients) == 0 {
+		return errors.New("not client")
+	}
+
+	for _, client := range self.clients {
+		err := client.Open()
+		if err != nil {
+			go client.process()
+		}
+	}
+	return nil
+}
+
+func (self *ReplsetClient) Close() error {
+	for _, client := range self.clients {
+		_ = client.Close()
+	}
+	close(self.closedWaiter)
+	if self.unavailableWaiter != nil {
+		close(self.unavailableWaiter)
+		self.unavailableWaiter = nil
+	}
+	return nil
+}
+
+func (self *ReplsetClient) addAvailableClient(client *Client) {
+	self.glock.Lock()
+	self.availableClients = append(self.availableClients, client)
+	self.glock.Unlock()
+}
+
+func (self *ReplsetClient) removeAvailableClient(client *Client) {
+	self.glock.Lock()
+	availableClients := make([]*Client, 0)
+	for _, c := range self.availableClients {
+		if c != client {
+			availableClients = append(availableClients, c)
+		}
+	}
+	self.availableClients = availableClients
+	if len(self.availableClients) == 0 {
+		if self.unavailableWaiter != nil {
+			close(self.unavailableWaiter)
+			self.unavailableWaiter = nil
+		}
+	}
+	self.glock.Unlock()
+}
+
+func (self *ReplsetClient) GetClient() *Client {
+	if len(self.availableClients) > 0 {
+		return self.availableClients[0]
+	}
+	return self.clients[0]
+}
+
+func (self *ReplsetClient) SelectDB(dbId uint8) *Database {
+	client := self.GetClient()
+	return client.SelectDB(dbId)
+}
+
+func (self *ReplsetClient) Lock(lockKey [16]byte, timeout uint32, expried uint32) *Lock {
+	client := self.GetClient()
+	return client.SelectDB(0).Lock(lockKey, timeout, expried)
+}
+
+func (self *ReplsetClient) Event(eventKey [16]byte, timeout uint32, expried uint32, defaultSeted bool) *Event {
+	client := self.GetClient()
+	return client.SelectDB(0).Event(eventKey, timeout, expried, defaultSeted)
+}
+
+func (self *ReplsetClient) Semaphore(semaphoreKey [16]byte, timeout uint32, expried uint32, count uint16) *Semaphore {
+	client := self.GetClient()
+	return client.SelectDB(0).Semaphore(semaphoreKey, timeout, expried, count)
+}
+
+func (self *ReplsetClient) RWLock(lockKey [16]byte, timeout uint32, expried uint32) *RWLock {
+	client := self.GetClient()
+	return client.SelectDB(0).RWLock(lockKey, timeout, expried)
+}
+
+func (self *ReplsetClient) RLock(lockKey [16]byte, timeout uint32, expried uint32) *RLock {
+	client := self.GetClient()
+	return client.SelectDB(0).RLock(lockKey, timeout, expried)
+}
+
+func (self *ReplsetClient) MaxConcurrentFlow(flowKey [16]byte, count uint16, timeout uint32, expried uint32) *MaxConcurrentFlow {
+	client := self.GetClient()
+	return client.SelectDB(0).MaxConcurrentFlow(flowKey, count, timeout, expried)
+}
+
+func (self *ReplsetClient) TokenBucketFlow(flowKey [16]byte, count uint16, timeout uint32, period float64) *TokenBucketFlow {
+	client := self.GetClient()
+	return client.SelectDB(0).TokenBucketFlow(flowKey, count, timeout, period)
+}
+
+func (self *ReplsetClient) Subscribe(expried uint32, maxSize uint32) (*ReplsetSubscriber, error) {
+	lockKeyMask := [16]byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
+	return self.SubscribeMask(lockKeyMask, expried, maxSize)
+}
+
+func (self *ReplsetClient) SubscribeMask(lockKeyMask [16]byte, expried uint32, maxSize uint32) (*ReplsetSubscriber, error) {
+	replsetSubscriber := NewReplsetSubscriber(self, lockKeyMask, expried, maxSize)
+	var err error = nil
+	for _, client := range self.availableClients {
+		subscriber, cerr := client.SubscribeMask(lockKeyMask, expried, maxSize)
+		if cerr != nil {
+			err = cerr
+			continue
+		}
+		_ = replsetSubscriber.addSubscriber(subscriber)
+	}
+
+	if len(replsetSubscriber.subscribers) == 0 {
+		if err != nil {
+			return nil, err
+		}
+		return nil, errors.New("empty clients")
+	}
+	return replsetSubscriber, nil
+}
+
+func (self *ReplsetClient) CloseSubscribe(replsetSubscriber *ReplsetSubscriber) error {
+	if replsetSubscriber.closed {
+		return nil
+	}
+
+	for _, subscriber := range replsetSubscriber.subscribers {
+		_ = subscriber.client.CloseSubscribe(subscriber)
+	}
+
+	self.glock.Lock()
+	replsetSubscriber.closed = true
+	close(replsetSubscriber.channel)
+	close(replsetSubscriber.closedWaiter)
+	self.glock.Unlock()
+	return nil
+}
+
+func (self *ReplsetClient) UpdateSubscribe(replsetSubscriber *ReplsetSubscriber) error {
+	if replsetSubscriber.closed {
+		return nil
+	}
+
+	for _, subscriber := range replsetSubscriber.subscribers {
+		_ = subscriber.client.UpdateSubscribe(subscriber)
+	}
+	return nil
+}
+
+func (self *ReplsetClient) GenRequestId() [16]byte {
+	return protocol.GenRequestId()
+}
+
+func (self *ReplsetClient) Unavailable() chan bool {
 	self.glock.Lock()
 	if self.unavailableWaiter == nil {
 		self.unavailableWaiter = make(chan bool, 1)
