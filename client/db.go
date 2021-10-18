@@ -6,53 +6,21 @@ import (
 	"github.com/snower/slock/protocol"
 	"github.com/snower/slock/protocol/protobuf"
 	"sync"
-	"time"
 )
 
 type Database struct {
-	dbId     uint8
-	client   *Client
-	requests map[[16]byte]chan protocol.ICommand
-	glock    *sync.Mutex
+	dbId   uint8
+	client *Client
+	glock  *sync.Mutex
+	closed bool
 }
 
 func NewDatabase(dbId uint8, client *Client) *Database {
-	return &Database{dbId, client, make(map[[16]byte]chan protocol.ICommand, 4096), &sync.Mutex{}}
+	return &Database{dbId, client, &sync.Mutex{}, false}
 }
 
 func (self *Database) Close() error {
-	self.glock.Lock()
-
-	for requestId := range self.requests {
-		close(self.requests[requestId])
-	}
-	self.requests = make(map[[16]byte]chan protocol.ICommand, 0)
-	self.client = nil
-	self.glock.Unlock()
-	return nil
-}
-
-func (self *Database) reconnect(_ string, clientProtocol ClientProtocol) error {
-	self.glock.Lock()
-	for requestId := range self.requests {
-		close(self.requests[requestId])
-		delete(self.requests, requestId)
-	}
-	self.glock.Unlock()
-	return nil
-}
-
-func (self *Database) handleCommandResult(command protocol.ICommand) error {
-	requestId := command.GetRequestId()
-	self.glock.Lock()
-	if request, ok := self.requests[requestId]; ok {
-		delete(self.requests, requestId)
-		self.glock.Unlock()
-
-		request <- command
-		return nil
-	}
-	self.glock.Unlock()
+	self.closed = true
 	return nil
 }
 
@@ -60,58 +28,14 @@ func (self *Database) executeCommand(command protocol.ICommand, timeout int) (pr
 	if self.client == nil {
 		return nil, errors.New("db is not closed")
 	}
-	clientProtocol := self.client.protocol
-	if clientProtocol == nil {
-		return nil, errors.New("client is not opened")
-	}
-
-	requestId := command.GetRequestId()
-	self.glock.Lock()
-	if _, ok := self.requests[requestId]; ok {
-		self.glock.Unlock()
-		return nil, errors.New("request is used")
-	}
-
-	waiter := make(chan protocol.ICommand, 1)
-	self.requests[requestId] = waiter
-	self.glock.Unlock()
-
-	err := clientProtocol.Write(command)
-	if err != nil {
-		self.glock.Lock()
-		if _, ok := self.requests[requestId]; ok {
-			delete(self.requests, requestId)
-		}
-		self.glock.Unlock()
-		return nil, err
-	}
-
-	select {
-	case r := <-waiter:
-		if r == nil {
-			return nil, errors.New("wait timeout")
-		}
-		return r, nil
-	case <-time.After(time.Duration(timeout+1) * time.Second):
-		self.glock.Lock()
-		if _, ok := self.requests[requestId]; ok {
-			delete(self.requests, requestId)
-		}
-		self.glock.Unlock()
-		return nil, errors.New("timeout")
-	}
+	return self.client.ExecuteCommand(command, timeout)
 }
 
 func (self *Database) sendCommand(command protocol.ICommand) error {
 	if self.client == nil {
 		return errors.New("db is not closed")
 	}
-	clientProtocol := self.client.protocol
-	if clientProtocol == nil {
-		return errors.New("client is not opened")
-	}
-
-	return clientProtocol.Write(command)
+	return self.client.SendCommand(command)
 }
 
 func (self *Database) Lock(lockKey [16]byte, timeout uint32, expried uint32) *Lock {
