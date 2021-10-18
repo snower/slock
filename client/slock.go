@@ -449,6 +449,17 @@ func (self *Client) CloseSubscribe(subscriber *Subscriber) error {
 	close(subscriber.channel)
 	close(subscriber.closedWaiter)
 	self.subscribeLock.Unlock()
+	if subscriber.replset != nil {
+		hasAvailable := false
+		for _, s := range subscriber.replset.subscribers {
+			if !s.closed {
+				hasAvailable = true
+			}
+		}
+		if !hasAvailable {
+			_ = subscriber.replset.Close()
+		}
+	}
 	return nil
 }
 
