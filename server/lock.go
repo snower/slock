@@ -68,7 +68,9 @@ func (self *LockManager) AddLock(lock *Lock) *Lock {
 
 	lock.locked = 1
 	lock.refCount++
-	lock.ackCount = 0
+	if lock.command.TimeoutFlag&protocol.TIMEOUT_FLAG_REQUIRE_ACKED != 0 {
+		lock.ackCount = 0
+	}
 
 	if self.currentLock == nil {
 		self.currentLock = lock
@@ -279,22 +281,16 @@ func (self *LockManager) FreeLock(lock *Lock) *Lock {
 	return lock
 }
 
-func (self *LockManager) GetOrNewLock(server_protocol ServerProtocol, command *protocol.LockCommand) *Lock {
+func (self *LockManager) GetOrNewLock(serverProtocol ServerProtocol, command *protocol.LockCommand) *Lock {
 	lock := self.freeLocks.PopRight()
 	if lock == nil {
-		locks := make([]Lock, 8)
-		lock = &locks[0]
-
-		for i := 1; i < 8; i++ {
-			_ = self.freeLocks.Push(&locks[i])
-		}
+		lock = NewLock(self, serverProtocol, command)
 	}
-
 	now := self.lockDb.currentTime
 
 	lock.manager = self
 	lock.command = command
-	lock.protocol = server_protocol.GetProxy()
+	lock.protocol = serverProtocol.GetProxy()
 	lock.startTime = now
 	if lock.command.TimeoutFlag&protocol.TIMEOUT_FLAG_UNRENEW_EXPRIED_TIME_WHEN_TIMEOUT != 0 {
 		if lock.command.ExpriedFlag&protocol.EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME != 0 {
@@ -347,9 +343,8 @@ type Lock struct {
 }
 
 func NewLock(manager *LockManager, protocol ServerProtocol, command *protocol.LockCommand) *Lock {
-	now := manager.lockDb.currentTime
-	return &Lock{manager, command, protocol.GetProxy(), now, 0, now + int64(command.Timeout),
-		0, 0, 0, 0, 0, 0, false, false, 0, false}
+	return &Lock{manager, command, protocol.GetProxy(), 0, 0, 0,
+		0, 1, 1, 0, 0, 0xff, false, false, 0, false}
 }
 
 func (self *Lock) GetDB() *LockDB {
@@ -366,6 +361,13 @@ type PriorityMutex struct {
 	highPriorityAcquireCount uint32
 	highPrioritywaiter       sync.Mutex
 	lowPrioritywaiter        sync.Mutex
+	setHighPriorityCount     uint64
+	setLowPriorityCount      uint64
+}
+
+func NewPriorityMutex() *PriorityMutex {
+	return &PriorityMutex{sync.Mutex{}, 0, 0, 0,
+		sync.Mutex{}, sync.Mutex{}, 0, 0}
 }
 
 func (self *PriorityMutex) Lock() {
@@ -398,6 +400,7 @@ func (self *PriorityMutex) Unlock() {
 func (self *PriorityMutex) HighSetPriority() {
 	if atomic.CompareAndSwapUint32(&self.highPriority, 0, 1) {
 		self.highPrioritywaiter.Lock()
+		self.setHighPriorityCount++
 	}
 	if atomic.CompareAndSwapUint32(&self.highPriorityAcquireCount, 0, 0) {
 		self.HighUnSetPriority()
@@ -413,6 +416,7 @@ func (self *PriorityMutex) HighUnSetPriority() {
 func (self *PriorityMutex) LowSetPriority() {
 	if atomic.CompareAndSwapUint32(&self.lowPriority, 0, 1) {
 		self.lowPrioritywaiter.Lock()
+		self.setLowPriorityCount++
 	}
 }
 

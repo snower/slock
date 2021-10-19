@@ -39,7 +39,7 @@ type ServerConfig struct {
 	LogBufferFlushTime   uint    `long:"log_buffer_flush_time" description:"log buffer flush seconds time" default:"1"`
 	DataDir              string  `long:"data_dir" description:"data dir" default:"./data/"`
 	DBFastKeyCount       uint    `long:"db_fast_key_count" description:"db fast key count" default:"4194304"`
-	DBConcurrentLock     uint    `long:"db_concurrent_lock" description:"db concurrent lock count" default:"8"`
+	DBConcurrent         uint    `long:"db_concurrent" description:"db concurrent count" default:"8"`
 	DBLockAofTime        uint    `long:"db_lock_aof_time" description:"db lock aof time" default:"1"`
 	DBLockAofParcentTime float64 `long:"db_lock_aof_parcent_time" description:"db lock aof parcent expried time" default:"0.3"`
 	AofQueueSize         uint    `long:"aof_queue_size" description:"aof channel queue size" default:"65536"`

@@ -314,6 +314,18 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 	infos = append(infos, fmt.Sprintf("free_lock_manager_count:%d", freeLockManagerCount))
 	infos = append(infos, fmt.Sprintf("free_lock_count:%d", freeLockCount))
 	infos = append(infos, fmt.Sprintf("total_commands_processed:%d", totalCommandCount))
+	highPriorityLockCount, lowPriorityLockCount := uint64(0), uint64(0)
+	for _, db := range self.slock.dbs {
+		if db == nil {
+			continue
+		}
+		for j := uint16(0); j < db.managerMaxGlocks; j++ {
+			highPriorityLockCount += db.managerGlocks[j].setHighPriorityCount
+			lowPriorityLockCount += db.managerGlocks[j].setLowPriorityCount
+		}
+	}
+	infos = append(infos, fmt.Sprintf("high_priority_lock_count:%d", highPriorityLockCount))
+	infos = append(infos, fmt.Sprintf("low_priority_lock_count:%d", lowPriorityLockCount))
 
 	aof := self.slock.GetAof()
 	infos = append(infos, "\r\n# Persistence")

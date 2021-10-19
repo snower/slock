@@ -67,11 +67,14 @@ type LockDB struct {
 }
 
 func NewLockDB(slock *SLock, dbId uint8) *LockDB {
-	managerMaxGlocks := uint16(Config.DBConcurrentLock)
+	managerMaxGlocks := uint16(Config.DBConcurrent)
 	if managerMaxGlocks == 0 {
 		managerMaxGlocks = uint16(runtime.NumCPU()) * 2
 	}
 	maxFreeLockManagerCount := uint32(managerMaxGlocks) * MANAGER_MAX_GLOCKS_INIT_SIZE
+	for uint64(0x100000000)%uint64(maxFreeLockManagerCount) != 0 {
+		maxFreeLockManagerCount++
+	}
 	managerGlocks := make([]*PriorityMutex, managerMaxGlocks)
 	freeLocks := make([]*LockQueue, managerMaxGlocks)
 	freeLongWaitQueues := make([]*LongWaitLockFreeQueue, managerMaxGlocks)
@@ -80,7 +83,7 @@ func NewLockDB(slock *SLock, dbId uint8) *LockDB {
 	subscribeChannels := make([]*SubscribeChannel, managerMaxGlocks)
 	states := make([]*protocol.LockDBState, managerMaxGlocks+1)
 	for i := uint16(0); i < managerMaxGlocks; i++ {
-		managerGlocks[i] = &PriorityMutex{sync.Mutex{}, 0, 0, 0, sync.Mutex{}, sync.Mutex{}}
+		managerGlocks[i] = NewPriorityMutex()
 		freeLocks[i] = NewLockQueue(2, 16, FREE_LOCK_QUEUE_INIT_SIZE)
 		freeLongWaitQueues[i] = &LongWaitLockFreeQueue{make([]*LongWaitLockQueue, FREE_LONG_WAIT_QUEUE_INIT_SIZE), -1, FREE_LONG_WAIT_QUEUE_INIT_SIZE - 1}
 		freeMillisecondWaitQueues[i] = &MillisecondWaitLockFreeQueue{make([]*LockQueue, FREE_MILLISECOND_WAIT_QUEUE_INIT_SIZE), -1, FREE_MILLISECOND_WAIT_QUEUE_INIT_SIZE - 1}
@@ -892,8 +895,8 @@ func (self *LockDB) initNewLockManager(dbId uint8) {
 	for i := uint16(0); i < self.managerMaxGlocks; i++ {
 		if self.managerGlocks[i].highPriority == 1 || self.managerGlocks[i].lowPriority == 1 {
 			self.glock.Unlock()
-			self.managerGlocks[i].Lock()
-			self.managerGlocks[i].Unlock()
+			self.managerGlocks[i].LowPriorityLock()
+			self.managerGlocks[i].LowPriorityUnlock()
 			self.glock.Lock()
 		}
 	}
@@ -905,14 +908,13 @@ func (self *LockDB) initNewLockManager(dbId uint8) {
 
 	lockManagers := make([]LockManager, 16)
 	for i := 0; i < 16; i++ {
+		if self.freeLockManagers[(self.freeLockManagerHead+1)%self.maxFreeLockManagerCount] != nil {
+			return
+		}
 		freeLockManagerHead := atomic.AddUint32(&self.freeLockManagerHead, 1) % self.maxFreeLockManagerCount
 		if self.freeLockManagers[freeLockManagerHead] != nil {
 			atomic.AddUint32(&self.freeLockManagerHead, 0xffffffff)
-			if freeLockManagerHead == 0 && self.freeLockManagers[(0xffffffff%self.maxFreeLockManagerCount)+1] == nil {
-				freeLockManagerHead = atomic.AddUint32(&self.freeLockManagerHead, (0xffffffff%self.maxFreeLockManagerCount)+1)
-			} else {
-				break
-			}
+			return
 		}
 
 		lockManagers[i].lockDb = self
@@ -930,7 +932,6 @@ func (self *LockDB) initNewLockManager(dbId uint8) {
 		if self.managerGlockIndex >= self.managerMaxGlocks {
 			self.managerGlockIndex = 0
 		}
-
 		self.freeLockManagers[freeLockManagerHead] = &lockManagers[i]
 	}
 }
@@ -939,27 +940,15 @@ func (self *LockDB) GetOrNewLockManager(command *protocol.LockCommand) *LockMana
 	fashHash := (uint32(command.LockKey[0])<<24 | uint32(command.LockKey[1])<<16 | uint32(command.LockKey[2])<<8 | uint32(command.LockKey[3])) ^ (uint32(command.LockKey[4])<<24 | uint32(command.LockKey[5])<<16 | uint32(command.LockKey[6])<<8 | uint32(command.LockKey[7])) ^ (uint32(command.LockKey[8])<<24 | uint32(command.LockKey[9])<<16 | uint32(command.LockKey[10])<<8 | uint32(command.LockKey[11])) ^ (uint32(command.LockKey[12])<<24 | uint32(command.LockKey[13])<<16 | uint32(command.LockKey[14])<<8 | uint32(command.LockKey[15]))
 	fastValue := &self.fastLocks[fashHash%self.fastKeyCount]
 
-	if atomic.LoadUint32(&fastValue.count) != 0 {
-		if fastValue.manager != nil && fastValue.manager.lockKey == command.LockKey {
-			return fastValue.manager
-		}
-	} else {
+	if atomic.CompareAndSwapUint32(&fastValue.count, 0, 0) {
 		for {
 			if atomic.CompareAndSwapUint32(&fastValue.lock, 0, 1) {
 				freeLockManagerTail := atomic.AddUint32(&self.freeLockManagerTail, 1) % self.maxFreeLockManagerCount
 				lockManager := self.freeLockManagers[freeLockManagerTail]
 				for lockManager == nil {
-					atomic.AddUint32(&self.freeLockManagerTail, 0xffffffff)
-					if freeLockManagerTail == 0 && self.freeLockManagers[(0xffffffff%self.maxFreeLockManagerCount)+1] != nil {
-						freeLockManagerTail = atomic.AddUint32(&self.freeLockManagerTail, (0xffffffff%self.maxFreeLockManagerCount)+1)
-						lockManager = self.freeLockManagers[freeLockManagerTail]
-						continue
-					}
-
 					self.glock.Lock()
 					self.initNewLockManager(command.DbId)
 					self.glock.Unlock()
-					freeLockManagerTail = atomic.AddUint32(&self.freeLockManagerTail, 1) % self.maxFreeLockManagerCount
 					lockManager = self.freeLockManagers[freeLockManagerTail]
 				}
 				self.freeLockManagers[freeLockManagerTail] = nil
@@ -973,40 +962,38 @@ func (self *LockDB) GetOrNewLockManager(command *protocol.LockCommand) *LockMana
 				return lockManager
 			}
 
-			if atomic.LoadUint32(&fastValue.count) != 0 {
-				if fastValue.manager != nil && fastValue.manager.lockKey == command.LockKey {
-					return fastValue.manager
+			if atomic.CompareAndSwapUint32(&fastValue.count, 0, 0) {
+				for i := uint16(0); i < self.managerMaxGlocks; i++ {
+					if self.managerGlocks[i].highPriority == 1 || self.managerGlocks[i].lowPriority == 1 {
+						self.managerGlocks[i].LowPriorityLock()
+						self.managerGlocks[i].LowPriorityUnlock()
+					}
 				}
-				break
+				continue
 			}
+			break
 		}
 	}
 
+	fastLockManager := fastValue.manager
+	if fastLockManager != nil && fastLockManager.lockKey == command.LockKey {
+		return fastLockManager
+	}
 	self.glock.Lock()
-	lockManager, ok := self.locks[command.LockKey]
-	if ok {
+	if lockManager, ok := self.locks[command.LockKey]; ok {
 		self.glock.Unlock()
 		return lockManager
 	}
 
 	freeLockManagerTail := atomic.AddUint32(&self.freeLockManagerTail, 1) % self.maxFreeLockManagerCount
-	lockManager = self.freeLockManagers[freeLockManagerTail]
+	lockManager := self.freeLockManagers[freeLockManagerTail]
 	for lockManager == nil {
-		atomic.AddUint32(&self.freeLockManagerTail, 0xffffffff)
-		if freeLockManagerTail == 0 && self.freeLockManagers[(0xffffffff%self.maxFreeLockManagerCount)+1] != nil {
-			freeLockManagerTail = atomic.AddUint32(&self.freeLockManagerTail, (0xffffffff%self.maxFreeLockManagerCount)+1)
-			lockManager = self.freeLockManagers[freeLockManagerTail]
-			continue
-		}
-
 		self.initNewLockManager(command.DbId)
-		freeLockManagerTail = atomic.AddUint32(&self.freeLockManagerTail, 1) % self.maxFreeLockManagerCount
 		lockManager = self.freeLockManagers[freeLockManagerTail]
 	}
 	self.freeLockManagers[freeLockManagerTail] = nil
-
-	lockManager.freed = false
 	self.locks[command.LockKey] = lockManager
+	lockManager.freed = false
 	self.glock.Unlock()
 
 	lockManager.lockKey = command.LockKey
@@ -1020,21 +1007,19 @@ func (self *LockDB) GetLockManager(command *protocol.LockCommand) *LockManager {
 	fashHash := (uint32(command.LockKey[0])<<24 | uint32(command.LockKey[1])<<16 | uint32(command.LockKey[2])<<8 | uint32(command.LockKey[3])) ^ (uint32(command.LockKey[4])<<24 | uint32(command.LockKey[5])<<16 | uint32(command.LockKey[6])<<8 | uint32(command.LockKey[7])) ^ (uint32(command.LockKey[8])<<24 | uint32(command.LockKey[9])<<16 | uint32(command.LockKey[10])<<8 | uint32(command.LockKey[11])) ^ (uint32(command.LockKey[12])<<24 | uint32(command.LockKey[13])<<16 | uint32(command.LockKey[14])<<8 | uint32(command.LockKey[15]))
 	fastValue := &self.fastLocks[fashHash%self.fastKeyCount]
 
-	if atomic.LoadUint32(&fastValue.count) == 0 {
+	if atomic.CompareAndSwapUint32(&fastValue.count, 0, 0) {
 		return nil
 	}
-
-	if fastValue.manager != nil && fastValue.manager.lockKey == command.LockKey {
-		return fastValue.manager
+	fastLockManager := fastValue.manager
+	if fastLockManager != nil && fastLockManager.lockKey == command.LockKey {
+		return fastLockManager
 	}
 
 	self.glock.Lock()
-	lockManager, ok := self.locks[command.LockKey]
-	if ok {
+	if lockManager, ok := self.locks[command.LockKey]; ok {
 		self.glock.Unlock()
 		return lockManager
 	}
-
 	self.glock.Unlock()
 	return nil
 }
@@ -1051,33 +1036,36 @@ func (self *LockDB) RemoveLockManager(lockManager *LockManager) {
 		}
 
 		lockManager.freed = true
+		lockManager.lockKey[0], lockManager.lockKey[1], lockManager.lockKey[2], lockManager.lockKey[3], lockManager.lockKey[4], lockManager.lockKey[5], lockManager.lockKey[6], lockManager.lockKey[7],
+			lockManager.lockKey[8], lockManager.lockKey[9], lockManager.lockKey[10], lockManager.lockKey[11], lockManager.lockKey[12], lockManager.lockKey[13], lockManager.lockKey[14], lockManager.lockKey[15] =
+			0, 0, 0, 0, 0, 0, 0, 0,
+			0, 0, 0, 0, 0, 0, 0, 0
 		lockManager.fastKeyValue = nil
 		fastValue.manager = nil
 		atomic.AddUint32(&fastValue.count, 0xffffffff)
 
-		freeLockManagerHead := atomic.AddUint32(&self.freeLockManagerHead, 1) % self.maxFreeLockManagerCount
-		if self.freeLockManagers[freeLockManagerHead] != nil {
+		if self.freeLockManagers[(self.freeLockManagerHead+1)%self.maxFreeLockManagerCount] == nil {
+			freeLockManagerHead := atomic.AddUint32(&self.freeLockManagerHead, 1) % self.maxFreeLockManagerCount
+			if self.freeLockManagers[freeLockManagerHead] == nil {
+				self.freeLockManagers[freeLockManagerHead] = lockManager
+
+				if lockManager.locks != nil {
+					_ = lockManager.locks.Reset()
+				}
+				if lockManager.waitLocks != nil {
+					_ = lockManager.waitLocks.Reset()
+				}
+				atomic.AddUint32(&lockManager.state.KeyCount, 0xffffffff)
+				return
+			}
 			atomic.AddUint32(&self.freeLockManagerHead, 0xffffffff)
-			if freeLockManagerHead == 0 && self.freeLockManagers[(0xffffffff%self.maxFreeLockManagerCount)+1] == nil {
-				atomic.AddUint32(&self.freeLockManagerHead, (0xffffffff%self.maxFreeLockManagerCount)+1)
-			}
-
-			lockManager.currentLock = nil
-			lockManager.locks = nil
-			lockManager.lockMaps = nil
-			lockManager.waitLocks = nil
-			lockManager.freeLocks = nil
-		} else {
-			if lockManager.locks != nil {
-				_ = lockManager.locks.Reset()
-			}
-			if lockManager.waitLocks != nil {
-				_ = lockManager.waitLocks.Reset()
-			}
-
-			self.freeLockManagers[freeLockManagerHead] = lockManager
 		}
 
+		lockManager.currentLock = nil
+		lockManager.locks = nil
+		lockManager.lockMaps = nil
+		lockManager.waitLocks = nil
+		lockManager.freeLocks = nil
 		atomic.AddUint32(&lockManager.state.KeyCount, 0xffffffff)
 		return
 	}
@@ -1087,7 +1075,6 @@ func (self *LockDB) RemoveLockManager(lockManager *LockManager) {
 		self.glock.Unlock()
 		return
 	}
-
 	if _, ok := self.locks[lockManager.lockKey]; !ok {
 		self.glock.Unlock()
 		return
@@ -1096,32 +1083,35 @@ func (self *LockDB) RemoveLockManager(lockManager *LockManager) {
 	delete(self.locks, lockManager.lockKey)
 	lockManager.freed = true
 	self.glock.Unlock()
+	lockManager.lockKey[0], lockManager.lockKey[1], lockManager.lockKey[2], lockManager.lockKey[3], lockManager.lockKey[4], lockManager.lockKey[5], lockManager.lockKey[6], lockManager.lockKey[7],
+		lockManager.lockKey[8], lockManager.lockKey[9], lockManager.lockKey[10], lockManager.lockKey[11], lockManager.lockKey[12], lockManager.lockKey[13], lockManager.lockKey[14], lockManager.lockKey[15] =
+		0, 0, 0, 0, 0, 0, 0, 0,
+		0, 0, 0, 0, 0, 0, 0, 0
 	lockManager.fastKeyValue = nil
 	atomic.AddUint32(&fastValue.count, 0xffffffff)
 
-	freeLockManagerHead := atomic.AddUint32(&self.freeLockManagerHead, 1) % self.maxFreeLockManagerCount
-	if self.freeLockManagers[freeLockManagerHead] != nil {
+	if self.freeLockManagers[(self.freeLockManagerHead+1)%self.maxFreeLockManagerCount] == nil {
+		freeLockManagerHead := atomic.AddUint32(&self.freeLockManagerHead, 1) % self.maxFreeLockManagerCount
+		if self.freeLockManagers[freeLockManagerHead] == nil {
+			self.freeLockManagers[freeLockManagerHead] = lockManager
+
+			if lockManager.locks != nil {
+				_ = lockManager.locks.Reset()
+			}
+			if lockManager.waitLocks != nil {
+				_ = lockManager.waitLocks.Reset()
+			}
+			atomic.AddUint32(&lockManager.state.KeyCount, 0xffffffff)
+			return
+		}
 		atomic.AddUint32(&self.freeLockManagerHead, 0xffffffff)
-		if freeLockManagerHead == 0 && self.freeLockManagers[(0xffffffff%self.maxFreeLockManagerCount)+1] == nil {
-			atomic.AddUint32(&self.freeLockManagerHead, (0xffffffff%self.maxFreeLockManagerCount)+1)
-		}
-
-		lockManager.currentLock = nil
-		lockManager.locks = nil
-		lockManager.lockMaps = nil
-		lockManager.waitLocks = nil
-		lockManager.freeLocks = nil
-	} else {
-		if lockManager.locks != nil {
-			_ = lockManager.locks.Reset()
-		}
-		if lockManager.waitLocks != nil {
-			_ = lockManager.waitLocks.Reset()
-		}
-
-		self.freeLockManagers[freeLockManagerHead] = lockManager
 	}
 
+	lockManager.currentLock = nil
+	lockManager.locks = nil
+	lockManager.lockMaps = nil
+	lockManager.waitLocks = nil
+	lockManager.freeLocks = nil
 	atomic.AddUint32(&lockManager.state.KeyCount, 0xffffffff)
 }
 
@@ -1485,7 +1475,7 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 
 	lockManager := self.GetOrNewLockManager(command)
 	lockManager.glock.LowPriorityLock()
-	if lockManager.freed {
+	if lockManager.lockKey != command.LockKey {
 		lockManager.glock.Unlock()
 		return self.Lock(serverProtocol, command)
 	}
@@ -1711,6 +1701,11 @@ func (self *LockDB) UnLock(serverProtocol ServerProtocol, command *protocol.Lock
 	}
 
 	lockManager.glock.LowPriorityLock()
+	if lockManager.lockKey != command.LockKey {
+		lockManager.glock.Unlock()
+		return self.UnLock(serverProtocol, command)
+	}
+
 	if self.status != STATE_LEADER {
 		if command.Flag&protocol.UNLOCK_FLAG_FROM_AOF == 0 {
 			lockManager.state.UnlockErrorCount++
@@ -1766,15 +1761,13 @@ func (self *LockDB) UnLock(serverProtocol ServerProtocol, command *protocol.Lock
 			return nil
 		}
 	} else {
-		if currentLock.command.TimeoutFlag&protocol.TIMEOUT_FLAG_REQUIRE_ACKED != 0 && currentLock.isAof {
-			if currentLock.ackCount != 0xff {
-				lockManager.state.UnlockErrorCount++
-				lockManager.glock.Unlock()
+		if currentLock.ackCount != 0xff {
+			lockManager.state.UnlockErrorCount++
+			lockManager.glock.Unlock()
 
-				_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_LOCKED_ERROR, uint16(lockManager.locked), currentLock.locked)
-				_ = serverProtocol.FreeLockCommand(command)
-				return nil
-			}
+			_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_LOCKED_ERROR, uint16(lockManager.locked), currentLock.locked)
+			_ = serverProtocol.FreeLockCommand(command)
+			return nil
 		}
 	}
 
