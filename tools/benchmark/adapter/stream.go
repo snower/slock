@@ -112,7 +112,7 @@ func runStreamBenchmark(client net.Conn, count *uint32, wcount *uint32, maxCount
 			close(waiter)
 			return
 		}
-		atomic.AddUint32(wcount, 64)
+		atomic.AddUint32(wcount, 32)
 
 		err = readStreamAll(client, rbuf, 4096)
 		if err != nil {
@@ -120,7 +120,7 @@ func runStreamBenchmark(client net.Conn, count *uint32, wcount *uint32, maxCount
 			return
 		}
 
-		atomic.AddUint32(count, 64)
+		atomic.AddUint32(count, 32)
 		if *count > maxCount {
 			close(waiter)
 			return
