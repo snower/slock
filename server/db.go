@@ -80,7 +80,7 @@ func NewLockDB(slock *SLock, dbId uint8) *LockDB {
 	subscribeChannels := make([]*SubscribeChannel, managerMaxGlocks)
 	states := make([]*protocol.LockDBState, managerMaxGlocks+1)
 	for i := uint16(0); i < managerMaxGlocks; i++ {
-		managerGlocks[i] = &PriorityMutex{sync.Mutex{}, 0, 0, sync.Mutex{}}
+		managerGlocks[i] = &PriorityMutex{sync.Mutex{}, 0, 0, 0, sync.Mutex{}, sync.Mutex{}}
 		freeLocks[i] = NewLockQueue(2, 16, FREE_LOCK_QUEUE_INIT_SIZE)
 		freeLongWaitQueues[i] = &LongWaitLockFreeQueue{make([]*LongWaitLockQueue, FREE_LONG_WAIT_QUEUE_INIT_SIZE), -1, FREE_LONG_WAIT_QUEUE_INIT_SIZE - 1}
 		freeMillisecondWaitQueues[i] = &MillisecondWaitLockFreeQueue{make([]*LockQueue, FREE_MILLISECOND_WAIT_QUEUE_INIT_SIZE), -1, FREE_MILLISECOND_WAIT_QUEUE_INIT_SIZE - 1}
@@ -133,7 +133,7 @@ func NewLockDB(slock *SLock, dbId uint8) *LockDB {
 
 func (self *LockDB) resizeAofChannels() {
 	for i := uint16(0); i < self.managerMaxGlocks; i++ {
-		self.aofChannels[i] = self.slock.GetAof().NewAofChannel(self)
+		self.aofChannels[i] = self.slock.GetAof().NewAofChannel(self, self.managerGlocks[i])
 	}
 }
 
@@ -215,7 +215,7 @@ func (self *LockDB) startCheckLoop() {
 }
 
 func (self *LockDB) updateCurrentTime(timeoutWaiter chan bool, expriedWaiter chan bool, priorityWaiter chan bool) {
-	priorityCheckTime := 20 * time.Millisecond
+	priorityCheckTime := 50 * time.Millisecond
 	for self.status != STATE_CLOSE {
 		self.currentTime = time.Now().Unix()
 		timeoutWaiter <- true
@@ -234,7 +234,7 @@ func (self *LockDB) checkPriority(waiter chan bool) {
 	for self.status != STATE_CLOSE {
 		for i := uint16(0); i < self.managerMaxGlocks; i++ {
 			if self.managerGlocks[i].highPriorityAcquireCount > 0 {
-				self.managerGlocks[i].UpPriority()
+				self.managerGlocks[i].HighSetPriority()
 			}
 		}
 		<-waiter
@@ -900,7 +900,7 @@ func (self *LockDB) flushExpriedCheckLock(lockQueue *LockQueue, lock *Lock, doEx
 
 func (self *LockDB) initNewLockManager(dbId uint8) {
 	for i := uint16(0); i < self.managerMaxGlocks; i++ {
-		if self.managerGlocks[i].priority == 1 {
+		if self.managerGlocks[i].highPriority == 1 || self.managerGlocks[i].lowPriority == 1 {
 			self.glock.Unlock()
 			self.managerGlocks[i].Lock()
 			self.managerGlocks[i].Unlock()
@@ -1493,7 +1493,7 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 	*/
 
 	lockManager := self.GetOrNewLockManager(command)
-	lockManager.glock.Lock()
+	lockManager.glock.LowPriorityLock()
 	if lockManager.freed {
 		lockManager.glock.Unlock()
 		return self.Lock(serverProtocol, command)
@@ -1622,14 +1622,15 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 			lockManager.AddLock(lock)
 			lockManager.locked++
 
-			if command.TimeoutFlag&protocol.TIMEOUT_FLAG_REQUIRE_ACKED != 0 && !lock.isAof && lock.aofTime != 0xff && command.Flag&protocol.LOCK_FLAG_FROM_AOF == 0 {
+			if command.TimeoutFlag&protocol.TIMEOUT_FLAG_REQUIRE_ACKED != 0 && !lock.isAof && lock.aofTime != 0xff {
 				if command.TimeoutFlag&protocol.TIMEOUT_FLAG_MILLISECOND_TIME == 0 {
 					self.AddTimeOut(lock)
 				} else {
 					self.AddMillisecondTimeOut(lock)
 				}
 				lock.refCount += 2
-				if lockManager.PushLockAof(lock) == nil {
+				err := lockManager.PushLockAof(lock)
+				if err == nil {
 					lockManager.glock.Unlock()
 				} else {
 					lockManager.glock.Unlock()
@@ -1718,7 +1719,7 @@ func (self *LockDB) UnLock(serverProtocol ServerProtocol, command *protocol.Lock
 		return nil
 	}
 
-	lockManager.glock.Lock()
+	lockManager.glock.LowPriorityLock()
 	if self.status != STATE_LEADER {
 		if command.Flag&protocol.UNLOCK_FLAG_FROM_AOF == 0 {
 			lockManager.state.UnlockErrorCount++
@@ -1772,6 +1773,17 @@ func (self *LockDB) UnLock(serverProtocol ServerProtocol, command *protocol.Lock
 			_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_UNOWN_ERROR, uint16(lockManager.locked), 0)
 			_ = serverProtocol.FreeLockCommand(command)
 			return nil
+		}
+	} else {
+		if currentLock.command.TimeoutFlag&protocol.TIMEOUT_FLAG_REQUIRE_ACKED != 0 && currentLock.isAof {
+			if currentLock.ackCount != 0xff {
+				lockManager.state.UnlockErrorCount++
+				lockManager.glock.Unlock()
+
+				_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_LOCKED_ERROR, uint16(lockManager.locked), currentLock.locked)
+				_ = serverProtocol.FreeLockCommand(command)
+				return nil
+			}
 		}
 	}
 
@@ -1916,7 +1928,8 @@ func (self *LockDB) wakeUpWaitLock(lockManager *LockManager, waitLock *Lock, ser
 		lockManager.AddLock(waitLock)
 		lockManager.locked++
 		waitLock.refCount++
-		if lockManager.PushLockAof(waitLock) == nil {
+		err := lockManager.PushLockAof(waitLock)
+		if err == nil {
 			lockManager.glock.Unlock()
 		} else {
 			lockManager.glock.Unlock()

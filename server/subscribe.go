@@ -419,6 +419,7 @@ func (self *Subscriber) Close() error {
 	_ = self.manager.removeSubscriber(self)
 	if self.pulled {
 		self.pullWaiter <- false
+		self.pulled = false
 	}
 	self.glock.Unlock()
 
@@ -452,7 +453,6 @@ func (self *Subscriber) Run() {
 		select {
 		case <-self.pullWaiter:
 			self.glock.Lock()
-			self.pulled = false
 			if self.serverProtocol == nil {
 				self.processCheck()
 			} else {
@@ -610,6 +610,7 @@ func (self *Subscriber) Push(lock *PublishLock) error {
 
 		if self.pulled {
 			self.pullWaiter <- true
+			self.pulled = false
 		}
 		break
 	}
@@ -628,6 +629,7 @@ func (self *Subscriber) Update(serverProtocol ServerProtocol, subscriberType uin
 	self.serverProtocolClosedWaiter = serverProtocol.GetStream().closedWaiter
 	if self.pulled {
 		self.pullWaiter <- true
+		self.pulled = false
 	}
 
 	if subscriberType == 0 {
@@ -796,7 +798,8 @@ type SubscribeManager struct {
 	fastSubscribers    []*Subscriber
 	leaderAddress      string
 	client             *SubscribeClient
-	freeBuffers        *SubscribeBuffer
+	freeBuffers        []*SubscribeBuffer
+	freeBufferIndex    int
 	publishId          uint64
 	closed             bool
 }
@@ -804,7 +807,7 @@ type SubscribeManager struct {
 func NewSubscribeManager() *SubscribeManager {
 	return &SubscribeManager{nil, &sync.Mutex{}, make([]*SubscribeChannel, 0), 0, 0,
 		nil, make(map[uint32]*Subscriber, 64), nil, "",
-		nil, nil, 0, false}
+		nil, make([]*SubscribeBuffer, 256), 0, 0, false}
 }
 
 func (self *SubscribeManager) Close() {
@@ -982,23 +985,27 @@ func (self *SubscribeManager) removeSubscriber(subscriber *Subscriber) error {
 
 func (self *SubscribeManager) getBuffer() *SubscribeBuffer {
 	self.glock.Lock()
-	if self.freeBuffers == nil {
+	if self.freeBufferIndex > 0 {
+		self.freeBufferIndex--
+		buffer := self.freeBuffers[self.freeBufferIndex]
 		self.glock.Unlock()
-		return &SubscribeBuffer{make([]byte, 4096), 0, 0, nil}
+		return buffer
 	}
-
-	buffer := self.freeBuffers
-	self.freeBuffers = buffer.next
-	buffer.rindex, buffer.windex = 0, 0
-	buffer.next = nil
 	self.glock.Unlock()
-	return buffer
+	return &SubscribeBuffer{make([]byte, 4096), 0, 0, nil}
 }
 
 func (self *SubscribeManager) freeBuffer(buffer *SubscribeBuffer) {
 	self.glock.Lock()
-	buffer.next = self.freeBuffers
-	self.freeBuffers = buffer
+	if self.freeBufferIndex >= 256 {
+		self.glock.Unlock()
+		return
+	}
+
+	buffer.rindex, buffer.windex = 0, 0
+	buffer.next = nil
+	self.freeBuffers[self.freeBufferIndex] = buffer
+	self.freeBufferIndex++
 	self.glock.Unlock()
 }
 
