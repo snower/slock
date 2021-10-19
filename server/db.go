@@ -901,7 +901,7 @@ func (self *LockDB) initNewLockManager(dbId uint8) {
 		}
 	}
 
-	lockManager := self.freeLockManagers[(self.freeLockManagerTail+1)%self.maxFreeLockManagerCount]
+	lockManager := self.freeLockManagers[self.freeLockManagerTail%self.maxFreeLockManagerCount]
 	if lockManager != nil {
 		return
 	}
