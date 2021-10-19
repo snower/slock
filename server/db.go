@@ -205,40 +205,30 @@ func (self *LockDB) FlushDB() error {
 }
 
 func (self *LockDB) startCheckLoop() {
-	timeoutWaiter, expriedWaiter, priorityWaiter := make(chan bool, 16), make(chan bool, 16), make(chan bool, 16)
-	go self.updateCurrentTime(timeoutWaiter, expriedWaiter, priorityWaiter)
+	timeoutWaiter, expriedWaiter := make(chan bool, 16), make(chan bool, 16)
+	go self.updateCurrentTime(timeoutWaiter, expriedWaiter)
 	go self.checkTimeOut(timeoutWaiter)
 	go self.checkExpried(expriedWaiter)
-	go self.checkPriority(priorityWaiter)
 	go self.restructuringLongTimeOutQueue()
 	go self.restructuringLongExpriedQueue()
 }
 
-func (self *LockDB) updateCurrentTime(timeoutWaiter chan bool, expriedWaiter chan bool, priorityWaiter chan bool) {
+func (self *LockDB) updateCurrentTime(timeoutWaiter chan bool, expriedWaiter chan bool) {
 	priorityCheckTime := 50 * time.Millisecond
 	for self.status != STATE_CLOSE {
 		self.currentTime = time.Now().Unix()
 		timeoutWaiter <- true
 		expriedWaiter <- true
 		time.Sleep(priorityCheckTime - time.Duration(time.Now().Nanosecond()))
-		priorityWaiter <- true
-		time.Sleep(time.Second - time.Duration(time.Now().Nanosecond()))
-	}
-	timeoutWaiter <- false
-	expriedWaiter <- false
-	priorityWaiter <- false
-}
-
-func (self *LockDB) checkPriority(waiter chan bool) {
-	<-waiter
-	for self.status != STATE_CLOSE {
 		for i := uint16(0); i < self.managerMaxGlocks; i++ {
 			if self.managerGlocks[i].highPriorityAcquireCount > 0 {
 				self.managerGlocks[i].HighSetPriority()
 			}
 		}
-		<-waiter
+		time.Sleep(time.Second - time.Duration(time.Now().Nanosecond()))
 	}
+	timeoutWaiter <- false
+	expriedWaiter <- false
 }
 
 func (self *LockDB) checkTimeOut(waiter chan bool) {
@@ -905,11 +895,12 @@ func (self *LockDB) initNewLockManager(dbId uint8) {
 			self.managerGlocks[i].Lock()
 			self.managerGlocks[i].Unlock()
 			self.glock.Lock()
-			lockManager := self.freeLockManagers[(self.freeLockManagerTail+1)%self.maxFreeLockManagerCount]
-			if lockManager != nil {
-				return
-			}
 		}
+	}
+
+	lockManager := self.freeLockManagers[(self.freeLockManagerTail+1)%self.maxFreeLockManagerCount]
+	if lockManager != nil {
+		return
 	}
 
 	lockManagers := make([]LockManager, 16)
