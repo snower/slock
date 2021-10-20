@@ -901,18 +901,22 @@ func (self *LockDB) initNewLockManager(dbId uint8) {
 		}
 	}
 
+	self.glock.Lock()
 	lockManager := self.freeLockManagers[self.freeLockManagerTail%self.maxFreeLockManagerCount]
 	if lockManager != nil {
+		self.glock.Unlock()
 		return
 	}
 
 	lockManagers := make([]LockManager, 16)
 	for i := 0; i < 16; i++ {
 		if self.freeLockManagers[(self.freeLockManagerHead+1)%self.maxFreeLockManagerCount] != nil {
+			self.glock.Unlock()
 			return
 		}
 		freeLockManagerHead := atomic.AddUint32(&self.freeLockManagerHead, 1) % self.maxFreeLockManagerCount
 		if self.freeLockManagers[freeLockManagerHead] != nil {
+			self.glock.Unlock()
 			atomic.AddUint32(&self.freeLockManagerHead, 0xffffffff)
 			return
 		}
@@ -934,6 +938,7 @@ func (self *LockDB) initNewLockManager(dbId uint8) {
 		}
 		self.freeLockManagers[freeLockManagerHead] = &lockManagers[i]
 	}
+	self.glock.Unlock()
 }
 
 func (self *LockDB) GetOrNewLockManager(command *protocol.LockCommand) *LockManager {
@@ -946,14 +951,11 @@ func (self *LockDB) GetOrNewLockManager(command *protocol.LockCommand) *LockMana
 				freeLockManagerTail := atomic.AddUint32(&self.freeLockManagerTail, 1) % self.maxFreeLockManagerCount
 				lockManager := self.freeLockManagers[freeLockManagerTail]
 				for lockManager == nil {
-					self.glock.Lock()
 					self.initNewLockManager(command.DbId)
-					self.glock.Unlock()
 					lockManager = self.freeLockManagers[freeLockManagerTail]
 				}
 				self.freeLockManagers[freeLockManagerTail] = nil
 
-				lockManager.freed = false
 				lockManager.lockKey = command.LockKey
 				lockManager.fastKeyValue = fastValue
 				fastValue.manager = lockManager
@@ -984,6 +986,7 @@ func (self *LockDB) GetOrNewLockManager(command *protocol.LockCommand) *LockMana
 		self.glock.Unlock()
 		return lockManager
 	}
+	self.glock.Unlock()
 
 	freeLockManagerTail := atomic.AddUint32(&self.freeLockManagerTail, 1) % self.maxFreeLockManagerCount
 	lockManager := self.freeLockManagers[freeLockManagerTail]
@@ -992,8 +995,8 @@ func (self *LockDB) GetOrNewLockManager(command *protocol.LockCommand) *LockMana
 		lockManager = self.freeLockManagers[freeLockManagerTail]
 	}
 	self.freeLockManagers[freeLockManagerTail] = nil
+	self.glock.Lock()
 	self.locks[command.LockKey] = lockManager
-	lockManager.freed = false
 	self.glock.Unlock()
 
 	lockManager.lockKey = command.LockKey
@@ -1035,7 +1038,6 @@ func (self *LockDB) RemoveLockManager(lockManager *LockManager) {
 			return
 		}
 
-		lockManager.freed = true
 		lockManager.lockKey[0], lockManager.lockKey[1], lockManager.lockKey[2], lockManager.lockKey[3], lockManager.lockKey[4], lockManager.lockKey[5], lockManager.lockKey[6], lockManager.lockKey[7],
 			lockManager.lockKey[8], lockManager.lockKey[9], lockManager.lockKey[10], lockManager.lockKey[11], lockManager.lockKey[12], lockManager.lockKey[13], lockManager.lockKey[14], lockManager.lockKey[15] =
 			0, 0, 0, 0, 0, 0, 0, 0,
@@ -1071,17 +1073,12 @@ func (self *LockDB) RemoveLockManager(lockManager *LockManager) {
 	}
 
 	self.glock.Lock()
-	if lockManager.freed {
-		self.glock.Unlock()
-		return
-	}
 	if _, ok := self.locks[lockManager.lockKey]; !ok {
 		self.glock.Unlock()
 		return
 	}
 
 	delete(self.locks, lockManager.lockKey)
-	lockManager.freed = true
 	self.glock.Unlock()
 	lockManager.lockKey[0], lockManager.lockKey[1], lockManager.lockKey[2], lockManager.lockKey[3], lockManager.lockKey[4], lockManager.lockKey[5], lockManager.lockKey[6], lockManager.lockKey[7],
 		lockManager.lockKey[8], lockManager.lockKey[9], lockManager.lockKey[10], lockManager.lockKey[11], lockManager.lockKey[12], lockManager.lockKey[13], lockManager.lockKey[14], lockManager.lockKey[15] =
