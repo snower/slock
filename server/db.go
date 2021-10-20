@@ -894,10 +894,8 @@ func (self *LockDB) flushExpriedCheckLock(lockQueue *LockQueue, lock *Lock, doEx
 func (self *LockDB) initNewLockManager(dbId uint8) {
 	for i := uint16(0); i < self.managerMaxGlocks; i++ {
 		if self.managerGlocks[i].highPriority == 1 || self.managerGlocks[i].lowPriority == 1 {
-			self.glock.Unlock()
 			self.managerGlocks[i].LowPriorityLock()
 			self.managerGlocks[i].LowPriorityUnlock()
-			self.glock.Lock()
 		}
 	}
 
