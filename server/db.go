@@ -2112,6 +2112,7 @@ func (self *LockDB) HasLock(command *protocol.LockCommand) bool {
 		if lockManager == nil {
 			return false
 		}
+		lockManager.glock.Lock()
 	}
 
 	if lockManager.locked == 0 {
