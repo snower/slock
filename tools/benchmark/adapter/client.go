@@ -30,7 +30,7 @@ func runClientBenchmark(slockClient *client.Client, count *uint32, maxCount uint
 			continue
 		}
 
-		atomic.AddUint32(count, 1)
+		atomic.AddUint32(count, 2)
 		if *count > maxCount {
 			close(waiter)
 			return
