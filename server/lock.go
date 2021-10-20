@@ -16,18 +16,18 @@ type LockManager struct {
 	glock        *PriorityMutex
 	freeLocks    *LockQueue
 	fastKeyValue *FastKeyValue
+	state        *protocol.LockDBState
 	refCount     uint32
 	locked       uint32
 	glockIndex   uint16
 	dbId         uint8
 	waited       bool
-	state        *protocol.LockDBState
 }
 
-func NewLockManager(lockDb *LockDB, command *protocol.LockCommand, glock *PriorityMutex, glockIndex uint16, freeLocks *LockQueue) *LockManager {
+func NewLockManager(lockDb *LockDB, command *protocol.LockCommand, glock *PriorityMutex, glockIndex uint16, freeLocks *LockQueue, state *protocol.LockDBState) *LockManager {
 	return &LockManager{lockDb, command.LockKey,
-		nil, nil, nil, nil, glock, freeLocks, nil, 0, 0,
-		glockIndex, command.DbId, false, nil}
+		nil, nil, nil, nil, glock, freeLocks, nil, state, 0, 0,
+		glockIndex, command.DbId, false}
 }
 
 func (self *LockManager) GetDB() *LockDB {
