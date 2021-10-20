@@ -2106,11 +2106,18 @@ func (self *LockDB) HasLock(command *protocol.LockCommand) bool {
 	}
 
 	lockManager.glock.Lock()
+	for lockManager.lockKey != command.LockKey {
+		lockManager.glock.Unlock()
+		lockManager = self.GetLockManager(command)
+		if lockManager == nil {
+			return false
+		}
+	}
+
 	if lockManager.locked == 0 {
 		lockManager.glock.Unlock()
 		return false
 	}
-
 	currentLock := lockManager.GetLockedLock(command)
 	if currentLock != nil {
 		lockManager.glock.Unlock()
