@@ -47,4 +47,3 @@ func parseLockKey(argId string) [16]byte {
 	}
 	return lockKey
 }
-

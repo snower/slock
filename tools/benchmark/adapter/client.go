@@ -3,20 +3,20 @@ package adapter
 import (
 	"fmt"
 	"github.com/snower/slock/client"
+	"math/rand"
 	"sync/atomic"
 	"time"
 )
 
-func runClientBenchmark(slockClient *client.Client, count *uint32, maxCount uint32, key string, waiter chan bool, timeoutFlag int, expriedFlag int) {
+func runClientBenchmark(slockClient *client.Client, count *uint32, maxCount uint32, keys [][16]byte, waiter chan bool, timeout uint32, expried uint32) {
 	var lockKey [16]byte
-	if key != "" {
-		lockKey = parseLockKey(key)
-	}
 	for {
-		if key == "" {
+		if keys == nil {
 			lockKey = slockClient.SelectDB(0).GenLockId()
+		} else {
+			lockKey = keys[rand.Intn(len(keys))]
 		}
-		lock := slockClient.Lock(lockKey, (uint32(timeoutFlag)<<16)|5, (uint32(expriedFlag)<<16)|5)
+		lock := slockClient.Lock(lockKey, timeout, expried)
 
 		err := lock.Lock()
 		if err != nil {
@@ -38,7 +38,7 @@ func runClientBenchmark(slockClient *client.Client, count *uint32, maxCount uint
 	}
 }
 
-func StartClientBenchmark(clientCount int, concurrentc int, maxCount int, key string, port int, host string, timeoutFlag int, expriedFlag int) {
+func StartClientBenchmark(clientCount int, concurrentc int, maxCount int, keys [][16]byte, port int, host string, timeout uint32, expried uint32) {
 	fmt.Printf("Run %d Client, %d concurrentc, %d Count Lock and Unlock\n", clientCount, concurrentc, maxCount)
 
 	clients := make([]*client.Client, clientCount)
@@ -67,7 +67,7 @@ func StartClientBenchmark(clientCount int, concurrentc int, maxCount int, key st
 	startTime := time.Now().UnixNano()
 	for i := 0; i < concurrentc; i++ {
 		waiters[i] = make(chan bool, 1)
-		go runClientBenchmark(clients[i%clientCount], &count, uint32(maxCount), key, waiters[i], timeoutFlag, expriedFlag)
+		go runClientBenchmark(clients[i%clientCount], &count, uint32(maxCount), keys, waiters[i], timeout, expried)
 	}
 	for _, waiter := range waiters {
 		<-waiter
