@@ -414,13 +414,13 @@ func (self *Admin) commandHandleShowDBCommand(serverProtocol *TextServerProtocol
 		}
 	}
 
-	db.glock.Lock()
+	db.mGlock.Lock()
 	for _, lockManager := range db.locks {
 		if lockManager.locked > 0 {
 			lockManagers = append(lockManagers, lockManager)
 		}
 	}
-	db.glock.Unlock()
+	db.mGlock.Unlock()
 
 	dbInfos := make([]string, 0)
 	for _, lockManager := range lockManagers {

@@ -1461,13 +1461,13 @@ func (self *BinaryServerProtocol) commandHandleListLockCommand(_ *BinaryServerPr
 		}
 	}
 
-	db.glock.Lock()
+	db.mGlock.Lock()
 	for _, lockManager := range db.locks {
 		if lockManager.locked > 0 {
 			locks = append(locks, &protobuf.LockDBLock{LockKey: lockManager.lockKey[:], LockedCount: lockManager.locked})
 		}
 	}
-	db.glock.Unlock()
+	db.mGlock.Unlock()
 
 	response := protobuf.LockDBListLockResponse{Locks: locks}
 	data, err := response.Marshal()

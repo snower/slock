@@ -47,6 +47,7 @@ type LockDB struct {
 	checkTimeoutTime          int64
 	checkExpriedTime          int64
 	glock                     *sync.Mutex
+	mGlock                    *sync.Mutex
 	managerGlocks             []*PriorityMutex
 	freeLockManagers          []*LockManager
 	freeLocks                 []*LockQueue
@@ -107,6 +108,7 @@ func NewLockDB(slock *SLock, dbId uint8) *LockDB {
 		checkTimeoutTime:          now,
 		checkExpriedTime:          now,
 		glock:                     &sync.Mutex{},
+		mGlock:                    &sync.Mutex{},
 		managerGlocks:             managerGlocks,
 		freeLockManagers:          make([]*LockManager, maxFreeLockManagerCount),
 		freeLocks:                 freeLocks,
@@ -127,7 +129,7 @@ func NewLockDB(slock *SLock, dbId uint8) *LockDB {
 	}
 
 	db.resizeAofChannels()
-	db.resizesubScribeChannels()
+	db.resizeSubScribeChannels()
 	db.resizeTimeOut()
 	db.resizeExpried()
 	db.startCheckLoop()
@@ -140,7 +142,7 @@ func (self *LockDB) resizeAofChannels() {
 	}
 }
 
-func (self *LockDB) resizesubScribeChannels() {
+func (self *LockDB) resizeSubScribeChannels() {
 	for i := uint16(0); i < self.managerMaxGlocks; i++ {
 		self.subscribeChannels[i] = self.slock.GetSubscribeManager().NewSubscribeChannel(self)
 	}
@@ -979,12 +981,11 @@ func (self *LockDB) GetOrNewLockManager(command *protocol.LockCommand) *LockMana
 	if fastLockManager != nil && fastLockManager.lockKey == command.LockKey {
 		return fastLockManager
 	}
-	self.glock.Lock()
+	self.mGlock.Lock()
 	if lockManager, ok := self.locks[command.LockKey]; ok {
-		self.glock.Unlock()
+		self.mGlock.Unlock()
 		return lockManager
 	}
-	self.glock.Unlock()
 
 	freeLockManagerTail := atomic.AddUint32(&self.freeLockManagerTail, 1) % self.maxFreeLockManagerCount
 	lockManager := self.freeLockManagers[freeLockManagerTail]
@@ -993,9 +994,8 @@ func (self *LockDB) GetOrNewLockManager(command *protocol.LockCommand) *LockMana
 		lockManager = self.freeLockManagers[freeLockManagerTail]
 	}
 	self.freeLockManagers[freeLockManagerTail] = nil
-	self.glock.Lock()
 	self.locks[command.LockKey] = lockManager
-	self.glock.Unlock()
+	self.mGlock.Unlock()
 
 	lockManager.lockKey = command.LockKey
 	lockManager.fastKeyValue = fastValue
@@ -1016,12 +1016,12 @@ func (self *LockDB) GetLockManager(command *protocol.LockCommand) *LockManager {
 		return fastLockManager
 	}
 
-	self.glock.Lock()
+	self.mGlock.Lock()
 	if lockManager, ok := self.locks[command.LockKey]; ok {
-		self.glock.Unlock()
+		self.mGlock.Unlock()
 		return lockManager
 	}
-	self.glock.Unlock()
+	self.mGlock.Unlock()
 	return nil
 }
 
@@ -1070,14 +1070,14 @@ func (self *LockDB) RemoveLockManager(lockManager *LockManager) {
 		return
 	}
 
-	self.glock.Lock()
+	self.mGlock.Lock()
 	if _, ok := self.locks[lockManager.lockKey]; !ok {
-		self.glock.Unlock()
+		self.mGlock.Unlock()
 		return
 	}
 
 	delete(self.locks, lockManager.lockKey)
-	self.glock.Unlock()
+	self.mGlock.Unlock()
 	lockManager.lockKey[0], lockManager.lockKey[1], lockManager.lockKey[2], lockManager.lockKey[3], lockManager.lockKey[4], lockManager.lockKey[5], lockManager.lockKey[6], lockManager.lockKey[7],
 		lockManager.lockKey[8], lockManager.lockKey[9], lockManager.lockKey[10], lockManager.lockKey[11], lockManager.lockKey[12], lockManager.lockKey[13], lockManager.lockKey[14], lockManager.lockKey[15] =
 		0, 0, 0, 0, 0, 0, 0, 0,
