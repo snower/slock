@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"github.com/BurntSushi/toml"
 	"github.com/jessevdk/go-flags"
 	"github.com/snower/slock/client"
 	"github.com/snower/slock/server"
@@ -74,6 +75,15 @@ func main() {
 			fmt.Println(b.String())
 		}
 		return
+	}
+
+	if config.Conf != "" {
+		fileConfig := &server.ServerConfig{}
+		if _, err := toml.DecodeFile(config.Conf, &fileConfig); err != nil {
+			fmt.Printf("Parse conf file error: %v\r\n", err)
+			return
+		}
+		config = server.ExtendConfig(config, fileConfig)
 	}
 
 	slock := server.NewSLock(config)

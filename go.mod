@@ -8,7 +8,8 @@ require (
 )
 
 require (
-	github.com/golang/protobuf v1.5.2 // indirect
+	github.com/BurntSushi/toml v0.4.1
+	github.com/golang/protobuf v1.5.2
 	github.com/hhkbp2/go-strftime v0.0.0-20150709091403-d82166ec6782 // indirect
 	golang.org/x/sys v0.0.0-20210320140829-1e4c9ba3b0c4 // indirect
 	google.golang.org/protobuf v1.26.0 // indirect
