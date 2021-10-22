@@ -24,6 +24,7 @@ Usage:
         info command show db state
 
 Application Options:
+      --conf=                                toml conf filename
       --bind=                                bind address (default: 127.0.0.1)
       --port=                                bind port (default: 5658)
       --log=                                 log filename, default is output stdout (default: -)
@@ -34,10 +35,10 @@ Application Options:
       --log_buffer_flush_time=               log buffer flush seconds time (default: 1)
       --data_dir=                            data dir (default: ./data/)
       --db_fast_key_count=                   db fast key count (default: 4194304)
-      --db_concurrent_lock=                  db concurrent lock count (default: 8)
+      --db_concurrent=                       db concurrent count (default: 8)
       --db_lock_aof_time=                    db lock aof time (default: 1)
       --db_lock_aof_parcent_time=            db lock aof parcent expried time (default: 0.3)
-      --aof_queue_size=                      aof channel queue size (default: 4096)
+      --aof_queue_size=                      aof channel queue size (default: 65536)
       --aof_file_rewrite_size=               aof file rewrite size (default: 67174400)
       --aof_file_buffer_size=                aof file buffer size (default: 4096)
       --aof_ring_buffer_size=                slave sync ring buffer size (default: 1048576)
