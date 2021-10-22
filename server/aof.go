@@ -1633,7 +1633,7 @@ func (self *Aof) getLockQueue() *AofLockQueue {
 		return queue
 	}
 
-	bufSize := int(Config.AofQueueSize) * 2
+	bufSize := int(Config.AofQueueSize) / 64
 	queue := &AofLockQueue{make([]*AofLock, bufSize), 0, 0, bufSize, nil}
 	self.freeLockQueueGlock.Unlock()
 	return queue

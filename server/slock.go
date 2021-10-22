@@ -54,7 +54,7 @@ func NewSLock(config *ServerConfig) *SLock {
 	logger := InitLogger(Config.Log, Config.LogLevel)
 	slock := &SLock{nil, make([]*LockDB, 256), &sync.Mutex{}, aof, replicationManager, nil, subscribeManager, admin, logger,
 		make(map[uint32]*ServerProtocolSession, STREAMS_INIT_COUNT), &sync.Mutex{}, make(map[[16]byte]ServerProtocol, STREAMS_INIT_COUNT), &sync.Mutex{}, &now,
-		NewLockCommandQueue(16, 64, FREE_COMMAND_QUEUE_INIT_SIZE*16), &sync.Mutex{}, 0, 0, STATE_INIT}
+		NewLockCommandQueue(16, 64, FREE_COMMAND_QUEUE_INIT_SIZE*int32(Config.DBConcurrent)), &sync.Mutex{}, 0, 0, STATE_INIT}
 	aof.slock = slock
 	replicationManager.slock = slock
 	replicationManager.transparencyManager.slock = slock
