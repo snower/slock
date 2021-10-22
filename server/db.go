@@ -971,6 +971,7 @@ func (self *LockDB) GetOrNewLockManager(command *protocol.LockCommand) *LockMana
 						self.managerGlocks[i].LowPriorityUnlock()
 					}
 				}
+				time.Sleep(time.Nanosecond)
 				continue
 			}
 			break
