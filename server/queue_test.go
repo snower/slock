@@ -237,6 +237,7 @@ func TestLockQueueRellac(t *testing.T) {
 		qlen--
 	}
 
+	rellacNodeIndex := q.nodeIndex
 	_ = q.Rellac()
 	nodeSize := 0
 	for _, nodeQueue := range q.queues {
@@ -246,7 +247,11 @@ func TestLockQueueRellac(t *testing.T) {
 		nodeSize++
 	}
 	if q.queueSize != q.baseQueueSize*int32(uint32(1)<<uint32(nodeSize-1)) {
-		t.Error("LockQueue Reset queue_size Fail")
+		t.Error("LockQueue Rellac queue_size Fail")
+		return
+	}
+	if q.nodeIndex != rellacNodeIndex {
+		t.Error("LockQueue Rellac nodeIndex Fail")
 		return
 	}
 	nodeIndex := 0
@@ -258,6 +263,12 @@ func TestLockQueueRellac(t *testing.T) {
 	}
 	if nodeIndex != int(q.nodeIndex) {
 		t.Errorf("LockQueue Empty Node_Index Fail %d %d", nodeIndex, q.nodeIndex)
+		return
+	}
+
+	_ = q.Rellac()
+	if q.nodeIndex == rellacNodeIndex {
+		t.Errorf("LockQueue Rellac nodeIndex Fail %d %d", q.nodeIndex, rellacNodeIndex)
 		return
 	}
 }
@@ -640,6 +651,7 @@ func TestLockCommandQueueRellac(t *testing.T) {
 		qlen--
 	}
 
+	rellacNodeIndex := q.nodeIndex
 	_ = q.Rellac()
 	nodeSize := 0
 	for _, nodeQueue := range q.queues {
@@ -649,10 +661,13 @@ func TestLockCommandQueueRellac(t *testing.T) {
 		nodeSize++
 	}
 	if q.queueSize != q.baseQueueSize*int32(uint32(1)<<uint32(nodeSize-1)) {
-		t.Error("LockCommandQueue Reset queue_size Fail")
+		t.Error("LockCommandQueue Rellac queue_size Fail")
 		return
 	}
-
+	if q.nodeIndex != rellacNodeIndex {
+		t.Error("LockCommandQueue Rellac nodeIndex Fail")
+		return
+	}
 	nodeIndex := 0
 	for i, node := range q.queues {
 		if node == nil {
@@ -662,6 +677,12 @@ func TestLockCommandQueueRellac(t *testing.T) {
 	}
 	if nodeIndex != int(q.nodeIndex) {
 		t.Errorf("LockCommandQueue Empty Node_Index Fail %d %d", nodeIndex, q.nodeIndex)
+		return
+	}
+
+	_ = q.Rellac()
+	if q.nodeIndex == rellacNodeIndex {
+		t.Errorf("LockCommandQueue Rellac nodeIndex Fail %d %d", q.nodeIndex, rellacNodeIndex)
 		return
 	}
 }

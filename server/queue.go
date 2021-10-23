@@ -6,25 +6,23 @@ import (
 )
 
 type LockQueue struct {
-	headQueueIndex int32
-	headQueueSize  int32
-	headQueue      []*Lock
-
-	tailQueueIndex int32
-	tailQueueSize  int32
-	tailQueue      []*Lock
-
-	headNodeIndex int32
-	tailNodeIndex int32
-
-	queues         [][]*Lock
-	nodeQueueSizes []int32
-	baseNodeSize   int32
-	nodeIndex      int32
-	nodeSize       int32
-	shrinkNodeSize int32
-	baseQueueSize  int32
-	queueSize      int32
+	headQueueIndex      int32
+	headQueueSize       int32
+	headQueue           []*Lock
+	tailQueueIndex      int32
+	tailQueueSize       int32
+	tailQueue           []*Lock
+	headNodeIndex       int32
+	tailNodeIndex       int32
+	queues              [][]*Lock
+	nodeQueueSizes      []int32
+	baseNodeSize        int32
+	nodeIndex           int32
+	nodeSize            int32
+	shrinkNodeSize      int32
+	baseQueueSize       int32
+	queueSize           int32
+	rellacTailNodeIndex int32
 }
 
 func NewLockQueue(baseNodeSize int32, nodeSize int32, queueSize int32) *LockQueue {
@@ -37,42 +35,44 @@ func NewLockQueue(baseNodeSize int32, nodeSize int32, queueSize int32) *LockQueu
 	return &LockQueue{0, queueSize, queues[0], 0,
 		queueSize, queues[0], 0, 0,
 		queues, nodeQueueSizes, baseNodeSize, 0, nodeSize,
-		0, queueSize, queueSize}
+		0, queueSize, queueSize, 0}
+}
+
+func (self *LockQueue) mallocQueue() {
+	self.tailNodeIndex++
+	self.tailQueueIndex = 0
+
+	if self.tailNodeIndex >= self.nodeSize {
+		self.queueSize = self.queueSize * 2
+		if self.queueSize > QUEUE_MAX_MALLOC_SIZE {
+			self.queueSize = QUEUE_MAX_MALLOC_SIZE
+		}
+
+		self.queues = append(self.queues, make([]*Lock, self.queueSize))
+		self.nodeQueueSizes = append(self.nodeQueueSizes, self.queueSize)
+		self.nodeIndex++
+		self.nodeSize++
+	} else if self.queues[self.tailNodeIndex] == nil {
+		self.queueSize = self.queueSize * 2
+		if self.queueSize > QUEUE_MAX_MALLOC_SIZE {
+			self.queueSize = QUEUE_MAX_MALLOC_SIZE
+		}
+
+		self.queues[self.tailNodeIndex] = make([]*Lock, self.queueSize)
+		self.nodeQueueSizes[self.tailNodeIndex] = self.queueSize
+		self.nodeIndex++
+	}
+
+	self.tailQueue = self.queues[self.tailNodeIndex]
+	self.tailQueueSize = self.nodeQueueSizes[self.tailNodeIndex]
 }
 
 func (self *LockQueue) Push(lock *Lock) error {
 	self.tailQueue[self.tailQueueIndex] = lock
 	self.tailQueueIndex++
-
 	if self.tailQueueIndex >= self.tailQueueSize {
-		self.tailNodeIndex++
-		self.tailQueueIndex = 0
-
-		if self.tailNodeIndex >= self.nodeSize {
-			self.queueSize = self.queueSize * 2
-			if self.queueSize > QUEUE_MAX_MALLOC_SIZE {
-				self.queueSize = QUEUE_MAX_MALLOC_SIZE
-			}
-
-			self.queues = append(self.queues, make([]*Lock, self.queueSize))
-			self.nodeQueueSizes = append(self.nodeQueueSizes, self.queueSize)
-			self.nodeIndex++
-			self.nodeSize++
-		} else if self.queues[self.tailNodeIndex] == nil {
-			self.queueSize = self.queueSize * 2
-			if self.queueSize > QUEUE_MAX_MALLOC_SIZE {
-				self.queueSize = QUEUE_MAX_MALLOC_SIZE
-			}
-
-			self.queues[self.tailNodeIndex] = make([]*Lock, self.queueSize)
-			self.nodeQueueSizes[self.tailNodeIndex] = self.queueSize
-			self.nodeIndex++
-		}
-
-		self.tailQueue = self.queues[self.tailNodeIndex]
-		self.tailQueueSize = self.nodeQueueSizes[self.tailNodeIndex]
+		self.mallocQueue()
 	}
-
 	return nil
 }
 
@@ -182,12 +182,13 @@ func (self *LockQueue) Reset() error {
 	self.tailQueueIndex = 0
 	self.headQueueSize = self.nodeQueueSizes[0]
 	self.tailQueueSize = self.nodeQueueSizes[0]
+	self.rellacTailNodeIndex = 0
 	return nil
 }
 
 func (self *LockQueue) Rellac() error {
-	if self.nodeIndex > self.tailNodeIndex {
-		baseNodeSize := self.tailNodeIndex + (self.nodeIndex-self.tailNodeIndex)/2
+	if self.rellacTailNodeIndex >= self.tailNodeIndex {
+		baseNodeSize := self.rellacTailNodeIndex + (self.nodeIndex-self.rellacTailNodeIndex)/2
 		if baseNodeSize < self.baseNodeSize {
 			baseNodeSize = self.baseNodeSize
 		}
@@ -199,6 +200,7 @@ func (self *LockQueue) Rellac() error {
 		}
 		self.queueSize = self.nodeQueueSizes[self.nodeIndex]
 	}
+	self.rellacTailNodeIndex = self.tailNodeIndex
 
 	self.headNodeIndex = 0
 	self.headQueueIndex = 0
@@ -272,6 +274,7 @@ func (self *LockQueue) Restructuring() error {
 		tailNodeIndex--
 	}
 	self.queueSize = self.nodeQueueSizes[self.nodeIndex]
+	self.rellacTailNodeIndex = 0
 	return nil
 }
 
@@ -307,25 +310,23 @@ func (self *LockQueue) IterNodeQueues(nodeIndex int32) []*Lock {
 }
 
 type LockCommandQueue struct {
-	headQueueIndex int32
-	headQueueSize  int32
-	headQueue      []*protocol.LockCommand
-
-	tailQueueIndex int32
-	tailQueueSize  int32
-	tailQueue      []*protocol.LockCommand
-
-	headNodeIndex int32
-	tailNodeIndex int32
-
-	queues         [][]*protocol.LockCommand
-	nodeQueueSizes []int32
-	baseNodeSize   int32
-	nodeIndex      int32
-	nodeSize       int32
-	shrinkNodeSize int32
-	baseQueueSize  int32
-	queueSize      int32
+	headQueueIndex      int32
+	headQueueSize       int32
+	headQueue           []*protocol.LockCommand
+	tailQueueIndex      int32
+	tailQueueSize       int32
+	tailQueue           []*protocol.LockCommand
+	headNodeIndex       int32
+	tailNodeIndex       int32
+	queues              [][]*protocol.LockCommand
+	nodeQueueSizes      []int32
+	baseNodeSize        int32
+	nodeIndex           int32
+	nodeSize            int32
+	shrinkNodeSize      int32
+	baseQueueSize       int32
+	queueSize           int32
+	rellacTailNodeIndex int32
 }
 
 func NewLockCommandQueue(baseNodeSize int32, nodeSize int32, queueSize int32) *LockCommandQueue {
@@ -338,40 +339,42 @@ func NewLockCommandQueue(baseNodeSize int32, nodeSize int32, queueSize int32) *L
 	return &LockCommandQueue{0, queueSize, queues[0], 0,
 		queueSize, queues[0], 0, 0,
 		queues, nodeQueueSizes, baseNodeSize, 0, nodeSize,
-		0, queueSize, queueSize}
+		0, queueSize, queueSize, 0}
+}
+
+func (self *LockCommandQueue) mallocQueue() {
+	self.tailNodeIndex++
+	self.tailQueueIndex = 0
+
+	if self.tailNodeIndex >= self.nodeSize {
+		self.queueSize = self.queueSize * 2
+		if self.queueSize > QUEUE_MAX_MALLOC_SIZE {
+			self.queueSize = QUEUE_MAX_MALLOC_SIZE
+		}
+		self.queues = append(self.queues, make([]*protocol.LockCommand, self.queueSize))
+		self.nodeQueueSizes = append(self.nodeQueueSizes, self.queueSize)
+		self.nodeIndex++
+		self.nodeSize++
+	} else if self.queues[self.tailNodeIndex] == nil {
+		self.queueSize = self.queueSize * 2
+		if self.queueSize > QUEUE_MAX_MALLOC_SIZE {
+			self.queueSize = QUEUE_MAX_MALLOC_SIZE
+		}
+		self.queues[self.tailNodeIndex] = make([]*protocol.LockCommand, self.queueSize)
+		self.nodeQueueSizes[self.tailNodeIndex] = self.queueSize
+		self.nodeIndex++
+	}
+
+	self.tailQueue = self.queues[self.tailNodeIndex]
+	self.tailQueueSize = self.nodeQueueSizes[self.tailNodeIndex]
 }
 
 func (self *LockCommandQueue) Push(lock *protocol.LockCommand) error {
 	self.tailQueue[self.tailQueueIndex] = lock
 	self.tailQueueIndex++
-
 	if self.tailQueueIndex >= self.tailQueueSize {
-		self.tailNodeIndex++
-		self.tailQueueIndex = 0
-
-		if self.tailNodeIndex >= self.nodeSize {
-			self.queueSize = self.queueSize * 2
-			if self.queueSize > QUEUE_MAX_MALLOC_SIZE {
-				self.queueSize = QUEUE_MAX_MALLOC_SIZE
-			}
-			self.queues = append(self.queues, make([]*protocol.LockCommand, self.queueSize))
-			self.nodeQueueSizes = append(self.nodeQueueSizes, self.queueSize)
-			self.nodeIndex++
-			self.nodeSize++
-		} else if self.queues[self.tailNodeIndex] == nil {
-			self.queueSize = self.queueSize * 2
-			if self.queueSize > QUEUE_MAX_MALLOC_SIZE {
-				self.queueSize = QUEUE_MAX_MALLOC_SIZE
-			}
-			self.queues[self.tailNodeIndex] = make([]*protocol.LockCommand, self.queueSize)
-			self.nodeQueueSizes[self.tailNodeIndex] = self.queueSize
-			self.nodeIndex++
-		}
-
-		self.tailQueue = self.queues[self.tailNodeIndex]
-		self.tailQueueSize = self.nodeQueueSizes[self.tailNodeIndex]
+		self.mallocQueue()
 	}
-
 	return nil
 }
 
@@ -481,12 +484,13 @@ func (self *LockCommandQueue) Reset() error {
 	self.tailQueueIndex = 0
 	self.headQueueSize = self.nodeQueueSizes[0]
 	self.tailQueueSize = self.nodeQueueSizes[0]
+	self.rellacTailNodeIndex = 0
 	return nil
 }
 
 func (self *LockCommandQueue) Rellac() error {
-	if self.nodeIndex > self.tailNodeIndex {
-		baseNodeSize := self.tailNodeIndex + (self.nodeIndex-self.tailNodeIndex)/2
+	if self.rellacTailNodeIndex >= self.tailNodeIndex {
+		baseNodeSize := self.rellacTailNodeIndex + (self.nodeIndex-self.rellacTailNodeIndex)/2
 		if baseNodeSize < self.baseNodeSize {
 			baseNodeSize = self.baseNodeSize
 		}
@@ -498,6 +502,7 @@ func (self *LockCommandQueue) Rellac() error {
 		}
 		self.queueSize = self.nodeQueueSizes[self.nodeIndex]
 	}
+	self.rellacTailNodeIndex = self.tailNodeIndex
 
 	self.headNodeIndex = 0
 	self.headQueueIndex = 0
@@ -571,6 +576,7 @@ func (self *LockCommandQueue) Restructuring() error {
 		tailNodeIndex--
 	}
 	self.queueSize = self.nodeQueueSizes[self.nodeIndex]
+	self.rellacTailNodeIndex = 0
 	return nil
 }
 

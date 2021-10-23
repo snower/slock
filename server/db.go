@@ -241,7 +241,7 @@ func (self *LockDB) checkTimeOut(waiter chan bool) {
 	for i := uint16(0); i < self.managerMaxGlocks; i++ {
 		doTimeoutLockQueues[i] = make([]*LockQueue, 5)
 		for j := 0; j < 5; j++ {
-			doTimeoutLockQueues[i][j] = NewLockQueue(2, 16, 4096)
+			doTimeoutLockQueues[i][j] = NewLockQueue(4, 16, 1024)
 		}
 	}
 
@@ -266,7 +266,7 @@ func (self *LockDB) checkTimeTimeOut(checkTimeoutTime int64, now int64, glockInd
 	timeoutLocks := self.timeoutLocks[checkTimeoutTime&TIMEOUT_QUEUE_LENGTH_MASK]
 	doTimeoutLocks := doTimeoutLockQueues[checkTimeoutTime%5]
 	if doTimeoutLocks == nil {
-		doTimeoutLocks = NewLockQueue(2, 16, 4096)
+		doTimeoutLocks = NewLockQueue(4, 16, 1024)
 	} else {
 		doTimeoutLockQueues[checkTimeoutTime%5] = nil
 	}
@@ -567,7 +567,7 @@ func (self *LockDB) checkExpried(waiter chan bool) {
 	for i := uint16(0); i < self.managerMaxGlocks; i++ {
 		doExpriedLockQueues[i] = make([]*LockQueue, 5)
 		for j := 0; j < 5; j++ {
-			doExpriedLockQueues[i][j] = NewLockQueue(2, 16, 4096)
+			doExpriedLockQueues[i][j] = NewLockQueue(4, 16, 1024)
 		}
 	}
 
@@ -592,7 +592,7 @@ func (self *LockDB) checkTimeExpried(checkExpriedTime int64, now int64, glockInd
 	expriedLocks := self.expriedLocks[checkExpriedTime&EXPRIED_QUEUE_LENGTH_MASK]
 	doExpriedLocks := doExpriedLockQueues[checkExpriedTime%5]
 	if doExpriedLocks == nil {
-		doExpriedLocks = NewLockQueue(2, 16, 4096)
+		doExpriedLocks = NewLockQueue(4, 16, 1024)
 	} else {
 		doExpriedLockQueues[checkExpriedTime%5] = nil
 	}
@@ -1122,7 +1122,7 @@ func (self *LockDB) AddTimeOut(lock *Lock) {
 		if longLocks, ok := self.longTimeoutLocks[lock.manager.glockIndex][lock.timeoutTime]; !ok {
 			freeLongWaitQueue := self.freeLongWaitQueues[lock.manager.glockIndex]
 			if freeLongWaitQueue.freeIndex < 0 {
-				longLocks = &LongWaitLockQueue{NewLockQueue(2, 64, LONG_LOCKS_QUEUE_INIT_SIZE), lock.timeoutTime, 0, lock.manager.glockIndex}
+				longLocks = &LongWaitLockQueue{NewLockQueue(4, 64, LONG_LOCKS_QUEUE_INIT_SIZE), lock.timeoutTime, 0, lock.manager.glockIndex}
 			} else {
 				longLocks = freeLongWaitQueue.queues[freeLongWaitQueue.freeIndex]
 				freeLongWaitQueue.freeIndex--
@@ -1266,7 +1266,7 @@ func (self *LockDB) AddMillisecondTimeOut(lock *Lock) {
 	if lockQueue == nil {
 		freeMillisecondWaitQueue := self.freeMillisecondWaitQueues[lock.manager.glockIndex]
 		if freeMillisecondWaitQueue.freeIndex < 0 {
-			lockQueue = NewLockQueue(2, 64, MILLISECOND_LOCKS_QUEUE_INIT_SIZE)
+			lockQueue = NewLockQueue(4, 64, MILLISECOND_LOCKS_QUEUE_INIT_SIZE)
 		} else {
 			lockQueue = freeMillisecondWaitQueue.queues[freeMillisecondWaitQueue.freeIndex]
 			freeMillisecondWaitQueue.freeIndex--
@@ -1289,7 +1289,7 @@ func (self *LockDB) AddExpried(lock *Lock) {
 		if longLocks, ok := self.longExpriedLocks[lock.manager.glockIndex][lock.expriedTime]; !ok {
 			freeLongWaitQueue := self.freeLongWaitQueues[lock.manager.glockIndex]
 			if freeLongWaitQueue.freeIndex < 0 {
-				longLocks = &LongWaitLockQueue{NewLockQueue(2, 64, LONG_LOCKS_QUEUE_INIT_SIZE), lock.expriedTime, 0, lock.manager.glockIndex}
+				longLocks = &LongWaitLockQueue{NewLockQueue(4, 64, LONG_LOCKS_QUEUE_INIT_SIZE), lock.expriedTime, 0, lock.manager.glockIndex}
 			} else {
 				longLocks = freeLongWaitQueue.queues[freeLongWaitQueue.freeIndex]
 				freeLongWaitQueue.freeIndex--
@@ -1445,7 +1445,7 @@ func (self *LockDB) AddMillisecondExpried(lock *Lock) {
 	if lockQueue == nil {
 		freeMillisecondWaitQueue := self.freeMillisecondWaitQueues[lock.manager.glockIndex]
 		if freeMillisecondWaitQueue.freeIndex < 0 {
-			lockQueue = NewLockQueue(2, 64, MILLISECOND_LOCKS_QUEUE_INIT_SIZE)
+			lockQueue = NewLockQueue(4, 64, MILLISECOND_LOCKS_QUEUE_INIT_SIZE)
 		} else {
 			lockQueue = freeMillisecondWaitQueue.queues[freeMillisecondWaitQueue.freeIndex]
 			freeMillisecondWaitQueue.freeIndex--
