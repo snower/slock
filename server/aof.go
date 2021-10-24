@@ -568,7 +568,6 @@ func (self *AofChannel) Push(lock *Lock, commandType uint8, command *protocol.Lo
 	} else {
 		aofLock.lock = nil
 	}
-
 	aofLock.HandleType = AOF_LOCK_TYPE_FILE
 
 	self.queueGlock.Lock()

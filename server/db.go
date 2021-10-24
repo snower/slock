@@ -1234,14 +1234,6 @@ func (self *LockDB) doTimeOut(lock *Lock, forcedExpried bool) {
 	}
 
 	_ = lockProtocol.ProcessLockResultCommandLocked(lockCommand, protocol.RESULT_TIMEOUT, uint16(lockManager.locked), lock.locked)
-	if lockLocked == 0 {
-		if timeoutFlag&protocol.TIMEOUT_FLAG_REVERSE_KEY_LOCK_WHEN_TIMEOUT == 0 {
-			_ = lockProtocol.FreeLockCommandLocked(lockCommand)
-		}
-	} else {
-		_ = lockProtocol.FreeLockCommandLocked(lockCommand)
-	}
-
 	if lockLocked > 0 {
 		self.wakeUpWaitLocks(lockManager, nil)
 	} else {
@@ -1254,6 +1246,8 @@ func (self *LockDB) doTimeOut(lock *Lock, forcedExpried bool) {
 				lockKey[7], lockKey[6], lockKey[5], lockKey[4], lockKey[3], lockKey[2], lockKey[1], lockKey[0]
 
 			_ = self.Lock(lockProtocol.serverProtocol, lockCommand)
+		} else {
+			_ = lockProtocol.FreeLockCommandLocked(lockCommand)
 		}
 	}
 }

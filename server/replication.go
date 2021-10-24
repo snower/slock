@@ -1111,7 +1111,7 @@ func (self *ReplicationAckDB) Process(aofLock *AofLock) error {
 	requestId := aofLock.GetRequestId()
 	self.glock.Lock()
 	if lock, ok := self.locks[requestId]; ok {
-		if aofLock.Result != 0 {
+		if aofLock.Result != 0 || lock.ackCount == 0xff {
 			delete(self.locks, requestId)
 			self.updateRequestKey(aofLock)
 			if _, ok := self.requests[self.requestKey]; ok {
@@ -1150,7 +1150,7 @@ func (self *ReplicationAckDB) ProcessAofed(aofLock *AofLock) error {
 	requestId := aofLock.GetRequestId()
 	self.glock.Lock()
 	if lock, ok := self.locks[requestId]; ok {
-		if aofLock.Result != 0 {
+		if aofLock.Result != 0 || lock.ackCount == 0xff {
 			delete(self.locks, requestId)
 			self.updateRequestKey(aofLock)
 			if _, ok := self.requests[self.requestKey]; ok {
