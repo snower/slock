@@ -1087,7 +1087,7 @@ func (self *ReplicationAckDB) PushLock(glockIndex uint16, lock *AofLock) error {
 	self.ackGlocks[glockIndex].Lock()
 	if self.manager.slock.state != STATE_LEADER {
 		if lock.lock == nil {
-			self.glock.Unlock()
+			self.ackGlocks[glockIndex].Unlock()
 			return nil
 		}
 
