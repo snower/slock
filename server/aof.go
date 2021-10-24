@@ -434,6 +434,7 @@ type AofChannel struct {
 	aof                     *Aof
 	glock                   *sync.Mutex
 	lockDb                  *LockDB
+	lockDbGlockIndex        uint16
 	lockDbGlock             *PriorityMutex
 	queueHead               *AofLockQueue
 	queueTail               *AofLockQueue
@@ -451,9 +452,9 @@ type AofChannel struct {
 	closedWaiter            chan bool
 }
 
-func NewAofChannel(aof *Aof, lockDb *LockDB, lockDbGlock *PriorityMutex) *AofChannel {
+func NewAofChannel(aof *Aof, lockDb *LockDB, lockDbGlockIndex uint16, lockDbGlock *PriorityMutex) *AofChannel {
 	freeLockMax := int(Config.AofQueueSize) / 128
-	return &AofChannel{aof, &sync.Mutex{}, lockDb, lockDbGlock, nil, nil,
+	return &AofChannel{aof, &sync.Mutex{}, lockDb, lockDbGlockIndex, lockDbGlock, nil, nil,
 		0, make(chan bool, 1), &sync.Mutex{}, nil, make([]*AofLock, freeLockMax),
 		0, freeLockMax, int(Config.AofQueueSize), false, false,
 		false, make(chan bool, 1)}
@@ -742,7 +743,7 @@ func (self *AofChannel) HandleLock(aofLock *AofLock) {
 		}
 		return
 	}
-	self.aof.PushLock(aofLock)
+	self.aof.PushLock(self.lockDbGlockIndex, aofLock)
 }
 
 func (self *AofChannel) HandleLoad(aofLock *AofLock) {
@@ -793,21 +794,21 @@ func (self *AofChannel) HandleAofAcked(aofLock *AofLock) {
 	if self.aof.slock.state == STATE_LEADER {
 		db := self.aof.slock.replicationManager.GetAckDB(aofLock.DbId)
 		if db != nil {
-			_ = db.ProcessAofed(aofLock)
+			_ = db.ProcessAofed(self.lockDbGlockIndex, aofLock)
 		}
 		return
 	}
 
 	db := self.aof.slock.replicationManager.GetOrNewAckDB(aofLock.DbId)
 	if db != nil {
-		_ = db.ProcessAckAofed(aofLock)
+		_ = db.ProcessAckAofed(self.lockDbGlockIndex, aofLock)
 	}
 }
 
 func (self *AofChannel) HandleAcked(aofLock *AofLock) {
 	db := self.aof.slock.replicationManager.GetAckDB(aofLock.DbId)
 	if db != nil {
-		_ = db.Process(aofLock)
+		_ = db.Process(self.lockDbGlockIndex, aofLock)
 	}
 }
 
@@ -1131,10 +1132,10 @@ func (self *Aof) Close() {
 	self.slock.logger.Infof("Aof closed")
 }
 
-func (self *Aof) NewAofChannel(lockDb *LockDB, lockDbGlock *PriorityMutex) *AofChannel {
+func (self *Aof) NewAofChannel(lockDb *LockDB, lockDbGlockIndex uint16, lockDbGlock *PriorityMutex) *AofChannel {
 	self.glock.Lock()
 	serverProtocol := NewMemWaiterServerProtocol(self.slock)
-	aofChannel := NewAofChannel(self, lockDb, lockDbGlock)
+	aofChannel := NewAofChannel(self, lockDb, lockDbGlockIndex, lockDbGlock)
 	_ = serverProtocol.SetResultCallback(self.lockLoaded)
 	aofChannel.serverProtocol = serverProtocol
 	self.channels = append(self.channels, aofChannel)
@@ -1251,7 +1252,7 @@ func (self *Aof) loadLockAck(lockResult *protocol.LockResultCommand) error {
 	return aofChannel.Acked(lockResult)
 }
 
-func (self *Aof) PushLock(lock *AofLock) {
+func (self *Aof) PushLock(glockIndex uint16, lock *AofLock) {
 	self.aofGlock.Lock()
 	self.aofId++
 	_ = lock.UpdateAofIndexId(self.aofFileIndex, self.aofId)
@@ -1265,16 +1266,25 @@ func (self *Aof) PushLock(lock *AofLock) {
 	}
 	self.replGlock.Lock()
 	self.aofGlock.Unlock()
-	perr := self.slock.replicationManager.PushLock(lock)
+	perr := self.slock.replicationManager.PushLock(glockIndex, lock)
 	if perr != nil {
 		self.slock.Log().Errorf("Aof push ring buffer queue error %v", perr)
 	}
 	self.replGlock.Unlock()
 
-	if werr != nil || perr != nil {
-		if lock.AofFlag&AOF_FLAG_REQUIRE_ACKED != 0 && lock.CommandType == protocol.COMMAND_LOCK && lock.lock != nil {
-			lockManager := lock.lock.manager
-			lockManager.lockDb.DoAckLock(lock.lock, false)
+	if lock.CommandType == protocol.COMMAND_LOCK {
+		if werr != nil || perr != nil {
+			if lock.AofFlag&AOF_FLAG_REQUIRE_ACKED != 0 && lock.lock != nil {
+				lockManager := lock.lock.manager
+				lockManager.lockDb.DoAckLock(lock.lock, false)
+			}
+		}
+	} else {
+		if lock.AofFlag&AOF_FLAG_REQUIRE_ACKED != 0 && lock.lock != nil {
+			db := self.slock.replicationManager.GetAckDB(lock.DbId)
+			if db != nil {
+				_ = db.PushUnLock(glockIndex, lock)
+			}
 		}
 	}
 	atomic.AddUint64(&self.aofLockCount, 1)
@@ -1314,9 +1324,10 @@ func (self *Aof) lockLoaded(_ *MemWaiterServerProtocol, command *protocol.LockCo
 			return nil
 		}
 
+		fashHash := (uint32(command.LockKey[0])<<24 | uint32(command.LockKey[1])<<16 | uint32(command.LockKey[2])<<8 | uint32(command.LockKey[3])) ^ (uint32(command.LockKey[4])<<24 | uint32(command.LockKey[5])<<16 | uint32(command.LockKey[6])<<8 | uint32(command.LockKey[7])) ^ (uint32(command.LockKey[8])<<24 | uint32(command.LockKey[9])<<16 | uint32(command.LockKey[10])<<8 | uint32(command.LockKey[11])) ^ (uint32(command.LockKey[12])<<24 | uint32(command.LockKey[13])<<16 | uint32(command.LockKey[14])<<8 | uint32(command.LockKey[15]))
 		db := self.slock.replicationManager.GetOrNewAckDB(command.DbId)
 		if db != nil {
-			return db.ProcessAcked(command, result, lcount, lrcount)
+			return db.ProcessAcked(uint16(fashHash%uint32(db.ackMaxGlocks)), command, result, lcount, lrcount)
 		}
 		return nil
 	}

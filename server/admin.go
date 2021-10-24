@@ -363,18 +363,26 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 			if self.slock.state == STATE_LEADER {
 				ackDb := self.slock.replicationManager.GetAckDB(uint8(dbId))
 				if ackDb != nil && ackDb.locks != nil {
-					if len(ackDb.locks) >= len(ackDb.requests) {
-						dbInfos = append(dbInfos, fmt.Sprintf("wait_ack_count=%d", len(ackDb.locks)))
-					} else {
-						dbInfos = append(dbInfos, fmt.Sprintf("wait_ack_count=%d", len(ackDb.requests)))
+					waitAckCount := 0
+					for i := uint16(0); i < ackDb.ackMaxGlocks; i++ {
+						if len(ackDb.locks[i]) >= len(ackDb.requests[i]) {
+							waitAckCount += len(ackDb.locks[i])
+						} else {
+							waitAckCount += len(ackDb.requests[i])
+						}
 					}
+					dbInfos = append(dbInfos, fmt.Sprintf("wait_ack_count=%d", waitAckCount))
 				} else {
 					dbInfos = append(dbInfos, "wait_ack_count=0")
 				}
 			} else if self.slock.state == STATE_FOLLOWER {
 				ackDb := self.slock.replicationManager.GetAckDB(uint8(dbId))
 				if ackDb != nil && ackDb.ackLocks != nil {
-					dbInfos = append(dbInfos, fmt.Sprintf("wait_ack_count=%d", len(ackDb.ackLocks)))
+					waitAckCount := 0
+					for i := uint16(0); i < ackDb.ackMaxGlocks; i++ {
+						waitAckCount += len(ackDb.ackLocks[i])
+					}
+					dbInfos = append(dbInfos, fmt.Sprintf("wait_ack_count=%d", waitAckCount))
 				} else {
 					dbInfos = append(dbInfos, "wait_ack_count=0")
 				}

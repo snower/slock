@@ -138,7 +138,7 @@ func NewLockDB(slock *SLock, dbId uint8) *LockDB {
 
 func (self *LockDB) resizeAofChannels() {
 	for i := uint16(0); i < self.managerMaxGlocks; i++ {
-		self.aofChannels[i] = self.slock.GetAof().NewAofChannel(self, self.managerGlocks[i])
+		self.aofChannels[i] = self.slock.GetAof().NewAofChannel(self, i, self.managerGlocks[i])
 	}
 }
 
