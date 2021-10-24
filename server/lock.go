@@ -218,13 +218,13 @@ func (self *LockManager) GetWaitLock() *Lock {
 			continue
 		}
 
-		if self.waitLocks.headNodeIndex >= 6 {
+		if self.waitLocks.headNodeIndex >= 8 {
 			_ = self.waitLocks.Resize()
 		}
 		return lock
 	}
 
-	if self.waitLocks.headNodeIndex >= 6 {
+	if self.waitLocks.headNodeIndex >= 8 {
 		_ = self.waitLocks.Resize()
 	}
 	return nil

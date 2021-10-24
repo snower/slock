@@ -307,6 +307,18 @@ func TestLockQueueResize(t *testing.T) {
 		return
 	}
 
+	nodeIndex := 0
+	for i, node := range q.queues {
+		if node == nil {
+			break
+		}
+		nodeIndex = i
+	}
+	if nodeIndex != int(q.nodeIndex) {
+		t.Errorf("LockQueue Resize Node_Index Fail %d %d", nodeIndex, q.nodeIndex)
+		return
+	}
+
 	for q.Pop() != nil {
 		qlen--
 	}
@@ -322,7 +334,7 @@ func TestLockQueueResize(t *testing.T) {
 		return
 	}
 
-	nodeIndex := 0
+	nodeIndex = 0
 	for i, node := range q.queues {
 		if node == nil {
 			break
@@ -721,6 +733,18 @@ func TestLockCommandQueueResize(t *testing.T) {
 		return
 	}
 
+	nodeIndex := 0
+	for i, node := range q.queues {
+		if node == nil {
+			break
+		}
+		nodeIndex = i
+	}
+	if nodeIndex != int(q.nodeIndex) {
+		t.Errorf("LockCommandQueue Resize Node_Index Fail %d %d", nodeIndex, q.nodeIndex)
+		return
+	}
+
 	for q.Pop() != nil {
 		qlen--
 	}
@@ -736,7 +760,7 @@ func TestLockCommandQueueResize(t *testing.T) {
 		return
 	}
 
-	nodeIndex := 0
+	nodeIndex = 0
 	for i, node := range q.queues {
 		if node == nil {
 			break

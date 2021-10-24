@@ -1051,10 +1051,10 @@ func (self *LockDB) RemoveLockManager(lockManager *LockManager) {
 				self.freeLockManagers[freeLockManagerHead] = lockManager
 
 				if lockManager.locks != nil {
-					_ = lockManager.locks.Reset()
+					_ = lockManager.locks.Rellac()
 				}
 				if lockManager.waitLocks != nil {
-					_ = lockManager.waitLocks.Reset()
+					_ = lockManager.waitLocks.Rellac()
 				}
 				atomic.AddUint32(&lockManager.state.KeyCount, 0xffffffff)
 				return
@@ -1092,10 +1092,10 @@ func (self *LockDB) RemoveLockManager(lockManager *LockManager) {
 			self.freeLockManagers[freeLockManagerHead] = lockManager
 
 			if lockManager.locks != nil {
-				_ = lockManager.locks.Reset()
+				_ = lockManager.locks.Rellac()
 			}
 			if lockManager.waitLocks != nil {
-				_ = lockManager.waitLocks.Reset()
+				_ = lockManager.waitLocks.Rellac()
 			}
 			atomic.AddUint32(&lockManager.state.KeyCount, 0xffffffff)
 			return
