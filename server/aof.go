@@ -328,7 +328,7 @@ func (self *AofFile) WriteLock(lock *AofLock) error {
 	buf[0], buf[1] = 62, 0
 
 	copy(self.wbuf[self.windex:], buf)
-	if lock.AofFlag&AOF_FLAG_REQUIRE_ACKED != 0 {
+	if lock.AofFlag&AOF_FLAG_REQUIRE_ACKED != 0 && lock.CommandType == protocol.COMMAND_LOCK {
 		self.ackRequests[self.ackIndex] = self.wbuf[self.windex : self.windex+64]
 		self.ackIndex++
 	}
@@ -539,7 +539,7 @@ func (self *AofChannel) Push(lock *Lock, commandType uint8, command *protocol.Lo
 	aofLock.DbId = lock.manager.dbId
 	aofLock.LockId = lock.command.LockId
 	aofLock.LockKey = lock.command.LockKey
-	aofLock.AofFlag = 0
+	aofLock.AofFlag = aofFlag
 	if aofLock.CommandTime-uint64(lock.startTime) > 0xffff {
 		aofLock.StartTime = 0xffff
 	} else {
@@ -568,7 +568,6 @@ func (self *AofChannel) Push(lock *Lock, commandType uint8, command *protocol.Lo
 	} else {
 		aofLock.lock = nil
 	}
-	aofLock.AofFlag |= aofFlag
 
 	aofLock.HandleType = AOF_LOCK_TYPE_FILE
 
@@ -726,6 +725,7 @@ func (self *AofChannel) Handle(aofLock *AofLock) {
 	}
 
 	self.glock.Lock()
+	aofLock.lock = nil
 	if self.freeLockIndex < self.freeLockMax {
 		self.freeLocks[self.freeLockIndex] = aofLock
 		self.freeLockIndex++
@@ -1311,7 +1311,7 @@ func (self *Aof) lockAcked(buf []byte, succed bool) error {
 
 func (self *Aof) lockLoaded(_ *MemWaiterServerProtocol, command *protocol.LockCommand, result uint8, lcount uint16, lrcount uint8) error {
 	if self.slock.state == STATE_FOLLOWER {
-		if command.TimeoutFlag&protocol.TIMEOUT_FLAG_REQUIRE_ACKED == 0 {
+		if command.TimeoutFlag&protocol.TIMEOUT_FLAG_REQUIRE_ACKED == 0 || command.CommandType != protocol.COMMAND_LOCK {
 			return nil
 		}
 
