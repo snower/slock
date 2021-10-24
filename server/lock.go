@@ -61,14 +61,14 @@ func (self *LockManager) AddLock(lock *Lock) *Lock {
 		lock.aofTime = self.lockDb.aofTime
 	}
 
-	if lock.command.Flag&protocol.LOCK_FLAG_FROM_AOF != 0 {
-		lock.isAof = true
-	}
-
 	lock.locked = 1
 	lock.refCount++
-	if lock.command.TimeoutFlag&protocol.TIMEOUT_FLAG_REQUIRE_ACKED != 0 {
-		lock.ackCount = 0
+	if lock.command.Flag&protocol.LOCK_FLAG_FROM_AOF != 0 {
+		lock.isAof = true
+	} else {
+		if lock.command.TimeoutFlag&protocol.TIMEOUT_FLAG_REQUIRE_ACKED != 0 {
+			lock.ackCount = 0
+		}
 	}
 
 	if self.currentLock == nil {

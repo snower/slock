@@ -1301,6 +1301,7 @@ func (self *ReplicationAckDB) SwitchToLeader() error {
 		self.ackGlocks[i].Lock()
 		for _, ackLock := range ackLocks {
 			if self.manager.clientChannel != nil {
+				ackLock.aofResult = protocol.RESULT_ERROR
 				_ = self.manager.clientChannel.HandleAcked(ackLock)
 			}
 
@@ -1322,10 +1323,40 @@ func (self *ReplicationAckDB) SwitchToFollower() error {
 		self.ackGlocks[i].Lock()
 		for _, lock := range locks {
 			lockManager := lock.manager
-			lockManager.lockDb.DoAckLock(lock, true)
+			lockManager.lockDb.DoAckLock(lock, false)
 		}
 		self.locks[i] = make(map[[16]byte]*Lock, REPLICATION_ACK_DB_INIT_SIZE)
 		self.requests[i] = make(map[[32]byte][16]byte, REPLICATION_ACK_DB_INIT_SIZE)
+		self.ackGlocks[i].Unlock()
+	}
+	return nil
+}
+
+func (self *ReplicationAckDB) FlushDB() error {
+	for i := uint16(0); i < self.ackMaxGlocks; i++ {
+		self.ackGlocks[i].Lock()
+		for _, lock := range self.locks[i] {
+			lockManager := lock.manager
+			lockManager.lockDb.DoAckLock(lock, false)
+		}
+
+		for _, ackLock := range self.ackLocks[i] {
+			if self.manager.clientChannel != nil {
+				ackLock.aofResult = protocol.RESULT_ERROR
+				_ = self.manager.clientChannel.HandleAcked(ackLock)
+			}
+
+			self.glock.Lock()
+			if self.freeAckLocksIndex < self.freeAckLocksMax {
+				self.freeAckLocks[self.freeAckLocksIndex] = ackLock
+				self.freeAckLocksIndex++
+			}
+			self.glock.Unlock()
+		}
+
+		self.locks[i] = make(map[[16]byte]*Lock, REPLICATION_ACK_DB_INIT_SIZE)
+		self.requests[i] = make(map[[32]byte][16]byte, REPLICATION_ACK_DB_INIT_SIZE)
+		self.ackLocks[i] = make(map[[16]byte]*ReplicationAckLock, REPLICATION_ACK_DB_INIT_SIZE)
 		self.ackGlocks[i].Unlock()
 	}
 	return nil
@@ -1776,11 +1807,22 @@ func (self *ReplicationManager) ChangeLeader(address string) error {
 }
 
 func (self *ReplicationManager) FlushDB() error {
+	_ = self.slock.aof.WaitFlushAofChannel()
+
 	for _, db := range self.slock.dbs {
 		if db != nil {
 			_ = db.FlushDB()
 		}
 	}
+
+	if self.slock.state != STATE_LEADER {
+		for _, db := range self.ackDbs {
+			if db != nil {
+				_ = db.FlushDB()
+			}
+		}
+	}
+
 	self.bufferQueue.currentIndex = 0
 	self.slock.Log().Infof("Replication flush all DB")
 	return nil
