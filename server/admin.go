@@ -331,6 +331,11 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 	infos = append(infos, "\r\n# Persistence")
 	infos = append(infos, fmt.Sprintf("aof_channel_count:%d", aof.channelCount))
 	infos = append(infos, fmt.Sprintf("aof_channel_active_count:%d", aof.channelActiveCount))
+	channelHandingCount := 0
+	for _, channel := range aof.channels {
+		channelHandingCount += channel.queueCount
+	}
+	infos = append(infos, fmt.Sprintf("aof_channel_handing_count:%d", channelHandingCount))
 	infos = append(infos, fmt.Sprintf("aof_count:%d", aof.aofLockCount))
 	if aof.aofFile != nil {
 		infos = append(infos, fmt.Sprintf("aof_file_name:%s", aof.aofFile.filename))

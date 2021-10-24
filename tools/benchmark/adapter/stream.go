@@ -3,7 +3,6 @@ package adapter
 import (
 	"fmt"
 	"github.com/snower/slock/protocol"
-	"io"
 	"math/rand"
 	"net"
 	"sync/atomic"
@@ -17,7 +16,6 @@ func writeStreamAll(client net.Conn, buf []byte, dataLen int) error {
 	for wlen < dataLen {
 		n, err := client.Write(buf[wlen:])
 		if err != nil {
-			fmt.Printf("write lock error %v %n\n", err, n)
 			return err
 		}
 		wlen += n
@@ -29,8 +27,7 @@ func readStreamAll(client net.Conn, buf []byte, dataLen int) error {
 	rlen := 0
 	for rlen < dataLen {
 		n, err := client.Read(buf[rlen:])
-		if err == io.EOF {
-			fmt.Printf("read lock error %v %n\n", err, n)
+		if err != nil {
 			return err
 		}
 		rlen += n
@@ -71,33 +68,28 @@ func runStreamBenchmark(client net.Conn, count *uint32, wcount *uint32, maxCount
 		wbuf[i*64+61], wbuf[i*64+62], wbuf[i*64+63] = byte(0xff), byte(0xff), byte(0)
 	}
 
-	for i := 0; i < 4; i++ {
-		for i := 0; i < 64; i++ {
-			wbuf[i*64+11], wbuf[i*64+12], wbuf[i*64+13], wbuf[i*64+14], wbuf[i*64+15], wbuf[i*64+16], wbuf[i*64+17], wbuf[i*64+18] = byte(0), byte(0), byte(rcount>>24), byte(rcount>>16), byte(index>>8), byte(index), byte(rcount>>8), byte(rcount)
-			wbuf[i*64+29], wbuf[i*64+30], wbuf[i*64+31], wbuf[i*64+32], wbuf[i*64+33], wbuf[i*64+34], wbuf[i*64+35], wbuf[i*64+36] = byte(0), byte(0), byte(rcount>>24), byte(rcount>>16), byte(index>>8), byte(index), byte(rcount>>8), byte(rcount)
-			if keys == nil {
-				wbuf[i*64+45], wbuf[i*64+46], wbuf[i*64+47], wbuf[i*64+48], wbuf[i*64+49], wbuf[i*64+50], wbuf[i*64+51], wbuf[i*64+52] = byte(0), byte(0), byte(rcount>>24), byte(rcount>>16), byte(index>>8), byte(index), byte(rcount>>8), byte(rcount)
-			} else {
-				if i%2 == 0 {
-					lockKey = keys[rand.Intn(len(keys))]
-				}
-				wbuf[i*64+37], wbuf[i*64+38], wbuf[i*64+39], wbuf[i*64+40], wbuf[i*64+41], wbuf[i*64+42], wbuf[i*64+43], wbuf[i*64+44] = lockKey[0], lockKey[1], lockKey[2], lockKey[3], lockKey[4], lockKey[5], lockKey[6], lockKey[7]
-				wbuf[i*64+45], wbuf[i*64+46], wbuf[i*64+47], wbuf[i*64+48], wbuf[i*64+49], wbuf[i*64+50], wbuf[i*64+51], wbuf[i*64+52] = lockKey[8], lockKey[9], lockKey[10], lockKey[11], lockKey[12], lockKey[13], lockKey[14], lockKey[15]
+	go func() {
+		for {
+			err := readStreamAll(client, rbuf, 4096)
+			if err != nil {
+				_ = client.Close()
+				return
 			}
-			if i%2 == 0 {
-				wbuf[i*64+2] = byte(0x01)
-			} else {
-				wbuf[i*64+2] = byte(0x02)
-				rcount++
-			}
-		}
 
-		err := writeStreamAll(client, wbuf, 4096)
-		if err != nil {
-			return
+			succed := uint32(0)
+			for i := 0; i < 64; i++ {
+				if rbuf[i*64+19] != 9 {
+					succed++
+				}
+			}
+
+			atomic.AddUint32(count, succed)
+			if *count > maxCount {
+				_ = client.Close()
+				return
+			}
 		}
-		atomic.AddUint32(wcount, 64)
-	}
+	}()
 
 	for {
 		for i := 0; i < 64; i++ {
@@ -122,22 +114,11 @@ func runStreamBenchmark(client net.Conn, count *uint32, wcount *uint32, maxCount
 
 		err := writeStreamAll(client, wbuf, 4096)
 		if err != nil {
+			_ = client.Close()
 			close(waiter)
 			return
 		}
 		atomic.AddUint32(wcount, 64)
-
-		err = readStreamAll(client, rbuf, 4096)
-		if err != nil {
-			close(waiter)
-			return
-		}
-
-		atomic.AddUint32(count, 64)
-		if *count > maxCount {
-			close(waiter)
-			return
-		}
 	}
 }
 

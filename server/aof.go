@@ -356,6 +356,9 @@ func (self *AofFile) Flush() error {
 		n, err := self.file.Write(self.wbuf[tn:self.windex])
 		if err != nil {
 			self.windex = 0
+			for i := 0; i < self.ackIndex; i++ {
+				_ = self.aof.lockAcked(self.ackRequests[i], false)
+			}
 			self.ackIndex = 0
 			return err
 		}
@@ -605,10 +608,6 @@ func (self *AofChannel) Load(lock *AofLock) error {
 }
 
 func (self *AofChannel) AofAcked(buf []byte, succed bool) error {
-	if self.closed {
-		return io.EOF
-	}
-
 	var aofLock *AofLock
 	self.glock.Lock()
 	if self.freeLockIndex > 0 {
@@ -635,10 +634,6 @@ func (self *AofChannel) AofAcked(buf []byte, succed bool) error {
 }
 
 func (self *AofChannel) Acked(commandResult *protocol.LockResultCommand) error {
-	if self.closed {
-		return io.EOF
-	}
-
 	if self.lockDbGlock.lowPriority == 1 {
 		self.lockDbGlock.LowPriorityLock()
 		self.lockDbGlock.LowPriorityUnlock()
@@ -694,6 +689,7 @@ func (self *AofChannel) Run() {
 		self.aof.waitLockAofChannel(self)
 		if self.closed {
 			self.queueGlock.Lock()
+			self.queuePulled = false
 			if self.lockDbGlockAcquired {
 				self.lockDbGlock.LowUnSetPriority()
 				self.lockDbGlockAcquired = false
@@ -1303,15 +1299,13 @@ func (self *Aof) AppendLock(lock *AofLock) {
 }
 
 func (self *Aof) lockAcked(buf []byte, succed bool) error {
-	aofId := uint32(buf[3]) | uint32(buf[4])<<8 | uint32(buf[5])<<16 | uint32(buf[6])<<24
 	db := self.slock.dbs[buf[20]]
 	if db == nil {
 		return nil
 	}
-	aofChannel := db.aofChannels[aofId%uint32(db.managerMaxGlocks)]
-	if aofChannel.closed {
-		return nil
-	}
+
+	fashHash := (uint32(buf[37])<<24 | uint32(buf[38])<<16 | uint32(buf[39])<<8 | uint32(buf[40])) ^ (uint32(buf[41])<<24 | uint32(buf[42])<<16 | uint32(buf[43])<<8 | uint32(buf[44])) ^ (uint32(buf[45])<<24 | uint32(buf[46])<<16 | uint32(buf[47])<<8 | uint32(buf[48])) ^ (uint32(buf[49])<<24 | uint32(buf[50])<<16 | uint32(buf[51])<<8 | uint32(buf[52]))
+	aofChannel := db.aofChannels[fashHash%uint32(db.managerMaxGlocks)]
 	return aofChannel.AofAcked(buf, succed)
 }
 

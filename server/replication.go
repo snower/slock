@@ -1035,8 +1035,9 @@ func NewReplicationAckLock() *ReplicationAckLock {
 type ReplicationAckDB struct {
 	manager           *ReplicationManager
 	glock             *sync.Mutex
+	requestKey        [32]byte
 	locks             map[[16]byte]*Lock
-	requests          map[[2][16]byte][16]byte
+	requests          map[[32]byte][16]byte
 	ackLocks          map[[16]byte]*ReplicationAckLock
 	freeAckLocks      []*ReplicationAckLock
 	freeAckLocksIndex uint32
@@ -1045,14 +1046,19 @@ type ReplicationAckDB struct {
 }
 
 func NewReplicationAckDB(manager *ReplicationManager) *ReplicationAckDB {
-	return &ReplicationAckDB{manager, &sync.Mutex{}, make(map[[16]byte]*Lock, REPLICATION_ACK_DB_INIT_SIZE),
-		make(map[[2][16]byte][16]byte, REPLICATION_ACK_DB_INIT_SIZE), make(map[[16]byte]*ReplicationAckLock, REPLICATION_ACK_DB_INIT_SIZE),
+	return &ReplicationAckDB{manager, &sync.Mutex{}, [32]byte{}, make(map[[16]byte]*Lock, REPLICATION_ACK_DB_INIT_SIZE),
+		make(map[[32]byte][16]byte, REPLICATION_ACK_DB_INIT_SIZE), make(map[[16]byte]*ReplicationAckLock, REPLICATION_ACK_DB_INIT_SIZE),
 		make([]*ReplicationAckLock, REPLICATION_MAX_FREE_ACK_LOCK_QUEUE_SIZE), 0, 1, false}
 }
 
 func (self *ReplicationAckDB) Close() error {
 	self.closed = true
 	return nil
+}
+
+func (self *ReplicationAckDB) updateRequestKey(lock *AofLock) {
+	copy(self.requestKey[:], lock.LockKey[:])
+	copy(self.requestKey[16:], lock.LockId[:])
 }
 
 func (self *ReplicationAckDB) PushLock(lock *AofLock) error {
@@ -1070,8 +1076,8 @@ func (self *ReplicationAckDB) PushLock(lock *AofLock) error {
 			return nil
 		}
 
-		lockKey := [2][16]byte{lock.LockKey, lock.LockId}
-		if requestId, ok := self.requests[lockKey]; ok {
+		self.updateRequestKey(lock)
+		if requestId, ok := self.requests[self.requestKey]; ok {
 			if _, ok := self.locks[requestId]; ok {
 				delete(self.locks, requestId)
 			}
@@ -1079,15 +1085,15 @@ func (self *ReplicationAckDB) PushLock(lock *AofLock) error {
 
 		requestId := lock.GetRequestId()
 		self.locks[requestId] = lock.lock
-		self.requests[lockKey] = requestId
+		self.requests[self.requestKey] = requestId
 		self.glock.Unlock()
 		return nil
 	}
 
-	lockKey := [2][16]byte{lock.LockKey, lock.LockId}
 	self.glock.Lock()
-	if requestId, ok := self.requests[lockKey]; ok {
-		delete(self.requests, lockKey)
+	self.updateRequestKey(lock)
+	if requestId, ok := self.requests[self.requestKey]; ok {
+		delete(self.requests, self.requestKey)
 		if lock, ok := self.locks[requestId]; ok {
 			delete(self.locks, requestId)
 			self.glock.Unlock()
@@ -1107,9 +1113,9 @@ func (self *ReplicationAckDB) Process(aofLock *AofLock) error {
 	if lock, ok := self.locks[requestId]; ok {
 		if aofLock.Result != 0 {
 			delete(self.locks, requestId)
-			lockKey := [2][16]byte{aofLock.LockKey, aofLock.LockId}
-			if _, ok := self.requests[lockKey]; ok {
-				delete(self.requests, lockKey)
+			self.updateRequestKey(aofLock)
+			if _, ok := self.requests[self.requestKey]; ok {
+				delete(self.requests, self.requestKey)
 			}
 			self.glock.Unlock()
 
@@ -1125,9 +1131,9 @@ func (self *ReplicationAckDB) Process(aofLock *AofLock) error {
 		}
 
 		delete(self.locks, requestId)
-		lockKey := [2][16]byte{aofLock.LockKey, aofLock.LockId}
-		if _, ok := self.requests[lockKey]; ok {
-			delete(self.requests, lockKey)
+		self.updateRequestKey(aofLock)
+		if _, ok := self.requests[self.requestKey]; ok {
+			delete(self.requests, self.requestKey)
 		}
 		self.glock.Unlock()
 
@@ -1146,9 +1152,9 @@ func (self *ReplicationAckDB) ProcessAofed(aofLock *AofLock) error {
 	if lock, ok := self.locks[requestId]; ok {
 		if aofLock.Result != 0 {
 			delete(self.locks, requestId)
-			lockKey := [2][16]byte{lock.command.LockKey, lock.command.LockId}
-			if _, ok := self.requests[lockKey]; ok {
-				delete(self.requests, lockKey)
+			self.updateRequestKey(aofLock)
+			if _, ok := self.requests[self.requestKey]; ok {
+				delete(self.requests, self.requestKey)
 			}
 			self.glock.Unlock()
 
@@ -1164,9 +1170,9 @@ func (self *ReplicationAckDB) ProcessAofed(aofLock *AofLock) error {
 		}
 
 		delete(self.locks, requestId)
-		lockKey := [2][16]byte{lock.command.LockKey, lock.command.LockId}
-		if _, ok := self.requests[lockKey]; ok {
-			delete(self.requests, lockKey)
+		self.updateRequestKey(aofLock)
+		if _, ok := self.requests[self.requestKey]; ok {
+			delete(self.requests, self.requestKey)
 		}
 		self.glock.Unlock()
 
@@ -1285,7 +1291,7 @@ func (self *ReplicationAckDB) SwitchToFollower() error {
 		lockManager.lockDb.DoAckLock(lock, true)
 	}
 	self.locks = make(map[[16]byte]*Lock, REPLICATION_ACK_DB_INIT_SIZE)
-	self.requests = make(map[[2][16]byte][16]byte, REPLICATION_ACK_DB_INIT_SIZE)
+	self.requests = make(map[[32]byte][16]byte, REPLICATION_ACK_DB_INIT_SIZE)
 	self.glock.Unlock()
 	return nil
 }
