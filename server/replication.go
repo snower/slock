@@ -1134,6 +1134,7 @@ func (self *ReplicationAckDB) PushLock(glockIndex uint16, lock *AofLock) error {
 	requestId := lock.GetRequestId()
 	self.locks[glockIndex][requestId] = lock.lock
 	self.requests[glockIndex][requestKey] = requestId
+	lock.lock.ackCount = self.ackCount
 	self.ackGlocks[glockIndex].Unlock()
 	return nil
 }
@@ -1173,8 +1174,8 @@ func (self *ReplicationAckDB) Process(glockIndex uint16, aofLock *AofLock) error
 			return nil
 		}
 
-		lock.ackCount++
-		if lock.ackCount < self.ackCount {
+		lock.ackCount--
+		if lock.ackCount == 0 {
 			self.ackGlocks[glockIndex].Unlock()
 			return nil
 		}
@@ -1212,8 +1213,8 @@ func (self *ReplicationAckDB) ProcessAofed(glockIndex uint16, aofLock *AofLock) 
 			return nil
 		}
 
-		lock.ackCount++
-		if lock.ackCount < self.ackCount {
+		lock.ackCount--
+		if lock.ackCount == 0 {
 			self.ackGlocks[glockIndex].Unlock()
 			return nil
 		}
