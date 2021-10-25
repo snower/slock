@@ -432,18 +432,14 @@ func (self *ReplicationClient) recvFiles() error {
 			}
 		}
 
-		if self.aofLock.AofFlag&AOF_FLAG_REQUIRE_ACKED != 0 {
-			self.aofLock.AofFlag &= 0xEFFF
-		}
 		err = self.aof.LoadLock(self.aofLock)
 		if err != nil {
 			return err
 		}
-		err = aofFile.WriteLock(self.aofLock)
+		err = aofFile.AppendLock(self.aofLock)
 		if err != nil {
 			return err
 		}
-		_ = self.manager.bufferQueue.Push(self.aofLock.buf)
 		self.loadedCount++
 
 		buf := self.aofLock.buf
@@ -456,6 +452,8 @@ func (self *ReplicationClient) recvFiles() error {
 
 func (self *ReplicationClient) Process() error {
 	go self.readProcess()
+	aof := self.aof
+	bufferQueue := self.manager.bufferQueue
 
 	for !self.closed {
 		err := self.getLock()
@@ -463,12 +461,16 @@ func (self *ReplicationClient) Process() error {
 			return err
 		}
 
-		err = self.aof.LoadLock(self.aofLock)
+		err = aof.ReplayLock(self.aofLock)
 		if err != nil {
 			return err
 		}
-		self.aof.AppendLock(self.aofLock)
-		_ = self.manager.bufferQueue.Push(self.aofLock.buf)
+		aof.AppendLock(self.aofLock)
+		if bufferQueue.requireDuplicated {
+			bufferQueue = bufferQueue.Reduplicated()
+			self.manager.bufferQueue = bufferQueue
+		}
+		_ = bufferQueue.Push(self.aofLock.buf)
 		self.loadedCount++
 
 		buf := self.aofLock.buf
@@ -1207,21 +1209,33 @@ func (self *ReplicationAckDB) ProcessAofed(glockIndex uint16, aofLock *AofLock) 
 	return nil
 }
 
-func (self *ReplicationAckDB) ProcessAcked(glockIndex uint16, command *protocol.LockCommand, result uint8, lcount uint16, lrcount uint8) error {
+func (self *ReplicationAckDB) PushAckLock(glockIndex uint16, aofLock *AofLock) error {
+	requestId := aofLock.GetRequestId()
 	self.ackGlocks[glockIndex].Lock()
-	ackLock, ok := self.ackLocks[glockIndex][command.RequestId]
-	if !ok {
+	if ackLock, ok := self.ackLocks[glockIndex][requestId]; !ok {
 		self.glock.Lock()
 		if self.freeAckLocksIndex > 0 {
 			self.freeAckLocksIndex--
 			ackLock = self.freeAckLocks[self.freeAckLocksIndex]
 			self.glock.Unlock()
+			ackLock.locked = false
 			ackLock.aofed = false
 		} else {
 			self.glock.Unlock()
 			ackLock = NewReplicationAckLock()
 		}
-		self.ackLocks[glockIndex][command.RequestId] = ackLock
+		self.ackLocks[glockIndex][requestId] = ackLock
+	}
+	self.ackGlocks[glockIndex].Unlock()
+	return nil
+}
+
+func (self *ReplicationAckDB) ProcessAcked(glockIndex uint16, command *protocol.LockCommand, result uint8, lcount uint16, lrcount uint8) error {
+	self.ackGlocks[glockIndex].Lock()
+	ackLock, ok := self.ackLocks[glockIndex][command.RequestId]
+	if !ok {
+		self.ackGlocks[glockIndex].Unlock()
+		return nil
 	}
 
 	ackLock.lockResult.CommandType = command.CommandType
