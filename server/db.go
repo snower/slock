@@ -1464,7 +1464,11 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 	*/
 
 	lockManager := self.GetOrNewLockManager(command)
-	lockManager.glock.LowPriorityLock()
+	if command.Flag&protocol.LOCK_FLAG_FROM_AOF == 0 {
+		lockManager.glock.LowPriorityLock()
+	} else {
+		lockManager.glock.Lock()
+	}
 	if lockManager.lockKey != command.LockKey {
 		lockManager.glock.Unlock()
 		return self.Lock(serverProtocol, command)
@@ -1690,7 +1694,11 @@ func (self *LockDB) UnLock(serverProtocol ServerProtocol, command *protocol.Lock
 		return nil
 	}
 
-	lockManager.glock.LowPriorityLock()
+	if command.Flag&protocol.UNLOCK_FLAG_FROM_AOF == 0 {
+		lockManager.glock.LowPriorityLock()
+	} else {
+		lockManager.glock.Lock()
+	}
 	if lockManager.lockKey != command.LockKey {
 		lockManager.glock.Unlock()
 		return self.UnLock(serverProtocol, command)
