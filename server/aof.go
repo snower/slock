@@ -1278,10 +1278,12 @@ func (self *Aof) waitLockAofChannel(_ *AofChannel) {
 	}
 
 	self.aofGlock.Lock()
-	if self.aofFile.windex > 0 && self.aofFile.ackIndex > 0 {
-		err := self.aofFile.Flush()
-		if err != nil {
-			self.slock.Log().Errorf("Aof flush file error %v", err)
+	if self.aofFile != nil {
+		if self.aofFile.windex > 0 && self.aofFile.ackIndex > 0 {
+			err := self.aofFile.Flush()
+			if err != nil {
+				self.slock.Log().Errorf("Aof flush file error %v", err)
+			}
 		}
 	}
 	if self.channelFlushWaiter != nil {

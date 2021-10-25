@@ -23,13 +23,14 @@ type ReplicationBufferQueue struct {
 	segmentSize       int
 	currentIndex      uint64
 	maxIndex          uint64
+	duplicatedRate    float64
 	requireDuplicated bool
 }
 
 func NewReplicationBufferQueue(manager *ReplicationManager, bufSize int) *ReplicationBufferQueue {
 	maxIndex := uint64(0xffffffffffffffff) - uint64(0xffffffffffffffff)%uint64(bufSize/64)
 	queue := &ReplicationBufferQueue{manager, &sync.RWMutex{}, make([]byte, bufSize),
-		bufSize / 64, 64, 0, maxIndex, false}
+		bufSize / 64, 64, 0, maxIndex, 0.3, false}
 	return queue
 }
 
@@ -48,6 +49,10 @@ func (self *ReplicationBufferQueue) Reduplicated() *ReplicationBufferQueue {
 	self.segmentCount = bufSize / 64
 	self.maxIndex = uint64(0xffffffffffffffff) - uint64(0xffffffffffffffff)%uint64(bufSize/64)
 	self.requireDuplicated = false
+	self.duplicatedRate = float64(bufSize)/float64(Config.AofRingBufferMaxSize) + 0.3
+	if self.duplicatedRate > 0.8 {
+		self.duplicatedRate = 0.8
+	}
 	self.glock.Unlock()
 	self.manager.slock.Log().Infof("Replication aof ring buffer reduplicated size %d to %d", bufSize/2, bufSize)
 	return self
@@ -72,9 +77,16 @@ func (self *ReplicationBufferQueue) Pop(segmentIndex uint64, buf []byte) error {
 		return io.EOF
 	}
 
-	if self.currentIndex-segmentIndex > uint64(self.segmentCount) {
-		self.glock.RUnlock()
-		return errors.New("segment out of buf")
+	if self.currentIndex > segmentIndex {
+		if self.currentIndex-segmentIndex > uint64(self.segmentCount) {
+			self.glock.RUnlock()
+			return errors.New("segment out of buf")
+		}
+	} else {
+		if self.maxIndex-segmentIndex+(self.currentIndex-uint64(self.segmentCount)) > uint64(self.segmentCount) {
+			self.glock.RUnlock()
+			return errors.New("segment out of buf")
+		}
 	}
 
 	currentSize := int(segmentIndex%uint64(self.segmentCount)) * self.segmentSize
@@ -945,12 +957,21 @@ func (self *ReplicationServer) SendProcess() error {
 
 	atomic.AddUint32(&self.manager.serverActiveCount, 1)
 	for !self.closed {
-		if float64(self.manager.bufferQueue.currentIndex-self.bufferIndex) > float64(self.manager.bufferQueue.segmentCount)*0.8 {
-			self.manager.bufferQueue.requireDuplicated = true
+		bufferQueue := self.manager.bufferQueue
+		if !bufferQueue.requireDuplicated {
+			if bufferQueue.currentIndex >= self.bufferIndex {
+				if float64(bufferQueue.currentIndex-self.bufferIndex) > float64(bufferQueue.segmentCount)*bufferQueue.duplicatedRate {
+					bufferQueue.requireDuplicated = true
+				}
+			} else {
+				if float64(bufferQueue.maxIndex-self.bufferIndex+(bufferQueue.currentIndex-uint64(bufferQueue.segmentCount))) > float64(bufferQueue.segmentCount)*bufferQueue.duplicatedRate {
+					bufferQueue.requireDuplicated = true
+				}
+			}
 		}
 
 		buf := self.waofLock.buf
-		err := self.manager.bufferQueue.Pop(self.bufferIndex, buf)
+		err := bufferQueue.Pop(self.bufferIndex, buf)
 		if err != nil {
 			if err == io.EOF {
 				atomic.AddUint32(&self.pulled, 1)
@@ -981,8 +1002,12 @@ func (self *ReplicationServer) SendProcess() error {
 			self.currentRequestId[8], self.currentRequestId[9], self.currentRequestId[10], self.currentRequestId[11], self.currentRequestId[12], self.currentRequestId[13], self.currentRequestId[14], self.currentRequestId[15] = buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
 			buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18]
 		self.bufferIndex++
-		if self.bufferIndex >= self.manager.bufferQueue.maxIndex {
-			self.bufferIndex = uint64(self.manager.bufferQueue.segmentCount)
+		if self.bufferIndex >= bufferQueue.maxIndex {
+			bufferQueue.glock.Lock()
+			if self.bufferIndex >= bufferQueue.maxIndex {
+				self.bufferIndex = uint64(bufferQueue.segmentCount)
+			}
+			bufferQueue.glock.Unlock()
 		}
 	}
 	atomic.AddUint32(&self.manager.serverActiveCount, 0xffffffff)
