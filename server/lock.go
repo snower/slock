@@ -396,33 +396,41 @@ func (self *PriorityMutex) Unlock() {
 	self.mutex.Unlock()
 }
 
-func (self *PriorityMutex) HighSetPriority() {
+func (self *PriorityMutex) HighSetPriority() bool {
 	if atomic.CompareAndSwapUint32(&self.highPriority, 0, 1) {
 		self.highPrioritywaiter.Lock()
 		self.setHighPriorityCount++
+		if atomic.CompareAndSwapUint32(&self.highPriorityAcquireCount, 0, 0) {
+			self.HighUnSetPriority()
+		}
+		return true
 	}
-	if atomic.CompareAndSwapUint32(&self.highPriorityAcquireCount, 0, 0) {
-		self.HighUnSetPriority()
-	}
+	return false
 }
 
-func (self *PriorityMutex) HighUnSetPriority() {
+func (self *PriorityMutex) HighUnSetPriority() bool {
 	if atomic.CompareAndSwapUint32(&self.highPriority, 1, 0) {
 		self.highPrioritywaiter.Unlock()
+		return true
 	}
+	return false
 }
 
-func (self *PriorityMutex) LowSetPriority() {
+func (self *PriorityMutex) LowSetPriority() bool {
 	if atomic.CompareAndSwapUint32(&self.lowPriority, 0, 1) {
 		self.lowPrioritywaiter.Lock()
 		self.setLowPriorityCount++
+		return true
 	}
+	return false
 }
 
-func (self *PriorityMutex) LowUnSetPriority() {
+func (self *PriorityMutex) LowUnSetPriority() bool {
 	if atomic.CompareAndSwapUint32(&self.lowPriority, 1, 0) {
 		self.lowPrioritywaiter.Unlock()
+		return true
 	}
+	return false
 }
 
 func (self *PriorityMutex) HighPriorityLock() {

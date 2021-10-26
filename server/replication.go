@@ -1175,7 +1175,7 @@ func (self *ReplicationAckDB) Process(glockIndex uint16, aofLock *AofLock) error
 		}
 
 		lock.ackCount--
-		if lock.ackCount == 0 {
+		if lock.ackCount > 0 {
 			self.ackGlocks[glockIndex].Unlock()
 			return nil
 		}
@@ -1214,7 +1214,7 @@ func (self *ReplicationAckDB) ProcessAofed(glockIndex uint16, aofLock *AofLock) 
 		}
 
 		lock.ackCount--
-		if lock.ackCount == 0 {
+		if lock.ackCount > 0 {
 			self.ackGlocks[glockIndex].Unlock()
 			return nil
 		}

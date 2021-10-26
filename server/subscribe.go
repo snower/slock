@@ -403,7 +403,7 @@ func NewSubscriber(manager *SubscribeManager, serverProtocol ServerProtocol, cli
 	subscriber := &Subscriber{manager, &sync.Mutex{}, clientId, subscriberId, make([][2]uint64, 0),
 		nil, nil, 0, serverProtocol, 0,
 		serverProtocol.GetStream().closedWaiter, 0, 0,
-		false, make(chan bool, 4), false, make(chan bool, 1)}
+		false, make(chan bool, 1), false, make(chan bool, 1)}
 	go subscriber.Run()
 	return subscriber
 }
@@ -447,7 +447,7 @@ func (self *Subscriber) Run() {
 		self.glock.Unlock()
 
 		timeout := 120
-		if timeout > int(self.expriedTime) {
+		if self.expriedTime > 0 && timeout > int(self.expriedTime) {
 			timeout = int(self.expriedTime)
 		}
 		select {
@@ -456,18 +456,22 @@ func (self *Subscriber) Run() {
 			if self.serverProtocol == nil {
 				self.processCheck()
 			} else {
-				if self.bufferHead != nil && self.bufferTail != nil {
-					if self.bufferHead != self.bufferTail || self.bufferHead.rindex < self.bufferTail.windex {
-						self.processLock()
-					}
-				}
+				self.processLock()
 			}
 			self.glock.Unlock()
 		case <-time.After(time.Duration(timeout) * time.Second):
 			self.glock.Lock()
+			if !self.pulled {
+				<-self.pullWaiter
+			}
 			self.processCheck()
 			self.glock.Unlock()
 		case <-self.serverProtocolClosedWaiter:
+			self.glock.Lock()
+			if !self.pulled {
+				<-self.pullWaiter
+			}
+			self.glock.Unlock()
 			self.processServerProcotolClose()
 		}
 	}
@@ -477,7 +481,7 @@ func (self *Subscriber) Run() {
 }
 
 func (self *Subscriber) processLock() {
-	for self.bufferHead != self.bufferTail || self.bufferHead.rindex < self.bufferTail.windex {
+	for self.bufferHead != nil && self.bufferHead.rindex < self.bufferHead.windex {
 		buf := self.bufferHead.buf[self.bufferHead.rindex:self.bufferHead.windex]
 		if self.serverProtocol == nil {
 			return
@@ -509,9 +513,9 @@ func (self *Subscriber) processLock() {
 			self.bufferHead.rindex += tn
 		}
 
-		if self.bufferHead == self.bufferTail && self.bufferHead.rindex == self.bufferTail.windex {
+		if self.bufferHead == self.bufferTail && self.bufferHead.rindex == self.bufferHead.windex {
 			self.bufferHead.rindex = 0
-			self.bufferTail.windex = 0
+			self.bufferHead.windex = 0
 		} else {
 			if self.bufferHead.rindex >= len(self.bufferHead.buf) {
 				buffer := self.bufferHead
@@ -520,7 +524,6 @@ func (self *Subscriber) processLock() {
 				self.bufferSize -= len(buffer.buf)
 				if self.bufferHead == nil {
 					self.bufferTail = nil
-					return
 				}
 			}
 		}
@@ -563,7 +566,6 @@ func (self *Subscriber) Push(lock *PublishLock) error {
 		return errors.New("closed")
 	}
 
-	self.glock.Lock()
 	hKey := uint64(lock.LockKey[0]) | uint64(lock.LockKey[1])<<8 | uint64(lock.LockKey[2])<<16 | uint64(lock.LockKey[3])<<24 | uint64(lock.LockKey[4])<<32 | uint64(lock.LockKey[5])<<40 | uint64(lock.LockKey[6])<<48 | uint64(lock.LockKey[7])<<56
 	lKey := uint64(lock.LockKey[8]) | uint64(lock.LockKey[9])<<8 | uint64(lock.LockKey[10])<<16 | uint64(lock.LockKey[11])<<24 | uint64(lock.LockKey[12])<<32 | uint64(lock.LockKey[13])<<40 | uint64(lock.LockKey[14])<<48 | uint64(lock.LockKey[15])<<56
 	for _, mask := range self.lockKeyMasks {
@@ -571,6 +573,7 @@ func (self *Subscriber) Push(lock *PublishLock) error {
 			continue
 		}
 
+		self.glock.Lock()
 		if self.bufferTail == nil || self.bufferTail.windex >= len(self.bufferTail.buf) {
 			buffer := self.manager.getBuffer()
 			if self.bufferTail != nil {
@@ -612,9 +615,9 @@ func (self *Subscriber) Push(lock *PublishLock) error {
 			self.pullWaiter <- true
 			self.pulled = false
 		}
-		break
+		self.glock.Unlock()
+		return nil
 	}
-	self.glock.Unlock()
 	return nil
 }
 
@@ -665,16 +668,92 @@ func (self *Subscriber) Update(serverProtocol ServerProtocol, subscriberType uin
 	return nil
 }
 
+type SubscribePublishLockQueue struct {
+	buffer []*PublishLock
+	rindex int
+	windex int
+	blen   int
+	next   *SubscribePublishLockQueue
+}
+
 type SubscribeChannel struct {
-	manager       *SubscribeManager
-	glock         *sync.Mutex
-	lockDb        *LockDB
-	channel       chan *PublishLock
-	freeLocks     []*PublishLock
-	freeLockIndex int32
-	freeLockMax   int32
-	closed        bool
-	closedWaiter  chan bool
+	manager                 *SubscribeManager
+	glock                   *sync.Mutex
+	lockDb                  *LockDB
+	lockDbGlockIndex        uint16
+	lockDbGlock             *PriorityMutex
+	queueHead               *SubscribePublishLockQueue
+	queueTail               *SubscribePublishLockQueue
+	queueCount              int
+	queueWaiter             chan bool
+	queueGlock              *sync.Mutex
+	freeLocks               []*PublishLock
+	freeLockIndex           int
+	freeLockMax             int
+	lockDbGlockAcquiredSize int
+	lockDbGlockAcquired     bool
+	queuePulled             bool
+	closed                  bool
+	closedWaiter            chan bool
+}
+
+func NewSubscribeChannel(manager *SubscribeManager, lockDb *LockDB, lockDbGlockIndex uint16, lockDbGlock *PriorityMutex) *SubscribeChannel {
+	freeLockMax := int(Config.AofQueueSize) / 128
+	return &SubscribeChannel{manager, &sync.Mutex{}, lockDb, lockDbGlockIndex, lockDbGlock, nil, nil,
+		0, make(chan bool, 1), &sync.Mutex{}, make([]*PublishLock, freeLockMax),
+		0, freeLockMax, freeLockMax * 4, false, false,
+		false, make(chan bool, 1)}
+}
+
+func (self *SubscribeChannel) pushPublishLock(publishLock *PublishLock) {
+	if self.queueTail == nil {
+		self.queueTail = self.manager.getLockQueue()
+		self.queueHead = self.queueTail
+	} else if self.queueTail.windex >= self.queueTail.blen {
+		self.queueTail.next = self.manager.getLockQueue()
+		self.queueTail = self.queueTail.next
+	}
+	self.queueTail.buffer[self.queueTail.windex] = publishLock
+	self.queueTail.windex++
+	self.queueCount++
+	if !self.lockDbGlockAcquired && self.queueCount > self.lockDbGlockAcquiredSize {
+		self.lockDbGlockAcquired = self.lockDbGlock.LowSetPriority()
+	}
+	if self.queuePulled {
+		self.queueWaiter <- true
+		self.queuePulled = false
+	}
+}
+
+func (self *SubscribeChannel) pullPublishLock() *PublishLock {
+	if self.queueHead == nil {
+		return nil
+	}
+	if self.queueHead == self.queueTail && self.queueHead.rindex == self.queueHead.windex {
+		return nil
+	}
+	publishLock := self.queueHead.buffer[self.queueHead.rindex]
+	self.queueHead.buffer[self.queueHead.rindex] = nil
+	self.queueHead.rindex++
+	self.queueCount--
+	if self.queueHead.rindex == self.queueHead.windex {
+		if self.queueHead == self.queueTail {
+			self.queueHead.rindex, self.queueHead.windex = 0, 0
+		} else {
+			queue := self.queueHead
+			self.queueHead = queue.next
+			self.manager.freeLockQueue(queue)
+			if self.queueHead == nil {
+				self.queueTail = nil
+			}
+		}
+	}
+
+	if self.lockDbGlockAcquired && self.queueCount < self.lockDbGlockAcquiredSize {
+		self.lockDbGlock.LowUnSetPriority()
+		self.lockDbGlockAcquired = false
+	}
+	return publishLock
 }
 
 func (self *SubscribeChannel) Push(command *protocol.LockCommand, result uint8, lcount uint16, lrcount uint8) error {
@@ -687,10 +766,9 @@ func (self *SubscribeChannel) Push(command *protocol.LockCommand, result uint8, 
 	if self.freeLockIndex > 0 {
 		self.freeLockIndex--
 		publishLock = self.freeLocks[self.freeLockIndex]
-	}
-	self.glock.Unlock()
-
-	if publishLock == nil {
+		self.glock.Unlock()
+	} else {
+		self.glock.Unlock()
 		publishLock = NewPublishLock()
 	}
 
@@ -706,7 +784,10 @@ func (self *SubscribeChannel) Push(command *protocol.LockCommand, result uint8, 
 	publishLock.Count = command.Count
 	publishLock.Lrcount = lrcount
 	publishLock.Rcount = command.Rcount
-	self.channel <- publishLock
+
+	self.queueGlock.Lock()
+	self.pushPublishLock(publishLock)
+	self.queueGlock.Unlock()
 	return nil
 }
 
@@ -720,10 +801,9 @@ func (self *SubscribeChannel) ClientPush(lock *PublishLock) error {
 	if self.freeLockIndex > 0 {
 		self.freeLockIndex--
 		publishLock = self.freeLocks[self.freeLockIndex]
-	}
-	self.glock.Unlock()
-
-	if publishLock == nil {
+		self.glock.Unlock()
+	} else {
+		self.glock.Unlock()
 		publishLock = NewPublishLock()
 	}
 
@@ -737,37 +817,43 @@ func (self *SubscribeChannel) ClientPush(lock *PublishLock) error {
 	publishLock.Count = lock.Count
 	publishLock.Lrcount = lock.Lrcount
 	publishLock.Rcount = lock.Rcount
-	self.channel <- publishLock
+
+	self.queueGlock.Lock()
+	self.pushPublishLock(publishLock)
+	self.queueGlock.Unlock()
 	return nil
 }
 
 func (self *SubscribeChannel) Run() {
-	exited := false
 	self.manager.handeLockSubscribeChannel(self)
 	for {
-		select {
-		case publishLock := <-self.channel:
-			if publishLock != nil {
-				self.handle(publishLock)
-				continue
-			}
-			exited = self.closed
-		default:
-			self.manager.waitLockSubscribeChannel(self)
-			if exited {
-				self.manager.RemoveSubscribeChannel(self)
-				close(self.closedWaiter)
-				return
-			}
-
-			publishLock := <-self.channel
-			self.manager.handeLockSubscribeChannel(self)
-			if publishLock != nil {
-				self.handle(publishLock)
-				continue
-			}
-			exited = self.closed
+		self.queueGlock.Lock()
+		publishLock := self.pullPublishLock()
+		for publishLock != nil {
+			self.queueGlock.Unlock()
+			self.handle(publishLock)
+			self.queueGlock.Lock()
+			publishLock = self.pullPublishLock()
 		}
+		self.queuePulled = true
+		self.queueGlock.Unlock()
+
+		self.manager.waitLockSubscribeChannel(self)
+		if self.closed {
+			self.queueGlock.Lock()
+			self.queuePulled = false
+			if self.lockDbGlockAcquired {
+				self.lockDbGlock.LowUnSetPriority()
+				self.lockDbGlockAcquired = false
+			}
+			self.queueGlock.Unlock()
+			self.manager.RemoveSubscribeChannel(self)
+			close(self.closedWaiter)
+			return
+		}
+
+		<-self.queueWaiter
+		self.manager.handeLockSubscribeChannel(self)
 	}
 }
 
@@ -799,7 +885,11 @@ type SubscribeManager struct {
 	leaderAddress      string
 	client             *SubscribeClient
 	freeBuffers        []*SubscribeBuffer
+	freeBufferGlock    *sync.Mutex
 	freeBufferIndex    int
+	freeLockQueues     []*SubscribePublishLockQueue
+	freeLockQueueGlock *sync.Mutex
+	freeLockQueueIndex int
 	publishId          uint64
 	closed             bool
 }
@@ -807,7 +897,9 @@ type SubscribeManager struct {
 func NewSubscribeManager() *SubscribeManager {
 	return &SubscribeManager{nil, &sync.Mutex{}, make([]*SubscribeChannel, 0), 0, 0,
 		nil, make(map[uint32]*Subscriber, 64), nil, "",
-		nil, make([]*SubscribeBuffer, 256), 0, 0, false}
+		nil, make([]*SubscribeBuffer, 256), &sync.Mutex{}, 0,
+		make([]*SubscribePublishLockQueue, 256), &sync.Mutex{}, 0,
+		0, false}
 }
 
 func (self *SubscribeManager) Close() {
@@ -832,11 +924,9 @@ func (self *SubscribeManager) Close() {
 	self.slock.logger.Infof("Subscribe closed")
 }
 
-func (self *SubscribeManager) NewSubscribeChannel(lockDb *LockDB) *SubscribeChannel {
+func (self *SubscribeManager) NewSubscribeChannel(lockDb *LockDB, lockDbGlockIndex uint16, lockDbGlock *PriorityMutex) *SubscribeChannel {
 	self.glock.Lock()
-	subscribeChannel := &SubscribeChannel{self, &sync.Mutex{}, lockDb, make(chan *PublishLock, Config.AofQueueSize),
-		make([]*PublishLock, Config.AofQueueSize+4), 0, int32(Config.AofQueueSize + 4),
-		false, make(chan bool, 1)}
+	subscribeChannel := NewSubscribeChannel(self, lockDb, lockDbGlockIndex, lockDbGlock)
 	self.channels = append(self.channels, subscribeChannel)
 	self.channelCount++
 	self.glock.Unlock()
@@ -845,10 +935,13 @@ func (self *SubscribeManager) NewSubscribeChannel(lockDb *LockDB) *SubscribeChan
 }
 
 func (self *SubscribeManager) CloseSubscribeChannel(aofChannel *SubscribeChannel) *SubscribeChannel {
-	self.glock.Lock()
-	aofChannel.channel <- nil
+	aofChannel.queueGlock.Lock()
 	aofChannel.closed = true
-	self.glock.Unlock()
+	if aofChannel.queuePulled {
+		aofChannel.queueWaiter <- false
+		aofChannel.queuePulled = false
+	}
+	aofChannel.queueGlock.Unlock()
 	return aofChannel
 }
 
@@ -895,11 +988,20 @@ func (self *SubscribeManager) WaitFlushSubscribeChannel() error {
 	}
 
 	if atomic.CompareAndSwapUint32(&self.channelActiveCount, 0, 0) {
-		if channelFlushWaiter == self.channelFlushWaiter {
-			self.channelFlushWaiter = nil
+		queueCount := 0
+		for _, channel := range self.channels {
+			channel.queueGlock.Lock()
+			queueCount += channel.queueCount
+			channel.queueGlock.Unlock()
 		}
-		self.glock.Unlock()
-		return nil
+
+		if queueCount == 0 {
+			if channelFlushWaiter == self.channelFlushWaiter {
+				self.channelFlushWaiter = nil
+			}
+			self.glock.Unlock()
+			return nil
+		}
 	}
 	self.glock.Unlock()
 
@@ -984,21 +1086,21 @@ func (self *SubscribeManager) removeSubscriber(subscriber *Subscriber) error {
 }
 
 func (self *SubscribeManager) getBuffer() *SubscribeBuffer {
-	self.glock.Lock()
+	self.freeBufferGlock.Lock()
 	if self.freeBufferIndex > 0 {
 		self.freeBufferIndex--
 		buffer := self.freeBuffers[self.freeBufferIndex]
-		self.glock.Unlock()
+		self.freeBufferGlock.Unlock()
 		return buffer
 	}
-	self.glock.Unlock()
+	self.freeBufferGlock.Unlock()
 	return &SubscribeBuffer{make([]byte, 4096), 0, 0, nil}
 }
 
 func (self *SubscribeManager) freeBuffer(buffer *SubscribeBuffer) {
-	self.glock.Lock()
+	self.freeBufferGlock.Lock()
 	if self.freeBufferIndex >= 256 {
-		self.glock.Unlock()
+		self.freeBufferGlock.Unlock()
 		return
 	}
 
@@ -1006,7 +1108,36 @@ func (self *SubscribeManager) freeBuffer(buffer *SubscribeBuffer) {
 	buffer.next = nil
 	self.freeBuffers[self.freeBufferIndex] = buffer
 	self.freeBufferIndex++
-	self.glock.Unlock()
+	self.freeBufferGlock.Unlock()
+}
+
+func (self *SubscribeManager) getLockQueue() *SubscribePublishLockQueue {
+	self.freeLockQueueGlock.Lock()
+	if self.freeLockQueueIndex > 0 {
+		self.freeLockQueueIndex--
+		queue := self.freeLockQueues[self.freeLockQueueIndex]
+		self.freeLockQueueGlock.Unlock()
+		return queue
+	}
+
+	bufSize := int(Config.AofQueueSize) / 64
+	queue := &SubscribePublishLockQueue{make([]*PublishLock, bufSize), 0, 0, bufSize, nil}
+	self.freeLockQueueGlock.Unlock()
+	return queue
+}
+
+func (self *SubscribeManager) freeLockQueue(queue *SubscribePublishLockQueue) {
+	self.freeLockQueueGlock.Lock()
+	if self.freeLockQueueIndex >= 256 {
+		self.freeLockQueueGlock.Unlock()
+		return
+	}
+
+	queue.rindex, queue.windex = 0, 0
+	queue.next = nil
+	self.freeLockQueues[self.freeLockQueueIndex] = queue
+	self.freeLockQueueIndex++
+	self.freeLockQueueGlock.Unlock()
 }
 
 func (self *SubscribeManager) openClient() error {

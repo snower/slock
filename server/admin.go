@@ -346,6 +346,11 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 	infos = append(infos, fmt.Sprintf("subscriber:%d", len(self.slock.subscribeManager.subscribers)))
 	infos = append(infos, fmt.Sprintf("subscribe_channel_count:%d", self.slock.subscribeManager.channelCount))
 	infos = append(infos, fmt.Sprintf("subscribe_channel_active_count:%d", self.slock.subscribeManager.channelActiveCount))
+	channelHandingCount = 0
+	for _, channel := range self.slock.subscribeManager.channels {
+		channelHandingCount += channel.queueCount
+	}
+	infos = append(infos, fmt.Sprintf("subscribe_channel_handing_count:%d", channelHandingCount))
 
 	infos = append(infos, "\r\n# Keyspace")
 	for dbId, db := range self.slock.dbs {

@@ -480,7 +480,7 @@ func NewAofChannel(aof *Aof, lockDb *LockDB, lockDbGlockIndex uint16, lockDbGloc
 	freeLockMax := int(Config.AofQueueSize) / 128
 	return &AofChannel{aof, &sync.Mutex{}, lockDb, lockDbGlockIndex, lockDbGlock, nil, nil,
 		0, make(chan bool, 1), &sync.Mutex{}, nil, make([]*AofLock, freeLockMax),
-		0, freeLockMax, int(Config.AofQueueSize), false, false,
+		0, freeLockMax, freeLockMax * 4, false, false,
 		false, make(chan bool, 1)}
 }
 
@@ -496,8 +496,7 @@ func (self *AofChannel) pushAofLock(aofLock *AofLock) {
 	self.queueTail.windex++
 	self.queueCount++
 	if !self.lockDbGlockAcquired && self.queueCount > self.lockDbGlockAcquiredSize {
-		self.lockDbGlock.LowSetPriority()
-		self.lockDbGlockAcquired = true
+		self.lockDbGlockAcquired = self.lockDbGlock.LowSetPriority()
 	}
 	if self.queuePulled {
 		self.queueWaiter <- true

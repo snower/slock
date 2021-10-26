@@ -144,7 +144,7 @@ func (self *LockDB) resizeAofChannels() {
 
 func (self *LockDB) resizeSubScribeChannels() {
 	for i := uint16(0); i < self.managerMaxGlocks; i++ {
-		self.subscribeChannels[i] = self.slock.GetSubscribeManager().NewSubscribeChannel(self)
+		self.subscribeChannels[i] = self.slock.GetSubscribeManager().NewSubscribeChannel(self, i, self.managerGlocks[i])
 	}
 }
 
