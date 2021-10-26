@@ -1404,9 +1404,6 @@ func (self *Aof) PushLock(glockIndex uint16, lock *AofLock) {
 	_ = lock.UpdateAofIndexId(self.aofFileIndex, self.aofId)
 
 	werr := self.aofFile.WriteLock(lock)
-	if werr != nil {
-		self.slock.Log().Errorf("Aof append file write error %v", werr)
-	}
 	if uint32(self.aofFile.GetSize()) >= self.rewriteSize {
 		_ = self.RewriteAofFile()
 	}
@@ -1414,10 +1411,15 @@ func (self *Aof) PushLock(glockIndex uint16, lock *AofLock) {
 	self.replGlock.Lock()
 	self.aofGlock.Unlock()
 	perr := self.slock.replicationManager.PushLock(glockIndex, lock)
+	self.replGlock.Unlock()
+	if werr != nil {
+		self.slock.Log().Errorf("Aof append file write error %v", werr)
+	}
 	if perr != nil {
 		self.slock.Log().Errorf("Aof push ring buffer queue error %v", perr)
+	} else {
+		_ = self.slock.replicationManager.WakeupServerChannel()
 	}
-	self.replGlock.Unlock()
 
 	if lock.CommandType == protocol.COMMAND_LOCK {
 		if werr != nil || perr != nil {

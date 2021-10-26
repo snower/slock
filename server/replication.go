@@ -127,7 +127,7 @@ func (self *ReplicationBufferQueue) Push(buf []byte) error {
 
 func (self *ReplicationBufferQueue) Pop(segmentIndex uint64, buf []byte) error {
 	self.glock.RLock()
-	if self.currentIndex == 0 || segmentIndex == self.currentIndex {
+	if segmentIndex == self.currentIndex || self.currentIndex == 0 {
 		self.glock.RUnlock()
 		return io.EOF
 	}
@@ -1001,6 +1001,9 @@ func (self *ReplicationServer) SendProcess() error {
 					}
 					self.manager.glock.Unlock()
 				}
+				if bufferQueue.dupPulled {
+					bufferQueue.WakeupReduplicated()
+				}
 				<-self.pulledWaiter
 				atomic.AddUint32(&self.manager.serverActiveCount, 1)
 				continue
@@ -1026,27 +1029,6 @@ func (self *ReplicationServer) SendProcess() error {
 				self.bufferIndex = bufferQueue.segmentCount
 			}
 			bufferQueue.dupGlock.Unlock()
-
-			if bufferQueue.dupCurrentIndex >= bufferQueue.maxIndex/2 {
-				bufferQueue.dupCurrentIndex = self.bufferIndex
-				if bufferQueue.dupPulled {
-					bufferQueue.WakeupReduplicated()
-				}
-			} else {
-				if self.bufferIndex > bufferQueue.dupCurrentIndex {
-					bufferQueue.dupCurrentIndex = self.bufferIndex
-					if bufferQueue.dupPulled {
-						bufferQueue.WakeupReduplicated()
-					}
-				}
-			}
-		} else {
-			if self.bufferIndex > bufferQueue.dupCurrentIndex {
-				bufferQueue.dupCurrentIndex = self.bufferIndex
-				if bufferQueue.dupPulled {
-					bufferQueue.WakeupReduplicated()
-				}
-			}
 		}
 	}
 	atomic.AddUint32(&self.manager.serverActiveCount, 0xffffffff)
@@ -1712,14 +1694,32 @@ func (self *ReplicationManager) PushLock(glockIndex uint16, lock *AofLock) error
 	self.currentRequestId[0], self.currentRequestId[1], self.currentRequestId[2], self.currentRequestId[3], self.currentRequestId[4], self.currentRequestId[5], self.currentRequestId[6], self.currentRequestId[7],
 		self.currentRequestId[8], self.currentRequestId[9], self.currentRequestId[10], self.currentRequestId[11], self.currentRequestId[12], self.currentRequestId[13], self.currentRequestId[14], self.currentRequestId[15] = buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
 		buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18]
-	return self.WakeupServerChannel()
+	return nil
 }
 
 func (self *ReplicationManager) WakeupServerChannel() error {
-	if atomic.CompareAndSwapUint32(&self.serverActiveCount, self.serverCount, self.serverCount) {
+	if self.bufferQueue.currentIndex%64 == 0 {
+		for _, channel := range self.serverChannels {
+			if atomic.CompareAndSwapUint32(&channel.pulled, 1, 0) {
+				channel.pulledWaiter <- true
+			}
+
+			if self.bufferQueue.currentIndex > channel.bufferIndex {
+				if self.bufferQueue.currentIndex > channel.bufferIndex {
+					self.bufferQueue.dupCurrentIndex = channel.bufferIndex
+				}
+			} else {
+				if self.bufferQueue.currentIndex < channel.bufferIndex {
+					self.bufferQueue.dupCurrentIndex = channel.bufferIndex
+				}
+			}
+		}
 		return nil
 	}
 
+	if atomic.CompareAndSwapUint32(&self.serverActiveCount, self.serverCount, self.serverCount) {
+		return nil
+	}
 	for _, channel := range self.serverChannels {
 		if atomic.CompareAndSwapUint32(&channel.pulled, 1, 1) {
 			channel.pulledWaiter <- true
@@ -1909,8 +1909,10 @@ func (self *ReplicationManager) FlushDB() error {
 	}
 
 	self.bufferQueue.currentIndex = self.bufferQueue.segmentCount
-	if self.bufferQueue.dupCurrentIndex > 0 {
+	if self.serverCount > 0 {
 		self.bufferQueue.dupCurrentIndex = self.bufferQueue.segmentCount
+	} else {
+		self.bufferQueue.dupCurrentIndex = 0
 	}
 	self.slock.Log().Infof("Replication flush all DB")
 	return nil

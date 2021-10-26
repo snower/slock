@@ -1504,6 +1504,14 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 
 		currentLock := lockManager.GetLockedLock(command)
 		if currentLock != nil {
+			if currentLock.ackCount != 0xff {
+				lockManager.glock.Unlock()
+
+				_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_UNLOCK_ERROR, uint16(lockManager.locked), currentLock.locked)
+				_ = serverProtocol.FreeLockCommand(command)
+				return nil
+			}
+
 			if command.Flag&protocol.LOCK_FLAG_UPDATE_WHEN_LOCKED != 0 {
 				if currentLock.longWaitIndex > 0 {
 					self.RemoveLongExpried(currentLock)
