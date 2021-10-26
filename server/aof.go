@@ -570,10 +570,18 @@ func (self *AofChannel) Push(lock *Lock, commandType uint8, command *protocol.Lo
 		aofLock.StartTime = uint16(aofLock.CommandTime - uint64(lock.startTime))
 	}
 	aofLock.ExpriedFlag = lock.command.ExpriedFlag
-	if lock.command.ExpriedFlag&protocol.EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME == 0 {
-		aofLock.ExpriedTime = uint16(uint64(lock.expriedTime) - aofLock.CommandTime)
+	if lock.command.ExpriedFlag&protocol.EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME != 0 {
+		aofLock.ExpriedTime = lock.command.Expried
+	} else if lock.command.ExpriedFlag&protocol.EXPRIED_FLAG_MILLISECOND_TIME != 0 {
+		aofLock.ExpriedTime = lock.command.Expried
+	} else if lock.command.ExpriedFlag&protocol.EXPRIED_FLAG_MINUTE_TIME != 0 {
+		aofLock.ExpriedTime = lock.command.Expried
 	} else {
-		aofLock.ExpriedTime = 0
+		if lock.expriedTime > 0 {
+			aofLock.ExpriedTime = uint16(uint64(lock.expriedTime) - aofLock.CommandTime)
+		} else {
+			aofLock.ExpriedTime = lock.command.Expried
+		}
 	}
 	if command == nil {
 		aofLock.Count = lock.command.Count
@@ -807,7 +815,13 @@ func (self *AofChannel) HandleLoad(aofLock *AofLock) {
 	}
 
 	expriedTime := uint16(0)
-	if aofLock.ExpriedFlag&protocol.EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME == 0 {
+	if aofLock.ExpriedFlag&protocol.EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME != 0 {
+		expriedTime = aofLock.ExpriedTime
+	} else if aofLock.ExpriedFlag&protocol.EXPRIED_FLAG_MILLISECOND_TIME != 0 {
+		expriedTime = aofLock.ExpriedTime
+	} else if aofLock.ExpriedFlag&protocol.EXPRIED_FLAG_MINUTE_TIME != 0 {
+		expriedTime = aofLock.ExpriedTime
+	} else {
 		expriedTime = uint16(int64(aofLock.CommandTime+uint64(aofLock.ExpriedTime)) - self.lockDb.currentTime)
 	}
 
@@ -823,7 +837,7 @@ func (self *AofChannel) HandleLoad(aofLock *AofLock) {
 	} else {
 		lockCommand.TimeoutFlag = 0
 	}
-	lockCommand.Timeout = 3
+	lockCommand.Timeout = 0
 	lockCommand.ExpriedFlag = aofLock.ExpriedFlag
 	lockCommand.Expried = expriedTime + 1
 	lockCommand.Count = aofLock.Count
@@ -843,7 +857,13 @@ func (self *AofChannel) HandleReplay(aofLock *AofLock) {
 	}
 
 	expriedTime := uint16(0)
-	if aofLock.ExpriedFlag&protocol.EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME == 0 {
+	if aofLock.ExpriedFlag&protocol.EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME != 0 {
+		expriedTime = aofLock.ExpriedTime
+	} else if aofLock.ExpriedFlag&protocol.EXPRIED_FLAG_MILLISECOND_TIME != 0 {
+		expriedTime = aofLock.ExpriedTime
+	} else if aofLock.ExpriedFlag&protocol.EXPRIED_FLAG_MINUTE_TIME != 0 {
+		expriedTime = aofLock.ExpriedTime
+	} else {
 		expriedTime = uint16(int64(aofLock.CommandTime+uint64(aofLock.ExpriedTime)) - self.lockDb.currentTime)
 	}
 
@@ -863,7 +883,7 @@ func (self *AofChannel) HandleReplay(aofLock *AofLock) {
 	} else {
 		lockCommand.TimeoutFlag = 0
 	}
-	lockCommand.Timeout = 3
+	lockCommand.Timeout = 0
 	lockCommand.ExpriedFlag = aofLock.ExpriedFlag
 	lockCommand.Expried = expriedTime + 1
 	lockCommand.Count = aofLock.Count
@@ -1187,7 +1207,15 @@ func (self *Aof) LoadAofFile(filename string, lock *AofLock, expriedTime int64, 
 			return err
 		}
 
-		if lock.ExpriedFlag&protocol.EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME == 0 {
+		if lock.ExpriedFlag&protocol.EXPRIED_FLAG_MILLISECOND_TIME != 0 {
+			if int64(lock.CommandTime+uint64(lock.ExpriedTime)/1000) <= expriedTime {
+				continue
+			}
+		} else if lock.ExpriedFlag&protocol.EXPRIED_FLAG_MINUTE_TIME != 0 {
+			if int64(lock.CommandTime+uint64(lock.ExpriedTime)*60) <= expriedTime {
+				continue
+			}
+		} else if lock.ExpriedFlag&protocol.EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME == 0 {
 			if int64(lock.CommandTime+uint64(lock.ExpriedTime)) <= expriedTime {
 				continue
 			}

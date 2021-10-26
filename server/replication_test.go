@@ -7,7 +7,7 @@ import (
 )
 
 func TestReplicationBufferQueue_Push(t *testing.T) {
-	queue := NewReplicationBufferQueue(nil, 1024*1024)
+	queue := NewReplicationBufferQueue(nil, 1024*1024, 4*1024*1024)
 
 	buf := make([]byte, 64)
 	buf[0] = 0xa5
@@ -29,7 +29,7 @@ func TestReplicationBufferQueue_Push(t *testing.T) {
 }
 
 func TestReplicationBufferQueue_Pop(t *testing.T) {
-	queue := NewReplicationBufferQueue(nil, 1024*1024)
+	queue := NewReplicationBufferQueue(nil, 1024*1024, 4*1024*1024)
 
 	obuf := make([]byte, 64)
 	buf := make([]byte, 64)
@@ -58,7 +58,7 @@ func TestReplicationBufferQueue_Pop(t *testing.T) {
 }
 
 func TestReplicationBufferQueue_Head(t *testing.T) {
-	queue := NewReplicationBufferQueue(nil, 1024*1024)
+	queue := NewReplicationBufferQueue(nil, 1024*1024, 4*1024*1024)
 
 	obuf := make([]byte, 64)
 	buf := make([]byte, 64)
@@ -93,7 +93,7 @@ func TestReplicationBufferQueue_Head(t *testing.T) {
 }
 
 func TestReplicationBufferQueue_Search(t *testing.T) {
-	queue := NewReplicationBufferQueue(nil, 1024*1024)
+	queue := NewReplicationBufferQueue(nil, 1024*1024, 4*1024*1024)
 
 	obuf := make([]byte, 64)
 	buf := make([]byte, 64)
@@ -127,7 +127,7 @@ func TestReplicationBufferQueue_Search(t *testing.T) {
 }
 
 func TestReplicationBufferQueue_Run(t *testing.T) {
-	queue := NewReplicationBufferQueue(nil, 1024*1024)
+	queue := NewReplicationBufferQueue(nil, 1024*1024, 4*1024*1024)
 
 	go func() {
 		index := uint32(0)
@@ -169,7 +169,7 @@ func TestReplicationBufferQueue_Run(t *testing.T) {
 }
 
 func TestReplicationBufferQueue_Reduplicated(t *testing.T) {
-	queue := NewReplicationBufferQueue(nil, 640)
+	queue := NewReplicationBufferQueue(nil, 640, 4*1024*1024)
 
 	buf := make([]byte, 64)
 	for i := 0; i < 16; i++ {
@@ -197,7 +197,6 @@ func TestReplicationBufferQueue_Reduplicated(t *testing.T) {
 	queue.buf = newBuf
 	queue.segmentCount = bufSize / 64
 	queue.maxIndex = uint64(0xffffffffffffffff) - uint64(0xffffffffffffffff)%uint64(bufSize/64)
-	queue.requireDuplicated = false
 
 	err = queue.Pop(16, obuf)
 	if err != nil {
@@ -206,5 +205,41 @@ func TestReplicationBufferQueue_Reduplicated(t *testing.T) {
 
 	if obuf[0] != buf[0] || obuf[10] != buf[10] || obuf[54] != buf[54] {
 		t.Errorf("ReplicationBufferQueue Pop Buf Error Fail %v", obuf)
+	}
+}
+
+func TestReplicationBufferQueue_ResetIndex(t *testing.T) {
+	queue := NewReplicationBufferQueue(nil, 128, 4*1024*1024)
+	queue.maxIndex = 4
+	queue.dupSegmentCount = 8
+
+	for i := 0; i < 4; i++ {
+		buf := make([]byte, 64)
+		buf[0] = byte(i)
+		_ = queue.Push(buf)
+	}
+	if queue.currentIndex != 2 {
+		t.Errorf("ReplicationBufferQueue ResetIndex Push Error Fail %d", queue.currentIndex)
+	}
+
+	queue = NewReplicationBufferQueue(nil, 128, 4*1024*1024)
+	queue.maxIndex = 4
+	queue.dupSegmentCount = 8
+
+	bufIndex := uint64(0)
+	for i := 0; i < 4; i++ {
+		buf := make([]byte, 64)
+		buf[0] = byte(i)
+		_ = queue.Push(buf)
+
+		obuf := make([]byte, 64)
+		_ = queue.Pop(bufIndex, obuf)
+		if buf[0] != obuf[0] {
+			t.Errorf("ReplicationBufferQueue ResetIndex Pop Error Fail %d %d %d %d", queue.currentIndex, bufIndex, buf[0], obuf[0])
+		}
+		bufIndex++
+		if bufIndex >= queue.maxIndex {
+			bufIndex = queue.segmentCount
+		}
 	}
 }

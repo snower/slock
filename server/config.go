@@ -46,7 +46,7 @@ type ServerConfig struct {
 	AofQueueSize         uint    `toml:"aof_queue_size" long:"aof_queue_size" description:"aof channel queue size" default:"65536"`
 	AofFileRewriteSize   uint    `toml:"aof_file_rewrite_size" long:"aof_file_rewrite_size" description:"aof file rewrite size" default:"67174400"`
 	AofFileBufferSize    uint    `toml:"aof_file_buffer_size" long:"aof_file_buffer_size" description:"aof file buffer size" default:"4096"`
-	AofRingBufferSize    uint    `toml:"aof_ring_buffer_size" long:"aof_ring_buffer_size" description:"slave sync ring buffer size" default:"1048576"`
+	AofRingBufferSize    uint    `toml:"aof_ring_buffer_size" long:"aof_ring_buffer_size" description:"slave sync ring buffer size" default:"4194304"`
 	AofRingBufferMaxSize uint    `toml:"aof_ring_buffer_max_size" long:"aof_ring_buffer_max_size" description:"slave sync ring buffer max size" default:"268435456"`
 	SlaveOf              string  `toml:"slaveof" long:"slaveof" description:"slave of to master sync" default:""`
 	ReplSet              string  `toml:"replset" long:"replset" description:"replset name, start replset mode when it set" default:""`
@@ -111,7 +111,7 @@ func ExtendConfig(config *ServerConfig, oconfig *ServerConfig) *ServerConfig {
 	if config.AofFileBufferSize == 4096 && oconfig.AofFileBufferSize != 0 {
 		config.AofFileBufferSize = oconfig.AofFileBufferSize
 	}
-	if config.AofRingBufferSize == 1048576 && oconfig.AofRingBufferSize != 0 {
+	if config.AofRingBufferSize == 4194304 && oconfig.AofRingBufferSize != 0 {
 		config.AofRingBufferSize = oconfig.AofRingBufferSize
 	}
 	if config.AofRingBufferMaxSize == 268435456 && oconfig.AofRingBufferMaxSize != 0 {

@@ -16,55 +16,110 @@ import (
 )
 
 type ReplicationBufferQueue struct {
-	manager           *ReplicationManager
-	glock             *sync.RWMutex
-	buf               []byte
-	segmentCount      int
-	segmentSize       int
-	currentIndex      uint64
-	maxIndex          uint64
-	duplicatedRate    float64
-	requireDuplicated bool
+	manager         *ReplicationManager
+	glock           *sync.RWMutex
+	buf             []byte
+	segmentCount    uint64
+	segmentSize     uint64
+	currentIndex    uint64
+	maxIndex        uint64
+	maxBufferSize   uint64
+	dupCurrentIndex uint64
+	dupSegmentCount uint64
+	dupCount        uint64
+	dupGlock        *sync.Mutex
+	dupWaiter       chan bool
+	dupPulled       bool
+	closed          bool
 }
 
-func NewReplicationBufferQueue(manager *ReplicationManager, bufSize int) *ReplicationBufferQueue {
-	maxIndex := uint64(0xffffffffffffffff) - uint64(0xffffffffffffffff)%uint64(bufSize/64)
+func NewReplicationBufferQueue(manager *ReplicationManager, bufSize uint64, maxSize uint64) *ReplicationBufferQueue {
+	maxIndex := uint64(0xffffffffffffffff) - uint64(0xffffffffffffffff)%(bufSize/64)
 	queue := &ReplicationBufferQueue{manager, &sync.RWMutex{}, make([]byte, bufSize),
-		bufSize / 64, 64, 0, maxIndex, 0.3, false}
+		bufSize / 64, 64, 0, maxIndex, maxSize, 0,
+		bufSize / 128, 0, &sync.Mutex{}, make(chan bool, 1), false, false}
 	return queue
 }
 
 func (self *ReplicationBufferQueue) Reduplicated() *ReplicationBufferQueue {
 	bufSize := self.segmentCount * 2 * self.segmentSize
-	if uint(bufSize) > Config.AofRingBufferMaxSize {
-		self.requireDuplicated = false
+	self.dupGlock.Lock()
+	if bufSize > self.maxBufferSize {
+		self.dupPulled = true
+		self.dupGlock.Unlock()
+		select {
+		case <-self.dupWaiter:
+			self.dupCount++
+		case <-time.After(10 * time.Millisecond):
+			self.dupCount++
+		}
 		return self
 	}
 
 	buf := make([]byte, bufSize)
-	self.glock.Lock()
 	copy(buf, self.buf)
 	copy(buf[self.segmentCount*self.segmentSize:], self.buf)
 	self.buf = buf
 	self.segmentCount = bufSize / 64
-	self.maxIndex = uint64(0xffffffffffffffff) - uint64(0xffffffffffffffff)%uint64(bufSize/64)
-	self.requireDuplicated = false
-	self.duplicatedRate = float64(bufSize)/float64(Config.AofRingBufferMaxSize) + 0.3
-	if self.duplicatedRate > 0.8 {
-		self.duplicatedRate = 0.8
-	}
-	self.glock.Unlock()
+	self.maxIndex = uint64(0xffffffffffffffff) - uint64(0xffffffffffffffff)%bufSize/64
+	self.dupSegmentCount = bufSize / 128
+	self.dupGlock.Unlock()
 	self.manager.slock.Log().Infof("Replication aof ring buffer reduplicated size %d to %d", bufSize/2, bufSize)
+	self.dupCount++
 	return self
 }
 
+func (self *ReplicationBufferQueue) WakeupReduplicated() {
+	if self.dupCurrentIndex > 0 {
+		if self.currentIndex >= self.dupCurrentIndex {
+			if self.currentIndex-self.dupCurrentIndex > self.dupSegmentCount {
+				return
+			}
+		} else {
+			if self.maxIndex-self.dupCurrentIndex+(self.currentIndex-self.segmentCount) > self.dupSegmentCount {
+				return
+			}
+		}
+	}
+
+	self.dupGlock.Lock()
+	if self.dupPulled {
+		self.dupWaiter <- true
+		self.dupPulled = false
+	}
+	self.dupGlock.Unlock()
+}
+
+func (self *ReplicationBufferQueue) Close() error {
+	self.dupGlock.Lock()
+	if self.dupPulled {
+		self.dupWaiter <- false
+		self.dupPulled = false
+	}
+	self.closed = true
+	self.dupGlock.Unlock()
+	return nil
+}
+
 func (self *ReplicationBufferQueue) Push(buf []byte) error {
+	if self.dupCurrentIndex > 0 {
+		if self.currentIndex >= self.dupCurrentIndex {
+			if self.currentIndex-self.dupCurrentIndex > self.dupSegmentCount {
+				self.Reduplicated()
+			}
+		} else {
+			if self.maxIndex-self.dupCurrentIndex+(self.currentIndex-self.segmentCount) > self.dupSegmentCount {
+				self.Reduplicated()
+			}
+		}
+	}
+
 	self.glock.Lock()
-	currentSize := int(self.currentIndex%uint64(self.segmentCount)) * self.segmentSize
+	currentSize := (self.currentIndex % self.segmentCount) * self.segmentSize
 	copy(self.buf[currentSize:], buf)
 	self.currentIndex++
 	if self.currentIndex >= self.maxIndex {
-		self.currentIndex = uint64(self.segmentCount)
+		self.currentIndex = self.segmentCount
 	}
 	self.glock.Unlock()
 	return nil
@@ -77,19 +132,19 @@ func (self *ReplicationBufferQueue) Pop(segmentIndex uint64, buf []byte) error {
 		return io.EOF
 	}
 
-	if self.currentIndex > segmentIndex {
-		if self.currentIndex-segmentIndex > uint64(self.segmentCount) {
+	if self.currentIndex >= segmentIndex {
+		if self.currentIndex-segmentIndex > self.segmentCount {
 			self.glock.RUnlock()
 			return errors.New("segment out of buf")
 		}
 	} else {
-		if self.maxIndex-segmentIndex+(self.currentIndex-uint64(self.segmentCount)) > uint64(self.segmentCount) {
+		if self.maxIndex-segmentIndex+(self.currentIndex-self.segmentCount) > self.segmentCount {
 			self.glock.RUnlock()
 			return errors.New("segment out of buf")
 		}
 	}
 
-	currentSize := int(segmentIndex%uint64(self.segmentCount)) * self.segmentSize
+	currentSize := (segmentIndex % self.segmentCount) * self.segmentSize
 	copy(buf, self.buf[currentSize:currentSize+self.segmentSize])
 	self.glock.RUnlock()
 	return nil
@@ -102,7 +157,7 @@ func (self *ReplicationBufferQueue) Head(buf []byte) (uint64, error) {
 		return 0, errors.New("buffer is empty")
 	}
 
-	currentSize := int((self.currentIndex-1)%uint64(self.segmentCount)) * self.segmentSize
+	currentSize := ((self.currentIndex - 1) % self.segmentCount) * self.segmentSize
 	copy(buf, self.buf[currentSize:currentSize+self.segmentSize])
 	self.glock.RUnlock()
 	return self.currentIndex - 1, nil
@@ -117,14 +172,14 @@ func (self *ReplicationBufferQueue) Search(aofId [16]byte, aofBuf []byte) (uint6
 
 	startIndex := uint64(0)
 	segmentCount := self.segmentCount
-	if self.currentIndex > uint64(self.segmentCount) {
-		startIndex = self.currentIndex - uint64(self.segmentCount) - 1
+	if self.currentIndex > self.segmentCount {
+		startIndex = self.currentIndex - self.segmentCount - 1
 	} else {
-		segmentCount = int(self.currentIndex)
+		segmentCount = self.currentIndex
 	}
 
-	for i := 0; i < segmentCount; i++ {
-		currentSize := int((startIndex+uint64(i))%uint64(self.segmentCount)) * self.segmentSize
+	for i := uint64(0); i < segmentCount; i++ {
+		currentSize := ((startIndex + i) % self.segmentCount) * self.segmentSize
 		buf := self.buf[currentSize : currentSize+self.segmentSize]
 		currentAofId := [16]byte{buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18]}
 		if currentAofId == aofId {
@@ -132,7 +187,7 @@ func (self *ReplicationBufferQueue) Search(aofId [16]byte, aofBuf []byte) (uint6
 			currentAofId := [16]byte{aofBuf[3], aofBuf[4], aofBuf[5], aofBuf[6], aofBuf[7], aofBuf[8], aofBuf[9], aofBuf[10], aofBuf[11], aofBuf[12], aofBuf[13], aofBuf[14], aofBuf[15], aofBuf[16], aofBuf[17], aofBuf[18]}
 			if currentAofId == aofId {
 				self.glock.RUnlock()
-				return startIndex + uint64(i), nil
+				return startIndex + i, nil
 			}
 		}
 	}
@@ -478,10 +533,6 @@ func (self *ReplicationClient) Process() error {
 			return err
 		}
 		aof.AppendLock(self.aofLock)
-		if bufferQueue.requireDuplicated {
-			bufferQueue = bufferQueue.Reduplicated()
-			self.manager.bufferQueue = bufferQueue
-		}
 		_ = bufferQueue.Push(self.aofLock.buf)
 		self.loadedCount++
 
@@ -625,20 +676,18 @@ func (self *ReplicationClient) readProcess() {
 }
 
 func (self *ReplicationClient) HandleAcked(ackLock *ReplicationAckLock) error {
+	if ackLock.aofResult != 0 && ackLock.lockResult.Result == 0 {
+		ackLock.lockResult.Result = protocol.RESULT_ERROR
+	}
+	err := ackLock.lockResult.Encode(self.wbuf)
+	if err != nil {
+		return err
+	}
+
 	self.glock.Lock()
 	if self.stream == nil {
 		self.glock.Unlock()
 		return errors.New("stream closed")
-	}
-
-	if ackLock.aofResult != 0 && ackLock.lockResult.Result == 0 {
-		ackLock.lockResult.Result = protocol.RESULT_ERROR
-	}
-
-	err := ackLock.lockResult.Encode(self.wbuf)
-	if err != nil {
-		self.glock.Unlock()
-		return err
 	}
 	err = self.stream.WriteBytes(self.wbuf)
 	self.glock.Unlock()
@@ -809,23 +858,9 @@ func (self *ReplicationServer) sendFiles() error {
 		aofFilenames = append(aofFilenames, rewriteFile)
 	}
 	aofFilenames = append(aofFilenames, appendFiles...)
-	lockCommand := &protocol.LockCommand{}
 	err = self.aof.LoadAofFiles(aofFilenames, time.Now().Unix(), func(filename string, aofFile *AofFile, lock *AofLock, firstLock bool) (bool, error) {
 		if lock.AofIndex >= self.waofLock.AofIndex && lock.AofId >= self.waofLock.AofId {
 			return false, nil
-		}
-
-		db := self.manager.slock.GetDB(lock.DbId)
-		if db == nil {
-			return true, nil
-		}
-
-		lockCommand.CommandType = lock.CommandType
-		lockCommand.DbId = lock.DbId
-		lockCommand.LockId = lock.LockId
-		lockCommand.LockKey = lock.LockKey
-		if !db.HasLock(lockCommand) {
-			return true, nil
 		}
 
 		err := self.stream.WriteBytes(lock.buf)
@@ -924,17 +959,11 @@ func (self *ReplicationServer) sendFilesQueue() error {
 	atomic.AddUint32(&self.manager.serverActiveCount, 0xffffffff)
 
 	if !self.closed {
-		now := time.Now().Unix()
 		for _, buf := range bufs {
 			copy(self.waofLock.buf, buf)
 			err := self.waofLock.Decode()
 			if err != nil {
 				return err
-			}
-			if self.waofLock.ExpriedFlag&protocol.EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME == 0 {
-				if int64(self.waofLock.CommandTime+uint64(self.waofLock.ExpriedTime)) <= now {
-					continue
-				}
 			}
 
 			err = self.stream.WriteBytes(buf)
@@ -958,18 +987,6 @@ func (self *ReplicationServer) SendProcess() error {
 	atomic.AddUint32(&self.manager.serverActiveCount, 1)
 	for !self.closed {
 		bufferQueue := self.manager.bufferQueue
-		if !bufferQueue.requireDuplicated {
-			if bufferQueue.currentIndex >= self.bufferIndex {
-				if float64(bufferQueue.currentIndex-self.bufferIndex) > float64(bufferQueue.segmentCount)*bufferQueue.duplicatedRate {
-					bufferQueue.requireDuplicated = true
-				}
-			} else {
-				if float64(bufferQueue.maxIndex-self.bufferIndex+(bufferQueue.currentIndex-uint64(bufferQueue.segmentCount))) > float64(bufferQueue.segmentCount)*bufferQueue.duplicatedRate {
-					bufferQueue.requireDuplicated = true
-				}
-			}
-		}
-
 		buf := self.waofLock.buf
 		err := bufferQueue.Pop(self.bufferIndex, buf)
 		if err != nil {
@@ -1001,13 +1018,35 @@ func (self *ReplicationServer) SendProcess() error {
 		self.currentRequestId[0], self.currentRequestId[1], self.currentRequestId[2], self.currentRequestId[3], self.currentRequestId[4], self.currentRequestId[5], self.currentRequestId[6], self.currentRequestId[7],
 			self.currentRequestId[8], self.currentRequestId[9], self.currentRequestId[10], self.currentRequestId[11], self.currentRequestId[12], self.currentRequestId[13], self.currentRequestId[14], self.currentRequestId[15] = buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
 			buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18]
+
 		self.bufferIndex++
 		if self.bufferIndex >= bufferQueue.maxIndex {
-			bufferQueue.glock.Lock()
+			bufferQueue.dupGlock.Lock()
 			if self.bufferIndex >= bufferQueue.maxIndex {
-				self.bufferIndex = uint64(bufferQueue.segmentCount)
+				self.bufferIndex = bufferQueue.segmentCount
 			}
-			bufferQueue.glock.Unlock()
+			bufferQueue.dupGlock.Unlock()
+
+			if bufferQueue.dupCurrentIndex >= bufferQueue.maxIndex/2 {
+				bufferQueue.dupCurrentIndex = self.bufferIndex
+				if bufferQueue.dupPulled {
+					bufferQueue.WakeupReduplicated()
+				}
+			} else {
+				if self.bufferIndex > bufferQueue.dupCurrentIndex {
+					bufferQueue.dupCurrentIndex = self.bufferIndex
+					if bufferQueue.dupPulled {
+						bufferQueue.WakeupReduplicated()
+					}
+				}
+			}
+		} else {
+			if self.bufferIndex > bufferQueue.dupCurrentIndex {
+				bufferQueue.dupCurrentIndex = self.bufferIndex
+				if bufferQueue.dupPulled {
+					bufferQueue.WakeupReduplicated()
+				}
+			}
 		}
 	}
 	atomic.AddUint32(&self.manager.serverActiveCount, 0xffffffff)
@@ -1425,7 +1464,7 @@ func NewReplicationManager() *ReplicationManager {
 	manager := &ReplicationManager{nil, &sync.Mutex{}, nil, make([]*ReplicationAckDB, 256),
 		nil, make([]*ReplicationServer, 0), transparencyManager, [16]byte{}, "", 0,
 		0, nil, make([]chan bool, 0), false, true}
-	manager.bufferQueue = NewReplicationBufferQueue(manager, int(Config.AofRingBufferSize))
+	manager.bufferQueue = NewReplicationBufferQueue(manager, uint64(Config.AofRingBufferSize), uint64(Config.AofRingBufferMaxSize))
 	return manager
 }
 
@@ -1462,6 +1501,7 @@ func (self *ReplicationManager) Close() {
 	}
 	self.closed = true
 	self.glock.Unlock()
+	_ = self.bufferQueue.Close()
 
 	if self.clientChannel != nil {
 		clientChannel := self.clientChannel
@@ -1552,6 +1592,9 @@ func (self *ReplicationManager) commandHandleSyncCommand(server_protocol *Binary
 			}
 			_ = channel.Close()
 		}
+		if self.serverCount == 0 {
+			self.bufferQueue.dupCurrentIndex = 0
+		}
 	}()
 	err = channel.RecvProcess()
 	channel.closed = true
@@ -1572,6 +1615,9 @@ func (self *ReplicationManager) addServerChannel(channel *ReplicationServer) err
 	self.glock.Lock()
 	self.serverChannels = append(self.serverChannels, channel)
 	self.serverCount = uint32(len(self.serverChannels))
+	if self.serverCount == 1 {
+		self.bufferQueue.dupCurrentIndex = self.bufferQueue.currentIndex
+	}
 
 	ackCount := len(self.serverChannels) + 1
 	for _, db := range self.ackDbs {
@@ -1593,6 +1639,9 @@ func (self *ReplicationManager) removeServerChannel(channel *ReplicationServer) 
 	}
 	self.serverChannels = serverChannels
 	self.serverCount = uint32(len(serverChannels))
+	if self.serverCount == 0 {
+		self.bufferQueue.dupCurrentIndex = 0
+	}
 
 	ackCount := len(self.serverChannels) + 1
 	for _, db := range self.ackDbs {
@@ -1644,10 +1693,6 @@ func (self *ReplicationManager) GetOrNewAckDB(dbId uint8) *ReplicationAckDB {
 }
 
 func (self *ReplicationManager) PushLock(glockIndex uint16, lock *AofLock) error {
-	if self.bufferQueue.requireDuplicated {
-		self.bufferQueue = self.bufferQueue.Reduplicated()
-	}
-
 	if lock.CommandType == protocol.COMMAND_LOCK {
 		if lock.AofFlag&AOF_FLAG_REQUIRE_ACKED != 0 && lock.lock != nil {
 			db := self.GetOrNewAckDB(lock.DbId)
@@ -1863,7 +1908,10 @@ func (self *ReplicationManager) FlushDB() error {
 		}
 	}
 
-	self.bufferQueue.currentIndex = 0
+	self.bufferQueue.currentIndex = self.bufferQueue.segmentCount
+	if self.bufferQueue.dupCurrentIndex > 0 {
+		self.bufferQueue.dupCurrentIndex = self.bufferQueue.segmentCount
+	}
 	self.slock.Log().Infof("Replication flush all DB")
 	return nil
 }
