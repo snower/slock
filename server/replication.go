@@ -36,7 +36,7 @@ type ReplicationBufferQueue struct {
 func NewReplicationBufferQueue(manager *ReplicationManager, bufSize uint64, maxSize uint64) *ReplicationBufferQueue {
 	maxIndex := uint64(0xffffffffffffffff) - uint64(0xffffffffffffffff)%(bufSize/64)
 	queue := &ReplicationBufferQueue{manager, &sync.RWMutex{}, make([]byte, bufSize),
-		bufSize / 64, 64, 0, maxIndex, maxSize, 0,
+		bufSize / 64, 64, 0, maxIndex, maxSize, 0xffffffffffffffff,
 		bufSize / 128, 0, &sync.Mutex{}, make(chan bool, 1), false, false}
 	return queue
 }
@@ -70,7 +70,7 @@ func (self *ReplicationBufferQueue) Reduplicated() *ReplicationBufferQueue {
 }
 
 func (self *ReplicationBufferQueue) WakeupReduplicated() {
-	if self.dupCurrentIndex > 0 {
+	if self.dupCurrentIndex < 0xffffffffffffffff {
 		if self.currentIndex >= self.dupCurrentIndex {
 			if self.currentIndex-self.dupCurrentIndex > self.dupSegmentCount {
 				return
@@ -102,7 +102,7 @@ func (self *ReplicationBufferQueue) Close() error {
 }
 
 func (self *ReplicationBufferQueue) Push(buf []byte) error {
-	if self.dupCurrentIndex > 0 {
+	if self.dupCurrentIndex < 0xffffffffffffffff {
 		if self.currentIndex >= self.dupCurrentIndex {
 			if self.currentIndex-self.dupCurrentIndex > self.dupSegmentCount {
 				self.Reduplicated()
@@ -731,6 +731,7 @@ type ReplicationServer struct {
 	bufferIndex      uint64
 	pulled           uint32
 	pulledWaiter     chan bool
+	wakeupedBuffer   bool
 	closed           bool
 	closedWaiter     chan bool
 	sendedFiles      bool
@@ -740,7 +741,7 @@ func NewReplicationServer(manager *ReplicationManager, serverProtocol *BinarySer
 	return &ReplicationServer{manager, serverProtocol.stream, serverProtocol,
 		manager.slock.GetAof(), NewAofLock(), NewAofLock(),
 		[16]byte{}, 0, 0, make(chan bool, 1),
-		false, make(chan bool, 1), false}
+		false, false, make(chan bool, 1), false}
 }
 
 func (self *ReplicationServer) Close() error {
@@ -1004,6 +1005,7 @@ func (self *ReplicationServer) SendProcess() error {
 				if bufferQueue.dupPulled {
 					bufferQueue.WakeupReduplicated()
 				}
+				self.wakeupedBuffer = false
 				<-self.pulledWaiter
 				atomic.AddUint32(&self.manager.serverActiveCount, 1)
 				continue
@@ -1029,6 +1031,22 @@ func (self *ReplicationServer) SendProcess() error {
 				self.bufferIndex = bufferQueue.segmentCount
 			}
 			bufferQueue.dupGlock.Unlock()
+		}
+		if self.wakeupedBuffer {
+			if bufferQueue.currentIndex >= self.bufferIndex {
+				if bufferQueue.currentIndex-self.bufferIndex < bufferQueue.dupSegmentCount {
+					if bufferQueue.dupPulled {
+						bufferQueue.WakeupReduplicated()
+					}
+				}
+			} else {
+				if bufferQueue.maxIndex-self.bufferIndex+(bufferQueue.currentIndex-bufferQueue.segmentCount) < bufferQueue.dupSegmentCount {
+					if bufferQueue.dupPulled {
+						bufferQueue.WakeupReduplicated()
+					}
+				}
+			}
+			self.wakeupedBuffer = false
 		}
 	}
 	atomic.AddUint32(&self.manager.serverActiveCount, 0xffffffff)
@@ -1575,7 +1593,7 @@ func (self *ReplicationManager) commandHandleSyncCommand(server_protocol *Binary
 			_ = channel.Close()
 		}
 		if self.serverCount == 0 {
-			self.bufferQueue.dupCurrentIndex = 0
+			self.bufferQueue.dupCurrentIndex = 0xffffffffffffffff
 		}
 	}()
 	err = channel.RecvProcess()
@@ -1622,7 +1640,7 @@ func (self *ReplicationManager) removeServerChannel(channel *ReplicationServer) 
 	self.serverChannels = serverChannels
 	self.serverCount = uint32(len(serverChannels))
 	if self.serverCount == 0 {
-		self.bufferQueue.dupCurrentIndex = 0
+		self.bufferQueue.dupCurrentIndex = 0xffffffffffffffff
 	}
 
 	ackCount := len(self.serverChannels) + 1
@@ -1699,20 +1717,28 @@ func (self *ReplicationManager) PushLock(glockIndex uint16, lock *AofLock) error
 
 func (self *ReplicationManager) WakeupServerChannel() error {
 	if self.bufferQueue.currentIndex%64 == 0 {
+		var delayChannel *ReplicationServer = nil
+		self.bufferQueue.dupCurrentIndex = 0xffffffffffffffff
 		for _, channel := range self.serverChannels {
 			if atomic.CompareAndSwapUint32(&channel.pulled, 1, 0) {
 				channel.pulledWaiter <- true
 			}
 
-			if self.bufferQueue.currentIndex > channel.bufferIndex {
-				if self.bufferQueue.currentIndex > channel.bufferIndex {
+			if self.bufferQueue.currentIndex >= channel.bufferIndex {
+				if self.bufferQueue.dupCurrentIndex > channel.bufferIndex {
 					self.bufferQueue.dupCurrentIndex = channel.bufferIndex
+					delayChannel = channel
 				}
 			} else {
-				if self.bufferQueue.currentIndex < channel.bufferIndex {
+				if self.bufferQueue.dupCurrentIndex == 0xffffffffffffffff || self.bufferQueue.dupCurrentIndex < channel.bufferIndex {
 					self.bufferQueue.dupCurrentIndex = channel.bufferIndex
+					delayChannel = channel
 				}
 			}
+		}
+
+		if delayChannel != nil {
+			delayChannel.wakeupedBuffer = true
 		}
 		return nil
 	}
@@ -1912,7 +1938,7 @@ func (self *ReplicationManager) FlushDB() error {
 	if self.serverCount > 0 {
 		self.bufferQueue.dupCurrentIndex = self.bufferQueue.segmentCount
 	} else {
-		self.bufferQueue.dupCurrentIndex = 0
+		self.bufferQueue.dupCurrentIndex = 0xffffffffffffffff
 	}
 	self.slock.Log().Infof("Replication flush all DB")
 	return nil

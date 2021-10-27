@@ -693,10 +693,6 @@ func (self *AofChannel) AofAcked(buf []byte, succed bool) error {
 }
 
 func (self *AofChannel) Acked(commandResult *protocol.LockResultCommand) error {
-	if self.lockDbGlock.lowPriority == 1 {
-		self.lockDbGlock.LowPriorityLock()
-		self.lockDbGlock.LowPriorityUnlock()
-	}
 	var aofLock *AofLock
 	self.glock.Lock()
 	if self.freeLockIndex > 0 {

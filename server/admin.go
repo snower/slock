@@ -337,6 +337,7 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 	}
 	infos = append(infos, fmt.Sprintf("aof_channel_handing_count:%d", channelHandingCount))
 	infos = append(infos, fmt.Sprintf("aof_count:%d", aof.aofLockCount))
+	infos = append(infos, fmt.Sprintf("aof_ring_buffer_duplicate_count:%d", self.slock.replicationManager.bufferQueue.dupCount))
 	if aof.aofFile != nil {
 		infos = append(infos, fmt.Sprintf("aof_file_name:%s", aof.aofFile.filename))
 		infos = append(infos, fmt.Sprintf("aof_file_size:%d", aof.aofFile.size))
