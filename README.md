@@ -188,7 +188,7 @@ Succed
 
 ### 集群创建示例
 
-#### 第一步：启动集群节点
+#### 第1步：启动集群节点
 
 ```
 ./bin/slock --data_dir=./data1 --bind=0.0.0.0 --port=5657 --log=/var/log/slock1.log --replset=s1
@@ -198,13 +198,13 @@ Succed
 ./bin/slock --data_dir=./data3 --bind=0.0.0.0 --port=5659 --log=/var/log/slock3.log --replset=s1
 ```
 
-#### 第二步：使用redis-cli连接
+#### 第2步：使用redis-cli连接
 
 ```
 redis-cli -h 127.0.0.1 -p 5657
 ```
 
-#### 第二步：配置初始化集群
+#### 第3步：配置初始化集群
 
 ```
 # 在连接成功后的redis-cli中执行
@@ -212,7 +212,7 @@ redis-cli -h 127.0.0.1 -p 5657
 replset config 127.0.0.1:5657 weight 1 arbiter 0
 ```
 
-#### 第三步：添加其它节点
+#### 第4步：添加其它节点
 
 ```
 # 在连接成功后的redis-cli中执行
