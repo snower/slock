@@ -792,13 +792,19 @@ func (self *Admin) commandHandleReplsetConfigCommand(serverProtocol *TextServerP
 		switch strings.ToUpper(args[i*2+3]) {
 		case "WEIGHT":
 			v, err := strconv.Atoi(args[i*2+4])
-			if err == nil && v >= 0 {
+			if err != nil {
+				return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(false, "ERR parse weight error", nil))
+			}
+			if v >= 0 {
 				weight = v
 			}
 		case "ARBITER":
 			v, err := strconv.Atoi(args[i*2+4])
-			if err == nil && v >= 0 {
-				weight = v
+			if err != nil {
+				return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(false, "ERR parse arbiter error", nil))
+			}
+			if v >= 0 {
+				arbiter = v
 			}
 		}
 	}
@@ -820,13 +826,19 @@ func (self *Admin) commandHandleReplsetAddCommand(serverProtocol *TextServerProt
 		switch strings.ToUpper(args[i*2+3]) {
 		case "WEIGHT":
 			v, err := strconv.Atoi(args[i*2+4])
-			if err == nil && v >= 0 {
+			if err != nil {
+				return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(false, "ERR parse weight error", nil))
+			}
+			if v >= 0 {
 				weight = v
 			}
 		case "ARBITER":
 			v, err := strconv.Atoi(args[i*2+4])
-			if err == nil && v >= 0 {
-				weight = v
+			if err != nil {
+				return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(false, "ERR parse arbiter error", nil))
+			}
+			if v >= 0 {
+				arbiter = v
 			}
 		}
 	}
@@ -860,13 +872,19 @@ func (self *Admin) commandHandleReplsetSetCommand(serverProtocol *TextServerProt
 		switch strings.ToUpper(args[i*2+3]) {
 		case "WEIGHT":
 			v, err := strconv.Atoi(args[i*2+4])
-			if err == nil && v >= 0 {
+			if err != nil {
+				return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(false, "ERR parse weight error", nil))
+			}
+			if v >= 0 {
 				weight = v
 			}
 		case "ARBITER":
 			v, err := strconv.Atoi(args[i*2+4])
-			if err == nil && v >= 0 {
-				weight = v
+			if err != nil {
+				return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(false, "ERR parse arbiter error", nil))
+			}
+			if v >= 0 {
+				arbiter = v
 			}
 		}
 	}

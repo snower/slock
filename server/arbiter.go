@@ -782,7 +782,7 @@ func (self *ArbiterMember) DoProposal(proposalId uint64, host string, aofId [16]
 		return nil, err
 	}
 
-	self.manager.slock.Log().Infof("Arbiter member %s do vote succed", self.host)
+	self.manager.slock.Log().Infof("Arbiter member %s do proposal succed", self.host)
 	return &response, nil
 }
 
@@ -1044,6 +1044,7 @@ func (self *ArbiterVoter) DoVote() error {
 	}
 
 	if selectVoteResponse == nil {
+		self.manager.slock.Log().Errorf("Arbier voter do vote fail")
 		return errors.New("not found")
 	}
 
@@ -1068,6 +1069,7 @@ func (self *ArbiterVoter) DoProposal() error {
 		return errors.New("member accept proposal is reject")
 	}
 	if len(responses) < len(self.manager.members)/2+1 {
+		self.manager.slock.Log().Errorf("Arbier voter do proposal fail")
 		return errors.New("member accept proposal count too small")
 	}
 	self.manager.slock.Log().Infof("Arbier voter do proposal succed, host %s aof_id %x proposal_id %d", self.voteHost, self.voteAofId, self.proposalId)
@@ -1086,6 +1088,7 @@ func (self *ArbiterVoter) DoCommit() error {
 	if len(responses) < len(self.manager.members)/2+1 {
 		self.proposalHost = ""
 		self.proposalFromHost = ""
+		self.manager.slock.Log().Errorf("Arbier voter do commit fail")
 		return errors.New("member accept proposal count too small")
 	}
 
