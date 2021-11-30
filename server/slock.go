@@ -43,7 +43,7 @@ type SLock struct {
 	state                  uint8
 }
 
-func NewSLock(config *ServerConfig) *SLock {
+func NewSLock(config *ServerConfig, logger logging.Logger) *SLock {
 	SetConfig(config)
 
 	aof := NewAof()
@@ -51,7 +51,6 @@ func NewSLock(config *ServerConfig) *SLock {
 	subscribeManager := NewSubscribeManager()
 	admin := NewAdmin()
 	now := time.Now()
-	logger := InitLogger(Config.Log, Config.LogLevel)
 	slock := &SLock{nil, make([]*LockDB, 256), &sync.Mutex{}, aof, replicationManager, nil, subscribeManager, admin, logger,
 		make(map[uint32]*ServerProtocolSession, STREAMS_INIT_COUNT), &sync.Mutex{}, make(map[[16]byte]ServerProtocol, STREAMS_INIT_COUNT), &sync.Mutex{}, &now,
 		NewLockCommandQueue(16, 64, FREE_COMMAND_QUEUE_INIT_SIZE*int32(Config.DBConcurrent)), &sync.Mutex{}, 0, 0, STATE_INIT}

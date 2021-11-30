@@ -86,7 +86,13 @@ func main() {
 		config = server.ExtendConfig(config, fileConfig)
 	}
 
-	slock := server.NewSLock(config)
+	logger, err := server.InitLogger(config)
+	if err != nil {
+		fmt.Printf("Init log error: %v\r\n", err)
+		return
+	}
+
+	slock := server.NewSLock(config, logger)
 	slockServer := server.NewServer(slock)
 	err = slock.Init(slockServer)
 	if err != nil {

@@ -3,35 +3,42 @@ package server
 import (
 	"github.com/hhkbp2/go-logging"
 	"os"
+	"strings"
 	"time"
 )
 
-func getFormatter() logging.Formatter {
+func initFormatter() (logging.Formatter, error) {
 	formatter := logging.NewStandardFormatter("%(asctime)s %(levelname)s %(message)s", "%Y-%m-%d %H:%M:%S.%3n")
-	return formatter
+	return formatter, nil
 }
 
-func initConsoleLogger(formatter logging.Formatter) logging.Handler {
+func initConsoleLogger(formatter logging.Formatter) (logging.Handler, error) {
 	handler := logging.NewStdoutHandler()
 	handler.SetFormatter(formatter)
-	return handler
+	return handler, nil
 }
 
-func initFileLogger(logFile string, formatter logging.Formatter) logging.Handler {
-	handler := logging.MustNewRotatingFileHandler(
-		logFile, os.O_APPEND, int(Config.LogBufferSize), time.Duration(Config.LogBufferFlushTime)*time.Second, 64,
-		uint64(Config.LogRotatingSize), uint32(Config.LogBackupCount))
+func initFileLogger(config *ServerConfig, formatter logging.Formatter) (logging.Handler, error) {
+	handler, err := logging.NewRotatingFileHandler(
+		config.Log, os.O_APPEND, int(config.LogBufferSize), time.Duration(config.LogBufferFlushTime)*time.Second, 64,
+		uint64(config.LogRotatingSize), uint32(config.LogBackupCount))
+	if err != nil {
+		return nil, err
+	}
 
 	handler.SetFormatter(formatter)
-	return handler
+	return handler, nil
 }
 
-func InitLogger(logFile string, logLevel string) logging.Logger {
+func InitLogger(config *ServerConfig) (logging.Logger, error) {
 	logger := logging.GetLogger("")
-	formatter := getFormatter()
+	formatter, err := initFormatter()
+	if err != nil {
+		return nil, err
+	}
 
 	loggingLevel := logging.LevelInfo
-	switch logLevel {
+	switch strings.ToUpper(config.LogLevel) {
 	case "DEBUG":
 		loggingLevel = logging.LevelDebug
 	case "WARNING":
@@ -42,18 +49,25 @@ func InitLogger(logFile string, logLevel string) logging.Logger {
 		loggingLevel = logging.LevelInfo
 	}
 
-	if logFile == "" || logFile == "-" {
-		handler := initConsoleLogger(formatter)
+	if config.Log == "" || config.Log == "-" {
+		handler, err := initConsoleLogger(formatter)
+		if err != nil {
+			return nil, err
+		}
 		_ = handler.SetLevel(loggingLevel)
 		_ = logger.SetLevel(loggingLevel)
 		logger.AddHandler(handler)
-		logger.Infof("Logger start consolelogger %s %s", logLevel, logFile)
-	} else {
-		handler := initFileLogger(logFile, formatter)
-		_ = handler.SetLevel(loggingLevel)
-		_ = logger.SetLevel(loggingLevel)
-		logger.AddHandler(handler)
-		logger.Infof("Logger start filelogger %s %s", logLevel, logFile)
+		logger.Infof("Logger start consolelogger %s %s", config.LogLevel, config.Log)
+		return logger, nil
 	}
-	return logger
+
+	handler, err := initFileLogger(config, formatter)
+	if err != nil {
+		return nil, err
+	}
+	_ = handler.SetLevel(loggingLevel)
+	_ = logger.SetLevel(loggingLevel)
+	logger.AddHandler(handler)
+	logger.Infof("Logger start filelogger %s %s", config.LogLevel, config.Log)
+	return logger, nil
 }
