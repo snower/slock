@@ -70,71 +70,6 @@ redis-cli -h 127.0.0.1 -p 5658 info
 - Semaphore - semaphore, max 0xffff
 - RWLock - read-write lock, max concurrent reading 0xffff
 
-# Redis Text Protocol Command
-
-```
-LOCK lock_key [TIMEOUT seconds] [EXPRIED seconds] [LOCK_ID lock_id_string] [FLAG flag_uint8] [COUNT count_uint16] [RCOUNT rcount_uint8] [WILL will_uint8]
-
-对lock_key加锁。
-- LOCK_KEY 需要加锁的key值，长度16字节，不足16前面加0x00补足，32字节是尝试hex解码，超过16字节取MD5
-- TIMEOUT 已锁定则等待时长，4字节无符号整型，高2字节是FLAG，低2字节是时间，可选
-- EXPRIED 锁定后超时时长，4字节无符号整型，高2字节是FLAG，低2字节是时间，可选
-- LOCK_ID 本次加锁ID，不指明lock_id则自动生成一个，长度16字节，不足16前面加0x00补足，32字节是尝试hex解码，超过16字节取MD5，可选
-- FLAG 标识，可选
-- COUNT LOCK_KEY最大锁定次数，不超过两字节无符号整型，可选
-- RCOUNT LOCK_ID 重复锁定次数，不超过一字节无符号整型，可选
-- WILL 设置值1表示次命令遗言命令，在连接断开后被发送执行，可选
-
-返回 [RESULT_CODE, RESULG_MSG, 'LOCK_ID', lock_id, 'LCOUNT', lcount, 'COUNT', count, 'LRCOUNT', lrcoutn, 'RCOUNT', rcount]
-- RESULT_CODE 返回值，数字，0为成功
-- RESULG_MSG 放回值消息提示，OK为成功
-- LOCK_ID 本次加锁ID，解锁是需要
-- LCOUNT LOCK_KEY已锁定次数
-- COUNT LOCK_KEY最大锁定次数
-- LRCOUNT LOCK_ID已锁定次数
-- RCOUNT LOCK_ID最大锁定次数
-- WILL 设置值1表示次命令遗言命令，在连接断开后被发送执行，可选
-
-UNLOCK lock_key [LOCK_ID lock_id_string] [FLAG flag_uint8] [RCOUNT rcount_uint8] [WILL will_uint8]
-
-对lock_key解锁。
-- LOCK_KEY 需要加锁的key值，长度16字节，不足16前面加0x00补足，32字节是尝试hex解码，超过16字节取MD5
-- LOCK_ID 本次加锁ID，不指明则自动使用上次锁定lock_id，长度16字节，不足16前面加0x00补足，32字节是尝试hex解码，超过16字节取MD5，可选
-- FLAG 标识，可选
-- RCOUNT LOCK_ID 重复锁定次数，不超过一字节无符号整型，可选
-- WILL 设置值1表示次命令遗言命令，在连接断开后被发送执行，可选
-
-返回 [RESULT_CODE, RESULG_MSG, 'LOCK_ID', lock_id, 'LCOUNT', lcount, 'COUNT', count, 'LRCOUNT', lrcoutn, 'RCOUNT', rcount]
-- RESULT_CODE 返回值，数字，0为成功
-- RESULG_MSG 放回值消息提示，OK为成功
-- LOCK_ID 本次加锁ID，解锁是需要
-- LCOUNT LOCK_KEY已锁定次数
-- COUNT LOCK_KEY最大锁定次数
-- LRCOUNT LOCK_ID已锁定次数
-- RCOUNT LOCK_ID最大锁定次数
-
-PUSH lock_key [TIMEOUT seconds] [EXPRIED seconds] [LOCK_ID lock_id_string] [FLAG flag_uint8] [COUNT count_uint16] [RCOUNT rcount_uint8]
-
-推送对lock_key加锁命令，不等待结果返回。
-- LOCK_KEY 需要加锁的key值，长度16字节，不足16前面加0x00补足，32字节是尝试hex解码，超过16字节取MD5
-- TIMEOUT 已锁定则等待时长，4字节无符号整型，高2字节是FLAG，低2字节是时间，可选
-- EXPRIED 锁定后超时时长，4字节无符号整型，高2字节是FLAG，低2字节是时间，可选
-- LOCK_ID 本次加锁ID，不指明lock_id则自动生成一个，长度16字节，不足16前面加0x00补足，32字节是尝试hex解码，超过16字节取MD5，可选
-- FLAG 标识，可选
-- COUNT LOCK_KEY最大锁定次数，不超过两字节无符号整型，可选
-- RCOUNT LOCK_ID 重复锁定次数，不超过一字节无符号整型，可选
-- WILL 设置值1表示次命令遗言命令，在连接断开后被发送执行，可选
-
-返回 [RESULT_CODE, RESULG_MSG, 'LOCK_ID', lock_id, 'LCOUNT', lcount, 'COUNT', count, 'LRCOUNT', lrcoutn, 'RCOUNT', rcount]
-- RESULT_CODE 返回值，数字，0为成功
-- RESULG_MSG 放回值消息提示，OK为成功
-- LOCK_ID 本次加锁ID，解锁是需要
-- LCOUNT LOCK_KEY已锁定次数
-- COUNT LOCK_KEY最大锁定次数
-- LRCOUNT LOCK_ID已锁定次数
-- RCOUNT LOCK_ID最大锁定次数
-```
-
 # Benchmark
 
 ```
@@ -256,10 +191,130 @@ ip:port或domain:port格式
 #### arbiter
 数字，非0即仅投票节点，此时依然启动集群代理，此时该节点也为集群agent节点。
 
-# Flags
+# Protocol
 
-### Lock命令FLAG
+### Slock Binary Protocol
 
+```
+# Request Command
+|     0     |      1    |     2     |     3     |     4     |     5     |     6     |     7     |
+|-----------|-----------|-----------|-----------|-----------|-----------|-----------|-----------|
+|   Magic   |  Version  |CommandType|                      RequestId                            |
+|-----------------------------------------------------------------------------------------------|
+|                                           RequestId                                           |
+|-----------------------------------------------------------------------------------------------|
+|           RequestId               |   FLAG    |   DBID    |               LockId              |
+|-----------------------------------------------------------------------------------------------|
+|                                           LockId                                              |
+|-----------------------------------------------------------------------------------------------|
+|                       LockId                              |               LockKey             |
+|-----------------------------------------------------------------------------------------------|
+|                                           LockKey                                             |
+|-----------------------------------------------------------------------------------------------|
+|                       LockKey                             |       Timeout         |TimeoutFlag|
+|-----------------------------------------------------------------------------------------------|
+|TimeoutFlag|         Expried       |     ExpriedFlag       |        Count         |   RCount   |
+|-----------------------------------------------------------------------------------------------|
+
+# Response Command
+|     0     |      1    |     2     |     3     |     4     |     5     |     6     |     7     |
+|-----------|-----------|-----------|-----------|-----------|-----------|-----------|-----------|
+|   Magic   |  Version  |CommandType|                      RequestId                            |
+|-----------------------------------------------------------------------------------------------|
+|                                           RequestId                                           |
+|-----------------------------------------------------------------------------------------------|
+|           RequestId               |   Result  |   FLAG    |   DBID    |        LockId         |
+|-----------------------------------------------------------------------------------------------|
+|                                           LockId                                              |
+|-----------------------------------------------------------------------------------------------|
+|                             LockId                                    |        LockKey        |
+|-----------------------------------------------------------------------------------------------|
+|                                           LockKey                                             |
+|-----------------------------------------------------------------------------------------------|
+|                             LockKey                                   |        LCount         |
+|-----------------------------------------------------------------------------------------------|
+|        Count          |  LRCount  |   RCount  |                 PADDING                       |
+|-----------------------------------------------------------------------------------------------|
+
+# 请求及返回之类都是固定64字节，Magic值为0x56，Version当前为0x01
+# CommandType Lock调用值为1，UnLock调用值为2
+# 数字编码字节序为网络字节续，即低位在前，RequestId、LockId、LockKey三个为字节数组正常数组顺序
+# 协议为全双工异步协议，不保证顺序返回，以RequestId为准
+# RequestId连接级唯一，LockId相同LockKey下唯一即可
+# 二进制协议及redis文本协议都使用相同端口，首次收到数据会区分协议类型，后面需使用相同协议通信
+# Count为当个LockKey可锁定最大次数，RCoun为单个LockId可重入次数
+# 返回指令中LCount及LRCount分别为Count和RCount的当前以锁定次数
+```
+
+### Redis Text Protocol
+
+```
+LOCK lock_key [TIMEOUT seconds] [EXPRIED seconds] [LOCK_ID lock_id_string] [FLAG flag_uint8] [COUNT count_uint16] [RCOUNT rcount_uint8] [WILL will_uint8]
+
+对lock_key加锁。
+- LOCK_KEY 需要加锁的key值，长度16字节，不足16前面加0x00补足，32字节是尝试hex解码，超过16字节取MD5
+- TIMEOUT 已锁定则等待时长，4字节无符号整型，高2字节是FLAG，低2字节是时间，可选
+- EXPRIED 锁定后超时时长，4字节无符号整型，高2字节是FLAG，低2字节是时间，可选
+- LOCK_ID 本次加锁ID，不指明lock_id则自动生成一个，长度16字节，不足16前面加0x00补足，32字节是尝试hex解码，超过16字节取MD5，可选
+- FLAG 标识，可选
+- COUNT LOCK_KEY最大锁定次数，不超过两字节无符号整型，可选
+- RCOUNT LOCK_ID 重复锁定次数，不超过一字节无符号整型，可选
+- WILL 设置值1表示次命令遗言命令，在连接断开后被发送执行，可选
+
+返回 [RESULT_CODE, RESULG_MSG, 'LOCK_ID', lock_id, 'LCOUNT', lcount, 'COUNT', count, 'LRCOUNT', lrcoutn, 'RCOUNT', rcount]
+- RESULT_CODE 返回值，数字，0为成功
+- RESULG_MSG 放回值消息提示，OK为成功
+- LOCK_ID 本次加锁ID，解锁是需要
+- LCOUNT LOCK_KEY已锁定次数
+- COUNT LOCK_KEY最大锁定次数
+- LRCOUNT LOCK_ID已锁定次数
+- RCOUNT LOCK_ID最大锁定次数
+- WILL 设置值1表示次命令遗言命令，在连接断开后被发送执行，可选
+
+UNLOCK lock_key [LOCK_ID lock_id_string] [FLAG flag_uint8] [RCOUNT rcount_uint8] [WILL will_uint8]
+
+对lock_key解锁。
+- LOCK_KEY 需要加锁的key值，长度16字节，不足16前面加0x00补足，32字节是尝试hex解码，超过16字节取MD5
+- LOCK_ID 本次加锁ID，不指明则自动使用上次锁定lock_id，长度16字节，不足16前面加0x00补足，32字节是尝试hex解码，超过16字节取MD5，可选
+- FLAG 标识，可选
+- RCOUNT LOCK_ID 重复锁定次数，不超过一字节无符号整型，可选
+- WILL 设置值1表示次命令遗言命令，在连接断开后被发送执行，可选
+
+返回 [RESULT_CODE, RESULG_MSG, 'LOCK_ID', lock_id, 'LCOUNT', lcount, 'COUNT', count, 'LRCOUNT', lrcoutn, 'RCOUNT', rcount]
+- RESULT_CODE 返回值，数字，0为成功
+- RESULG_MSG 放回值消息提示，OK为成功
+- LOCK_ID 本次加锁ID，解锁是需要
+- LCOUNT LOCK_KEY已锁定次数
+- COUNT LOCK_KEY最大锁定次数
+- LRCOUNT LOCK_ID已锁定次数
+- RCOUNT LOCK_ID最大锁定次数
+
+PUSH lock_key [TIMEOUT seconds] [EXPRIED seconds] [LOCK_ID lock_id_string] [FLAG flag_uint8] [COUNT count_uint16] [RCOUNT rcount_uint8]
+
+推送对lock_key加锁命令，不等待结果返回。
+- LOCK_KEY 需要加锁的key值，长度16字节，不足16前面加0x00补足，32字节是尝试hex解码，超过16字节取MD5
+- TIMEOUT 已锁定则等待时长，4字节无符号整型，高2字节是FLAG，低2字节是时间，可选
+- EXPRIED 锁定后超时时长，4字节无符号整型，高2字节是FLAG，低2字节是时间，可选
+- LOCK_ID 本次加锁ID，不指明lock_id则自动生成一个，长度16字节，不足16前面加0x00补足，32字节是尝试hex解码，超过16字节取MD5，可选
+- FLAG 标识，可选
+- COUNT LOCK_KEY最大锁定次数，不超过两字节无符号整型，可选
+- RCOUNT LOCK_ID 重复锁定次数，不超过一字节无符号整型，可选
+- WILL 设置值1表示次命令遗言命令，在连接断开后被发送执行，可选
+
+返回 [RESULT_CODE, RESULG_MSG, 'LOCK_ID', lock_id, 'LCOUNT', lcount, 'COUNT', count, 'LRCOUNT', lrcoutn, 'RCOUNT', rcount]
+- RESULT_CODE 返回值，数字，0为成功
+- RESULG_MSG 放回值消息提示，OK为成功
+- LOCK_ID 本次加锁ID，解锁是需要
+- LCOUNT LOCK_KEY已锁定次数
+- COUNT LOCK_KEY最大锁定次数
+- LRCOUNT LOCK_ID已锁定次数
+- RCOUNT LOCK_ID最大锁定次数
+```
+
+
+### Flags
+
+#### Lock命令FLAG
 ```
 |7                    |           1           |         0           |
 |---------------------|-----------------------|---------------------|
@@ -269,7 +324,7 @@ ip:port或domain:port格式
 0x02 when_locked_update_lock 已锁定时更新锁定信息
 ```
 
-### UnLock命令FLAG
+#### UnLock命令FLAG
 ```
 |7                  |           1             |               0               |
 |-------------------|-------------------------|-------------------------------|
@@ -279,7 +334,7 @@ ip:port或domain:port格式
 0x02 when_unlocked_cancel_wait 等待锁定时取消等待
 ```
 
-### Timeout参数FLAG
+#### Timeout参数FLAG
 
 ```
 |    15  |                13                   |  12 |        11      |       10       |      9       |           8        |             7          |      6    |       5      |4           0|
@@ -298,7 +353,7 @@ ip:port或domain:port格式
 0x8000 keeplive 连接不断开则不超时，则此时设置的超时时间为检查连接存活状态的延时间隔
 ```
 
-### Expried参数FLAG
+#### Expried参数FLAG
 
 ```
 |    15  |          14          |                13                   |                12         |        11      |       10       |         9        |        8    |            7           |     6     |    5         |4            0|
