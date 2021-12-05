@@ -9,13 +9,22 @@ High-performance distributed sync service and atomic DB
 High-performance distributed sync service and atomic DB. Provides good multi-core support through lock queues, high-performance asynchronous binary network protocols.
 Can be used for spikes, synchronization, event notification, concurrency control, etc. Support Redis client.
 
-# Installation
+* [Install](#install)
+* [Quick Start Server](#quick-Start-server)
+* [Show Server Info](#show-server-info)
+* [Support Lock Type](#support-lock-type)
+* [Benchmark](#benchmark)
+* [SlaveOf](#slaveof)
+* [Replset](#replset)
+* [Client Resources](#client-resources)
+
+# Install
 
 ```
 go get github.com/snower/slock
 ```
 
-# Start
+# Quick Start Server
 
 ```
 ./bin/slock -h
@@ -55,7 +64,7 @@ Help Options:
 ./bin/slock --bind=0.0.0.0 --port=5658 --log=/var/log/slock.log
 ```
 
-# Show Info
+# Show Server Info
 
 ```
 redis-cli -h 127.0.0.1 -p 5658 info
@@ -64,11 +73,12 @@ redis-cli -h 127.0.0.1 -p 5658 info
 # Support Lock Type
 
 - Lock - regular lock, not reentrant
-- Event - distributed event
-- CycleEvent - loop wait event
+- Event - distributed event, support default seted and unseted event
 - RLock - reentrant lock,max reentrant 0xff
-- Semaphore - semaphore, max 0xffff
+- Semaphore - semaphore, max count 0xffff
 - RWLock - read-write lock, max concurrent reading 0xffff
+- MaxConcurrentFlow - maximum concurrent flow limit
+- TokenBucketFlow - token bucket flow restriction
 
 # Benchmark
 
@@ -373,7 +383,7 @@ PUSH lock_key [TIMEOUT seconds] [EXPRIED seconds] [LOCK_ID lock_id_string] [FLAG
 0x8000 keeplive 连接不断开则不过期，则此时设置的超时时间为检查连接存活状态的延时间隔
 ```
 
-# Resources
+# Client Resources
 
 PHP Client [phslock](https://github.com/snower/phslock)
 
