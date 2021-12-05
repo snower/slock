@@ -1,6 +1,6 @@
 # slock
 
-[![Build Status](https://travis-ci.org/snower/slock.svg?branch=master)](https://travis-ci.org/snower/slock)
+[![Build Status](https://travis-ci.com/snower/slock.svg?branch=master)](https://travis-ci.com/snower/slock)
 
 High-performance distributed sync service and atomic DB
 
@@ -378,6 +378,10 @@ PUSH lock_key [TIMEOUT seconds] [EXPRIED seconds] [LOCK_ID lock_id_string] [FLAG
 PHP Client [phslock](https://github.com/snower/phslock)
 
 Python Client [pyslock](https://github.com/snower/pyslock)
+
+Java Client [jaslock](https://github.com/snower/jaslock)
+
+openresty Client [slock-lua-nginx](https://github.com/snower/slock-lua-nginx)
 
 # License
 
