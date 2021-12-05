@@ -26,7 +26,7 @@ go get github.com/snower/slock
 
 # Quick Start Server
 
-```
+```bash
 ./bin/slock -h
 Usage:
   slock [info]
@@ -60,13 +60,13 @@ Help Options:
   -h, --help                                 Show this help message
 ```
 
-```
+```bash
 ./bin/slock --bind=0.0.0.0 --port=5658 --log=/var/log/slock.log
 ```
 
 # Show Server Info
 
-```
+```bash
 redis-cli -h 127.0.0.1 -p 5658 info
 ```
 
@@ -82,7 +82,8 @@ redis-cli -h 127.0.0.1 -p 5658 info
 
 # Benchmark
 
-```
+```bash
+go run tools/benchmark/main.go --mode=stream
 # Intel(R) Core(TM) i5-4590 CPU @ 3.30GHz 4 Processor
 # MemTotal: 8038144 kB
 
@@ -121,7 +122,7 @@ Succed
 
 非replset启动是默认为leader节点，可在启动参数中使用该参数指定leader节点连接参数信息启动为follower节点，follower节点会自动注册为代理转发lock和unlock指令到leader节点操作。
 
-```
+```bash
 ./bin/slock --bind=0.0.0.0 --port=5659 --log=/var/log/slock.log --slaveof=127.0.0.1:5658
 ```
 
@@ -135,7 +136,7 @@ Succed
 
 #### 第1步：启动集群节点
 
-```
+```bash
 ./bin/slock --data_dir=./data1 --bind=0.0.0.0 --port=5657 --log=/var/log/slock1.log --replset=s1
 
 ./bin/slock --data_dir=./data2 --bind=0.0.0.0 --port=5658 --log=/var/log/slock2.log --replset=s1
@@ -145,13 +146,13 @@ Succed
 
 #### 第2步：使用redis-cli连接
 
-```
+```bash
 redis-cli -h 127.0.0.1 -p 5657
 ```
 
 #### 第3步：配置初始化集群
 
-```
+```bash
 # 在连接成功后的redis-cli中执行
 
 replset config 127.0.0.1:5657 weight 1 arbiter 0
@@ -159,7 +160,7 @@ replset config 127.0.0.1:5657 weight 1 arbiter 0
 
 #### 第4步：添加其它节点
 
-```
+```bash
 # 在连接成功后的redis-cli中执行
 
 replset add 127.0.0.1:5658 weight 1 arbiter 0
