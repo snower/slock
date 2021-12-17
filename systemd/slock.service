@@ -1,0 +1,11 @@
+[Unit]
+Description=High-performance distributed sync service and atomic DB
+After=network.target
+
+[Service]
+User=slock
+ExecStart=slock --conf=/etc/slock.conf
+TimeoutStopSec=60
+
+[Install]
+WantedBy=multi-user.target
