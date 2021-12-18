@@ -10,8 +10,7 @@ WORKDIR /slock
 
 COPY ./startup.sh /opt
 
-RUN mkdir /slock \
-    && mkdir /slock/data \
+RUN mkdir /slock/data \
     && chmod +x /opt/startup.sh \
     && go get -v github.com/snower/slock
 

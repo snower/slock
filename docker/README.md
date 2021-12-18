@@ -3,7 +3,7 @@
 ### 构建
 
 ```bash
-docker build
+docker build .
 ```
 
 ### 启动
