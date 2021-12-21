@@ -16,6 +16,7 @@
 * [性能基准](#性能基准)
 * [主从模式](#主从模式)
 * [集群模式](#集群模式)
+* [通信协议](#通信协议)
 * [客户端库](#客户端库)
 * [Docker](#docker)
 
@@ -203,12 +204,12 @@ ip:port或domain:port格式
 #### arbiter
 数字，非0即仅投票节点，此时依然启动集群代理，此时该节点也为集群agent节点。
 
-# Protocol
+# 通信协议
 
-### Slock Binary Protocol
+### 二进制异步协议
 
 ```
-# Request Command
+# 请求命令
 |     0     |      1    |     2     |     3     |     4     |     5     |     6     |     7     |
 |-----------|-----------|-----------|-----------|-----------|-----------|-----------|-----------|
 |   Magic   |  Version  |CommandType|                      RequestId                            |
@@ -228,7 +229,7 @@ ip:port或domain:port格式
 |TimeoutFlag|         Expried       |     ExpriedFlag       |        Count         |   RCount   |
 |-----------------------------------------------------------------------------------------------|
 
-# Response Command
+# 响应命令
 |     0     |      1    |     2     |     3     |     4     |     5     |     6     |     7     |
 |-----------|-----------|-----------|-----------|-----------|-----------|-----------|-----------|
 |   Magic   |  Version  |CommandType|                      RequestId                            |
@@ -258,7 +259,7 @@ ip:port或domain:port格式
 # 返回指令中LCount及LRCount分别为Count和RCount的当前以锁定次数
 ```
 
-### Redis Text Protocol
+### Redis同步文本协议
 
 ```
 LOCK lock_key [TIMEOUT seconds] [EXPRIED seconds] [LOCK_ID lock_id_string] [FLAG flag_uint8] [COUNT count_uint16] [RCOUNT rcount_uint8] [WILL will_uint8]
