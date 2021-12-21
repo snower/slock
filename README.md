@@ -4,6 +4,8 @@
 
 High-performance distributed sync service and atomic DB
 
+[中文](README-zh-hans.md)
+
 # About
 
 High-performance distributed sync service and atomic DB. Provides good multi-core support through lock queues, high-performance asynchronous binary network protocols.
@@ -17,6 +19,7 @@ Can be used for spikes, synchronization, event notification, concurrency control
 * [SlaveOf](#slaveof)
 * [Replset](#replset)
 * [Client Resources](#client-resources)
+* [Docker](#docker)
 
 # Install
 
@@ -120,21 +123,20 @@ Succed
 
 # SlaveOf
 
-非replset启动是默认为leader节点，可在启动参数中使用该参数指定leader节点连接参数信息启动为follower节点，follower节点会自动注册为代理转发lock和unlock指令到leader节点操作。
-
+Non-replset start is the leader node by default, you can use this parameter in the start parameters to specify the leader node connection parameter information to start as follower node, follower node will automatically register as an agent to forward lock and unlock instructions to the leader node operation.
 ```bash
 ./bin/slock --bind=0.0.0.0 --port=5659 --log=/var/log/slock.log --slaveof=127.0.0.1:5658
 ```
 
 # Replset
 
-使用replset参数指定集群名称即可启动为集群模式（集群模式会忽略slaveof参数），集群启动成功后自动投票选举leader节点，其余follower节点会启动代理转发lock和unlock命令模式，自动跟踪主节点变更，即集群启动后任意节点都可正常接受客户端连接，各节点完全一致。
+Use the replset parameter to specify the cluster name to start as a cluster mode (cluster mode will ignore the slaveof parameter), after the successful start of the cluster automatically vote for the leader node, the rest of the follower nodes will start the proxy forwarding lock and unlock command mode, automatically track the master node changes, that is, after the start of the cluster any node can normally accept client connections, the nodes are completely consistent.
 
-集群管理使用redis-cli，配置管理可在集群内任意节点完成。
+Cluster management using redis-cli, configuration management can be done at any node in the cluster.
 
-### 集群创建示例
+### Cluster creation examples
 
-#### 第1步：启动集群节点
+#### Step 1: Start cluster nodes
 
 ```bash
 ./bin/slock --data_dir=./data1 --bind=0.0.0.0 --port=5657 --log=/var/log/slock1.log --replset=s1
@@ -144,63 +146,63 @@ Succed
 ./bin/slock --data_dir=./data3 --bind=0.0.0.0 --port=5659 --log=/var/log/slock3.log --replset=s1
 ```
 
-#### 第2步：使用redis-cli连接
+#### Step 2: Connect using redis-cli
 
 ```bash
 redis-cli -h 127.0.0.1 -p 5657
 ```
 
-#### 第3步：配置初始化集群
+#### Step 3: Configure the initialized cluster
 
 ```bash
-# 在连接成功后的redis-cli中执行
+# Execute in redis-cli after a successful connection
 
 replset config 127.0.0.1:5657 weight 1 arbiter 0
 ```
 
-#### 第4步：添加其它节点
+#### Step 4: Add other members
 
 ```bash
-# 在连接成功后的redis-cli中执行
+# Execute in redis-cli after a successful connection
 
 replset add 127.0.0.1:5658 weight 1 arbiter 0
 
 replset add 127.0.0.1:5659 weight 1 arbiter 0
 ```
 
-### 配置指令
+### Configuration commands
 
 ```
-# 添加节点
+# Add member
 replset add <host> weight <weight> arbiter <arbiter>
 
-# 更新节点参数
+# Update member parameters
 replset set <host> weight <weight> arbiter <arbiter>
 
-# 移除节点
+# Remove member
 replset remove <host>
 
-# 查看节点信息
+# View member Information
 replset get <host>
 
-# 查询集群节点列表
+# View the list of cluster members
 replset members
 ```
 
-### 参数说明
+### Parameter Description
 
 #### host 
-ip:port或domain:port格式
+ip:port or domain:port format
 ```
-注意：
-    集群内各节点需要相互连接，所以指定的host需要保证集群内的其它节点都要能正常连接到该地址。
+Caution.
+    The nodes in the cluster need to connect to each other, so the specified host needs to ensure that all other nodes in the cluster can connect to that address properly.
 ```
 
 #### weight
-数字，投票权重优先级，投票优先选择拥有最新数据节点，再选择weight最高节点，weight为0时永远不会被选为leader节点，即可通过设置weight为0使该节点单纯为数据节点。
+Numbers, voting weight priority, voting priority to select the node with the latest data, and then select the highest weight node, weight is 0 will never be selected as the leader node, that is, by setting weight to 0 so that the node is simply a data node.
 
 #### arbiter
-数字，非0即仅投票节点，此时依然启动集群代理，此时该节点也为集群agent节点。
+Number, non-zero that is only voting node, at this time still start the cluster agent, at this time the node is also the cluster agent node.
 
 # Protocol
 
@@ -247,14 +249,14 @@ ip:port或domain:port格式
 |        Count          |  LRCount  |   RCount  |                 PADDING                       |
 |-----------------------------------------------------------------------------------------------|
 
-# 请求及返回之类都是固定64字节，Magic值为0x56，Version当前为0x01
-# CommandType Lock调用值为1，UnLock调用值为2
-# 数字编码字节序为网络字节续，即低位在前，RequestId、LockId、LockKey三个为字节数组正常数组顺序
-# 协议为全双工异步协议，不保证顺序返回，以RequestId为准
-# RequestId连接级唯一，LockId相同LockKey下唯一即可
-# 二进制协议及redis文本协议都使用相同端口，首次收到数据会区分协议类型，后面需使用相同协议通信
-# Count为当个LockKey可锁定最大次数，RCoun为单个LockId可重入次数
-# 返回指令中LCount及LRCount分别为Count和RCount的当前以锁定次数
+# Request and return and so on are fixed 64 bytes, Magic value is 0x56, Version current is 0x01
+# CommandType Lock call value is 1, UnLock call value is 2
+# Digital encoding byte order for the network byte continued, that is, the low bit in front, RequestId, LockId, LockKey three for the byte array normal array order
+# protocol for full-duplex asynchronous protocol, does not guarantee the order of return, to RequestId prevail
+# RequestId connection-level unique, LockId the same LockKey under the unique can
+# Binary protocol and redis text protocol are using the same port, the first time the data received will distinguish between the protocol type, later need to use the same protocol communication
+# Count is the maximum number of times a LockKey can be locked, RCoun is the number of times a single LockId can be reentered
+# Return command LCount and LRCount are the current number of locks for Count and RCount respectively
 ```
 
 ### Redis Text Protocol
@@ -262,126 +264,126 @@ ip:port或domain:port格式
 ```
 LOCK lock_key [TIMEOUT seconds] [EXPRIED seconds] [LOCK_ID lock_id_string] [FLAG flag_uint8] [COUNT count_uint16] [RCOUNT rcount_uint8] [WILL will_uint8]
 
-对lock_key加锁。
-- LOCK_KEY 需要加锁的key值，长度16字节，不足16前面加0x00补足，32字节是尝试hex解码，超过16字节取MD5
-- TIMEOUT 已锁定则等待时长，4字节无符号整型，高2字节是FLAG，低2字节是时间，可选
-- EXPRIED 锁定后超时时长，4字节无符号整型，高2字节是FLAG，低2字节是时间，可选
-- LOCK_ID 本次加锁ID，不指明lock_id则自动生成一个，长度16字节，不足16前面加0x00补足，32字节是尝试hex解码，超过16字节取MD5，可选
-- FLAG 标识，可选
-- COUNT LOCK_KEY最大锁定次数，不超过两字节无符号整型，可选
-- RCOUNT LOCK_ID 重复锁定次数，不超过一字节无符号整型，可选
-- WILL 设置值1表示次命令遗言命令，在连接断开后被发送执行，可选
+Add lock to lock_key.
+- LOCK_KEY The key value to be locked, length 16 bytes, less than 16 front plus 0x00 to make up, 32 bytes is to try hex decoding, more than 16 bytes to take MD5
+- TIMEOUT has been locked then waiting time, 4 bytes unsigned integer, high 2 bytes is FLAG, low 2 bytes is time, optional
+- EXPRIED timeout after lock, 4 bytes unsigned integer, high 2 bytes is FLAG, low 2 bytes is time, optional
+- LOCK_ID The lock ID is automatically generated without specifying the lock_id, length 16 bytes, less than 16 bytes plus 0x00, 32 bytes is to try to hex decode, more than 16 bytes to take MD5, optional
+- FLAG marker, optional
+- COUNT LOCK_KEY maximum locking times, not more than two bytes unsigned integer, optional
+- RCOUNT LOCK_ID repeat lock count, not more than one byte unsigned integer, optional
+- WILL Set the value of 1 to indicate the subcommand last word command, which is sent for execution after the connection is disconnected, optional
 
-返回 [RESULT_CODE, RESULG_MSG, 'LOCK_ID', lock_id, 'LCOUNT', lcount, 'COUNT', count, 'LRCOUNT', lrcoutn, 'RCOUNT', rcount]
-- RESULT_CODE 返回值，数字，0为成功
-- RESULG_MSG 放回值消息提示，OK为成功
-- LOCK_ID 本次加锁ID，解锁是需要
-- LCOUNT LOCK_KEY已锁定次数
-- COUNT LOCK_KEY最大锁定次数
-- LRCOUNT LOCK_ID已锁定次数
-- RCOUNT LOCK_ID最大锁定次数
-- WILL 设置值1表示次命令遗言命令，在连接断开后被发送执行，可选
+Return [RESULT_CODE, RESULG_MSG, 'LOCK_ID', lock_id, 'LCOUNT', lcount, 'COUNT', count, 'LRCOUNT', lrcoutn, 'RCOUNT', rcount]
+- RESULT_CODE Return value, numeric, 0 for success
+- RESULG_MSG Put back the value message prompt, OK is success
+- LOCK_ID The locking ID, unlocking is required
+- LCOUNT The number of times LOCK_KEY has been locked
+- COUNT LOCK_KEY maximum number of locks
+- LRCOUNT LOCK_ID has been locked number of times
+- RCOUNT LOCK_ID maximum lock count
+- WILL Set the value of 1 to indicate the subcommand last word command, which is sent for execution after the connection is disconnected, optional
 
 UNLOCK lock_key [LOCK_ID lock_id_string] [FLAG flag_uint8] [RCOUNT rcount_uint8] [WILL will_uint8]
 
-对lock_key解锁。
-- LOCK_KEY 需要加锁的key值，长度16字节，不足16前面加0x00补足，32字节是尝试hex解码，超过16字节取MD5
-- LOCK_ID 本次加锁ID，不指明则自动使用上次锁定lock_id，长度16字节，不足16前面加0x00补足，32字节是尝试hex解码，超过16字节取MD5，可选
-- FLAG 标识，可选
-- RCOUNT LOCK_ID 重复锁定次数，不超过一字节无符号整型，可选
-- WILL 设置值1表示次命令遗言命令，在连接断开后被发送执行，可选
+Unlock the lock_key.
+- LOCK_KEY The key value to be locked, length 16 bytes, add 0x00 before less than 16 to make up, 32 bytes is to try to hex decode, more than 16 bytes to take MD5
+- LOCK_ID The ID of this lock, if not specified, the last lock_id will be used automatically, length 16 bytes, add 0x00 before less than 16 to make up, 32 bytes is to try to decode hex, more than 16 bytes take MD5, optional
+- FLAG marker, optional
+- RCOUNT LOCK_ID repeat lock count, not more than one byte unsigned integer, optional
+- WILL Set the value of 1 to indicate the subcommand last word command, which is sent for execution after the connection is disconnected, optional
 
-返回 [RESULT_CODE, RESULG_MSG, 'LOCK_ID', lock_id, 'LCOUNT', lcount, 'COUNT', count, 'LRCOUNT', lrcoutn, 'RCOUNT', rcount]
-- RESULT_CODE 返回值，数字，0为成功
-- RESULG_MSG 放回值消息提示，OK为成功
-- LOCK_ID 本次加锁ID，解锁是需要
-- LCOUNT LOCK_KEY已锁定次数
-- COUNT LOCK_KEY最大锁定次数
-- LRCOUNT LOCK_ID已锁定次数
-- RCOUNT LOCK_ID最大锁定次数
+Return [RESULT_CODE, RESULG_MSG, 'LOCK_ID', lock_id, 'LCOUNT', lcount, 'COUNT', count, 'LRCOUNT', lrcoutn, 'RCOUNT', rcount]
+- RESULT_CODE Return value, numeric, 0 for success
+- RESULG_MSG Put back the value message prompt, OK is success
+- LOCK_ID The locking ID, unlocking is required
+- LCOUNT The number of times LOCK_KEY has been locked
+- COUNT LOCK_KEY maximum number of locks
+- LRCOUNT LOCK_ID has been locked number of times
+- RCOUNT LOCK_ID maximum number of locks
 
 PUSH lock_key [TIMEOUT seconds] [EXPRIED seconds] [LOCK_ID lock_id_string] [FLAG flag_uint8] [COUNT count_uint16] [RCOUNT rcount_uint8]
 
-推送对lock_key加锁命令，不等待结果返回。
-- LOCK_KEY 需要加锁的key值，长度16字节，不足16前面加0x00补足，32字节是尝试hex解码，超过16字节取MD5
-- TIMEOUT 已锁定则等待时长，4字节无符号整型，高2字节是FLAG，低2字节是时间，可选
-- EXPRIED 锁定后超时时长，4字节无符号整型，高2字节是FLAG，低2字节是时间，可选
-- LOCK_ID 本次加锁ID，不指明lock_id则自动生成一个，长度16字节，不足16前面加0x00补足，32字节是尝试hex解码，超过16字节取MD5，可选
-- FLAG 标识，可选
-- COUNT LOCK_KEY最大锁定次数，不超过两字节无符号整型，可选
-- RCOUNT LOCK_ID 重复锁定次数，不超过一字节无符号整型，可选
-- WILL 设置值1表示次命令遗言命令，在连接断开后被发送执行，可选
+Push to lock_key lock command, do not wait for the result to return.
+- LOCK_KEY The key value to be locked, length 16 bytes, less than 16 front plus 0x00 to make up, 32 bytes is to try hex decoding, more than 16 bytes to take MD5
+- TIMEOUT has been locked then wait for the length of time, 4 bytes unsigned integer, high 2 bytes is FLAG, low 2 bytes is time, optional
+- EXPRIED timeout after lock, 4 bytes unsigned integer, high 2 bytes is FLAG, low 2 bytes is time, optional
+- LOCK_ID The lock ID is automatically generated without specifying the lock_id, length 16 bytes, less than 16 bytes plus 0x00, 32 bytes is to try to hex decode, more than 16 bytes to take MD5, optional
+- FLAG marker, optional
+- COUNT LOCK_KEY maximum locking times, not more than two bytes unsigned integer, optional
+- RCOUNT LOCK_ID repeat lock count, not more than one byte unsigned integer, optional
+- WILL Set the value of 1 to indicate the subcommand last word command, which is sent for execution after the connection is disconnected, optional
 
-返回 [RESULT_CODE, RESULG_MSG, 'LOCK_ID', lock_id, 'LCOUNT', lcount, 'COUNT', count, 'LRCOUNT', lrcoutn, 'RCOUNT', rcount]
-- RESULT_CODE 返回值，数字，0为成功
-- RESULG_MSG 放回值消息提示，OK为成功
-- LOCK_ID 本次加锁ID，解锁是需要
-- LCOUNT LOCK_KEY已锁定次数
-- COUNT LOCK_KEY最大锁定次数
-- LRCOUNT LOCK_ID已锁定次数
-- RCOUNT LOCK_ID最大锁定次数
+Return [RESULT_CODE, RESULG_MSG, 'LOCK_ID', lock_id, 'LCOUNT', lcount, 'COUNT', count, 'LRCOUNT', lrcoutn, 'RCOUNT', rcount]
+- RESULT_CODE Return value, numeric, 0 for success
+- RESULG_MSG Put back the value message prompt, OK is success
+- LOCK_ID The locking ID, unlocking is required
+- LCOUNT The number of times LOCK_KEY has been locked
+- COUNT LOCK_KEY maximum number of locks
+- LRCOUNT LOCK_ID has been locked number of times
+- RCOUNT LOCK_ID maximum number of locks
 ```
 
 
 ### Flags
 
-#### Lock命令FLAG
+#### Lock Command FLAG
 ```
 |7                    |           1           |         0           |
 |---------------------|-----------------------|---------------------|
 |                     |when_locked_update_lock|when_locked_show_lock|
 
-0x01 when_locked_show_lock 已锁定时返回锁定信息，过期实际设置为0可用于查询锁信息
-0x02 when_locked_update_lock 已锁定时更新锁定信息
+0x01 when_locked_show_lock Returns lock information when locked, expires when actually set to 0 can be used to query lock information
+0x02 when_locked_update_lock Update lock information when locked
 ```
 
-#### UnLock命令FLAG
+#### UnLock Command FLAG
 ```
 |7                  |           1             |               0               |
 |-------------------|-------------------------|-------------------------------|
 |                   |when_unlocked_cancel_wait|when_unlocked_unlock_first_lock|
 
-0x01 when_unlocked_unlock_first_lock 未锁定时直接取消第一个已锁定的锁，并返回锁定信息
-0x02 when_unlocked_cancel_wait 等待锁定时取消等待
+0x01 when_unlocked_unlock_first_lock unlock the first locked lock directly when unlocked, and return the lock information
+0x02 when_unlocked_cancel_wait Cancel wait when waiting for lock
 ```
 
-#### Timeout参数FLAG
+#### Timeout Parameter FLAG
 
 ```
 |    15  |                13                   |  12 |        11      |       10       |      9       |           8        |             7          |      6    |       5      |4           0|
 |--------|-------------------------------------|-----|----------------|----------------|--------------|--------------------|------------------------|-----------|--------------|-------------|
 |keeplive|update_no_reset_timeout_checked_count|acked|timeout_is_error|millisecond_time|unlock_to_wait|unrenew_expried_time|timeout_reverse_key_lock|minute_time|push_subscribe|             |
 
-0x0020 push_subscribe 超时时推送超时订阅信息
-0x0040 minute_time 超时时间是分钟单位
-0x0080 timeout_reverse_key_lock 超时时反转LockKey后调用锁定指令
-0x0100 unrenew_expried_time 锁定时不重计过期时间，即过期时间以接收到命令时计算
-0x0200 unlock_to_wait 该LockKey当前没有任何锁锁定则等待，否则执行正常锁定流程
-0x0400 millisecond_time 超时时间是毫秒单位
-0x0800 timeout_is_error 超时时以ERROR级别在日志中输出错误，可用于开发时调试死锁等异常
-0x1000 acked 需等待整个集群所有活动节点均锁定成功才返回成功，强一致锁定
-0x2000 update_no_reset_timeout_checked_count 用Lock命令更新Flag更新锁定信息是，不重置超时队列计数器
-0x8000 keeplive 连接不断开则不超时，则此时设置的超时时间为检查连接存活状态的延时间隔
+0x0020 push_subscribe push timeout subscription message on timeout
+0x0040 minute_time Timeout time in minutes
+0x0080 timeout_reverse_key_lock Invoke lock command after reversing LockKey on timeout
+0x0100 unrenew_expried_time No recalculation of the expiration time when locking, i.e. the expiration time is calculated when the command is received
+0x0200 unlock_to_wait If the LockKey does not have any lock currently, it waits, otherwise it performs the normal locking process
+0x0400 millisecond_time The timeout time is in milliseconds
+0x0800 timeout_is_error output error in the log at the ERROR level, can be used to debug deadlocks and other exceptions during development
+0x1000 acked need to wait for all active nodes in the cluster to be locked successfully before returning success, strong consistent locking
+0x2000 update_no_reset_timeout_checked_count Use Lock command to update Flag to update locking information, not reset the timeout queue counter
+0x8000 keeplive connection does not timeout if it is not open, then the timeout time set at this time is the delay interval to check the connection survival status
 ```
 
-#### Expried参数FLAG
+#### Expried Parameter FLAG
 
 ```
 |    15  |          14          |                13                   |                12         |        11      |       10       |         9        |        8    |            7           |     6     |    5         |4            0|
 |--------|----------------------|-------------------------------------|---------------------------|----------------|----------------|------------------|-------------|------------------------|-----------|--------------|--------------|
 |keeplive|unlimited_expried_time|update_no_reset_expried_checked_count|aof_time_of_expried_parcent|expried_is_error|millisecond_time|unlimited_aof_time|zeor_aof_time|expried_reverse_key_lock|minute_time|push_subscribe|              |
 
-0x0020 push_subscribe 过期时推送过期订阅信息
-0x0040 minute_time 过期时间是分钟单位
-0x0080 expried_reverse_key_lock 过期时反转LockKey后调用锁定指令
-0x0100 zeor_aof_time 立刻持久化该命令
-0x0200 unlimited_aof_time 不持久化该命令
-0x0400 millisecond_time 过期时间是毫秒单位
-0x0800 expried_is_error 过期时以ERROR级别在日志中输出错误，可用于开发时调试死锁等异常
-0x1000 aof_time_of_expried_parcent 持久化时间是过期时间的百分比，百分比值有启动参数db_lock_aof_parcent_time指定
-0x2000 update_no_reset_expried_checked_count 用Lock命令更新Flag更新锁定信息是，不重置过期队列计数器
-0x4000 unlimited_expried_time 永远不过期（谨慎使用）
-0x8000 keeplive 连接不断开则不过期，则此时设置的超时时间为检查连接存活状态的延时间隔
+0x0020 push_subscribe Push expired subscription information when expired
+0x0040 minute_time Expired time in minutes
+0x0080 expried_reverse_key_lock Invoke lock command after reversing LockKey on expiration
+0x0100 zeor_aof_time Immediately persist the command
+0x0200 unlimited_aof_time does not persist the command
+0x0400 millisecond_time Expires in milliseconds
+0x0800 expried_is_error expires with an error in the log at the ERROR level, which can be used for debugging deadlocks and other exceptions during development
+0x1000 aof_time_of_expried_parcent The persistence time is a percentage of the expiration time, the percentage value is specified by the startup parameter db_lock_aof_parcent_time
+0x2000 update_no_reset_expried_checked_count Updating the lock information with the Lock command to update the Flag is not resetting the expired queue counter
+0x4000 unlimited_expried_time never expires (use with caution)
+0x8000 keeplive The connection does not expire if it is not open, then the timeout set at this point is the delay interval to check the connection's alive status
 ```
 
 # Client Resources
@@ -393,6 +395,12 @@ Python Client [pyslock](https://github.com/snower/pyslock)
 Java Client [jaslock](https://github.com/snower/jaslock)
 
 openresty Client [slock-lua-nginx](https://github.com/snower/slock-lua-nginx)
+
+# docker
+
+[build](docker/README.md)
+
+[image](https://hub.docker.com/repository/docker/sujin190/slock)
 
 # License
 
