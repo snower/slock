@@ -1449,12 +1449,22 @@ func (self *LockDB) AddMillisecondExpried(lock *Lock) {
 func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCommand) error {
 	/*
 	   protocol.LockCommand.Flag
-	   |7                    |    2   |           1           |         0           |
-	   |---------------------|--------|-----------------------|---------------------|
-	   |                     |from_aof|when_locked_update_lock|when_locked_show_lock|
+	   |7              |        4       |    2   |           1           |         0           |
+	   |---------------|----------------|--------|-----------------------|---------------------|
+	   |               |concurrent_check|from_aof|when_locked_update_lock|when_locked_show_lock|
 	*/
 
 	lockManager := self.GetOrNewLockManager(command)
+	if command.Timeout == 0 && command.Flag&protocol.LOCK_FLAG_CONCURRENT_CHECK != 0 {
+		if lockManager.locked == 0xffff || lockManager.locked > uint32(command.Count) {
+			if lockManager.refCount > 0 {
+				_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_TIMEOUT, uint16(lockManager.locked), 0)
+				_ = serverProtocol.FreeLockCommand(command)
+				return nil
+			}
+		}
+	}
+
 	if command.Flag&protocol.LOCK_FLAG_FROM_AOF == 0 {
 		lockManager.glock.LowPriorityLock()
 	} else {
