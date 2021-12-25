@@ -335,6 +335,7 @@ PUSH lock_key [TIMEOUT seconds] [EXPRIED seconds] [LOCK_ID lock_id_string] [FLAG
 
 0x01 when_locked_show_lock 已锁定时返回锁定信息，过期实际设置为0可用于查询锁信息
 0x02 when_locked_update_lock 已锁定时更新锁定信息
+0x08 concurrent_check 超时时间为0时不加锁直接检查锁定次数已超过则返回超时错误
 ```
 
 #### UnLock命令FLAG

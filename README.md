@@ -336,6 +336,7 @@ Return [RESULT_CODE, RESULG_MSG, 'LOCK_ID', lock_id, 'LCOUNT', lcount, 'COUNT', 
 
 0x01 when_locked_show_lock Returns lock information when locked, expires when actually set to 0 can be used to query lock information
 0x02 when_locked_update_lock Update lock information when locked
+0x08 concurrent_check The timeout error is returned if the lock count is exceeded without adding a lock when the timeout time is 0.
 ```
 
 #### UnLock Command FLAG
