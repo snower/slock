@@ -158,7 +158,7 @@ func (self *LockDB) resizeTimeOut() {
 
 	for j := uint16(0); j < self.managerMaxGlocks; j++ {
 		self.longTimeoutLocks[j] = make(map[int64]*LongWaitLockQueue, LONG_TIMEOUT_LOCKS_INIT_COUNT)
-		self.millisecondTimeoutLocks[j] = make([]*LockQueue, 1000)
+		self.millisecondTimeoutLocks[j] = make([]*LockQueue, MILLISECOND_QUEUE_LENGTH)
 	}
 }
 
@@ -172,7 +172,7 @@ func (self *LockDB) resizeExpried() {
 
 	for j := uint16(0); j < self.managerMaxGlocks; j++ {
 		self.longExpriedLocks[j] = make(map[int64]*LongWaitLockQueue, LONG_EXPRIED_LOCKS_INIT_COUNT)
-		self.millisecondExpriedLocks[j] = make([]*LockQueue, 1000)
+		self.millisecondExpriedLocks[j] = make([]*LockQueue, MILLISECOND_QUEUE_LENGTH)
 	}
 }
 
@@ -349,20 +349,19 @@ func (self *LockDB) checkMillisecondTimeOut(ms int64, glockIndex uint16) {
 	}
 
 	self.managerGlocks[glockIndex].HighPriorityLock()
-	lockQueue := self.millisecondTimeoutLocks[glockIndex][ms%1000]
+	lockQueue := self.millisecondTimeoutLocks[glockIndex][ms%MILLISECOND_QUEUE_LENGTH]
 	if lockQueue == nil {
 		self.managerGlocks[glockIndex].HighPriorityUnlock()
 		return
 	}
 
-	self.millisecondTimeoutLocks[glockIndex][ms%1000] = nil
+	self.millisecondTimeoutLocks[glockIndex][ms%MILLISECOND_QUEUE_LENGTH] = nil
 	for i := range lockQueue.IterNodes() {
 		nodeQueues := lockQueue.IterNodeQueues(int32(i))
 		for j, lock := range nodeQueues {
 			if !lock.timeouted {
-				timeoutSeconds := int64(lock.command.Timeout / 1000)
-				lock.timeoutTime = self.currentTime + timeoutSeconds + 1
-				if timeoutSeconds > 0 {
+				lock.timeoutTime = lock.startTime + int64(lock.command.Timeout/1000) + 1
+				if lock.command.Timeout >= MILLISECOND_QUEUE_LENGTH {
 					self.AddTimeOut(lock, lock.timeoutTime)
 					nodeQueues[j] = nil
 					continue
@@ -675,20 +674,19 @@ func (self *LockDB) checkMillisecondExpried(ms int64, glockIndex uint16) {
 	}
 
 	self.managerGlocks[glockIndex].HighPriorityLock()
-	lockQueue := self.millisecondExpriedLocks[glockIndex][ms%1000]
+	lockQueue := self.millisecondExpriedLocks[glockIndex][ms%MILLISECOND_QUEUE_LENGTH]
 	if lockQueue == nil {
 		self.managerGlocks[glockIndex].HighPriorityUnlock()
 		return
 	}
 
-	self.millisecondExpriedLocks[glockIndex][ms%1000] = nil
+	self.millisecondExpriedLocks[glockIndex][ms%MILLISECOND_QUEUE_LENGTH] = nil
 	for i := range lockQueue.IterNodes() {
 		nodeQueues := lockQueue.IterNodeQueues(int32(i))
 		for j, lock := range nodeQueues {
 			if !lock.expried {
-				expriedSeconds := int64(lock.command.Expried / 1000)
-				lock.expriedTime = self.currentTime + expriedSeconds + 1
-				if expriedSeconds > 0 {
+				lock.expriedTime = lock.startTime + int64(lock.command.Expried/1000) + 1
+				if lock.command.Expried >= MILLISECOND_QUEUE_LENGTH {
 					self.AddExpried(lock, lock.expriedTime)
 					nodeQueues[j] = nil
 					continue
@@ -1254,9 +1252,9 @@ func (self *LockDB) doTimeOut(lock *Lock, forcedExpried bool) {
 
 func (self *LockDB) AddMillisecondTimeOut(lock *Lock) {
 	lock.timeouted = false
-	ms := time.Now().UnixNano()/1e6 + int64(lock.command.Timeout%1000)
+	ms := time.Now().UnixNano()/1e6 + int64(lock.command.Timeout%MILLISECOND_QUEUE_LENGTH)
 
-	lockQueue := self.millisecondTimeoutLocks[lock.manager.glockIndex][ms%1000]
+	lockQueue := self.millisecondTimeoutLocks[lock.manager.glockIndex][ms%MILLISECOND_QUEUE_LENGTH]
 	if lockQueue == nil {
 		freeMillisecondWaitQueue := self.freeMillisecondWaitQueues[lock.manager.glockIndex]
 		if freeMillisecondWaitQueue.freeIndex < 0 {
@@ -1266,7 +1264,7 @@ func (self *LockDB) AddMillisecondTimeOut(lock *Lock) {
 			freeMillisecondWaitQueue.freeIndex--
 		}
 
-		self.millisecondTimeoutLocks[lock.manager.glockIndex][ms%1000] = lockQueue
+		self.millisecondTimeoutLocks[lock.manager.glockIndex][ms%MILLISECOND_QUEUE_LENGTH] = lockQueue
 		go self.checkMillisecondTimeOut(ms, lock.manager.glockIndex)
 	}
 	_ = lockQueue.Push(lock)
@@ -1424,9 +1422,9 @@ func (self *LockDB) doExpried(lock *Lock, forcedExpried bool) {
 
 func (self *LockDB) AddMillisecondExpried(lock *Lock) {
 	lock.expried = false
-	ms := time.Now().UnixNano()/1e6 + int64(lock.command.Expried%1000)
+	ms := time.Now().UnixNano()/1e6 + int64(lock.command.Expried%MILLISECOND_QUEUE_LENGTH)
 
-	lockQueue := self.millisecondExpriedLocks[lock.manager.glockIndex][ms%1000]
+	lockQueue := self.millisecondExpriedLocks[lock.manager.glockIndex][ms%MILLISECOND_QUEUE_LENGTH]
 	if lockQueue == nil {
 		freeMillisecondWaitQueue := self.freeMillisecondWaitQueues[lock.manager.glockIndex]
 		if freeMillisecondWaitQueue.freeIndex < 0 {
@@ -1436,7 +1434,7 @@ func (self *LockDB) AddMillisecondExpried(lock *Lock) {
 			freeMillisecondWaitQueue.freeIndex--
 		}
 
-		self.millisecondExpriedLocks[lock.manager.glockIndex][ms%1000] = lockQueue
+		self.millisecondExpriedLocks[lock.manager.glockIndex][ms%MILLISECOND_QUEUE_LENGTH] = lockQueue
 		go self.checkMillisecondExpried(ms, lock.manager.glockIndex)
 	}
 	_ = lockQueue.Push(lock)
