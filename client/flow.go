@@ -2,6 +2,7 @@ package client
 
 import (
 	"github.com/snower/slock/protocol"
+	"math"
 	"sync"
 	"time"
 )
@@ -101,18 +102,16 @@ func (self *TokenBucketFlow) SetExpriedFlag(flag uint16) uint16 {
 
 func (self *TokenBucketFlow) Acquire() *LockError {
 	self.glock.Lock()
-	expried := uint32(0)
-	now := time.Now().UnixNano() / 1e6
-	if self.period <= 1 {
-		expried = (1000 - uint32(now%1000)) | 0x04000000
-	} else {
-		now /= 1000
-		if uint32(self.period)%60 == 0 {
-			expried = uint32(((now/60+1)*60)%120 + (60 - (now % 60)))
-		} else {
-			expried = uint32(int64(self.period) - (now % int64(self.period)))
-		}
+	if self.period < 3 {
+		expried := uint32(math.Ceil(self.period * 1000)) | 0x04000000
+		expried |= uint32(self.expriedFlag) << 16
+		self.flowLock = &Lock{self.db, self.db.GenLockId(), self.flowKey, self.timeout, expried, self.count, 0}
+		self.glock.Unlock()
+		return self.flowLock.Lock()
 	}
+
+	now := time.Now().UnixNano() / 1e9
+	expried := uint32(int64(math.Ceil(self.period)) - (now % int64(math.Ceil(self.period))))
 	expried |= uint32(self.expriedFlag) << 16
 	self.flowLock = &Lock{self.db, self.db.GenLockId(), self.flowKey, 0, expried, self.count, 0}
 	self.glock.Unlock()
@@ -120,7 +119,7 @@ func (self *TokenBucketFlow) Acquire() *LockError {
 	err := self.flowLock.Lock()
 	if err != nil && err.Result == protocol.RESULT_TIMEOUT {
 		self.glock.Lock()
-		self.flowLock = &Lock{self.db, self.db.GenLockId(), self.flowKey, self.timeout, uint32(self.period), self.count, 0}
+		self.flowLock = &Lock{self.db, self.db.GenLockId(), self.flowKey, self.timeout, uint32(math.Ceil(self.period)), self.count, 0}
 		self.glock.Unlock()
 		return self.flowLock.Lock()
 	}
