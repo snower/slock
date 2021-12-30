@@ -119,7 +119,9 @@ func (self *TokenBucketFlow) Acquire() *LockError {
 	err := self.flowLock.Lock()
 	if err != nil && err.Result == protocol.RESULT_TIMEOUT {
 		self.glock.Lock()
-		self.flowLock = &Lock{self.db, self.db.GenLockId(), self.flowKey, self.timeout, uint32(math.Ceil(self.period)), self.count, 0}
+		expried := uint32(math.Ceil(self.period))
+		expried |= uint32(self.expriedFlag) << 16
+		self.flowLock = &Lock{self.db, self.db.GenLockId(), self.flowKey, self.timeout, expried, self.count, 0}
 		self.glock.Unlock()
 		return self.flowLock.Lock()
 	}
