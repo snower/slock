@@ -2,7 +2,7 @@ FROM golang:latest
 
 MAINTAINER snower sujian199@gmail.com
 
-VOLUME ['/slock']
+VOLUME /slock
 
 EXPOSE 5658
 

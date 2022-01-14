@@ -90,4 +90,4 @@ fi
 
 CMD="/go/bin/slock $CMD_ARG"
 echo "$CMD"
-$CMD
+exec $CMD
