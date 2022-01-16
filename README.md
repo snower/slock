@@ -396,13 +396,21 @@ Python Client [pyslock](https://github.com/snower/pyslock)
 
 Java Client [jaslock](https://github.com/snower/jaslock)
 
+.NET Core Client [jaslock](https://github.com/snower/slock4net)
+
 openresty Client [slock-lua-nginx](https://github.com/snower/slock-lua-nginx)
 
 # docker
 
 [build](docker/README.md)
 
-[image](https://hub.docker.com/repository/docker/sujin190/slock)
+[https://hub.docker.com/repository/docker/sujin190/slock](https://hub.docker.com/repository/docker/sujin190/slock)
+
+```bash 
+docker pull sujin190/slock
+
+docker run -d --name slock -p 5658:5658 slock
+```
 
 # License
 
