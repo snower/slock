@@ -1658,6 +1658,22 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 		return nil
 	}
 
+	if command.TimeoutFlag&protocol.TIMEOUT_FLAG_LESS_REQUEST_ID_IS_LOCK_SUCCED != 0 {
+		if lockManager.currentLock != nil && self.compareId(command.RequestId, lockManager.currentLock.command.RequestId) == -1 {
+			lockManager.FreeLock(lock)
+			if lockManager.refCount == 0 {
+				self.RemoveLockManager(lockManager)
+			}
+			lockManager.state.LockCount++
+			command.LockId = lockManager.currentLock.command.RequestId
+			lockManager.glock.Unlock()
+
+			_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, uint16(lockManager.locked), lock.locked)
+			_ = serverProtocol.FreeLockCommand(command)
+			return nil
+		}
+	}
+
 	if command.Timeout > 0 {
 		lockManager.AddWaitLock(lock)
 		if command.TimeoutFlag&protocol.TIMEOUT_FLAG_MILLISECOND_TIME == 0 {
@@ -2151,4 +2167,25 @@ func (self *LockDB) GetState() *protocol.LockDBState {
 		state.UnlockErrorCount += s.UnlockErrorCount
 	}
 	return &state
+}
+
+func (self *LockDB) compareId(a [16]byte, b [16]byte) int {
+	adown := uint64(a[0]) | uint64(a[1])<<8 | uint64(a[2])<<16 | uint64(a[3])<<24 | uint64(a[4])<<32 | uint64(a[5])<<40 | uint64(a[6])<<48 | uint64(a[7])<<56
+	aup := uint64(a[8]) | uint64(a[9])<<8 | uint64(a[10])<<16 | uint64(a[11])<<24 | uint64(a[12])<<32 | uint64(a[13])<<40 | uint64(a[14])<<48 | uint64(a[15])<<56
+	bdown := uint64(b[0]) | uint64(b[1])<<8 | uint64(b[2])<<16 | uint64(b[3])<<24 | uint64(b[4])<<32 | uint64(b[5])<<40 | uint64(b[6])<<48 | uint64(b[7])<<56
+	bup := uint64(b[8]) | uint64(b[9])<<8 | uint64(b[10])<<16 | uint64(b[11])<<24 | uint64(b[12])<<32 | uint64(b[13])<<40 | uint64(b[14])<<48 | uint64(b[15])<<56
+
+	if aup > bup {
+		return 1
+	}
+	if aup < bup {
+		return -1
+	}
+	if adown > bdown {
+		return 1
+	}
+	if adown < bdown {
+		return -1
+	}
+	return 0
 }

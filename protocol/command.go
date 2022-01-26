@@ -62,6 +62,7 @@ const (
 	TIMEOUT_FLAG_LOG_ERROR_WHEN_TIMEOUT                = 0x0800
 	TIMEOUT_FLAG_REQUIRE_ACKED                         = 0x1000
 	TIMEOUT_FLAG_UPDATE_NO_RESET_TIMEOUT_CHECKED_COUNT = 0x2000
+	TIMEOUT_FLAG_LESS_REQUEST_ID_IS_LOCK_SUCCED        = 0x4000
 	TIMEOUT_FLAG_KEEPLIVED                             = 0x8000
 )
 
@@ -330,9 +331,9 @@ type LockCommand struct {
 	LockKey     [16]byte
 	TimeoutFlag uint16
 	/*
-	   |    15  |                13                   |  12 |        11      |       10       |      9       |           8        |             7          |      6    |       5      |4           0|
-	   |--------|-------------------------------------|-----|----------------|----------------|--------------|--------------------|------------------------|-----------|--------------|-------------|
-	   |keeplive|update_no_reset_timeout_checked_count|acked|timeout_is_error|millisecond_time|unlock_to_wait|unrenew_expried_time|timeout_reverse_key_lock|minute_time|push_subscribe|             |
+	   |    15  |              14              |                13                   |  12 |        11      |       10       |      9       |           8        |             7          |      6    |       5      |4           0|
+	   |--------|------------------------------|-------------------------------------|-----|----------------|----------------|--------------|--------------------|------------------------|-----------|--------------|-------------|
+	   |keeplive|less_request_id_is_lock_succed|update_no_reset_timeout_checked_count|acked|timeout_is_error|millisecond_time|unlock_to_wait|unrenew_expried_time|timeout_reverse_key_lock|minute_time|push_subscribe|             |
 	*/
 	Timeout     uint16
 	ExpriedFlag uint16
