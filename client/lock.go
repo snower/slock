@@ -46,7 +46,7 @@ func (self *Lock) GetTimeout() uint16 {
 }
 
 func (self *Lock) GetTimeoutFlag() uint16 {
-	return uint16((self.timeout & 0xffff) >> 16)
+	return uint16(self.timeout >> 16)
 }
 
 func (self *Lock) SetTimeoutFlag(flag uint16) uint16 {
@@ -60,7 +60,7 @@ func (self *Lock) GetExpried() uint16 {
 }
 
 func (self *Lock) GetExpriedFlag() uint16 {
-	return uint16((self.expried & 0xffff) >> 16)
+	return uint16(self.expried >> 16)
 }
 
 func (self *Lock) SetExpriedFlag(flag uint16) uint16 {
@@ -179,6 +179,30 @@ func (self *Lock) LockUpdate() *LockError {
 
 func (self *Lock) UnlockHead() *LockError {
 	lockResultCommand, err := self.doUnlock(protocol.UNLOCK_FLAG_UNLOCK_FIRST_LOCK_WHEN_UNLOCKED, [16]byte{}, self.timeout, self.expried, self.count, self.rcount)
+	if err != nil {
+		return &LockError{0x80, lockResultCommand, err}
+	}
+
+	if lockResultCommand.Result == 0 {
+		return &LockError{lockResultCommand.Result, lockResultCommand, nil}
+	}
+	return &LockError{lockResultCommand.Result, lockResultCommand, errors.New("unlock error")}
+}
+
+func (self *Lock) UnlockRetoLockWait() *LockError {
+	lockResultCommand, err := self.doUnlock(protocol.UNLOCK_FLAG_SUCCED_TO_LOCK_WAIT, self.lockId, self.timeout, self.expried, self.count, self.rcount)
+	if err != nil {
+		return &LockError{0x80, lockResultCommand, err}
+	}
+
+	if lockResultCommand.Result == 0 {
+		return &LockError{lockResultCommand.Result, lockResultCommand, nil}
+	}
+	return &LockError{lockResultCommand.Result, lockResultCommand, errors.New("unlock error")}
+}
+
+func (self *Lock) UnlockHeadRetoLockWait() *LockError {
+	lockResultCommand, err := self.doUnlock(protocol.UNLOCK_FLAG_UNLOCK_FIRST_LOCK_WHEN_UNLOCKED|protocol.UNLOCK_FLAG_SUCCED_TO_LOCK_WAIT, [16]byte{}, self.timeout, self.expried, self.count, self.rcount)
 	if err != nil {
 		return &LockError{0x80, lockResultCommand, err}
 	}

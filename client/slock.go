@@ -369,6 +369,10 @@ func (self *Client) Event(eventKey [16]byte, timeout uint32, expried uint32, def
 	return self.SelectDB(0).Event(eventKey, timeout, expried, defaultSeted)
 }
 
+func (self *Client) GroupEvent(groupKey [16]byte, clientId uint64, versionId uint64, timeout uint32, expried uint32) *GroupEvent {
+	return self.SelectDB(0).GroupEvent(groupKey, clientId, versionId, timeout, expried)
+}
+
 func (self *Client) Semaphore(semaphoreKey [16]byte, timeout uint32, expried uint32, count uint16) *Semaphore {
 	return self.SelectDB(0).Semaphore(semaphoreKey, timeout, expried, count)
 }
@@ -594,6 +598,11 @@ func (self *ReplsetClient) Lock(lockKey [16]byte, timeout uint32, expried uint32
 func (self *ReplsetClient) Event(eventKey [16]byte, timeout uint32, expried uint32, defaultSeted bool) *Event {
 	client := self.GetClient()
 	return client.SelectDB(0).Event(eventKey, timeout, expried, defaultSeted)
+}
+
+func (self *ReplsetClient) GroupEvent(groupKey [16]byte, clientId uint64, versionId uint64, timeout uint32, expried uint32) *GroupEvent {
+	client := self.GetClient()
+	return client.SelectDB(0).GroupEvent(groupKey, clientId, versionId, timeout, expried)
 }
 
 func (self *ReplsetClient) Semaphore(semaphoreKey [16]byte, timeout uint32, expried uint32, count uint16) *Semaphore {

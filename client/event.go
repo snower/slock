@@ -147,7 +147,7 @@ func (self *Event) Wait(timeout uint32) (bool, error) {
 		if err.Result == protocol.RESULT_TIMEOUT {
 			return false, nil
 		}
-		return false, err.Err
+		return false, err
 	}
 
 	self.waitLock = &Lock{self.db, self.db.GenLockId(), self.eventKey, timeout | 0x02000000, 0, 1, 0}

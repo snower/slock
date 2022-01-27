@@ -103,7 +103,7 @@ func (self *TokenBucketFlow) SetExpriedFlag(flag uint16) uint16 {
 func (self *TokenBucketFlow) Acquire() *LockError {
 	self.glock.Lock()
 	if self.period < 3 {
-		expried := uint32(math.Ceil(self.period * 1000)) | 0x04000000
+		expried := uint32(math.Ceil(self.period*1000)) | 0x04000000
 		expried |= uint32(self.expriedFlag) << 16
 		self.flowLock = &Lock{self.db, self.db.GenLockId(), self.flowKey, self.timeout, expried, self.count, 0}
 		self.glock.Unlock()

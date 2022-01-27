@@ -49,6 +49,10 @@ func (self *Database) Event(eventKey [16]byte, timeout uint32, expried uint32, d
 	return NewDefaultClearEvent(self, eventKey, timeout, expried)
 }
 
+func (self *Database) GroupEvent(groupKey [16]byte, clientId uint64, versionId uint64, timeout uint32, expried uint32) *GroupEvent {
+	return NewGroupEvent(self, groupKey, clientId, versionId, timeout, expried)
+}
+
 func (self *Database) Semaphore(semaphoreKey [16]byte, timeout uint32, expried uint32, count uint16) *Semaphore {
 	return NewSemaphore(self, semaphoreKey, timeout, expried, count)
 }
