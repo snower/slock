@@ -347,6 +347,7 @@ Return [RESULT_CODE, RESULG_MSG, 'LOCK_ID', lock_id, 'LCOUNT', lcount, 'COUNT', 
 
 0x01 when_unlocked_unlock_first_lock unlock the first locked lock directly when unlocked, and return the lock information
 0x02 when_unlocked_cancel_wait Cancel wait when waiting for lock
+0x08 when_unloked_to_lock_wait_queue If the unlock is successful, put it into the lock waiting queue again
 ```
 
 #### Timeout Parameter FLAG
@@ -365,6 +366,7 @@ Return [RESULT_CODE, RESULG_MSG, 'LOCK_ID', lock_id, 'LCOUNT', lcount, 'COUNT', 
 0x0800 timeout_is_error output error in the log at the ERROR level, can be used to debug deadlocks and other exceptions during development
 0x1000 acked need to wait for all active nodes in the cluster to be locked successfully before returning success, strong consistent locking
 0x2000 update_no_reset_timeout_checked_count Use Lock command to update Flag to update locking information, not reset the timeout queue counter
+0x4000 timeout_flag_less_lock_version_is_lock_succed Locked, but the lock version is smaller than the current lock version, the lock is successful (the lock version is the lower 8 bytes of lock_id)
 0x8000 keeplive connection does not timeout if it is not open, then the timeout time set at this time is the delay interval to check the connection survival status
 ```
 

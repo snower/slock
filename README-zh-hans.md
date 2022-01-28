@@ -346,6 +346,7 @@ PUSH lock_key [TIMEOUT seconds] [EXPRIED seconds] [LOCK_ID lock_id_string] [FLAG
 
 0x01 when_unlocked_unlock_first_lock 未锁定时直接取消第一个已锁定的锁，并返回锁定信息
 0x02 when_unlocked_cancel_wait 等待锁定时取消等待
+0x08 when_unloked_to_lock_wait_queue 如果解锁成功则再次放入锁定等待队列
 ```
 
 #### Timeout参数FLAG
@@ -364,6 +365,7 @@ PUSH lock_key [TIMEOUT seconds] [EXPRIED seconds] [LOCK_ID lock_id_string] [FLAG
 0x0800 timeout_is_error 超时时以ERROR级别在日志中输出错误，可用于开发时调试死锁等异常
 0x1000 acked 需等待整个集群所有活动节点均锁定成功才返回成功，强一致锁定
 0x2000 update_no_reset_timeout_checked_count 用Lock命令更新Flag更新锁定信息是，不重置超时队列计数器
+0x4000 timeout_flag_less_lock_version_is_lock_succed 已加锁，但lock版本小于当前锁定版本则返回锁定成功（lock版本为lock_id低8字节）
 0x8000 keeplive 连接不断开则不超时，则此时设置的超时时间为检查连接存活状态的延时间隔
 ```
 
