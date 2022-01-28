@@ -9,11 +9,34 @@ import (
 	"time"
 )
 
+type IClient interface {
+	Open() error
+	Close() error
+	SelectDB(dbId uint8) *Database
+	ExecuteCommand(command protocol.ICommand, timeout int) (protocol.ICommand, error)
+	SendCommand(command protocol.ICommand) error
+	Lock(lockKey [16]byte, timeout uint32, expried uint32) *Lock
+	Event(eventKey [16]byte, timeout uint32, expried uint32, defaultSeted bool) *Event
+	GroupEvent(groupKey [16]byte, clientId uint64, versionId uint64, timeout uint32, expried uint32) *GroupEvent
+	Semaphore(semaphoreKey [16]byte, timeout uint32, expried uint32, count uint16) *Semaphore
+	RWLock(lockKey [16]byte, timeout uint32, expried uint32) *RWLock
+	RLock(lockKey [16]byte, timeout uint32, expried uint32) *RLock
+	MaxConcurrentFlow(flowKey [16]byte, count uint16, timeout uint32, expried uint32) *MaxConcurrentFlow
+	TokenBucketFlow(flowKey [16]byte, count uint16, timeout uint32, period float64) *TokenBucketFlow
+	Subscribe(expried uint32, maxSize uint32) (ISubscriber, error)
+	SubscribeMask(lockKeyMask [16]byte, expried uint32, maxSize uint32) (ISubscriber, error)
+	CloseSubscribe(subscriber ISubscriber) error
+	UpdateSubscribe(subscriber ISubscriber) error
+	GenRequestId() [16]byte
+	Unavailable() chan bool
+}
+
 type Client struct {
 	glock             *sync.Mutex
 	replset           *ReplsetClient
 	protocol          ClientProtocol
 	dbs               []*Database
+	dbLock            *sync.Mutex
 	requests          map[[16]byte]chan protocol.ICommand
 	requestLock       *sync.Mutex
 	subscribes        map[uint32]*Subscriber
@@ -29,8 +52,8 @@ type Client struct {
 func NewClient(host string, port uint) *Client {
 	address := fmt.Sprintf("%s:%d", host, port)
 	client := &Client{&sync.Mutex{}, nil, nil, make([]*Database, 256),
-		make(map[[16]byte]chan protocol.ICommand, 4096), &sync.Mutex{}, make(map[uint32]*Subscriber, 4),
-		&sync.Mutex{}, address, protocol.GenClientId(),
+		&sync.Mutex{}, make(map[[16]byte]chan protocol.ICommand, 4096), &sync.Mutex{},
+		make(map[uint32]*Subscriber, 4), &sync.Mutex{}, address, protocol.GenClientId(),
 		false, make(chan bool, 1), nil, nil}
 	return client
 }
@@ -87,17 +110,16 @@ func (self *Client) Close() error {
 	self.requests = make(map[[16]byte]chan protocol.ICommand, 0)
 	self.requestLock.Unlock()
 
-	for dbId, db := range self.dbs {
-		if db == nil {
-			continue
+	self.dbLock.Lock()
+	if self.replset == nil {
+		for dbId, db := range self.dbs {
+			if db != nil {
+				_ = db.Close()
+				self.dbs[dbId] = nil
+			}
 		}
-
-		err := db.Close()
-		if err != nil {
-			return err
-		}
-		self.dbs[dbId] = nil
 	}
+	self.dbLock.Unlock()
 
 	self.glock.Lock()
 	if self.protocol != nil {
@@ -260,13 +282,17 @@ func (self *Client) process() {
 }
 
 func (self *Client) getOrNewDB(dbId uint8) *Database {
-	self.glock.Lock()
+	if self.replset != nil {
+		return self.replset.getOrNewDB(dbId)
+	}
+
+	self.dbLock.Lock()
 	db := self.dbs[dbId]
 	if db == nil {
 		db = NewDatabase(dbId, self)
 		self.dbs[dbId] = db
 	}
-	self.glock.Unlock()
+	self.dbLock.Unlock()
 	return db
 }
 
@@ -300,6 +326,10 @@ func (self *Client) handleCommand(command protocol.ICommand) error {
 }
 
 func (self *Client) SelectDB(dbId uint8) *Database {
+	if self.replset != nil {
+		return self.replset.SelectDB(dbId)
+	}
+
 	db := self.dbs[dbId]
 	if db == nil {
 		db = self.getOrNewDB(dbId)
@@ -397,12 +427,12 @@ func (self *Client) State(dbId uint8) *protocol.StateResultCommand {
 	return self.SelectDB(dbId).State()
 }
 
-func (self *Client) Subscribe(expried uint32, maxSize uint32) (*Subscriber, error) {
+func (self *Client) Subscribe(expried uint32, maxSize uint32) (ISubscriber, error) {
 	lockKeyMask := [16]byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
 	return self.SubscribeMask(lockKeyMask, expried, maxSize)
 }
 
-func (self *Client) SubscribeMask(lockKeyMask [16]byte, expried uint32, maxSize uint32) (*Subscriber, error) {
+func (self *Client) SubscribeMask(lockKeyMask [16]byte, expried uint32, maxSize uint32) (ISubscriber, error) {
 	self.subscribeLock.Lock()
 	subscriberClientIdIndex++
 	clientId := subscriberClientIdIndex
@@ -427,7 +457,8 @@ func (self *Client) SubscribeMask(lockKeyMask [16]byte, expried uint32, maxSize 
 	return subscriber, nil
 }
 
-func (self *Client) CloseSubscribe(subscriber *Subscriber) error {
+func (self *Client) CloseSubscribe(s ISubscriber) error {
+	subscriber := s.(*Subscriber)
 	if subscriber.closed {
 		return nil
 	}
@@ -467,7 +498,8 @@ func (self *Client) CloseSubscribe(subscriber *Subscriber) error {
 	return nil
 }
 
-func (self *Client) UpdateSubscribe(subscriber *Subscriber) error {
+func (self *Client) UpdateSubscribe(s ISubscriber) error {
+	subscriber := s.(*Subscriber)
 	if subscriber.closed {
 		return nil
 	}
@@ -505,19 +537,21 @@ type ReplsetClient struct {
 	glock             *sync.Mutex
 	clients           []*Client
 	availableClients  []*Client
+	dbs               []*Database
+	dbLock            *sync.Mutex
 	closed            bool
 	closedWaiter      chan bool
 	unavailableWaiter chan bool
 }
 
 func NewReplsetClient(hosts []string) *ReplsetClient {
-	replsetClient := &ReplsetClient{&sync.Mutex{}, make([]*Client, 0),
-		make([]*Client, 0), false, make(chan bool, 1), nil}
+	replsetClient := &ReplsetClient{&sync.Mutex{}, make([]*Client, 0), make([]*Client, 0),
+		make([]*Database, 256), &sync.Mutex{}, false, make(chan bool, 1), nil}
 
 	for _, host := range hosts {
-		client := &Client{&sync.Mutex{}, replsetClient, nil, make([]*Database, 256),
-			make(map[[16]byte]chan protocol.ICommand, 64), &sync.Mutex{}, make(map[uint32]*Subscriber, 4),
-			&sync.Mutex{}, host, protocol.GenClientId(),
+		client := &Client{&sync.Mutex{}, replsetClient, nil, replsetClient.dbs,
+			replsetClient.dbLock, make(map[[16]byte]chan protocol.ICommand, 64), &sync.Mutex{},
+			make(map[uint32]*Subscriber, 4), &sync.Mutex{}, host, protocol.GenClientId(),
 			false, make(chan bool, 1), nil, nil}
 		replsetClient.clients = append(replsetClient.clients, client)
 	}
@@ -529,19 +563,42 @@ func (self *ReplsetClient) Open() error {
 		return errors.New("not client")
 	}
 
+	var clientError error = nil
 	for _, client := range self.clients {
 		err := client.Open()
 		if err != nil {
+			clientError = err
 			go client.process()
 		}
+	}
+
+	if len(self.availableClients) == 0 {
+		return clientError
 	}
 	return nil
 }
 
 func (self *ReplsetClient) Close() error {
+	self.glock.Lock()
+	if self.closed {
+		self.glock.Unlock()
+		return nil
+	}
+	self.closed = true
+	self.glock.Unlock()
 	for _, client := range self.clients {
 		_ = client.Close()
 	}
+
+	self.dbLock.Lock()
+	for dbId, db := range self.dbs {
+		if db != nil {
+			_ = db.Close()
+			self.dbs[dbId] = nil
+		}
+	}
+	self.dbLock.Unlock()
+
 	close(self.closedWaiter)
 	if self.unavailableWaiter != nil {
 		close(self.unavailableWaiter)
@@ -582,60 +639,82 @@ func (self *ReplsetClient) GetClient() *Client {
 		return client
 	}
 	self.glock.Unlock()
-	return self.clients[0]
+	return nil
+}
+
+func (self *ReplsetClient) getOrNewDB(dbId uint8) *Database {
+	self.dbLock.Lock()
+	db := self.dbs[dbId]
+	if db == nil {
+		db = NewDatabase(dbId, self)
+		self.dbs[dbId] = db
+	}
+	self.dbLock.Unlock()
+	return db
 }
 
 func (self *ReplsetClient) SelectDB(dbId uint8) *Database {
+	db := self.dbs[dbId]
+	if db == nil {
+		db = self.getOrNewDB(dbId)
+	}
+	return db
+}
+
+func (self *ReplsetClient) ExecuteCommand(command protocol.ICommand, timeout int) (protocol.ICommand, error) {
 	client := self.GetClient()
-	return client.SelectDB(dbId)
+	if client == nil {
+		return nil, errors.New("Clients Unavailable")
+	}
+	return client.ExecuteCommand(command, timeout)
+}
+
+func (self *ReplsetClient) SendCommand(command protocol.ICommand) error {
+	client := self.GetClient()
+	if client == nil {
+		return errors.New("Clients Unavailable")
+	}
+	return client.SendCommand(command)
 }
 
 func (self *ReplsetClient) Lock(lockKey [16]byte, timeout uint32, expried uint32) *Lock {
-	client := self.GetClient()
-	return client.SelectDB(0).Lock(lockKey, timeout, expried)
+	return self.SelectDB(0).Lock(lockKey, timeout, expried)
 }
 
 func (self *ReplsetClient) Event(eventKey [16]byte, timeout uint32, expried uint32, defaultSeted bool) *Event {
-	client := self.GetClient()
-	return client.SelectDB(0).Event(eventKey, timeout, expried, defaultSeted)
+	return self.SelectDB(0).Event(eventKey, timeout, expried, defaultSeted)
 }
 
 func (self *ReplsetClient) GroupEvent(groupKey [16]byte, clientId uint64, versionId uint64, timeout uint32, expried uint32) *GroupEvent {
-	client := self.GetClient()
-	return client.SelectDB(0).GroupEvent(groupKey, clientId, versionId, timeout, expried)
+	return self.SelectDB(0).GroupEvent(groupKey, clientId, versionId, timeout, expried)
 }
 
 func (self *ReplsetClient) Semaphore(semaphoreKey [16]byte, timeout uint32, expried uint32, count uint16) *Semaphore {
-	client := self.GetClient()
-	return client.SelectDB(0).Semaphore(semaphoreKey, timeout, expried, count)
+	return self.SelectDB(0).Semaphore(semaphoreKey, timeout, expried, count)
 }
 
 func (self *ReplsetClient) RWLock(lockKey [16]byte, timeout uint32, expried uint32) *RWLock {
-	client := self.GetClient()
-	return client.SelectDB(0).RWLock(lockKey, timeout, expried)
+	return self.SelectDB(0).RWLock(lockKey, timeout, expried)
 }
 
 func (self *ReplsetClient) RLock(lockKey [16]byte, timeout uint32, expried uint32) *RLock {
-	client := self.GetClient()
-	return client.SelectDB(0).RLock(lockKey, timeout, expried)
+	return self.SelectDB(0).RLock(lockKey, timeout, expried)
 }
 
 func (self *ReplsetClient) MaxConcurrentFlow(flowKey [16]byte, count uint16, timeout uint32, expried uint32) *MaxConcurrentFlow {
-	client := self.GetClient()
-	return client.SelectDB(0).MaxConcurrentFlow(flowKey, count, timeout, expried)
+	return self.SelectDB(0).MaxConcurrentFlow(flowKey, count, timeout, expried)
 }
 
 func (self *ReplsetClient) TokenBucketFlow(flowKey [16]byte, count uint16, timeout uint32, period float64) *TokenBucketFlow {
-	client := self.GetClient()
-	return client.SelectDB(0).TokenBucketFlow(flowKey, count, timeout, period)
+	return self.SelectDB(0).TokenBucketFlow(flowKey, count, timeout, period)
 }
 
-func (self *ReplsetClient) Subscribe(expried uint32, maxSize uint32) (*ReplsetSubscriber, error) {
+func (self *ReplsetClient) Subscribe(expried uint32, maxSize uint32) (ISubscriber, error) {
 	lockKeyMask := [16]byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
 	return self.SubscribeMask(lockKeyMask, expried, maxSize)
 }
 
-func (self *ReplsetClient) SubscribeMask(lockKeyMask [16]byte, expried uint32, maxSize uint32) (*ReplsetSubscriber, error) {
+func (self *ReplsetClient) SubscribeMask(lockKeyMask [16]byte, expried uint32, maxSize uint32) (ISubscriber, error) {
 	replsetSubscriber := NewReplsetSubscriber(self, lockKeyMask, expried, maxSize)
 	var err error = nil
 	for _, client := range self.availableClients {
@@ -644,7 +723,7 @@ func (self *ReplsetClient) SubscribeMask(lockKeyMask [16]byte, expried uint32, m
 			err = cerr
 			continue
 		}
-		_ = replsetSubscriber.addSubscriber(subscriber)
+		_ = replsetSubscriber.addSubscriber(subscriber.(*Subscriber))
 	}
 
 	if len(replsetSubscriber.subscribers) == 0 {
@@ -656,7 +735,8 @@ func (self *ReplsetClient) SubscribeMask(lockKeyMask [16]byte, expried uint32, m
 	return replsetSubscriber, nil
 }
 
-func (self *ReplsetClient) CloseSubscribe(replsetSubscriber *ReplsetSubscriber) error {
+func (self *ReplsetClient) CloseSubscribe(s ISubscriber) error {
+	replsetSubscriber := s.(*ReplsetSubscriber)
 	if replsetSubscriber.closed {
 		return nil
 	}
@@ -673,7 +753,8 @@ func (self *ReplsetClient) CloseSubscribe(replsetSubscriber *ReplsetSubscriber) 
 	return nil
 }
 
-func (self *ReplsetClient) UpdateSubscribe(replsetSubscriber *ReplsetSubscriber) error {
+func (self *ReplsetClient) UpdateSubscribe(s ISubscriber) error {
+	replsetSubscriber := s.(*ReplsetSubscriber)
 	if replsetSubscriber.closed {
 		return nil
 	}

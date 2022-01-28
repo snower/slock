@@ -8,6 +8,12 @@ import (
 
 var subscriberClientIdIndex uint32 = 0
 
+type ISubscriber interface {
+	Close() error
+	Wait() (*protocol.LockResultCommand, error)
+	Push(resultCommand *protocol.LockResultCommand) error
+}
+
 type Subscriber struct {
 	client           *Client
 	replset          *ReplsetSubscriber

@@ -10,12 +10,12 @@ import (
 
 type Database struct {
 	dbId   uint8
-	client *Client
+	client IClient
 	glock  *sync.Mutex
 	closed bool
 }
 
-func NewDatabase(dbId uint8, client *Client) *Database {
+func NewDatabase(dbId uint8, client IClient) *Database {
 	return &Database{dbId, client, &sync.Mutex{}, false}
 }
 
