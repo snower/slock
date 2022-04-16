@@ -1659,7 +1659,7 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 	}
 
 	if command.TimeoutFlag&protocol.TIMEOUT_FLAG_LESS_LOCK_VERSION_IS_LOCK_SUCCED != 0 {
-		if lockManager.currentLock != nil && self.compareLockVersion(command.LockId, lockManager.currentLock.command.LockId) == -1 {
+		if self.checkLessLockVersion(lockManager, command) {
 			lockManager.FreeLock(lock)
 			if lockManager.refCount == 0 {
 				self.RemoveLockManager(lockManager)
@@ -2202,6 +2202,23 @@ func (self *LockDB) GetState() *protocol.LockDBState {
 		state.UnlockErrorCount += s.UnlockErrorCount
 	}
 	return &state
+}
+
+func (self *LockDB) checkLessLockVersion(lockManager *LockManager, command *protocol.LockCommand) bool {
+	if lockManager.currentLock != nil {
+		if self.compareLockVersion(command.LockId, lockManager.currentLock.command.LockId) == -1 {
+			return true
+		}
+		return false
+	}
+	waitLock := lockManager.GetWaitLock()
+	if waitLock == nil {
+		return false
+	}
+	if self.compareLockVersion(command.LockId, waitLock.command.LockId) == 1 {
+		return false
+	}
+	return true
 }
 
 func (self *LockDB) compareLockVersion(alockId [16]byte, blockId [16]byte) int {
