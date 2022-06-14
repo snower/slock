@@ -559,7 +559,12 @@ func (self *AofChannel) Push(lock *Lock, commandType uint8, command *protocol.Lo
 	} else {
 		aofLock.CommandTime = uint64(lock.expriedTime)
 	}
-	aofLock.Flag = lock.command.Flag
+
+	if commandType == protocol.COMMAND_LOCK {
+		aofLock.Flag = lock.command.Flag & 0x02
+	} else {
+		aofLock.Flag = 0
+	}
 	aofLock.DbId = lock.manager.dbId
 	aofLock.LockId = lock.command.LockId
 	aofLock.LockKey = lock.command.LockKey

@@ -51,6 +51,7 @@ const (
 	UNLOCK_FLAG_CANCEL_WAIT_LOCK_WHEN_UNLOCKED  = 0x02
 	UNLOCK_FLAG_FROM_AOF                        = 0x04
 	UNLOCK_FLAG_SUCCED_TO_LOCK_WAIT             = 0x08
+	UNLOCK_FLAG_UNLOCK_TREE_LOCK                = 0x10
 )
 
 const (
