@@ -340,13 +340,14 @@ PUSH lock_key [TIMEOUT seconds] [EXPRIED seconds] [LOCK_ID lock_id_string] [FLAG
 
 #### UnLock命令FLAG
 ```
-|7                  |           1             |               0               |
-|-------------------|-------------------------|-------------------------------|
-|                   |when_unlocked_cancel_wait|when_unlocked_unlock_first_lock|
+|7                  |                4               |                  3            |            1            |               0               |
+|-------------------|--------------------------------|-------------------------------|-------------------------|-------------------------------|
+|                   |when_unloked_to_unlock_tree_lock|when_unloked_to_lock_wait_queue|when_unlocked_cancel_wait|when_unlocked_unlock_first_lock|
 
 0x01 when_unlocked_unlock_first_lock 未锁定时直接取消第一个已锁定的锁，并返回锁定信息
 0x02 when_unlocked_cancel_wait 等待锁定时取消等待
 0x08 when_unloked_to_lock_wait_queue 如果解锁成功则再次放入锁定等待队列
+0x10 when_unloked_to_unlock_tree_lock 如果解锁成功则执行树结构解锁
 ```
 
 #### Timeout参数FLAG

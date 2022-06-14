@@ -341,13 +341,14 @@ Return [RESULT_CODE, RESULG_MSG, 'LOCK_ID', lock_id, 'LCOUNT', lcount, 'COUNT', 
 
 #### UnLock Command FLAG
 ```
-|7                  |           1             |               0               |
-|-------------------|-------------------------|-------------------------------|
-|                   |when_unlocked_cancel_wait|when_unlocked_unlock_first_lock|
+|7                  |                4               |                  3            |            1            |               0               |
+|-------------------|--------------------------------|-------------------------------|-------------------------|-------------------------------|
+|                   |when_unloked_to_unlock_tree_lock|when_unloked_to_lock_wait_queue|when_unlocked_cancel_wait|when_unlocked_unlock_first_lock|
 
 0x01 when_unlocked_unlock_first_lock unlock the first locked lock directly when unlocked, and return the lock information
 0x02 when_unlocked_cancel_wait Cancel wait when waiting for lock
 0x08 when_unloked_to_lock_wait_queue If the unlock is successful, put it into the lock waiting queue again
+0x10 when_unloked_to_unlock_tree_lock If the unlock is successful, execute the tree structure unlock
 ```
 
 #### Timeout Parameter FLAG
