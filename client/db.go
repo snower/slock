@@ -73,6 +73,10 @@ func (self *Database) TokenBucketFlow(flowKey [16]byte, count uint16, timeout ui
 	return NewTokenBucketFlow(self, flowKey, count, timeout, period)
 }
 
+func (self *Database) TreeLock(lockKey [16]byte, parentKey [16]byte, timeout uint32, expried uint32) *TreeLock {
+	return NewTreeLock(self, lockKey, parentKey, timeout, expried)
+}
+
 func (self *Database) State() *protocol.StateResultCommand {
 	requestId := self.client.GenRequestId()
 	command := &protocol.StateCommand{Command: protocol.Command{Magic: protocol.MAGIC, Version: protocol.VERSION, CommandType: protocol.COMMAND_STATE, RequestId: requestId},

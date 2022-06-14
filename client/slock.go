@@ -23,6 +23,7 @@ type IClient interface {
 	RLock(lockKey [16]byte, timeout uint32, expried uint32) *RLock
 	MaxConcurrentFlow(flowKey [16]byte, count uint16, timeout uint32, expried uint32) *MaxConcurrentFlow
 	TokenBucketFlow(flowKey [16]byte, count uint16, timeout uint32, period float64) *TokenBucketFlow
+	TreeLock(lockKey [16]byte, parentKey [16]byte, timeout uint32, expried uint32) *TreeLock
 	Subscribe(expried uint32, maxSize uint32) (ISubscriber, error)
 	SubscribeMask(lockKeyMask [16]byte, expried uint32, maxSize uint32) (ISubscriber, error)
 	CloseSubscribe(subscriber ISubscriber) error
@@ -423,6 +424,10 @@ func (self *Client) TokenBucketFlow(flowKey [16]byte, count uint16, timeout uint
 	return self.SelectDB(0).TokenBucketFlow(flowKey, count, timeout, period)
 }
 
+func (self *Client) TreeLock(lockKey [16]byte, parentKey [16]byte, timeout uint32, expried uint32) *TreeLock {
+	return self.SelectDB(0).TreeLock(lockKey, parentKey, timeout, expried)
+}
+
 func (self *Client) State(dbId uint8) *protocol.StateResultCommand {
 	return self.SelectDB(dbId).State()
 }
@@ -707,6 +712,10 @@ func (self *ReplsetClient) MaxConcurrentFlow(flowKey [16]byte, count uint16, tim
 
 func (self *ReplsetClient) TokenBucketFlow(flowKey [16]byte, count uint16, timeout uint32, period float64) *TokenBucketFlow {
 	return self.SelectDB(0).TokenBucketFlow(flowKey, count, timeout, period)
+}
+
+func (self *ReplsetClient) TreeLock(lockKey [16]byte, parentKey [16]byte, timeout uint32, expried uint32) *TreeLock {
+	return self.SelectDB(0).TreeLock(lockKey, parentKey, timeout, expried)
 }
 
 func (self *ReplsetClient) Subscribe(expried uint32, maxSize uint32) (ISubscriber, error) {
