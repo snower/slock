@@ -67,7 +67,7 @@ jobs:
           go-version: 1.18
 
       - name: Build
-        run: go get -v github.com/snower/slock
+        run: go install -v github.com/snower/slock@latest
 
       - name: Test
         run: ./run-tests
