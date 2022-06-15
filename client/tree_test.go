@@ -85,14 +85,14 @@ func TestTreeLock(t *testing.T) {
 			return
 		}
 
-		testLock = client.Lock(rootLock.GetLockKey(), 0, 0)
+		testLock = client.Lock(rootLock.GetLockKey(), 1, 0)
 		err = testLock.Lock()
 		if err != nil {
 			t.Errorf("TreeLock Test Root Lock Fail %v", err)
 			return
 		}
 
-		testLock = client.Lock(childLock.GetLockKey(), 0, 0)
+		testLock = client.Lock(childLock.GetLockKey(), 1, 0)
 		err = testLock.Lock()
 		if err != nil {
 			t.Errorf("TreeLock Test Child Lock Fail %v", err)
