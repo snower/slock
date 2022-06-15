@@ -12,6 +12,10 @@ COPY ./startup.sh /opt
 
 RUN mkdir /slock/data \
     && chmod +x /opt/startup.sh \
-    && go install -v github.com/snower/slock@latest
+    && cd /opt \
+    && git clone https://github.com/snower/slock.git \
+    && cd ./slock \
+    && go build \
+    && cp ./slock /go/bin/
 
 CMD /opt/startup.sh
