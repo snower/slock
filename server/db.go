@@ -1447,14 +1447,14 @@ func (self *LockDB) AddMillisecondExpried(lock *Lock) {
 func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCommand) error {
 	/*
 	   protocol.LockCommand.Flag
-	   |7              |        4       |    2   |           1           |         0           |
-	   |---------------|----------------|--------|-----------------------|---------------------|
-	   |               |concurrent_check|from_aof|when_locked_update_lock|when_locked_show_lock|
+	   |7              |       4      |        3       |    2   |           1           |         0           |
+	   |---------------|--------------|----------------|--------|-----------------------|---------------------|
+	   |               |lock_tree_lock|concurrent_check|from_aof|when_locked_update_lock|when_locked_show_lock|
 	*/
 
 	lockManager := self.GetOrNewLockManager(command)
 	if command.Timeout == 0 && command.Flag&protocol.LOCK_FLAG_CONCURRENT_CHECK != 0 {
-		if lockManager.locked == 0xffff || lockManager.locked > uint32(command.Count) {
+		if command.Count < 0xffff && lockManager.locked > uint32(command.Count) {
 			if lockManager.refCount > 0 {
 				_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_TIMEOUT, uint16(lockManager.locked), 0)
 				_ = serverProtocol.FreeLockCommand(command)
@@ -1841,12 +1841,8 @@ func (self *LockDB) UnLock(serverProtocol ServerProtocol, command *protocol.Lock
 			lockManager.state.UnLockCount += uint64(lockLocked)
 			lockManager.state.LockedCount -= uint32(lockLocked)
 
-			if command.Flag&protocol.UNLOCK_FLAG_UNLOCK_TREE_LOCK != 0 && lockManager.locked == 0 {
-				lockManager.glock.Unlock()
-				_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, uint16(lockManager.locked), currentLock.locked)
-				_ = serverProtocol.FreeLockCommand(currentLockCommand)
-				self.unlockTreeLock(serverProtocol, command)
-			} else {
+			if command.Flag&protocol.UNLOCK_FLAG_UNLOCK_TREE_LOCK == 0 || lockManager.locked > 1 ||
+				!self.unlockTreeLock(serverProtocol, command, lockManager, currentLockCommand, currentLock) {
 				lockManager.glock.Unlock()
 				_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, uint16(lockManager.locked), currentLock.locked)
 				_ = serverProtocol.FreeLockCommand(currentLockCommand)
@@ -1887,12 +1883,8 @@ func (self *LockDB) UnLock(serverProtocol ServerProtocol, command *protocol.Lock
 			_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, uint16(lockManager.locked), currentLock.locked)
 			_ = serverProtocol.FreeLockCommand(command)
 		} else {
-			if command.Flag&protocol.UNLOCK_FLAG_UNLOCK_TREE_LOCK != 0 && lockManager.locked == 0 {
-				lockManager.glock.Unlock()
-				_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, uint16(lockManager.locked), currentLock.locked)
-				_ = serverProtocol.FreeLockCommand(currentLockCommand)
-				self.unlockTreeLock(serverProtocol, command)
-			} else {
+			if command.Flag&protocol.UNLOCK_FLAG_UNLOCK_TREE_LOCK == 0 || lockManager.locked > 1 ||
+				!self.unlockTreeLock(serverProtocol, command, lockManager, currentLockCommand, currentLock) {
 				lockManager.glock.Unlock()
 				_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, uint16(lockManager.locked), currentLock.locked)
 				_ = serverProtocol.FreeLockCommand(currentLockCommand)
@@ -1910,7 +1902,14 @@ func (self *LockDB) doLock(lockManager *LockManager, lock *Lock) bool {
 		return true
 	}
 
-	if lockManager.locked == 0xffff {
+	if lockManager.locked >= 0xffff {
+		if lockManager.locked >= 0x7fffffff {
+			return false
+		}
+
+		if lockManager.currentLock.command.Count == 0xffff && lock.command.Count == 0xffff {
+			return true
+		}
 		return false
 	}
 
@@ -2099,7 +2098,29 @@ func (self *LockDB) addUnlockLockCommandToWaitLock(lockManager *LockManager, com
 	_ = serverProtocol.FreeLockCommand(command)
 }
 
-func (self *LockDB) unlockTreeLock(serverProtocol ServerProtocol, command *protocol.LockCommand) {
+func (self *LockDB) unlockTreeLock(serverProtocol ServerProtocol, command *protocol.LockCommand, lockManager *LockManager, currentLockCommand *protocol.LockCommand, currentLock *Lock) bool {
+	if lockManager.currentLock != nil {
+		currentCommand := lockManager.currentLock.command
+		if currentCommand.Flag&protocol.LOCK_FLAG_LOCK_TREE_LOCK == 0 {
+			return false
+		}
+
+		lockKey := currentCommand.LockKey
+		lockId := currentCommand.LockId
+		lockManager.glock.Unlock()
+		_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, uint16(lockManager.locked), currentLock.locked)
+		_ = serverProtocol.FreeLockCommand(currentLockCommand)
+
+		command.LockKey = lockKey
+		command.LockId = lockId
+		command.RequestId = protocol.GenRequestId()
+		_ = self.UnLock(serverProtocol, command)
+		return true
+	}
+	lockManager.glock.Unlock()
+	_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, uint16(lockManager.locked), currentLock.locked)
+	_ = serverProtocol.FreeLockCommand(currentLockCommand)
+
 	command.LockKey[0], command.LockKey[1], command.LockKey[2], command.LockKey[3], command.LockKey[4], command.LockKey[5], command.LockKey[6], command.LockKey[7],
 		command.LockKey[8], command.LockKey[9], command.LockKey[10], command.LockKey[11], command.LockKey[12], command.LockKey[13], command.LockKey[14], command.LockKey[15] =
 		command.LockId[0], command.LockId[1], command.LockId[2], command.LockId[3], command.LockId[4], command.LockId[5], command.LockId[6], command.LockId[7],
@@ -2111,7 +2132,9 @@ func (self *LockDB) unlockTreeLock(serverProtocol ServerProtocol, command *proto
 		0, 0, 0, 0, 0, 0, 0, 0
 
 	command.Flag |= protocol.UNLOCK_FLAG_UNLOCK_FIRST_LOCK_WHEN_UNLOCKED | protocol.UNLOCK_FLAG_UNLOCK_TREE_LOCK
+	command.RequestId = protocol.GenRequestId()
 	_ = self.UnLock(serverProtocol, command)
+	return true
 }
 
 func (self *LockDB) DoAckLock(lock *Lock, succed bool) {
