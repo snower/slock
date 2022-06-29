@@ -50,6 +50,14 @@ func (self *TreeLockLock) Unlock() *LockError {
 	return nil
 }
 
+func (self *TreeLockLock) GetLockKey() [16]byte {
+	return self.lock.GetLockKey()
+}
+
+func (self *TreeLockLock) GetLockId() [16]byte {
+	return self.lock.lockId
+}
+
 type TreeLock struct {
 	db        *Database
 	parentKey [16]byte
@@ -68,8 +76,17 @@ func (self *TreeLock) NewLock() *TreeLockLock {
 	return &TreeLockLock{self.db, self, lock}
 }
 
+func (self *TreeLock) LoadLock(lockId [16]byte) *TreeLockLock {
+	lock := &Lock{self.db, lockId, self.lockKey, self.timeout, self.expried, 0xffff, 0}
+	return &TreeLockLock{self.db, self, lock}
+}
+
 func (self *TreeLock) NewChild() *TreeLock {
 	return &TreeLock{self.db, self.lockKey, self.db.GenLockId(), self.timeout, self.expried, false}
+}
+
+func (self *TreeLock) LoadChild(lockKey [16]byte) *TreeLock {
+	return &TreeLock{self.db, self.lockKey, lockKey, self.timeout, self.expried, false}
 }
 
 func (self *TreeLock) checkTreeLock() (*Lock, *Lock, *LockError) {
