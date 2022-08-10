@@ -97,7 +97,7 @@ func (self *TreeLock) Lock() *LockError {
 		return err
 	}
 
-	if self.leafLock == nil {
+	if self.leafLock != nil {
 		return nil
 	}
 	self.leafLock = self.NewLeafLock()
