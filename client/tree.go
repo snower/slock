@@ -4,13 +4,13 @@ import "github.com/snower/slock/protocol"
 
 var RootKey = [16]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 
-type TreeLockLock struct {
+type TreeLeafLock struct {
 	db       *Database
 	treeLock *TreeLock
 	lock     *Lock
 }
 
-func (self *TreeLockLock) Lock() *LockError {
+func (self *TreeLeafLock) Lock() *LockError {
 	parentLock, childLock, cerr := self.treeLock.checkTreeLock()
 	if cerr != nil {
 		return cerr
@@ -38,7 +38,7 @@ func (self *TreeLockLock) Lock() *LockError {
 	return nil
 }
 
-func (self *TreeLockLock) Unlock() *LockError {
+func (self *TreeLeafLock) Unlock() *LockError {
 	lockResultCommand, err := self.lock.doUnlock(protocol.UNLOCK_FLAG_UNLOCK_TREE_LOCK, self.lock.lockId, self.lock.timeout, self.lock.expried, 0xffff, 0)
 	if err != nil {
 		return &LockError{0x80, lockResultCommand, err}
@@ -50,11 +50,11 @@ func (self *TreeLockLock) Unlock() *LockError {
 	return nil
 }
 
-func (self *TreeLockLock) GetLockKey() [16]byte {
+func (self *TreeLeafLock) GetLockKey() [16]byte {
 	return self.lock.GetLockKey()
 }
 
-func (self *TreeLockLock) GetLockId() [16]byte {
+func (self *TreeLeafLock) GetLockId() [16]byte {
 	return self.lock.lockId
 }
 
@@ -65,28 +65,50 @@ type TreeLock struct {
 	timeout   uint32
 	expried   uint32
 	isRoot    bool
+	leafLock  *TreeLeafLock
 }
 
 func NewTreeLock(db *Database, lockKey [16]byte, parentKey [16]byte, timeout uint32, expried uint32) *TreeLock {
-	return &TreeLock{db, parentKey, lockKey, timeout, expried, parentKey == RootKey}
+	return &TreeLock{db, parentKey, lockKey, timeout, expried, parentKey == RootKey, nil}
 }
 
-func (self *TreeLock) NewLock() *TreeLockLock {
+func (self *TreeLock) NewLeafLock() *TreeLeafLock {
 	lock := &Lock{self.db, self.db.GenLockId(), self.lockKey, self.timeout, self.expried, 0xffff, 0}
-	return &TreeLockLock{self.db, self, lock}
+	return &TreeLeafLock{self.db, self, lock}
 }
 
-func (self *TreeLock) LoadLock(lockId [16]byte) *TreeLockLock {
+func (self *TreeLock) LoadLeafLock(lockId [16]byte) *TreeLeafLock {
 	lock := &Lock{self.db, lockId, self.lockKey, self.timeout, self.expried, 0xffff, 0}
-	return &TreeLockLock{self.db, self, lock}
+	return &TreeLeafLock{self.db, self, lock}
 }
 
 func (self *TreeLock) NewChild() *TreeLock {
-	return &TreeLock{self.db, self.lockKey, self.db.GenLockId(), self.timeout, self.expried, false}
+	return &TreeLock{self.db, self.lockKey, self.db.GenLockId(), self.timeout, self.expried, false, nil}
 }
 
 func (self *TreeLock) LoadChild(lockKey [16]byte) *TreeLock {
-	return &TreeLock{self.db, self.lockKey, lockKey, self.timeout, self.expried, false}
+	return &TreeLock{self.db, self.lockKey, lockKey, self.timeout, self.expried, false, nil}
+}
+
+func (self *TreeLock) Lock() *LockError {
+	checkLock := &Lock{self.db, self.db.GenLockId(), self.lockKey, self.timeout, 0, 0, 0}
+	err := checkLock.Lock()
+	if err != nil {
+		return err
+	}
+
+	if self.leafLock == nil {
+		return nil
+	}
+	self.leafLock = self.NewLeafLock()
+	return self.leafLock.Lock()
+}
+
+func (self *TreeLock) Unlock() *LockError {
+	if self.leafLock == nil {
+		return nil
+	}
+	return self.leafLock.Unlock()
 }
 
 func (self *TreeLock) checkTreeLock() (*Lock, *Lock, *LockError) {
@@ -106,7 +128,7 @@ func (self *TreeLock) checkTreeLock() (*Lock, *Lock, *LockError) {
 		return nil, nil, &LockError{lockResultCommand.Result, lockResultCommand, err}
 	}
 
-	parentLock := &Lock{self.db, self.db.GenLockId(), self.parentKey, self.timeout, self.expried, 0, 0}
+	parentLock := &Lock{self.db, self.lockKey, self.parentKey, self.timeout, self.expried, 0, 0}
 	lockResultCommand, err = parentLock.doLock(0, parentLock.lockId, 0, self.expried, 0xffff, 0)
 	if err != nil {
 		_ = childLock.Unlock()

@@ -2105,33 +2105,24 @@ func (self *LockDB) unlockTreeLock(serverProtocol ServerProtocol, command *proto
 			return false
 		}
 
-		lockKey := currentCommand.LockKey
-		lockId := currentCommand.LockId
+		command.LockKey = currentCommand.LockKey
+		command.LockId = currentCommand.LockId
 		lockManager.glock.Unlock()
 		_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, uint16(lockManager.locked), currentLock.locked)
 		_ = serverProtocol.FreeLockCommand(currentLockCommand)
 
-		command.LockKey = lockKey
-		command.LockId = lockId
 		command.RequestId = protocol.GenRequestId()
 		_ = self.UnLock(serverProtocol, command)
 		return true
 	}
+
 	lockManager.glock.Unlock()
+	command.LockKey = currentLockCommand.LockId
+	command.LockId = currentLockCommand.LockKey
 	_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, uint16(lockManager.locked), currentLock.locked)
 	_ = serverProtocol.FreeLockCommand(currentLockCommand)
 
-	command.LockKey[0], command.LockKey[1], command.LockKey[2], command.LockKey[3], command.LockKey[4], command.LockKey[5], command.LockKey[6], command.LockKey[7],
-		command.LockKey[8], command.LockKey[9], command.LockKey[10], command.LockKey[11], command.LockKey[12], command.LockKey[13], command.LockKey[14], command.LockKey[15] =
-		command.LockId[0], command.LockId[1], command.LockId[2], command.LockId[3], command.LockId[4], command.LockId[5], command.LockId[6], command.LockId[7],
-		command.LockId[8], command.LockId[9], command.LockId[10], command.LockId[11], command.LockId[12], command.LockId[13], command.LockId[14], command.LockId[15]
-
-	command.LockId[0], command.LockId[1], command.LockId[2], command.LockId[3], command.LockId[4], command.LockId[5], command.LockId[6], command.LockId[7],
-		command.LockId[8], command.LockId[9], command.LockId[10], command.LockId[11], command.LockId[12], command.LockId[13], command.LockId[14], command.LockId[15] =
-		0, 0, 0, 0, 0, 0, 0, 0,
-		0, 0, 0, 0, 0, 0, 0, 0
-
-	command.Flag |= protocol.UNLOCK_FLAG_UNLOCK_FIRST_LOCK_WHEN_UNLOCKED | protocol.UNLOCK_FLAG_UNLOCK_TREE_LOCK
+	command.Flag |= protocol.UNLOCK_FLAG_UNLOCK_TREE_LOCK
 	command.RequestId = protocol.GenRequestId()
 	_ = self.UnLock(serverProtocol, command)
 	return true
