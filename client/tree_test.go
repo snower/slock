@@ -93,14 +93,37 @@ func checkChildTreeLock(t *testing.T, client *Client, rootLock *TreeLock, childL
 func TestTreeLock(t *testing.T) {
 	testWithClient(t, func(client *Client) {
 		rootLock := client.TreeLock(testString2Key("TestTreeLock"), RootKey, 5, 10)
+
+		err := rootLock.Lock()
+		if err != nil {
+			t.Errorf("TreeLock Lock Fail %v", err)
+			return
+		}
+		err = rootLock.Unlock()
+		if err != nil {
+			t.Errorf("TreeLock UnLock Fail %v", err)
+			return
+		}
+		err = rootLock.Wait(10)
+		if err != nil {
+			t.Errorf("TreeLock Wait Fail %v", err)
+			return
+		}
+
 		lock := rootLock.NewLeafLock()
-		err := lock.Lock()
+		err = lock.Lock()
 		if err != nil {
 			t.Errorf("TreeLock Root Lock Fail %v", err)
 			return
 		}
 
 		checkChildTreeLock(t, client, rootLock, rootLock.NewChild(), lock, 5)
+
+		err = rootLock.Wait(10)
+		if err != nil {
+			t.Errorf("TreeLock Wait Fail %v", err)
+			return
+		}
 
 		testLock := client.Lock(rootLock.GetLockKey(), 1, 0)
 		err = testLock.Lock()

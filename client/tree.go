@@ -100,15 +100,30 @@ func (self *TreeLock) Lock() *LockError {
 	if self.leafLock != nil {
 		return nil
 	}
-	self.leafLock = self.NewLeafLock()
-	return self.leafLock.Lock()
+	leafLock := self.NewLeafLock()
+	err = leafLock.Lock()
+	if err != nil {
+		return err
+	}
+	self.leafLock = leafLock
+	return nil
 }
 
 func (self *TreeLock) Unlock() *LockError {
 	if self.leafLock == nil {
 		return nil
 	}
-	return self.leafLock.Unlock()
+	err := self.leafLock.Unlock()
+	if err != nil {
+		return err
+	}
+	self.leafLock = nil
+	return nil
+}
+
+func (self *TreeLock) Wait(timeout uint32) *LockError {
+	checkLock := &Lock{self.db, self.db.GenLockId(), self.lockKey, timeout, 0, 0, 0}
+	return checkLock.Lock()
 }
 
 func (self *TreeLock) checkTreeLock() (*Lock, *Lock, *LockError) {
