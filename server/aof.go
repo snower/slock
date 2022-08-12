@@ -535,7 +535,7 @@ func (self *AofChannel) pullAofLock() *AofLock {
 	return aofLock
 }
 
-func (self *AofChannel) Push(lock *Lock, commandType uint8, command *protocol.LockCommand, aofFlag uint16) error {
+func (self *AofChannel) Push(dbId uint8, lock *Lock, commandType uint8, command *protocol.LockCommand, aofFlag uint16) error {
 	if self.closed {
 		return io.EOF
 	}
@@ -565,7 +565,7 @@ func (self *AofChannel) Push(lock *Lock, commandType uint8, command *protocol.Lo
 	} else {
 		aofLock.Flag = 0
 	}
-	aofLock.DbId = lock.manager.dbId
+	aofLock.DbId = dbId
 	aofLock.LockId = lock.command.LockId
 	aofLock.LockKey = lock.command.LockKey
 	aofLock.AofFlag = aofFlag
