@@ -535,7 +535,7 @@ func (self *AofChannel) pullAofLock() *AofLock {
 	return aofLock
 }
 
-func (self *AofChannel) Push(dbId uint8, lock *Lock, commandType uint8, command *protocol.LockCommand, aofFlag uint16) error {
+func (self *AofChannel) Push(dbId uint8, lock *Lock, commandType uint8, lockCommand *protocol.LockCommand, unLockCommand *protocol.LockCommand, aofFlag uint16) error {
 	if self.closed {
 		return io.EOF
 	}
@@ -561,45 +561,45 @@ func (self *AofChannel) Push(dbId uint8, lock *Lock, commandType uint8, command 
 	}
 
 	if commandType == protocol.COMMAND_LOCK {
-		aofLock.Flag = lock.command.Flag & 0x12
+		aofLock.Flag = lockCommand.Flag & 0x12
 	} else {
 		aofLock.Flag = 0
 	}
 	aofLock.DbId = dbId
-	aofLock.LockId = lock.command.LockId
-	aofLock.LockKey = lock.command.LockKey
+	aofLock.LockId = lockCommand.LockId
+	aofLock.LockKey = lockCommand.LockKey
 	aofLock.AofFlag = aofFlag
 	if aofLock.CommandTime-uint64(lock.startTime) > 0xffff {
 		aofLock.StartTime = 0xffff
 	} else {
 		aofLock.StartTime = uint16(aofLock.CommandTime - uint64(lock.startTime))
 	}
-	aofLock.ExpriedFlag = lock.command.ExpriedFlag
-	if lock.command.ExpriedFlag&protocol.EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME != 0 {
-		aofLock.ExpriedTime = lock.command.Expried
-	} else if lock.command.ExpriedFlag&protocol.EXPRIED_FLAG_MILLISECOND_TIME != 0 {
-		aofLock.ExpriedTime = lock.command.Expried
-	} else if lock.command.ExpriedFlag&protocol.EXPRIED_FLAG_MINUTE_TIME != 0 {
-		aofLock.ExpriedTime = lock.command.Expried
+	aofLock.ExpriedFlag = lockCommand.ExpriedFlag
+	if lockCommand.ExpriedFlag&protocol.EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME != 0 {
+		aofLock.ExpriedTime = lockCommand.Expried
+	} else if lockCommand.ExpriedFlag&protocol.EXPRIED_FLAG_MILLISECOND_TIME != 0 {
+		aofLock.ExpriedTime = lockCommand.Expried
+	} else if lockCommand.ExpriedFlag&protocol.EXPRIED_FLAG_MINUTE_TIME != 0 {
+		aofLock.ExpriedTime = lockCommand.Expried
 	} else {
 		if lock.expriedTime > 0 {
 			aofLock.ExpriedTime = uint16(uint64(lock.expriedTime) - aofLock.CommandTime)
 		} else {
-			aofLock.ExpriedTime = lock.command.Expried
+			aofLock.ExpriedTime = lockCommand.Expried
 		}
 	}
-	if command == nil {
-		aofLock.Count = lock.command.Count
+	if unLockCommand == nil {
+		aofLock.Count = lockCommand.Count
 		if commandType == protocol.COMMAND_UNLOCK {
 			aofLock.Rcount = 0
 		} else {
-			aofLock.Rcount = lock.command.Rcount
+			aofLock.Rcount = lockCommand.Rcount
 		}
 	} else {
-		aofLock.Count = command.Count
-		aofLock.Rcount = command.Rcount
+		aofLock.Count = unLockCommand.Count
+		aofLock.Rcount = unLockCommand.Rcount
 	}
-	if lock.command.TimeoutFlag&protocol.TIMEOUT_FLAG_REQUIRE_ACKED != 0 {
+	if lockCommand.TimeoutFlag&protocol.TIMEOUT_FLAG_REQUIRE_ACKED != 0 {
 		aofLock.AofFlag |= AOF_FLAG_REQUIRE_ACKED
 		aofLock.lock = lock
 	} else {
