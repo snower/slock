@@ -69,7 +69,7 @@ func TestReplicationBufferQueue_Head(t *testing.T) {
 		t.Errorf("ReplicationBufferQueue Pop Error Fail %v", err)
 	}
 
-	if index != 1 {
+	if index != 2 {
 		t.Errorf("ReplicationBufferQueue Push Index Error Fail %v", index)
 	}
 
@@ -83,7 +83,7 @@ func TestReplicationBufferQueue_Head(t *testing.T) {
 		t.Errorf("ReplicationBufferQueue Pop Error Fail %v", err)
 	}
 
-	if index != 2 {
+	if index != 3 {
 		t.Errorf("ReplicationBufferQueue Push Index Error Fail %v", index)
 	}
 
