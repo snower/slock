@@ -160,7 +160,7 @@ func (self *ReplicationBufferQueue) Head(buf []byte) (uint64, error) {
 	currentSize := ((self.currentIndex - 1) % self.segmentCount) * self.segmentSize
 	copy(buf, self.buf[currentSize:currentSize+self.segmentSize])
 	self.glock.RUnlock()
-	return self.currentIndex - 1, nil
+	return self.currentIndex, nil
 }
 
 func (self *ReplicationBufferQueue) Search(aofId [16]byte, aofBuf []byte) (uint64, error) {
@@ -173,13 +173,13 @@ func (self *ReplicationBufferQueue) Search(aofId [16]byte, aofBuf []byte) (uint6
 	startIndex := uint64(0)
 	segmentCount := self.segmentCount
 	if self.currentIndex > self.segmentCount {
-		startIndex = self.currentIndex - self.segmentCount - 1
+		startIndex = self.currentIndex - self.segmentCount
 	} else {
 		segmentCount = self.currentIndex
 	}
 
-	for i := uint64(0); i < segmentCount; i++ {
-		currentSize := ((startIndex + i) % self.segmentCount) * self.segmentSize
+	for i := segmentCount; i > 0; i-- {
+		currentSize := ((startIndex + i - 1) % self.segmentCount) * self.segmentSize
 		buf := self.buf[currentSize : currentSize+self.segmentSize]
 		currentAofId := [16]byte{buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18]}
 		if currentAofId == aofId {
@@ -187,7 +187,7 @@ func (self *ReplicationBufferQueue) Search(aofId [16]byte, aofBuf []byte) (uint6
 			currentAofId := [16]byte{aofBuf[3], aofBuf[4], aofBuf[5], aofBuf[6], aofBuf[7], aofBuf[8], aofBuf[9], aofBuf[10], aofBuf[11], aofBuf[12], aofBuf[13], aofBuf[14], aofBuf[15], aofBuf[16], aofBuf[17], aofBuf[18]}
 			if currentAofId == aofId {
 				self.glock.RUnlock()
-				return startIndex + i, nil
+				return startIndex + i - 1, nil
 			}
 		}
 	}
@@ -860,7 +860,7 @@ func (self *ReplicationServer) sendFiles() error {
 	}
 	aofFilenames = append(aofFilenames, appendFiles...)
 	err = self.aof.LoadAofFiles(aofFilenames, time.Now().Unix(), func(filename string, aofFile *AofFile, lock *AofLock, firstLock bool) (bool, error) {
-		if lock.AofIndex >= self.waofLock.AofIndex && lock.AofId >= self.waofLock.AofId {
+		if lock.AofIndex > self.waofLock.AofIndex && lock.AofId > self.waofLock.AofId {
 			return false, nil
 		}
 
