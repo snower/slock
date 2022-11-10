@@ -1188,7 +1188,7 @@ func (self *ArbiterVoter) addSubscriber(subscriber *ArbiterVoterSubscriber) {
 			}
 			self.glock.Unlock()
 			for _, s := range timeoutSubscribers {
-				s.handler(s, true)
+				s.handler(s, false)
 			}
 		}
 	}(subscriber.timeoutTime - time.Now().Unix())
