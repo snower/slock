@@ -1583,7 +1583,7 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 		}
 	} else {
 		if command.TimeoutFlag&protocol.TIMEOUT_FLAG_LOCK_WAIT_WHEN_UNLOCK != 0 {
-			if lockManager.waited {
+			if lockManager.waited && command.Count == 0 {
 				lockManager.glock.Unlock()
 
 				_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_UNOWN_ERROR, uint16(lockManager.locked), 0)
