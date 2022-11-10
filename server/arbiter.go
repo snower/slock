@@ -865,25 +865,32 @@ func (self *ArbiterMember) DoAnnouncement() (*protobuf.ArbiterAnnouncementRespon
 	return &response, nil
 }
 
+type ArbiterVoterSubscriber struct {
+	serverProtocol *BinaryServerProtocol
+	command        *protocol.CallCommand
+	handler        func(*ArbiterVoterSubscriber, bool)
+	timeoutTime    int64
+}
+
 type ArbiterVoter struct {
-	manager            *ArbiterManager
-	glock              *sync.Mutex
-	commitId           uint64
-	proposalId         uint64
-	proposalHost       string
-	proposalFromHost   string
-	voteHost           string
-	voteAofId          [16]byte
-	voting             bool
-	closed             bool
-	closedWaiter       chan bool
-	wakeupSignal       chan bool
-	announcementSignal chan bool
+	manager          *ArbiterManager
+	glock            *sync.Mutex
+	commitId         uint64
+	proposalId       uint64
+	proposalHost     string
+	proposalFromHost string
+	voteHost         string
+	voteAofId        [16]byte
+	voting           bool
+	closed           bool
+	closedWaiter     chan bool
+	wakeupSignal     chan bool
+	subscribers      []*ArbiterVoterSubscriber
 }
 
 func NewArbiterVoter() *ArbiterVoter {
 	return &ArbiterVoter{nil, &sync.Mutex{}, 0, 0, "", "", "", [16]byte{},
-		false, false, make(chan bool, 1), nil, make(chan bool, 1)}
+		false, false, make(chan bool, 1), nil, nil}
 }
 
 func (self *ArbiterVoter) Close() error {
@@ -899,10 +906,6 @@ func (self *ArbiterVoter) Close() error {
 		close(self.wakeupSignal)
 		self.wakeupSignal = nil
 	}
-	if self.announcementSignal != nil {
-		close(self.announcementSignal)
-		self.announcementSignal = nil
-	}
 	self.glock.Unlock()
 	self.manager.slock.Log().Infof("Arbiter voter close")
 	return nil
@@ -917,9 +920,6 @@ func (self *ArbiterVoter) StartVote() error {
 		}
 		self.glock.Unlock()
 		return errors.New("already voting")
-	}
-	if self.announcementSignal == nil {
-		self.announcementSignal = make(chan bool, 1)
 	}
 	self.voting = true
 	self.glock.Unlock()
@@ -1132,26 +1132,66 @@ func (self *ArbiterVoter) DoAnnouncement() error {
 		}
 	}
 
-	var announcementSignal chan bool
-	announcementSignal, self.announcementSignal = self.announcementSignal, make(chan bool, 1)
-	if announcementSignal != nil {
-		close(announcementSignal)
+	self.glock.Lock()
+	subscribers := self.subscribers
+	self.subscribers = nil
+	self.glock.Unlock()
+	if subscribers != nil {
+		for _, s := range subscribers {
+			s.handler(s, true)
+		}
 	}
 	self.manager.slock.Log().Infof("Arbiter replication do announcement finish")
 	return nil
 }
 
-func (self *ArbiterVoter) PollAnnouncement(timeout uint32) bool {
-	if self.announcementSignal == nil || timeout == 0 {
-		return false
+func (self *ArbiterVoter) addSubscriber(subscriber *ArbiterVoterSubscriber) {
+	self.glock.Lock()
+	if self.subscribers != nil {
+		self.subscribers = append(self.subscribers, subscriber)
+		self.glock.Unlock()
+		return
 	}
+	self.subscribers = make([]*ArbiterVoterSubscriber, 1)
+	self.subscribers[0] = subscriber
+	self.glock.Unlock()
 
-	select {
-	case <-self.announcementSignal:
-		return true
-	case <-time.After(time.Duration(timeout) * time.Second):
-		return false
-	}
+	go func(timeout int64) {
+		for timeout > 0 {
+			select {
+			case <-self.closedWaiter:
+			case <-time.After(time.Duration(timeout) * time.Second):
+			}
+			self.glock.Lock()
+			if self.subscribers == nil {
+				self.glock.Unlock()
+				return
+			}
+
+			now, subscribers, timeoutSubscribers := time.Now().Unix(), self.subscribers, make([]*ArbiterVoterSubscriber, 0)
+			timeout, self.subscribers = 0, nil
+			for _, s := range subscribers {
+				if s.timeoutTime <= now {
+					timeoutSubscribers = append(timeoutSubscribers, s)
+					continue
+				}
+
+				if self.subscribers == nil {
+					self.subscribers = make([]*ArbiterVoterSubscriber, 1)
+					self.subscribers[0] = s
+				} else {
+					self.subscribers = append(self.subscribers, s)
+				}
+				if timeout == 0 || timeout > s.timeoutTime-now {
+					timeout = s.timeoutTime - now
+				}
+			}
+			self.glock.Unlock()
+			for _, s := range timeoutSubscribers {
+				s.handler(s, true)
+			}
+		}
+	}(subscriber.timeoutTime - time.Now().Unix())
 }
 
 func (self *ArbiterVoter) sleepWhenRetryVote() error {
@@ -2300,26 +2340,33 @@ func (self *ArbiterManager) commandHandleMemberListCommand(serverProtocol *Binar
 		return protocol.NewCallResultCommand(command, 0, "ERR_DECODE", nil), nil
 	}
 
+	getResultCommand := func() *protocol.CallResultCommand {
+		if self.ownMember == nil || len(self.members) == 0 {
+			return protocol.NewCallResultCommand(command, 0, "ERR_UNINIT", nil)
+		}
+
+		members := make([]*protobuf.ReplSetMember, 0)
+		for _, member := range self.members {
+			rplm := &protobuf.ReplSetMember{Host: member.host, Weight: member.weight, Arbiter: member.arbiter, Role: uint32(member.role)}
+			members = append(members, rplm)
+		}
+
+		response := protobuf.ArbiterMemberListResponse{Name: self.name, Gid: self.gid, Version: self.version, Vertime: self.vertime,
+			Owner: self.ownMember.host, Members: members, CommitId: self.voter.commitId}
+		data, err := proto.Marshal(&response)
+		if err != nil {
+			return protocol.NewCallResultCommand(command, 0, "ERR_ENCODE", nil)
+		}
+		return protocol.NewCallResultCommand(command, 0, "", data)
+	}
+
 	if request.PollTimeout > 0 && self.voter != nil {
-		_ = self.voter.PollAnnouncement(request.PollTimeout)
+		self.voter.addSubscriber(&ArbiterVoterSubscriber{serverProtocol: serverProtocol, command: command, handler: func(subscriber *ArbiterVoterSubscriber, b bool) {
+			_ = subscriber.serverProtocol.Write(getResultCommand())
+		}, timeoutTime: time.Now().Unix() + int64(request.PollTimeout)})
+		return nil, nil
 	}
-	if self.ownMember == nil || len(self.members) == 0 {
-		return protocol.NewCallResultCommand(command, 0, "ERR_UNINIT", nil), nil
-	}
-
-	members := make([]*protobuf.ReplSetMember, 0)
-	for _, member := range self.members {
-		rplm := &protobuf.ReplSetMember{Host: member.host, Weight: member.weight, Arbiter: member.arbiter, Role: uint32(member.role)}
-		members = append(members, rplm)
-	}
-
-	response := protobuf.ArbiterMemberListResponse{Name: self.name, Gid: self.gid, Version: self.version, Vertime: self.vertime,
-		Owner: self.ownMember.host, Members: members, CommitId: self.voter.commitId}
-	data, err := proto.Marshal(&response)
-	if err != nil {
-		return protocol.NewCallResultCommand(command, 0, "ERR_ENCODE", nil), nil
-	}
-	return protocol.NewCallResultCommand(command, 0, "", data), nil
+	return getResultCommand(), nil
 }
 
 func (self *ArbiterManager) commandHandleMemberAddCommand(serverProtocol *BinaryServerProtocol, command *protocol.CallCommand) (*protocol.CallResultCommand, error) {
