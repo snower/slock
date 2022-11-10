@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/snower/slock/protocol"
 	"github.com/snower/slock/protocol/protobuf"
+	"google.golang.org/protobuf/proto"
 	"io"
 	"net"
 	"strconv"
@@ -1443,7 +1444,7 @@ func (self *BinaryServerProtocol) commandHandleListLockCommand(_ *BinaryServerPr
 	}
 
 	request := protobuf.LockDBListLockRequest{}
-	err := request.Unmarshal(command.Data)
+	err := proto.Unmarshal(command.Data, &request)
 	if err != nil {
 		return protocol.NewCallResultCommand(command, protocol.RESULT_ERROR, "DECODE_ERROR", nil), nil
 	}
@@ -1470,7 +1471,7 @@ func (self *BinaryServerProtocol) commandHandleListLockCommand(_ *BinaryServerPr
 	db.mGlock.Unlock()
 
 	response := protobuf.LockDBListLockResponse{Locks: locks}
-	data, err := response.Marshal()
+	data, err := proto.Marshal(&response)
 	if err != nil {
 		return protocol.NewCallResultCommand(command, protocol.RESULT_ERROR, "ENCODE_ERROR", nil), nil
 	}
@@ -1483,7 +1484,7 @@ func (self *BinaryServerProtocol) commandHandleListLockedCommand(_ *BinaryServer
 	}
 
 	request := protobuf.LockDBListLockedRequest{}
-	err := request.Unmarshal(command.Data)
+	err := proto.Unmarshal(command.Data, &request)
 	if err != nil {
 		return protocol.NewCallResultCommand(command, protocol.RESULT_ERROR, "DECODE_ERROR", nil), nil
 	}
@@ -1537,7 +1538,7 @@ func (self *BinaryServerProtocol) commandHandleListLockedCommand(_ *BinaryServer
 	lockManager.glock.Unlock()
 
 	response := protobuf.LockDBListLockedResponse{LockKey: lockManager.lockKey[:], LockedCount: lockManager.locked, Locks: locks}
-	data, err := response.Marshal()
+	data, err := proto.Marshal(&response)
 	if err != nil {
 		return protocol.NewCallResultCommand(command, protocol.RESULT_ERROR, "ENCODE_ERROR", nil), nil
 	}
@@ -1550,7 +1551,7 @@ func (self *BinaryServerProtocol) commandHandleListWaitCommand(_ *BinaryServerPr
 	}
 
 	request := protobuf.LockDBListWaitRequest{}
-	err := request.Unmarshal(command.Data)
+	err := proto.Unmarshal(command.Data, &request)
 	if err != nil {
 		return protocol.NewCallResultCommand(command, protocol.RESULT_ERROR, "DECODE_ERROR", nil), nil
 	}
@@ -1590,7 +1591,7 @@ func (self *BinaryServerProtocol) commandHandleListWaitCommand(_ *BinaryServerPr
 	lockManager.glock.Unlock()
 
 	response := protobuf.LockDBListWaitResponse{LockKey: lockManager.lockKey[:], LockedCount: lockManager.locked, Locks: locks}
-	data, err := response.Marshal()
+	data, err := proto.Marshal(&response)
 	if err != nil {
 		return protocol.NewCallResultCommand(command, protocol.RESULT_ERROR, "ENCODE_ERROR", nil), nil
 	}

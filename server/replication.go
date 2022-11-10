@@ -7,6 +7,7 @@ import (
 	"github.com/snower/slock/client"
 	"github.com/snower/slock/protocol"
 	"github.com/snower/slock/protocol/protobuf"
+	"google.golang.org/protobuf/proto"
 	"io"
 	"net"
 	"runtime"
@@ -324,7 +325,7 @@ func (self *ReplicationClient) sendSyncCommand() (*protobuf.SyncResponse, error)
 	}
 
 	request := protobuf.SyncRequest{AofId: requestId}
-	data, err := request.Marshal()
+	data, err := proto.Marshal(&request)
 	if err != nil {
 		return nil, err
 	}
@@ -356,7 +357,7 @@ func (self *ReplicationClient) sendSyncCommand() (*protobuf.SyncResponse, error)
 	}
 
 	response := protobuf.SyncResponse{}
-	err = response.Unmarshal(callResultCommand.Data)
+	err = proto.Unmarshal(callResultCommand.Data, &response)
 	if err != nil {
 		return nil, errors.New("unknown lastest requestid")
 	}
@@ -759,7 +760,7 @@ func (self *ReplicationServer) handleInitSync(command *protocol.CallCommand) (*p
 	}
 
 	request := protobuf.SyncRequest{}
-	err := request.Unmarshal(command.Data)
+	err := proto.Unmarshal(command.Data, &request)
 	if err != nil {
 		return protocol.NewCallResultCommand(command, 0, "ERR_PROTO", nil), nil
 	}
@@ -777,7 +778,7 @@ func (self *ReplicationServer) handleInitSync(command *protocol.CallCommand) (*p
 		}
 		requestId := fmt.Sprintf("%x", self.waofLock.GetRequestId())
 		response := protobuf.SyncResponse{AofId: requestId}
-		data, err := response.Marshal()
+		data, err := proto.Marshal(&response)
 		if err != nil {
 			return protocol.NewCallResultCommand(command, 0, "ERR_ENCODE", nil), nil
 		}
@@ -823,7 +824,7 @@ func (self *ReplicationServer) handleInitSync(command *protocol.CallCommand) (*p
 	}
 	requestId := fmt.Sprintf("%x", self.waofLock.GetRequestId())
 	response := protobuf.SyncResponse{AofId: requestId}
-	data, err := response.Marshal()
+	data, err := proto.Marshal(&response)
 	if err != nil {
 		return protocol.NewCallResultCommand(command, 0, "ERR_ENCODE", nil), nil
 	}

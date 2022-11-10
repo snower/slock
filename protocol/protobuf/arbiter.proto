@@ -1,5 +1,5 @@
 syntax = "proto3";
-
+option go_package = "github.com/snower/slock/protocol/protobuf";
 package protobuf;
 
 message ReplSetMember {
@@ -79,4 +79,80 @@ message ArbiterStatusResponse {
   string err_message = 1;
   string aof_id = 2;
   uint32 role = 3;
+}
+
+message ArbiterConfigRequest {
+  string host = 1;
+  uint32 weight = 2;
+  uint32 arbiter = 3;
+}
+
+message ArbiterConfigResponse {
+  string name = 1;
+  string gid = 2;
+  uint32 version = 3;
+  uint64 vertime = 4;
+  string owner = 5;
+  repeated ReplSetMember members = 6;
+  uint64 commit_id = 7;
+}
+
+message ArbiterMemberListRequest {
+  uint32 pollTimeout = 1;
+}
+
+message ArbiterMemberListResponse {
+  string name = 1;
+  string gid = 2;
+  uint32 version = 3;
+  uint64 vertime = 4;
+  string owner = 5;
+  repeated ReplSetMember members = 6;
+  uint64 commit_id = 7;
+}
+
+message ArbiterMemberAddRequest {
+  string host = 1;
+  uint32 weight = 2;
+  uint32 arbiter = 3;
+}
+
+message ArbiterMemberAddResponse {
+  string name = 1;
+  string gid = 2;
+  uint32 version = 3;
+  uint64 vertime = 4;
+  string owner = 5;
+  repeated ReplSetMember members = 6;
+  uint64 commit_id = 7;
+}
+
+message ArbiterMemberUpdateRequest {
+  string host = 1;
+  uint32 weight = 2;
+  uint32 arbiter = 3;
+}
+
+message ArbiterMemberUpdateResponse {
+  string name = 1;
+  string gid = 2;
+  uint32 version = 3;
+  uint64 vertime = 4;
+  string owner = 5;
+  repeated ReplSetMember members = 6;
+  uint64 commit_id = 7;
+}
+
+message ArbiterMemberRemoveRequest {
+  string host = 1;
+}
+
+message ArbiterMemberRemoveResponse {
+  string name = 1;
+  string gid = 2;
+  uint32 version = 3;
+  uint64 vertime = 4;
+  string owner = 5;
+  repeated ReplSetMember members = 6;
+  uint64 commit_id = 7;
 }

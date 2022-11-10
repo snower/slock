@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/snower/slock/protocol"
 	"github.com/snower/slock/protocol/protobuf"
+	"google.golang.org/protobuf/proto"
 	"sync"
 )
 
@@ -94,7 +95,7 @@ func (self *Database) State() *protocol.StateResultCommand {
 
 func (self *Database) ListLocks(timeout int) (*protobuf.LockDBListLockResponse, error) {
 	request := protobuf.LockDBListLockRequest{DbId: uint32(self.dbId)}
-	data, err := request.Marshal()
+	data, err := proto.Marshal(&request)
 	if err != nil {
 		return nil, err
 	}
@@ -111,7 +112,7 @@ func (self *Database) ListLocks(timeout int) (*protobuf.LockDBListLockResponse, 
 	}
 
 	response := protobuf.LockDBListLockResponse{}
-	err = response.Unmarshal(callResultCommand.Data)
+	err = proto.Unmarshal(callResultCommand.Data, &response)
 	if err != nil {
 		return nil, err
 	}
@@ -120,7 +121,7 @@ func (self *Database) ListLocks(timeout int) (*protobuf.LockDBListLockResponse, 
 
 func (self *Database) ListLockLockeds(lockKey [16]byte, timeout int) (*protobuf.LockDBListLockedResponse, error) {
 	request := protobuf.LockDBListLockedRequest{DbId: uint32(self.dbId), LockKey: lockKey[:]}
-	data, err := request.Marshal()
+	data, err := proto.Marshal(&request)
 	if err != nil {
 		return nil, err
 	}
@@ -137,7 +138,7 @@ func (self *Database) ListLockLockeds(lockKey [16]byte, timeout int) (*protobuf.
 	}
 
 	response := protobuf.LockDBListLockedResponse{}
-	err = response.Unmarshal(callResultCommand.Data)
+	err = proto.Unmarshal(callResultCommand.Data, &response)
 	if err != nil {
 		return nil, err
 	}
@@ -146,7 +147,7 @@ func (self *Database) ListLockLockeds(lockKey [16]byte, timeout int) (*protobuf.
 
 func (self *Database) ListLockWaits(lockKey [16]byte, timeout int) (*protobuf.LockDBListWaitResponse, error) {
 	request := protobuf.LockDBListWaitRequest{DbId: uint32(self.dbId), LockKey: lockKey[:]}
-	data, err := request.Marshal()
+	data, err := proto.Marshal(&request)
 	if err != nil {
 		return nil, err
 	}
@@ -163,7 +164,7 @@ func (self *Database) ListLockWaits(lockKey [16]byte, timeout int) (*protobuf.Lo
 	}
 
 	response := protobuf.LockDBListWaitResponse{}
-	err = response.Unmarshal(callResultCommand.Data)
+	err = proto.Unmarshal(callResultCommand.Data, &response)
 	if err != nil {
 		return nil, err
 	}
