@@ -110,7 +110,7 @@ func main() {
 
 	finishWaiter, stopSignal := make(chan bool, 1), make(chan os.Signal, 1)
 	signal.Notify(stopSignal, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
-	go subscribe(subscriber, finishWaiter)
+	go subscribe(subscriber.(*client.Subscriber), finishWaiter)
 	select {
 	case <-finishWaiter:
 		err := c.Close()

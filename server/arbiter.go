@@ -641,6 +641,7 @@ func (self *ArbiterMember) clientOnline(client *ArbiterClient) error {
 	self.status = ARBITER_MEMBER_STATUS_ONLINE
 	_ = self.manager.memberStatusUpdated(self)
 	_ = self.manager.voter.WakeupRetryVote()
+	go self.manager.voter.wakeupSubscriber()
 	return nil
 }
 
@@ -651,6 +652,7 @@ func (self *ArbiterMember) clientOffline(client *ArbiterClient) error {
 
 	self.status = ARBITER_MEMBER_STATUS_OFFLINE
 	_ = self.manager.memberStatusUpdated(self)
+	go self.manager.voter.wakeupSubscriber()
 	return nil
 }
 
@@ -1132,15 +1134,7 @@ func (self *ArbiterVoter) DoAnnouncement() error {
 		}
 	}
 
-	self.glock.Lock()
-	subscribers := self.subscribers
-	self.subscribers = nil
-	self.glock.Unlock()
-	if subscribers != nil {
-		for _, s := range subscribers {
-			s.handler(s, true)
-		}
-	}
+	go self.wakeupSubscriber()
 	self.manager.slock.Log().Infof("Arbiter replication do announcement finish")
 	return nil
 }
@@ -1155,43 +1149,60 @@ func (self *ArbiterVoter) addSubscriber(subscriber *ArbiterVoterSubscriber) {
 	self.subscribers = make([]*ArbiterVoterSubscriber, 1)
 	self.subscribers[0] = subscriber
 	self.glock.Unlock()
+	go self.checkSubscriberTimeout(subscriber.timeoutTime - time.Now().Unix())
+}
 
-	go func(timeout int64) {
-		for timeout > 0 {
-			select {
-			case <-self.closedWaiter:
-			case <-time.After(time.Duration(timeout) * time.Second):
-			}
-			self.glock.Lock()
-			if self.subscribers == nil {
-				self.glock.Unlock()
-				return
-			}
+func (self *ArbiterVoter) wakeupSubscriber() {
+	self.glock.Lock()
+	if self.subscribers == nil {
+		self.glock.Unlock()
+		return
+	}
+	subscribers := self.subscribers
+	self.subscribers = make([]*ArbiterVoterSubscriber, 0)
+	self.glock.Unlock()
+	if subscribers != nil {
+		for _, subscriber := range subscribers {
+			subscriber.handler(subscriber, true)
+		}
+	}
+	self.manager.slock.Log().Infof("Arbiter replication wakeup subscriber finish")
+}
 
-			now, subscribers, timeoutSubscribers := time.Now().Unix(), self.subscribers, make([]*ArbiterVoterSubscriber, 0)
-			timeout, self.subscribers = 0, nil
-			for _, s := range subscribers {
-				if s.timeoutTime <= now {
-					timeoutSubscribers = append(timeoutSubscribers, s)
-					continue
-				}
-
-				if self.subscribers == nil {
-					self.subscribers = make([]*ArbiterVoterSubscriber, 1)
-					self.subscribers[0] = s
-				} else {
-					self.subscribers = append(self.subscribers, s)
-				}
-				if timeout == 0 || timeout > s.timeoutTime-now {
-					timeout = s.timeoutTime - now
-				}
-			}
+func (self *ArbiterVoter) checkSubscriberTimeout(timeout int64) {
+	for timeout > 0 {
+		select {
+		case <-self.closedWaiter:
+		case <-time.After(time.Duration(timeout) * time.Second):
+		}
+		self.glock.Lock()
+		if self.subscribers == nil {
 			self.glock.Unlock()
-			for _, s := range timeoutSubscribers {
-				s.handler(s, false)
+			return
+		}
+
+		now, subscribers, timeoutSubscribers := time.Now().Unix(), self.subscribers, make([]*ArbiterVoterSubscriber, 0)
+		timeout, self.subscribers = 0, make([]*ArbiterVoterSubscriber, 0)
+		for _, subscriber := range subscribers {
+			if self.closed || subscriber.timeoutTime <= now {
+				timeoutSubscribers = append(timeoutSubscribers, subscriber)
+				continue
+			}
+
+			self.subscribers = append(self.subscribers, subscriber)
+			if timeout == 0 || timeout > subscriber.timeoutTime-now {
+				timeout = subscriber.timeoutTime - now
 			}
 		}
-	}(subscriber.timeoutTime - time.Now().Unix())
+
+		if len(self.subscribers) == 0 {
+			self.subscribers = nil
+		}
+		self.glock.Unlock()
+		for _, subscriber := range timeoutSubscribers {
+			subscriber.handler(subscriber, false)
+		}
+	}
 }
 
 func (self *ArbiterVoter) sleepWhenRetryVote() error {
@@ -2225,6 +2236,7 @@ func (self *ArbiterManager) commandHandleAnnouncementCommand(serverProtocol *Bin
 		_ = self.updateStatus()
 	}
 	self.glock.Unlock()
+	go self.voter.wakeupSubscriber()
 	self.slock.Log().Infof("Arbiter handle announcement from %s leader %s member count %d version %d commitid %d",
 		request.FromHost, leaderHost, len(newMembers), request.Replset.Version, request.Replset.CommitId)
 
@@ -2365,11 +2377,15 @@ func (self *ArbiterManager) commandHandleMemberListCommand(serverProtocol *Binar
 	}
 
 	if request.PollTimeout > 0 && self.voter != nil {
-		if request.Version < self.version || request.Vertime < self.vertime {
+		if request.Version < self.version || (request.Version == self.version && request.Vertime < self.vertime) {
 			return getResultCommand(), nil
 		}
 
-		self.voter.addSubscriber(&ArbiterVoterSubscriber{serverProtocol: serverProtocol, command: command, handler: func(subscriber *ArbiterVoterSubscriber, b bool) {
+		self.voter.addSubscriber(&ArbiterVoterSubscriber{serverProtocol: serverProtocol, command: command, handler: func(subscriber *ArbiterVoterSubscriber, succed bool) {
+			if !succed {
+				_ = subscriber.serverProtocol.Write(protocol.NewCallResultCommand(subscriber.command, 0, "ERR_PTIMEOUT", nil))
+				return
+			}
 			_ = subscriber.serverProtocol.Write(getResultCommand())
 		}, timeoutTime: time.Now().Unix() + int64(request.PollTimeout)})
 		return nil, nil
