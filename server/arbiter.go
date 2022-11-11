@@ -2314,10 +2314,12 @@ func (self *ArbiterManager) commandHandleConfigCommand(serverProtocol *BinarySer
 		return protocol.NewCallResultCommand(command, 0, "ERR_UNINIT", nil), nil
 	}
 
-	members := make([]*protobuf.ReplSetMember, 0)
+	members := make([]*protobuf.ArbiterMemberStatus, 0)
 	for _, member := range self.members {
-		rplm := &protobuf.ReplSetMember{Host: member.host, Weight: member.weight, Arbiter: member.arbiter, Role: uint32(member.role)}
-		members = append(members, rplm)
+		memberStatus := &protobuf.ArbiterMemberStatus{Host: member.host, Weight: member.weight, Arbiter: member.arbiter, Role: uint32(member.role),
+			Status: uint32(member.status), LastUpdated: member.lastUpdated, LastDelay: member.lastDelay, LastError: int32(member.lastError), AofId: member.aofId[:],
+			IsSelf: member.isSelf, Abstianed: member.abstianed, Closed: member.closed}
+		members = append(members, memberStatus)
 	}
 
 	response := protobuf.ArbiterConfigResponse{Name: self.name, Gid: self.gid, Version: self.version, Vertime: self.vertime,
@@ -2345,10 +2347,12 @@ func (self *ArbiterManager) commandHandleMemberListCommand(serverProtocol *Binar
 			return protocol.NewCallResultCommand(command, 0, "ERR_UNINIT", nil)
 		}
 
-		members := make([]*protobuf.ReplSetMember, 0)
+		members := make([]*protobuf.ArbiterMemberStatus, 0)
 		for _, member := range self.members {
-			rplm := &protobuf.ReplSetMember{Host: member.host, Weight: member.weight, Arbiter: member.arbiter, Role: uint32(member.role)}
-			members = append(members, rplm)
+			memberStatus := &protobuf.ArbiterMemberStatus{Host: member.host, Weight: member.weight, Arbiter: member.arbiter, Role: uint32(member.role),
+				Status: uint32(member.status), LastUpdated: member.lastUpdated, LastDelay: member.lastDelay, LastError: int32(member.lastError), AofId: member.aofId[:],
+				IsSelf: member.isSelf, Abstianed: member.abstianed, Closed: member.closed}
+			members = append(members, memberStatus)
 		}
 
 		response := protobuf.ArbiterMemberListResponse{Name: self.name, Gid: self.gid, Version: self.version, Vertime: self.vertime,
@@ -2361,6 +2365,10 @@ func (self *ArbiterManager) commandHandleMemberListCommand(serverProtocol *Binar
 	}
 
 	if request.PollTimeout > 0 && self.voter != nil {
+		if request.Version < self.version || request.Vertime < self.vertime {
+			return getResultCommand(), nil
+		}
+
 		self.voter.addSubscriber(&ArbiterVoterSubscriber{serverProtocol: serverProtocol, command: command, handler: func(subscriber *ArbiterVoterSubscriber, b bool) {
 			_ = subscriber.serverProtocol.Write(getResultCommand())
 		}, timeoutTime: time.Now().Unix() + int64(request.PollTimeout)})
@@ -2389,10 +2397,12 @@ func (self *ArbiterManager) commandHandleMemberAddCommand(serverProtocol *Binary
 		return protocol.NewCallResultCommand(command, 0, "ERR_UNINIT", nil), nil
 	}
 
-	members := make([]*protobuf.ReplSetMember, 0)
+	members := make([]*protobuf.ArbiterMemberStatus, 0)
 	for _, member := range self.members {
-		rplm := &protobuf.ReplSetMember{Host: member.host, Weight: member.weight, Arbiter: member.arbiter, Role: uint32(member.role)}
-		members = append(members, rplm)
+		memberStatus := &protobuf.ArbiterMemberStatus{Host: member.host, Weight: member.weight, Arbiter: member.arbiter, Role: uint32(member.role),
+			Status: uint32(member.status), LastUpdated: member.lastUpdated, LastDelay: member.lastDelay, LastError: int32(member.lastError), AofId: member.aofId[:],
+			IsSelf: member.isSelf, Abstianed: member.abstianed, Closed: member.closed}
+		members = append(members, memberStatus)
 	}
 
 	response := protobuf.ArbiterMemberAddResponse{Name: self.name, Gid: self.gid, Version: self.version, Vertime: self.vertime,
@@ -2424,10 +2434,12 @@ func (self *ArbiterManager) commandHandleMemberUpdateCommand(serverProtocol *Bin
 		return protocol.NewCallResultCommand(command, 0, "ERR_UNINIT", nil), nil
 	}
 
-	members := make([]*protobuf.ReplSetMember, 0)
+	members := make([]*protobuf.ArbiterMemberStatus, 0)
 	for _, member := range self.members {
-		rplm := &protobuf.ReplSetMember{Host: member.host, Weight: member.weight, Arbiter: member.arbiter, Role: uint32(member.role)}
-		members = append(members, rplm)
+		memberStatus := &protobuf.ArbiterMemberStatus{Host: member.host, Weight: member.weight, Arbiter: member.arbiter, Role: uint32(member.role),
+			Status: uint32(member.status), LastUpdated: member.lastUpdated, LastDelay: member.lastDelay, LastError: int32(member.lastError), AofId: member.aofId[:],
+			IsSelf: member.isSelf, Abstianed: member.abstianed, Closed: member.closed}
+		members = append(members, memberStatus)
 	}
 
 	response := protobuf.ArbiterMemberUpdateResponse{Name: self.name, Gid: self.gid, Version: self.version, Vertime: self.vertime,
@@ -2459,10 +2471,12 @@ func (self *ArbiterManager) commandHandleMemberRemoveCommand(serverProtocol *Bin
 		return protocol.NewCallResultCommand(command, 0, "ERR_UNINIT", nil), nil
 	}
 
-	members := make([]*protobuf.ReplSetMember, 0)
+	members := make([]*protobuf.ArbiterMemberStatus, 0)
 	for _, member := range self.members {
-		rplm := &protobuf.ReplSetMember{Host: member.host, Weight: member.weight, Arbiter: member.arbiter, Role: uint32(member.role)}
-		members = append(members, rplm)
+		memberStatus := &protobuf.ArbiterMemberStatus{Host: member.host, Weight: member.weight, Arbiter: member.arbiter, Role: uint32(member.role),
+			Status: uint32(member.status), LastUpdated: member.lastUpdated, LastDelay: member.lastDelay, LastError: int32(member.lastError), AofId: member.aofId[:],
+			IsSelf: member.isSelf, Abstianed: member.abstianed, Closed: member.closed}
+		members = append(members, memberStatus)
 	}
 
 	response := protobuf.ArbiterMemberRemoveResponse{Name: self.name, Gid: self.gid, Version: self.version, Vertime: self.vertime,

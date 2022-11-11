@@ -81,6 +81,21 @@ message ArbiterStatusResponse {
   uint32 role = 3;
 }
 
+message ArbiterMemberStatus {
+  string host = 1;
+  uint32 weight = 2;
+  uint32 arbiter = 3;
+  uint32 role = 4;
+  uint32 status = 5;
+  int64 lastUpdated = 6;
+  int64 lastDelay = 7;
+  int32 lastError = 8;
+  bytes aofId = 9;
+  bool isSelf = 10;
+  bool abstianed = 11;
+  bool closed = 12;
+}
+
 message ArbiterConfigRequest {
   string host = 1;
   uint32 weight = 2;
@@ -93,12 +108,14 @@ message ArbiterConfigResponse {
   uint32 version = 3;
   uint64 vertime = 4;
   string owner = 5;
-  repeated ReplSetMember members = 6;
+  repeated ArbiterMemberStatus members = 6;
   uint64 commit_id = 7;
 }
 
 message ArbiterMemberListRequest {
   uint32 pollTimeout = 1;
+  uint32 version = 2;
+  uint64 vertime = 3;
 }
 
 message ArbiterMemberListResponse {
@@ -107,7 +124,7 @@ message ArbiterMemberListResponse {
   uint32 version = 3;
   uint64 vertime = 4;
   string owner = 5;
-  repeated ReplSetMember members = 6;
+  repeated ArbiterMemberStatus members = 6;
   uint64 commit_id = 7;
 }
 
@@ -123,7 +140,7 @@ message ArbiterMemberAddResponse {
   uint32 version = 3;
   uint64 vertime = 4;
   string owner = 5;
-  repeated ReplSetMember members = 6;
+  repeated ArbiterMemberStatus members = 6;
   uint64 commit_id = 7;
 }
 
@@ -139,7 +156,7 @@ message ArbiterMemberUpdateResponse {
   uint32 version = 3;
   uint64 vertime = 4;
   string owner = 5;
-  repeated ReplSetMember members = 6;
+  repeated ArbiterMemberStatus members = 6;
   uint64 commit_id = 7;
 }
 
@@ -153,6 +170,6 @@ message ArbiterMemberRemoveResponse {
   uint32 version = 3;
   uint64 vertime = 4;
   string owner = 5;
-  repeated ReplSetMember members = 6;
+  repeated ArbiterMemberStatus members = 6;
   uint64 commit_id = 7;
 }
