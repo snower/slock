@@ -135,6 +135,12 @@ Use the replset parameter to specify the cluster name to start as a cluster mode
 
 Cluster management using redis-cli, configuration management can be done at any node in the cluster.
 
+Slock itself has good multi-core support. The cluster mode itself cannot improve performance, but it can achieve high availability. The failure of a single node does not affect the overall service availability. When a node goes down, the cluster can be restored in seconds, and the node network timeout can be within seconds. The recovery cluster is available.
+
+! ! ! ! Note: The cluster configuration process is similar to the MongoDB replica set initialization process. The IPs of the added nodes need to be accessible to each other. When configuring according to the following configuration example, you need to replace the IP port with the IP port that can be accessed by each other.
+
+! ! ! ! (Special reminder: 127.0.0.1 in the Docker container is not interoperable, and the IP port outside the container needs to be used).
+
 ### Cluster creation examples
 
 #### Step 1: Start cluster nodes
@@ -153,13 +159,15 @@ Cluster management using redis-cli, configuration management can be done at any 
 redis-cli -h 127.0.0.1 -p 5657
 ```
 
-#### Step 3: Configure the initialized cluster
+#### Step 3: Configure current node information and initialize the cluster
 
 ```bash
 # Execute in redis-cli after a successful connection
 
 replset config 127.0.0.1:5657 weight 1 arbiter 0
 ```
+
+The IP and port must be the external IP and port of **current node** that can be accessed by other nodes
 
 #### Step 4: Add other members
 
@@ -170,6 +178,8 @@ replset add 127.0.0.1:5658 weight 1 arbiter 0
 
 replset add 127.0.0.1:5659 weight 1 arbiter 0
 ```
+
+The IP and port must be the external IP and port of **other nodes** that can be accessed by the current node
 
 ### Configuration commands
 
