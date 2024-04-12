@@ -19,58 +19,58 @@ func TestReplicationBufferQueue_Push(t *testing.T) {
 		t.Errorf("ReplicationBufferQueue Push Error Fail %v", err)
 	}
 
-	if queue.currentIndex != 1 {
-		t.Errorf("ReplicationBufferQueue Push Current_index Error Fail %v", queue.currentIndex)
+	if queue.seq != 1 {
+		t.Errorf("ReplicationBufferQueue Push Current_index Error Fail %v", queue.seq)
 	}
 
-	if queue.buf[0] != buf[0] || queue.buf[10] != buf[10] || queue.buf[54] != buf[54] {
-		t.Errorf("ReplicationBufferQueue Push Buf Error Fail %v", queue.buf)
+	if queue.headItem.buf[0] != buf[0] || queue.headItem.buf[10] != buf[10] || queue.headItem.buf[54] != buf[54] {
+		t.Errorf("ReplicationBufferQueue Push Buf Error Fail %v", queue.headItem.buf)
 	}
 }
 
 func TestReplicationBufferQueue_Pop(t *testing.T) {
+	cursor := &ReplicationBufferQueueCursor{nil, [16]byte{}, make([]byte, 64), 0, true}
 	queue := NewReplicationBufferQueue(nil, 1024*1024, 4*1024*1024)
 
-	obuf := make([]byte, 64)
 	buf := make([]byte, 64)
 	_ = queue.Push(buf)
-	err := queue.Pop(0, obuf)
+	err := queue.Pop(cursor)
 	if err != nil {
 		t.Errorf("ReplicationBufferQueue Pop Error Fail %v", err)
 	}
 
-	if obuf[0] != buf[0] || obuf[10] != buf[10] || obuf[54] != buf[54] {
-		t.Errorf("ReplicationBufferQueue Pop Buf Error Fail %v", obuf)
+	if cursor.buf[0] != buf[0] || cursor.buf[10] != buf[10] || cursor.buf[54] != buf[54] {
+		t.Errorf("ReplicationBufferQueue Pop Buf Error Fail %v", cursor.buf)
 	}
 
 	buf[0] = 0xa5
 	buf[10] = 0x34
 	buf[54] = 0x56
 	_ = queue.Push(buf)
-	err = queue.Pop(1, obuf)
+	err = queue.Pop(cursor)
 	if err != nil {
 		t.Errorf("ReplicationBufferQueue Pop Error Fail %v", err)
 	}
 
-	if obuf[0] != buf[0] || obuf[10] != buf[10] || obuf[54] != buf[54] {
-		t.Errorf("ReplicationBufferQueue Pop Buf Error Fail %v", obuf)
+	if cursor.buf[0] != buf[0] || cursor.buf[10] != buf[10] || cursor.buf[54] != buf[54] {
+		t.Errorf("ReplicationBufferQueue Pop Buf Error Fail %v", cursor.buf)
 	}
 }
 
 func TestReplicationBufferQueue_Head(t *testing.T) {
+	cursor := &ReplicationBufferQueueCursor{nil, [16]byte{}, make([]byte, 64), 0, true}
 	queue := NewReplicationBufferQueue(nil, 1024*1024, 4*1024*1024)
 
-	obuf := make([]byte, 64)
 	buf := make([]byte, 64)
 	_ = queue.Push(buf)
 	_ = queue.Push(buf)
-	index, err := queue.Head(obuf)
+	err := queue.Head(cursor)
 	if err != nil {
 		t.Errorf("ReplicationBufferQueue Pop Error Fail %v", err)
 	}
 
-	if index != 2 {
-		t.Errorf("ReplicationBufferQueue Push Index Error Fail %v", index)
+	if cursor.seq != 1 {
+		t.Errorf("ReplicationBufferQueue Push Index Error Fail %v", cursor.seq)
 	}
 
 	buf[0] = 0xa5
@@ -78,24 +78,24 @@ func TestReplicationBufferQueue_Head(t *testing.T) {
 	buf[54] = 0x56
 
 	_ = queue.Push(buf)
-	index, err = queue.Head(obuf)
+	err = queue.Head(cursor)
 	if err != nil {
 		t.Errorf("ReplicationBufferQueue Pop Error Fail %v", err)
 	}
 
-	if index != 3 {
-		t.Errorf("ReplicationBufferQueue Push Index Error Fail %v", index)
+	if cursor.seq != 2 {
+		t.Errorf("ReplicationBufferQueue Push Index Error Fail %v", cursor.seq)
 	}
 
-	if obuf[0] != buf[0] || obuf[10] != buf[10] || obuf[54] != buf[54] {
-		t.Errorf("ReplicationBufferQueue Pop Buf Error Fail %v", obuf)
+	if cursor.buf[0] != buf[0] || cursor.buf[10] != buf[10] || cursor.buf[54] != buf[54] {
+		t.Errorf("ReplicationBufferQueue Pop Buf Error Fail %v", cursor.buf)
 	}
 }
 
 func TestReplicationBufferQueue_Search(t *testing.T) {
+	cursor := &ReplicationBufferQueueCursor{nil, [16]byte{}, make([]byte, 64), 0, true}
 	queue := NewReplicationBufferQueue(nil, 1024*1024, 4*1024*1024)
 
-	obuf := make([]byte, 64)
 	buf := make([]byte, 64)
 	_ = queue.Push(buf)
 	_ = queue.Push(buf)
@@ -110,16 +110,16 @@ func TestReplicationBufferQueue_Search(t *testing.T) {
 	_ = aofLock.Encode()
 	_ = queue.Push(aofLock.buf)
 
-	index, err := queue.Search(aofLock.GetRequestId(), obuf)
+	err := queue.Search(aofLock.GetRequestId(), cursor)
 	if err != nil {
 		t.Errorf("ReplicationBufferQueue Pop Error Fail %v", err)
 	}
 
-	if index != 3 {
-		t.Errorf("ReplicationBufferQueue Push Index Error Fail %v", index)
+	if cursor.seq != 3 {
+		t.Errorf("ReplicationBufferQueue Push Index Error Fail %v", cursor.seq)
 	}
 
-	aofLock.buf = obuf
+	aofLock.buf = cursor.buf
 	_ = aofLock.Decode()
 	if aofLock.AofIndex != 43 || aofLock.AofId != 343294329 {
 		t.Errorf("ReplicationBufferQueue Pop Buf Error Fail %v", aofLock)
@@ -127,6 +127,7 @@ func TestReplicationBufferQueue_Search(t *testing.T) {
 }
 
 func TestReplicationBufferQueue_Run(t *testing.T) {
+	cursor := &ReplicationBufferQueueCursor{nil, [16]byte{}, make([]byte, 64), 0, true}
 	queue := NewReplicationBufferQueue(nil, 1024*1024, 4*1024*1024)
 
 	go func() {
@@ -144,9 +145,8 @@ func TestReplicationBufferQueue_Run(t *testing.T) {
 
 	rindex := uint64(0)
 	for {
-		buf := make([]byte, 64)
 		for {
-			err := queue.Pop(rindex, buf)
+			err := queue.Pop(cursor)
 			if err == io.EOF {
 				time.Sleep(10 * time.Microsecond)
 				continue
@@ -156,7 +156,7 @@ func TestReplicationBufferQueue_Run(t *testing.T) {
 			}
 			break
 		}
-		bindex := uint64(buf[0]) | uint64(buf[1])<<8 | uint64(buf[2])<<16 | uint64(buf[3])<<24
+		bindex := uint64(cursor.buf[0]) | uint64(cursor.buf[1])<<8 | uint64(cursor.buf[2])<<16 | uint64(cursor.buf[3])<<24
 		if rindex != bindex {
 			t.Errorf("ReplicationBufferQueue Run Data Error Fail %d %d", rindex, bindex)
 		}
@@ -169,7 +169,9 @@ func TestReplicationBufferQueue_Run(t *testing.T) {
 }
 
 func TestReplicationBufferQueue_Reduplicated(t *testing.T) {
+	cursor := &ReplicationBufferQueueCursor{nil, [16]byte{}, make([]byte, 64), 0, true}
 	queue := NewReplicationBufferQueue(nil, 640, 4*1024*1024)
+	queue.AddPoll(cursor)
 
 	buf := make([]byte, 64)
 	for i := 0; i < 16; i++ {
@@ -180,66 +182,16 @@ func TestReplicationBufferQueue_Reduplicated(t *testing.T) {
 	buf[54] = 0x56
 	_ = queue.Push(buf)
 
-	obuf := make([]byte, 64)
-	err := queue.Pop(16, obuf)
-	if err != nil {
-		t.Errorf("ReplicationBufferQueue Pop Error Fail %v", err)
-	}
-
-	if obuf[0] != buf[0] || obuf[10] != buf[10] || obuf[54] != buf[54] {
-		t.Errorf("ReplicationBufferQueue Pop Buf Error Fail %v", obuf)
-	}
-
-	bufSize := queue.segmentCount * 2 * queue.segmentSize
-	newBuf := make([]byte, bufSize)
-	copy(newBuf, queue.buf)
-	copy(newBuf[queue.segmentCount*queue.segmentSize:], queue.buf)
-	queue.buf = newBuf
-	queue.segmentCount = bufSize / 64
-	queue.maxIndex = uint64(0xffffffffffffffff) - uint64(0xffffffffffffffff)%uint64(bufSize/64)
-
-	err = queue.Pop(16, obuf)
-	if err != nil {
-		t.Errorf("ReplicationBufferQueue Pop Error Fail %v", err)
-	}
-
-	if obuf[0] != buf[0] || obuf[10] != buf[10] || obuf[54] != buf[54] {
-		t.Errorf("ReplicationBufferQueue Pop Buf Error Fail %v", obuf)
-	}
-}
-
-func TestReplicationBufferQueue_ResetIndex(t *testing.T) {
-	queue := NewReplicationBufferQueue(nil, 128, 4*1024*1024)
-	queue.maxIndex = 4
-	queue.dupSegmentCount = 8
-
-	for i := 0; i < 4; i++ {
-		buf := make([]byte, 64)
-		buf[0] = byte(i)
-		_ = queue.Push(buf)
-	}
-	if queue.currentIndex != 2 {
-		t.Errorf("ReplicationBufferQueue ResetIndex Push Error Fail %d", queue.currentIndex)
-	}
-
-	queue = NewReplicationBufferQueue(nil, 128, 4*1024*1024)
-	queue.maxIndex = 4
-	queue.dupSegmentCount = 8
-
-	bufIndex := uint64(0)
-	for i := 0; i < 4; i++ {
-		buf := make([]byte, 64)
-		buf[0] = byte(i)
-		_ = queue.Push(buf)
-
-		obuf := make([]byte, 64)
-		_ = queue.Pop(bufIndex, obuf)
-		if buf[0] != obuf[0] {
-			t.Errorf("ReplicationBufferQueue ResetIndex Pop Error Fail %d %d %d %d", queue.currentIndex, bufIndex, buf[0], obuf[0])
+	for i := 0; i < 17; i++ {
+		err := queue.Pop(cursor)
+		if err != nil {
+			t.Errorf("ReplicationBufferQueue Pop Error Fail %v", err)
 		}
-		bufIndex++
-		if bufIndex >= queue.maxIndex {
-			bufIndex = queue.segmentCount
-		}
+	}
+	if cursor.buf[0] != buf[0] || cursor.buf[10] != buf[10] || cursor.buf[54] != buf[54] {
+		t.Errorf("ReplicationBufferQueue Pop Buf Error Fail %v", cursor.buf)
+	}
+	if queue.bufferSize != 1280 {
+		t.Errorf("ReplicationBufferQueue Buf Size Error Fail %v", queue.bufferSize)
 	}
 }

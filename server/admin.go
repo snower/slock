@@ -228,7 +228,7 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 			infos = append(infos, "role:leader")
 			infos = append(infos, fmt.Sprintf("connected_followers:%d", len(self.slock.replicationManager.serverChannels)))
 			infos = append(infos, fmt.Sprintf("current_aof_id:%x", self.slock.replicationManager.currentRequestId))
-			infos = append(infos, fmt.Sprintf("current_offset:%d", self.slock.replicationManager.bufferQueue.currentIndex))
+			infos = append(infos, fmt.Sprintf("current_offset:%d", self.slock.replicationManager.bufferQueue.seq))
 			for i, serverChannel := range self.slock.replicationManager.serverChannels {
 				if serverChannel.protocol == nil {
 					continue
@@ -239,8 +239,8 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 					status = "pending"
 				}
 				infos = append(infos, fmt.Sprintf("follower%d:host=%s,aof_id=%x,behind_offset=%d,status=%s", i+1,
-					serverChannel.protocol.RemoteAddr().String(), serverChannel.currentRequestId,
-					self.slock.replicationManager.bufferQueue.currentIndex-serverChannel.bufferIndex, status))
+					serverChannel.protocol.RemoteAddr().String(), serverChannel.bufferCursor.currentRequestId,
+					self.slock.replicationManager.bufferQueue.seq-serverChannel.bufferCursor.seq, status))
 			}
 		} else {
 			infos = append(infos, "role:follower")

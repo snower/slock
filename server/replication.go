@@ -16,185 +16,222 @@ import (
 	"time"
 )
 
+type ReplicationBufferQueueItem struct {
+	nextItem  *ReplicationBufferQueueItem
+	buf       []byte
+	pollCount uint32
+	pollIndex uint32
+	seq       uint64
+}
+
+type ReplicationBufferQueueCursor struct {
+	currentItem      *ReplicationBufferQueueItem
+	currentRequestId [16]byte
+	buf              []byte
+	seq              uint64
+	writed           bool
+}
+
 type ReplicationBufferQueue struct {
-	manager         *ReplicationManager
-	glock           *sync.RWMutex
-	buf             []byte
-	segmentCount    uint64
-	segmentSize     uint64
-	currentIndex    uint64
-	maxIndex        uint64
-	maxBufferSize   uint64
-	dupCurrentIndex uint64
-	dupSegmentCount uint64
-	dupCount        uint64
-	dupGlock        *sync.Mutex
-	dupWaiter       chan bool
-	dupPulled       bool
-	closed          bool
+	manager        *ReplicationManager
+	glock          *sync.RWMutex
+	headItem       *ReplicationBufferQueueItem
+	tailItem       *ReplicationBufferQueueItem
+	freeHeadItem   *ReplicationBufferQueueItem
+	seq            uint64
+	usedBufferSize uint64
+	bufferSize     uint64
+	maxBufferSize  uint64
+	pollCount      uint32
+	dupCount       uint32
+	closed         bool
 }
 
 func NewReplicationBufferQueue(manager *ReplicationManager, bufSize uint64, maxSize uint64) *ReplicationBufferQueue {
-	maxIndex := uint64(0xffffffffffffffff) - uint64(0xffffffffffffffff)%(bufSize/64)
-	queue := &ReplicationBufferQueue{manager, &sync.RWMutex{}, make([]byte, bufSize),
-		bufSize / 64, 64, 0, maxIndex, maxSize, 0xffffffffffffffff,
-		bufSize / 128, 0, &sync.Mutex{}, make(chan bool, 1), false, false}
+	queue := &ReplicationBufferQueue{manager, &sync.RWMutex{}, nil,
+		nil, nil, 0, 0, bufSize, maxSize,
+		0, 0, false}
 	return queue
 }
 
-func (self *ReplicationBufferQueue) Reduplicated() *ReplicationBufferQueue {
-	bufSize := self.segmentCount * 2 * self.segmentSize
-	self.dupGlock.Lock()
-	if bufSize > self.maxBufferSize {
-		self.dupPulled = true
-		self.dupGlock.Unlock()
-		select {
-		case <-self.dupWaiter:
-			self.dupCount++
-		case <-time.After(10 * time.Millisecond):
-			self.dupCount++
-		}
-		return self
-	}
-
-	buf := make([]byte, bufSize)
-	copy(buf, self.buf)
-	copy(buf[self.segmentCount*self.segmentSize:], self.buf)
-	self.buf = buf
-	self.segmentCount = bufSize / 64
-	self.maxIndex = uint64(0xffffffffffffffff) - uint64(0xffffffffffffffff)%bufSize/64
-	self.dupSegmentCount = bufSize / 128
-	self.dupGlock.Unlock()
-	self.manager.slock.Log().Infof("Replication aof ring buffer reduplicated size %d to %d", bufSize/2, bufSize)
-	self.dupCount++
-	return self
-}
-
-func (self *ReplicationBufferQueue) WakeupReduplicated() {
-	if self.dupCurrentIndex < 0xffffffffffffffff {
-		if self.currentIndex >= self.dupCurrentIndex {
-			if self.currentIndex-self.dupCurrentIndex > self.dupSegmentCount {
-				return
-			}
-		} else {
-			if self.maxIndex-self.dupCurrentIndex+(self.currentIndex-self.segmentCount) > self.dupSegmentCount {
-				return
-			}
-		}
-	}
-
-	self.dupGlock.Lock()
-	if self.dupPulled {
-		self.dupWaiter <- true
-		self.dupPulled = false
-	}
-	self.dupGlock.Unlock()
-}
-
-func (self *ReplicationBufferQueue) Close() error {
-	self.dupGlock.Lock()
-	if self.dupPulled {
-		self.dupWaiter <- false
-		self.dupPulled = false
-	}
-	self.closed = true
-	self.dupGlock.Unlock()
-	return nil
-}
-
-func (self *ReplicationBufferQueue) Push(buf []byte) error {
-	if self.dupCurrentIndex < 0xffffffffffffffff {
-		if self.currentIndex >= self.dupCurrentIndex {
-			if self.currentIndex-self.dupCurrentIndex > self.dupSegmentCount {
-				self.Reduplicated()
-			}
-		} else {
-			if self.maxIndex-self.dupCurrentIndex+(self.currentIndex-self.segmentCount) > self.dupSegmentCount {
-				self.Reduplicated()
-			}
-		}
-	}
-
+func (self *ReplicationBufferQueue) AddPoll(cursor *ReplicationBufferQueueCursor) error {
 	self.glock.Lock()
-	currentSize := (self.currentIndex % self.segmentCount) * self.segmentSize
-	copy(self.buf[currentSize:], buf)
-	self.currentIndex++
-	if self.currentIndex >= self.maxIndex {
-		self.currentIndex = self.segmentCount
+	self.pollCount++
+	currentItem := cursor.currentItem
+	for currentItem != nil {
+		atomic.AddUint32(&currentItem.pollCount, 1)
+		currentItem = currentItem.nextItem
 	}
 	self.glock.Unlock()
 	return nil
 }
 
-func (self *ReplicationBufferQueue) Pop(segmentIndex uint64, buf []byte) error {
-	self.glock.RLock()
-	if segmentIndex == self.currentIndex || self.currentIndex == 0 {
-		self.glock.RUnlock()
-		return io.EOF
+func (self *ReplicationBufferQueue) RemovePoll(cursor *ReplicationBufferQueueCursor) error {
+	self.glock.Lock()
+	self.pollCount--
+	currentItem := cursor.currentItem
+	for currentItem != nil {
+		atomic.AddUint32(&currentItem.pollIndex, 1)
+		currentItem = currentItem.nextItem
 	}
+	self.glock.Unlock()
+	return nil
+}
 
-	if self.currentIndex >= segmentIndex {
-		if self.currentIndex-segmentIndex > self.segmentCount {
-			self.glock.RUnlock()
-			return errors.New("segment out of buf")
+func (self *ReplicationBufferQueue) Close() error {
+	self.closed = true
+	return nil
+}
+
+func (self *ReplicationBufferQueue) Push(buf []byte) error {
+	self.glock.Lock()
+	var queueItem *ReplicationBufferQueueItem
+	if self.usedBufferSize >= self.bufferSize && self.tailItem != nil {
+		if self.tailItem.pollIndex < self.tailItem.pollCount && self.bufferSize < self.maxBufferSize {
+			self.bufferSize *= 2
+			self.dupCount++
+			if self.freeHeadItem != nil {
+				queueItem = self.freeHeadItem
+				self.freeHeadItem = self.freeHeadItem.nextItem
+			} else {
+				queueItem = &ReplicationBufferQueueItem{nil, make([]byte, 64), 0, 0, 0}
+			}
+		} else {
+			queueItem = self.tailItem
+			self.tailItem = self.tailItem.nextItem
+			self.usedBufferSize -= 64
 		}
 	} else {
-		if self.maxIndex-segmentIndex+(self.currentIndex-self.segmentCount) > self.segmentCount {
-			self.glock.RUnlock()
-			return errors.New("segment out of buf")
+		if self.freeHeadItem != nil {
+			queueItem = self.freeHeadItem
+			self.freeHeadItem = self.freeHeadItem.nextItem
+		} else {
+			queueItem = &ReplicationBufferQueueItem{nil, make([]byte, 64), 0, 0, 0}
 		}
 	}
 
-	currentSize := (segmentIndex % self.segmentCount) * self.segmentSize
-	copy(buf, self.buf[currentSize:currentSize+self.segmentSize])
+	queueItem.nextItem = nil
+	copy(queueItem.buf, buf)
+	queueItem.pollCount = self.pollCount
+	queueItem.pollIndex = 0
+	queueItem.seq = self.seq
+	if self.headItem == nil {
+		self.headItem = queueItem
+		self.tailItem = queueItem
+	} else {
+		self.headItem.nextItem = queueItem
+		self.headItem = queueItem
+	}
+	self.usedBufferSize += 64
+	self.seq++
+	self.glock.Unlock()
+	return nil
+}
+
+func (self *ReplicationBufferQueue) Pop(cursor *ReplicationBufferQueueCursor) error {
+	self.glock.RLock()
+	if cursor.currentItem == nil {
+		currentItem := self.tailItem
+		if currentItem == nil {
+			self.glock.RUnlock()
+			return io.EOF
+		}
+		cursor.currentItem = currentItem
+	} else {
+		buf := cursor.currentItem.buf
+		if buf == nil && len(buf) != 64 {
+			self.glock.RUnlock()
+			return errors.New("out of buf")
+		}
+		requestId := cursor.currentRequestId
+		if requestId[0] != buf[3] || requestId[1] != buf[4] || requestId[2] != buf[5] || requestId[3] != buf[6] || requestId[4] != buf[7] || requestId[5] != buf[8] || requestId[6] != buf[9] || requestId[7] != buf[10] ||
+			requestId[8] != buf[11] || requestId[9] != buf[12] || requestId[10] != buf[13] || requestId[11] != buf[14] || requestId[12] != buf[15] || requestId[13] != buf[16] || requestId[14] != buf[17] || requestId[15] != buf[18] {
+			self.glock.RUnlock()
+			return errors.New("out of buf")
+		}
+		if cursor.currentItem.nextItem == nil {
+			self.glock.RUnlock()
+			return io.EOF
+		}
+		cursor.currentItem = cursor.currentItem.nextItem
+	}
+
+	buf := cursor.currentItem.buf
+	if buf == nil && len(buf) != 64 {
+		self.glock.RUnlock()
+		return errors.New("out of buf")
+	}
+	copy(cursor.buf, buf)
+	cursor.currentRequestId[0], cursor.currentRequestId[1], cursor.currentRequestId[2], cursor.currentRequestId[3], cursor.currentRequestId[4], cursor.currentRequestId[5], cursor.currentRequestId[6], cursor.currentRequestId[7],
+		cursor.currentRequestId[8], cursor.currentRequestId[9], cursor.currentRequestId[10], cursor.currentRequestId[11], cursor.currentRequestId[12], cursor.currentRequestId[13], cursor.currentRequestId[14], cursor.currentRequestId[15] = buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
+		buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18]
+	cursor.seq = cursor.currentItem.seq
+	cursor.writed = false
 	self.glock.RUnlock()
 	return nil
 }
 
-func (self *ReplicationBufferQueue) Head(buf []byte) (uint64, error) {
+func (self *ReplicationBufferQueue) Head(cursor *ReplicationBufferQueueCursor) error {
 	self.glock.RLock()
-	if self.currentIndex == 0 {
+	currentItem := self.headItem
+	if currentItem == nil {
 		self.glock.RUnlock()
-		return 0, errors.New("buffer is empty")
+		return errors.New("buffer is empty")
 	}
 
-	currentSize := ((self.currentIndex - 1) % self.segmentCount) * self.segmentSize
-	copy(buf, self.buf[currentSize:currentSize+self.segmentSize])
+	buf := currentItem.buf
+	if buf == nil && len(buf) != 64 {
+		self.glock.RUnlock()
+		return errors.New("out of buf")
+	}
+	copy(cursor.buf, buf)
+	cursor.currentItem = currentItem
+	cursor.currentRequestId[0], cursor.currentRequestId[1], cursor.currentRequestId[2], cursor.currentRequestId[3], cursor.currentRequestId[4], cursor.currentRequestId[5], cursor.currentRequestId[6], cursor.currentRequestId[7],
+		cursor.currentRequestId[8], cursor.currentRequestId[9], cursor.currentRequestId[10], cursor.currentRequestId[11], cursor.currentRequestId[12], cursor.currentRequestId[13], cursor.currentRequestId[14], cursor.currentRequestId[15] = buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
+		buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18]
+	cursor.seq = currentItem.seq
+	cursor.writed = false
 	self.glock.RUnlock()
-	return self.currentIndex, nil
+	return nil
 }
 
-func (self *ReplicationBufferQueue) Search(aofId [16]byte, aofBuf []byte) (uint64, error) {
+func (self *ReplicationBufferQueue) Search(requestId [16]byte, cursor *ReplicationBufferQueueCursor) error {
 	self.glock.RLock()
-	if self.currentIndex == 0 {
+	currentItem := self.tailItem
+	if currentItem == nil {
 		self.glock.RUnlock()
-		return 0, errors.New("search error")
+		return errors.New("search error")
 	}
 
-	startIndex := uint64(0)
-	segmentCount := self.segmentCount
-	if self.currentIndex > self.segmentCount {
-		startIndex = self.currentIndex - self.segmentCount
-	} else {
-		segmentCount = self.currentIndex
-	}
-
-	for i := segmentCount; i > 0; i-- {
-		currentSize := ((startIndex + i - 1) % self.segmentCount) * self.segmentSize
-		buf := self.buf[currentSize : currentSize+self.segmentSize]
-		currentAofId := [16]byte{buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18]}
-		if currentAofId == aofId {
-			copy(aofBuf, buf)
-			currentAofId := [16]byte{aofBuf[3], aofBuf[4], aofBuf[5], aofBuf[6], aofBuf[7], aofBuf[8], aofBuf[9], aofBuf[10], aofBuf[11], aofBuf[12], aofBuf[13], aofBuf[14], aofBuf[15], aofBuf[16], aofBuf[17], aofBuf[18]}
-			if currentAofId == aofId {
-				self.glock.RUnlock()
-				return startIndex + i - 1, nil
-			}
+	for currentItem != nil {
+		qbuf := currentItem.buf
+		if qbuf == nil || len(qbuf) != 64 {
+			currentItem = currentItem.nextItem
+			continue
 		}
-	}
+		if requestId[0] != qbuf[3] || requestId[1] != qbuf[4] || requestId[2] != qbuf[5] || requestId[3] != qbuf[6] || requestId[4] != qbuf[7] || requestId[5] != qbuf[8] || requestId[6] != qbuf[9] || requestId[7] != qbuf[10] ||
+			requestId[8] != qbuf[11] || requestId[9] != qbuf[12] || requestId[10] != qbuf[13] || requestId[11] != qbuf[14] || requestId[12] != qbuf[15] || requestId[13] != qbuf[16] || requestId[14] != qbuf[17] || requestId[15] != qbuf[18] {
+			currentItem = currentItem.nextItem
+			continue
+		}
 
+		buf := currentItem.buf
+		if buf == nil && len(buf) != 64 {
+			self.glock.RUnlock()
+			return errors.New("out of buf")
+		}
+		copy(cursor.buf, buf)
+		cursor.currentItem = currentItem
+		cursor.currentRequestId[0], cursor.currentRequestId[1], cursor.currentRequestId[2], cursor.currentRequestId[3], cursor.currentRequestId[4], cursor.currentRequestId[5], cursor.currentRequestId[6], cursor.currentRequestId[7],
+			cursor.currentRequestId[8], cursor.currentRequestId[9], cursor.currentRequestId[10], cursor.currentRequestId[11], cursor.currentRequestId[12], cursor.currentRequestId[13], cursor.currentRequestId[14], cursor.currentRequestId[15] = buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
+			buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18]
+		cursor.seq = currentItem.seq
+		cursor.writed = false
+		self.glock.RUnlock()
+		return nil
+	}
 	self.glock.RUnlock()
-	return 0, errors.New("search error")
+	return errors.New("search error")
 }
 
 type ReplicationClient struct {
@@ -722,27 +759,27 @@ func (self *ReplicationClient) WakeupRetryConnect() error {
 }
 
 type ReplicationServer struct {
-	manager          *ReplicationManager
-	stream           *Stream
-	protocol         *BinaryServerProtocol
-	aof              *Aof
-	raofLock         *AofLock
-	waofLock         *AofLock
-	currentRequestId [16]byte
-	bufferIndex      uint64
-	pulled           uint32
-	pulledWaiter     chan bool
-	wakeupedBuffer   bool
-	closed           bool
-	closedWaiter     chan bool
-	sendedFiles      bool
+	manager        *ReplicationManager
+	stream         *Stream
+	protocol       *BinaryServerProtocol
+	aof            *Aof
+	raofLock       *AofLock
+	waofLock       *AofLock
+	bufferCursor   *ReplicationBufferQueueCursor
+	pulled         uint32
+	pulledWaiter   chan bool
+	wakeupedBuffer bool
+	closed         bool
+	closedWaiter   chan bool
+	sendedFiles    bool
 }
 
 func NewReplicationServer(manager *ReplicationManager, serverProtocol *BinaryServerProtocol) *ReplicationServer {
+	waofLock := NewAofLock()
 	return &ReplicationServer{manager, serverProtocol.stream, serverProtocol,
-		manager.slock.GetAof(), NewAofLock(), NewAofLock(),
-		[16]byte{}, 0, 0, make(chan bool, 1),
-		false, false, make(chan bool, 1), false}
+		manager.slock.GetAof(), NewAofLock(), waofLock,
+		&ReplicationBufferQueueCursor{nil, [16]byte{}, waofLock.buf, 0, true},
+		0, make(chan bool, 1), false, false, make(chan bool, 1), false}
 }
 
 func (self *ReplicationServer) Close() error {
@@ -766,11 +803,12 @@ func (self *ReplicationServer) handleInitSync(command *protocol.CallCommand) (*p
 	}
 
 	if request.AofId == "" {
-		bufferIndex, err := self.manager.bufferQueue.Head(self.waofLock.buf)
+		err := self.manager.bufferQueue.Head(self.bufferCursor)
 		if err != nil {
 			self.waofLock.AofIndex = self.aof.aofFileIndex
 			self.waofLock.AofId = 0
 		} else {
+			self.waofLock.buf = self.bufferCursor.buf
 			err := self.waofLock.Decode()
 			if err != nil {
 				return protocol.NewCallResultCommand(command, 0, "ERR_DECODE", nil), nil
@@ -786,7 +824,6 @@ func (self *ReplicationServer) handleInitSync(command *protocol.CallCommand) (*p
 		if err != nil {
 			return nil, err
 		}
-		self.bufferIndex = bufferIndex
 		self.manager.slock.logger.Infof("Replication server recv client %s send files start by aof_id %s", self.protocol.RemoteAddr().String(), requestId)
 
 		err = self.waitStarted()
@@ -813,11 +850,12 @@ func (self *ReplicationServer) handleInitSync(command *protocol.CallCommand) (*p
 		return protocol.NewCallResultCommand(command, 0, "ERR_NOT_FOUND", nil), nil
 	}
 	initedAofId := [16]byte{buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11], buf[12], buf[13], buf[14], buf[15]}
-	bufferIndex, serr := self.manager.bufferQueue.Search(initedAofId, self.waofLock.buf)
+	serr := self.manager.bufferQueue.Search(initedAofId, self.bufferCursor)
 	if serr != nil {
 		return protocol.NewCallResultCommand(command, 0, "ERR_NOT_FOUND", nil), nil
 	}
 
+	self.waofLock.buf = self.bufferCursor.buf
 	err = self.waofLock.Decode()
 	if err != nil {
 		return protocol.NewCallResultCommand(command, 0, "ERR_ENCODE", nil), nil
@@ -833,7 +871,6 @@ func (self *ReplicationServer) handleInitSync(command *protocol.CallCommand) (*p
 	if err != nil {
 		return nil, err
 	}
-	self.bufferIndex = bufferIndex + 1
 	self.sendedFiles = true
 	self.manager.slock.logger.Infof("Replication server handle client %s send start by aof_id %s", self.protocol.RemoteAddr().String(), requestId)
 
@@ -861,7 +898,7 @@ func (self *ReplicationServer) sendFiles() error {
 	}
 	aofFilenames = append(aofFilenames, appendFiles...)
 	err = self.aof.LoadAofFiles(aofFilenames, time.Now().Unix(), func(filename string, aofFile *AofFile, lock *AofLock, firstLock bool) (bool, error) {
-		if lock.AofIndex > self.waofLock.AofIndex && lock.AofId > self.waofLock.AofId {
+		if lock.AofIndex >= self.waofLock.AofIndex && lock.AofId >= self.waofLock.AofId {
 			return false, nil
 		}
 
@@ -869,7 +906,6 @@ func (self *ReplicationServer) sendFiles() error {
 		if err != nil {
 			return true, err
 		}
-		self.currentRequestId = lock.GetRequestId()
 		return true, nil
 	})
 	if err != nil {
@@ -934,63 +970,21 @@ func (self *ReplicationServer) sendFilesFinished() error {
 	return nil
 }
 
-func (self *ReplicationServer) sendFilesQueue() error {
-	bufs := make([][]byte, 0)
-	atomic.AddUint32(&self.manager.serverActiveCount, 1)
-	for !self.closed && !self.sendedFiles {
-		buf := make([]byte, 64)
-		err := self.manager.bufferQueue.Pop(self.bufferIndex, buf)
-		if err != nil {
-			if err == io.EOF {
-				atomic.AddUint32(&self.pulled, 1)
-				atomic.AddUint32(&self.manager.serverActiveCount, 0xffffffff)
-				<-self.pulledWaiter
-				atomic.AddUint32(&self.manager.serverActiveCount, 1)
-				continue
-			}
-			atomic.AddUint32(&self.manager.serverActiveCount, 0xffffffff)
-			return err
-		}
-
-		self.bufferIndex++
-		if self.bufferIndex >= self.manager.bufferQueue.maxIndex {
-			self.bufferIndex = uint64(self.manager.bufferQueue.segmentCount)
-		}
-		bufs = append(bufs, buf)
-	}
-	atomic.AddUint32(&self.manager.serverActiveCount, 0xffffffff)
-
-	if !self.closed {
-		for _, buf := range bufs {
-			copy(self.waofLock.buf, buf)
-			err := self.waofLock.Decode()
-			if err != nil {
-				return err
-			}
-
-			err = self.stream.WriteBytes(buf)
-			if err != nil {
-				return err
-			}
-			self.currentRequestId = self.waofLock.GetRequestId()
-		}
-	}
-	return nil
-}
-
 func (self *ReplicationServer) SendProcess() error {
-	if !self.sendedFiles {
-		err := self.sendFilesQueue()
-		if err != nil {
-			return err
-		}
-	}
-
 	atomic.AddUint32(&self.manager.serverActiveCount, 1)
 	for !self.closed {
+		if !self.bufferCursor.writed {
+			err := self.stream.WriteBytes(self.bufferCursor.buf)
+			if err != nil {
+				atomic.AddUint32(&self.manager.serverActiveCount, 0xffffffff)
+				return err
+			}
+			self.bufferCursor.writed = true
+			atomic.AddUint32(&self.bufferCursor.currentItem.pollIndex, 1)
+		}
+
 		bufferQueue := self.manager.bufferQueue
-		buf := self.waofLock.buf
-		err := bufferQueue.Pop(self.bufferIndex, buf)
+		err := bufferQueue.Pop(self.bufferCursor)
 		if err != nil {
 			if err == io.EOF {
 				atomic.AddUint32(&self.pulled, 1)
@@ -1003,51 +997,12 @@ func (self *ReplicationServer) SendProcess() error {
 					}
 					self.manager.glock.Unlock()
 				}
-				if bufferQueue.dupPulled {
-					bufferQueue.WakeupReduplicated()
-				}
-				self.wakeupedBuffer = false
 				<-self.pulledWaiter
 				atomic.AddUint32(&self.manager.serverActiveCount, 1)
 				continue
 			}
 			atomic.AddUint32(&self.manager.serverActiveCount, 0xffffffff)
 			return err
-		}
-
-		err = self.stream.WriteBytes(buf)
-		if err != nil {
-			atomic.AddUint32(&self.manager.serverActiveCount, 0xffffffff)
-			return err
-		}
-
-		self.currentRequestId[0], self.currentRequestId[1], self.currentRequestId[2], self.currentRequestId[3], self.currentRequestId[4], self.currentRequestId[5], self.currentRequestId[6], self.currentRequestId[7],
-			self.currentRequestId[8], self.currentRequestId[9], self.currentRequestId[10], self.currentRequestId[11], self.currentRequestId[12], self.currentRequestId[13], self.currentRequestId[14], self.currentRequestId[15] = buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
-			buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18]
-
-		self.bufferIndex++
-		if self.bufferIndex >= bufferQueue.maxIndex {
-			bufferQueue.dupGlock.Lock()
-			if self.bufferIndex >= bufferQueue.maxIndex {
-				self.bufferIndex = bufferQueue.segmentCount
-			}
-			bufferQueue.dupGlock.Unlock()
-		}
-		if self.wakeupedBuffer {
-			if bufferQueue.currentIndex >= self.bufferIndex {
-				if bufferQueue.currentIndex-self.bufferIndex < bufferQueue.dupSegmentCount {
-					if bufferQueue.dupPulled {
-						bufferQueue.WakeupReduplicated()
-					}
-				}
-			} else {
-				if bufferQueue.maxIndex-self.bufferIndex+(bufferQueue.currentIndex-bufferQueue.segmentCount) < bufferQueue.dupSegmentCount {
-					if bufferQueue.dupPulled {
-						bufferQueue.WakeupReduplicated()
-					}
-				}
-			}
-			self.wakeupedBuffer = false
 		}
 	}
 	atomic.AddUint32(&self.manager.serverActiveCount, 0xffffffff)
@@ -1593,9 +1548,6 @@ func (self *ReplicationManager) commandHandleSyncCommand(server_protocol *Binary
 			}
 			_ = channel.Close()
 		}
-		if self.serverCount == 0 {
-			self.bufferQueue.dupCurrentIndex = 0xffffffffffffffff
-		}
 	}()
 	err = channel.RecvProcess()
 	channel.closed = true
@@ -1616,16 +1568,13 @@ func (self *ReplicationManager) addServerChannel(channel *ReplicationServer) err
 	self.glock.Lock()
 	self.serverChannels = append(self.serverChannels, channel)
 	self.serverCount = uint32(len(self.serverChannels))
-	if self.serverCount == 1 {
-		self.bufferQueue.dupCurrentIndex = self.bufferQueue.currentIndex
-	}
-
 	ackCount := len(self.serverChannels) + 1
 	for _, db := range self.ackDbs {
 		if db != nil {
 			db.ackCount = uint8(ackCount)
 		}
 	}
+	self.bufferQueue.AddPoll(channel.bufferCursor)
 	self.glock.Unlock()
 	return nil
 }
@@ -1640,16 +1589,13 @@ func (self *ReplicationManager) removeServerChannel(channel *ReplicationServer) 
 	}
 	self.serverChannels = serverChannels
 	self.serverCount = uint32(len(serverChannels))
-	if self.serverCount == 0 {
-		self.bufferQueue.dupCurrentIndex = 0xffffffffffffffff
-	}
-
 	ackCount := len(self.serverChannels) + 1
 	for _, db := range self.ackDbs {
 		if db != nil {
 			db.ackCount = uint8(ackCount)
 		}
 	}
+	self.bufferQueue.RemovePoll(channel.bufferCursor)
 
 	if atomic.CompareAndSwapUint32(&self.serverActiveCount, 0, 0) {
 		if self.serverFlushWaiter != nil {
@@ -1717,33 +1663,6 @@ func (self *ReplicationManager) PushLock(glockIndex uint16, lock *AofLock) error
 }
 
 func (self *ReplicationManager) WakeupServerChannel() error {
-	if self.bufferQueue.currentIndex%64 == 0 {
-		var delayChannel *ReplicationServer = nil
-		self.bufferQueue.dupCurrentIndex = 0xffffffffffffffff
-		for _, channel := range self.serverChannels {
-			if atomic.CompareAndSwapUint32(&channel.pulled, 1, 0) {
-				channel.pulledWaiter <- true
-			}
-
-			if self.bufferQueue.currentIndex >= channel.bufferIndex {
-				if self.bufferQueue.dupCurrentIndex > channel.bufferIndex {
-					self.bufferQueue.dupCurrentIndex = channel.bufferIndex
-					delayChannel = channel
-				}
-			} else {
-				if self.bufferQueue.dupCurrentIndex == 0xffffffffffffffff || self.bufferQueue.dupCurrentIndex < channel.bufferIndex {
-					self.bufferQueue.dupCurrentIndex = channel.bufferIndex
-					delayChannel = channel
-				}
-			}
-		}
-
-		if delayChannel != nil {
-			delayChannel.wakeupedBuffer = true
-		}
-		return nil
-	}
-
 	if atomic.CompareAndSwapUint32(&self.serverActiveCount, self.serverCount, self.serverCount) {
 		return nil
 	}
@@ -1933,13 +1852,6 @@ func (self *ReplicationManager) FlushDB() error {
 				_ = db.FlushDB()
 			}
 		}
-	}
-
-	self.bufferQueue.currentIndex = self.bufferQueue.segmentCount
-	if self.serverCount > 0 {
-		self.bufferQueue.dupCurrentIndex = self.bufferQueue.segmentCount
-	} else {
-		self.bufferQueue.dupCurrentIndex = 0xffffffffffffffff
 	}
 	self.slock.Log().Infof("Replication flush all DB")
 	return nil
