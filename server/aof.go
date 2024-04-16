@@ -24,6 +24,7 @@ const AOF_FLAG_REWRITEd = 0x0001
 const AOF_FLAG_TIMEOUTED = 0x0002
 const AOF_FLAG_EXPRIED = 0x0004
 const AOF_FLAG_REQUIRE_ACKED = 0x1000
+const AOF_FLAG_CONTAINS_DATA = 0x2000
 
 type AofLock struct {
 	HandleType  uint8
@@ -45,13 +46,14 @@ type AofLock struct {
 	Lcount      uint16
 	Lrcount     uint8
 	buf         []byte
+	data        []byte
 	lock        *Lock
 }
 
 func NewAofLock() *AofLock {
 	return &AofLock{0, 0, 0, 0, 0, 0, 0, [16]byte{},
 		[16]byte{}, 0, 0, 0, 0, 0, 0, 0,
-		0, 0, make([]byte, 64), nil}
+		0, 0, make([]byte, 64), nil, nil}
 
 }
 
@@ -151,11 +153,13 @@ type AofFile struct {
 	aof         *Aof
 	filename    string
 	file        *os.File
+	dataFile    *os.File
 	mode        int
 	bufSize     int
 	buf         []byte
 	rbuf        *bufio.Reader
 	wbuf        []byte
+	dlbuf       []byte
 	windex      int
 	size        int
 	ackRequests [][]byte
@@ -166,8 +170,9 @@ type AofFile struct {
 func NewAofFile(aof *Aof, filename string, mode int, buf_size int) *AofFile {
 	buf_size = buf_size - buf_size%64
 	ackRequests := make([][]byte, buf_size/64)
-	return &AofFile{aof.slock, aof, filename, nil, mode, buf_size,
-		make([]byte, 64), nil, nil, 0, 0, ackRequests, false, 0}
+	return &AofFile{aof.slock, aof, filename, nil, nil, mode, buf_size,
+		make([]byte, 64), nil, nil, make([]byte, 4), 0, 0,
+		ackRequests, false, 0}
 }
 
 func (self *AofFile) Open() error {
@@ -180,13 +185,20 @@ func (self *AofFile) Open() error {
 	if err != nil {
 		return err
 	}
+	dataFile, err := os.OpenFile(fmt.Sprintf("%s.%s", self.filename, "dat"), mode, 0644)
+	if err != nil && self.mode == os.O_WRONLY {
+		_ = file.Close()
+		return err
+	}
 
 	self.file = file
+	self.dataFile = dataFile
 	if self.mode == os.O_WRONLY {
 		self.wbuf = make([]byte, self.bufSize)
 		err = self.WriteHeader()
 		if err != nil {
 			_ = self.file.Close()
+			_ = self.dataFile.Close()
 			return err
 		}
 	} else {
@@ -194,6 +206,7 @@ func (self *AofFile) Open() error {
 		err = self.ReadHeader()
 		if err != nil {
 			_ = self.file.Close()
+			_ = self.dataFile.Close()
 			return err
 		}
 	}
@@ -301,19 +314,65 @@ func (self *AofFile) ReadTail(lock *AofLock) error {
 		return io.EOF
 	}
 
-	_, _ = self.file.Seek(64, os.SEEK_END)
+	_, _ = self.file.Seek(64, io.SeekEnd)
 	n, err := self.rbuf.Read(buf)
 	if err != nil {
-		_, _ = self.file.Seek(12, os.SEEK_SET)
+		_, _ = self.file.Seek(12, io.SeekStart)
 		return err
 	}
 
 	lockLen := uint16(buf[0]) | uint16(buf[1])<<8
 	if n != int(lockLen)+2 {
-		_, _ = self.file.Seek(12, os.SEEK_SET)
+		_, _ = self.file.Seek(12, io.SeekStart)
 		return errors.New("Lock Len error")
 	}
-	_, _ = self.file.Seek(12, os.SEEK_SET)
+	_, _ = self.file.Seek(12, io.SeekStart)
+	return nil
+}
+
+func (self *AofFile) ReadLockData(lock *AofLock) error {
+	if self.dataFile == nil {
+		return errors.New("data file error")
+	}
+	buf := self.dlbuf
+	if len(buf) != 4 {
+		return errors.New("buf error")
+	}
+	n, err := self.dataFile.Read(buf)
+	if err != nil {
+		return err
+	}
+	if n < 4 {
+		for n < 4 {
+			nn, nerr := self.dataFile.Read(buf[n:])
+			if nerr != nil {
+				return nerr
+			}
+			n += nn
+		}
+	}
+	dataLen := int(uint32(buf[0]) | uint32(buf[1])<<8 | uint32(buf[2])<<16 | uint32(buf[3])<<16)
+	aofLockData := make([]byte, dataLen+4)
+	aofLockData[0], aofLockData[1], aofLockData[2], aofLockData[3] = buf[0], buf[1], buf[2], buf[3]
+	if dataLen <= 0 {
+		lock.data = aofLockData
+		return nil
+	}
+
+	n, err = self.dataFile.Read(aofLockData[4:])
+	if err != nil {
+		return err
+	}
+	if n < dataLen {
+		for n < dataLen {
+			nn, nerr := self.dataFile.Read(aofLockData[n+4:])
+			if nerr != nil {
+				return nerr
+			}
+			n += nn
+		}
+	}
+	lock.data = aofLockData
 	return nil
 }
 
@@ -367,6 +426,24 @@ func (self *AofFile) AppendLock(lock *AofLock) error {
 	return nil
 }
 
+func (self *AofFile) WriteLockData(lock *AofLock) error {
+	dataLen := len(lock.data)
+	n, err := self.dataFile.Write(lock.data)
+	if err != nil {
+		return err
+	}
+	if n < dataLen {
+		for n < dataLen {
+			nn, nerr := self.dataFile.Write(lock.data[n:])
+			if nerr != nil {
+				return nerr
+			}
+			n += nn
+		}
+	}
+	return nil
+}
+
 func (self *AofFile) Flush() error {
 	if self.windex == 0 {
 		return nil
@@ -410,6 +487,10 @@ func (self *AofFile) Sync() error {
 	if err != nil {
 		return err
 	}
+	err = self.dataFile.Sync()
+	if err != nil {
+		return err
+	}
 	self.dirtied = false
 	return nil
 }
@@ -434,12 +515,17 @@ func (self *AofFile) Close() error {
 	}
 
 	err := self.file.Close()
-	if err == nil {
-		self.file = nil
-		self.wbuf = nil
-		self.rbuf = nil
+	if err != nil {
+		return err
 	}
-	return err
+	self.file = nil
+	self.wbuf = nil
+	self.rbuf = nil
+	err = self.dataFile.Close()
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (self *AofFile) GetSize() int {
@@ -535,7 +621,7 @@ func (self *AofChannel) pullAofLock() *AofLock {
 	return aofLock
 }
 
-func (self *AofChannel) Push(dbId uint8, lock *Lock, commandType uint8, lockCommand *protocol.LockCommand, unLockCommand *protocol.LockCommand, aofFlag uint16) error {
+func (self *AofChannel) Push(dbId uint8, lock *Lock, commandType uint8, lockCommand *protocol.LockCommand, unLockCommand *protocol.LockCommand, aofFlag uint16, lockData []byte) error {
 	if self.closed {
 		return io.EOF
 	}
@@ -606,6 +692,10 @@ func (self *AofChannel) Push(dbId uint8, lock *Lock, commandType uint8, lockComm
 		aofLock.lock = nil
 	}
 	aofLock.HandleType = AOF_LOCK_TYPE_FILE
+	if lockData != nil {
+		aofLock.AofFlag |= AOF_FLAG_CONTAINS_DATA
+		aofLock.data = lockData
+	}
 
 	self.queueGlock.Lock()
 	self.pushAofLock(aofLock)
@@ -1207,6 +1297,12 @@ func (self *Aof) LoadAofFile(filename string, lock *AofLock, expriedTime int64, 
 		if err != nil {
 			return err
 		}
+		if lock.AofFlag&AOF_FLAG_CONTAINS_DATA != 0 {
+			err = aofFile.ReadLockData(lock)
+			if err != nil {
+				return err
+			}
+		}
 
 		if lock.ExpriedFlag&protocol.EXPRIED_FLAG_MILLISECOND_TIME != 0 {
 			if int64(lock.CommandTime+uint64(lock.ExpriedTime)/1000) <= expriedTime {
@@ -1405,6 +1501,9 @@ func (self *Aof) PushLock(glockIndex uint16, lock *AofLock) {
 	_ = lock.UpdateAofIndexId(self.aofFileIndex, self.aofId)
 
 	werr := self.aofFile.WriteLock(lock)
+	if werr == nil && lock.AofFlag&AOF_FLAG_CONTAINS_DATA != 0 {
+		werr = self.aofFile.WriteLockData(lock)
+	}
 	if uint32(self.aofFile.GetSize()) >= self.rewriteSize {
 		_ = self.RewriteAofFile()
 	}
@@ -1450,6 +1549,12 @@ func (self *Aof) AppendLock(lock *AofLock) {
 	err := self.aofFile.WriteLock(lock)
 	if err != nil {
 		self.slock.Log().Errorf("Aof append file write error %v", err)
+	}
+	if lock.AofFlag&AOF_FLAG_CONTAINS_DATA != 0 {
+		err = self.aofFile.WriteLockData(lock)
+		if err != nil {
+			self.slock.Log().Errorf("Aof append file write data error %v", err)
+		}
 	}
 	self.aofId = lock.AofId
 	self.aofLockCount++
@@ -1542,6 +1647,7 @@ func (self *Aof) Reset(aofFileIndex uint32) error {
 			self.slock.Log().Errorf("Aof clear files remove %s error %v", rewriteFile, err)
 			return err
 		}
+		_ = os.Remove(filepath.Join(self.dataDir, fmt.Sprintf("%s.%s", rewriteFile, "dat")))
 	}
 
 	for _, appendFile := range appendFiles {
@@ -1550,6 +1656,7 @@ func (self *Aof) Reset(aofFileIndex uint32) error {
 			self.slock.Log().Errorf("Aof clear files remove %s error %v", appendFile, err)
 			return err
 		}
+		_ = os.Remove(filepath.Join(self.dataDir, fmt.Sprintf("%s.%s", appendFile, "dat")))
 	}
 
 	self.aofFileIndex = aofFileIndex
@@ -1704,6 +1811,12 @@ func (self *Aof) loadRewriteAofFiles(aofFilenames []string) (*AofFile, []*AofFil
 		if err != nil {
 			return true, err
 		}
+		if lock.AofFlag&AOF_FLAG_CONTAINS_DATA != 0 {
+			err = self.aofFile.WriteLockData(lock)
+			if err != nil {
+				return true, err
+			}
+		}
 
 		if firstLock {
 			aofFiles = append(aofFiles, aofFile)
@@ -1733,11 +1846,16 @@ func (self *Aof) clearRewriteAofFiles(aofFilenames []string) {
 			self.slock.Log().Errorf("Aof rewrite remove file error %s %v", aofFilename, err)
 			continue
 		}
+		_ = os.Remove(filepath.Join(self.dataDir, fmt.Sprintf("%s.%s", aofFilename, "dat")))
 		self.slock.Log().Infof("Aof rewrite remove file %s", aofFilename)
 	}
 	err := os.Rename(filepath.Join(self.dataDir, "rewrite.aof.tmp"), filepath.Join(self.dataDir, "rewrite.aof"))
 	if err != nil {
 		self.slock.Log().Errorf("Aof rewrite rename rewrite.aof.tmp to rewrite.aof error %v", err)
+	}
+	err = os.Rename(filepath.Join(self.dataDir, "rewrite.aof.tmp.dat"), filepath.Join(self.dataDir, "rewrite.aof.dat"))
+	if err != nil {
+		self.slock.Log().Errorf("Aof rewrite rename rewrite.aof.tmp.dat to rewrite.aof.dat error %v", err)
 	}
 }
 
@@ -1771,6 +1889,7 @@ func (self *Aof) clearAofFiles() error {
 		if err != nil {
 			self.slock.Log().Errorf("Aof clear remove file error %s %v", fileName, err)
 		}
+		_ = os.Remove(filepath.Join(self.dataDir, fmt.Sprintf("%s.%s", fileName, "dat")))
 		return nil
 	})
 	return err

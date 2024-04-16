@@ -14,7 +14,7 @@ func TestReplicationBufferQueue_Push(t *testing.T) {
 	buf[10] = 0x34
 	buf[54] = 0x56
 
-	err := queue.Push(buf)
+	err := queue.Push(buf, nil)
 	if err != nil {
 		t.Errorf("ReplicationBufferQueue Push Error Fail %v", err)
 	}
@@ -29,11 +29,11 @@ func TestReplicationBufferQueue_Push(t *testing.T) {
 }
 
 func TestReplicationBufferQueue_Pop(t *testing.T) {
-	cursor := &ReplicationBufferQueueCursor{nil, [16]byte{}, make([]byte, 64), 0, true}
+	cursor := &ReplicationBufferQueueCursor{nil, [16]byte{}, make([]byte, 64), nil, 0, true}
 	queue := NewReplicationBufferQueue(nil, 1024*1024, 4*1024*1024)
 
 	buf := make([]byte, 64)
-	_ = queue.Push(buf)
+	_ = queue.Push(buf, nil)
 	err := queue.Pop(cursor)
 	if err != nil {
 		t.Errorf("ReplicationBufferQueue Pop Error Fail %v", err)
@@ -46,7 +46,7 @@ func TestReplicationBufferQueue_Pop(t *testing.T) {
 	buf[0] = 0xa5
 	buf[10] = 0x34
 	buf[54] = 0x56
-	_ = queue.Push(buf)
+	_ = queue.Push(buf, nil)
 	err = queue.Pop(cursor)
 	if err != nil {
 		t.Errorf("ReplicationBufferQueue Pop Error Fail %v", err)
@@ -58,12 +58,12 @@ func TestReplicationBufferQueue_Pop(t *testing.T) {
 }
 
 func TestReplicationBufferQueue_Head(t *testing.T) {
-	cursor := &ReplicationBufferQueueCursor{nil, [16]byte{}, make([]byte, 64), 0, true}
+	cursor := &ReplicationBufferQueueCursor{nil, [16]byte{}, make([]byte, 64), nil, 0, true}
 	queue := NewReplicationBufferQueue(nil, 1024*1024, 4*1024*1024)
 
 	buf := make([]byte, 64)
-	_ = queue.Push(buf)
-	_ = queue.Push(buf)
+	_ = queue.Push(buf, nil)
+	_ = queue.Push(buf, nil)
 	err := queue.Head(cursor)
 	if err != nil {
 		t.Errorf("ReplicationBufferQueue Pop Error Fail %v", err)
@@ -77,7 +77,7 @@ func TestReplicationBufferQueue_Head(t *testing.T) {
 	buf[10] = 0x34
 	buf[54] = 0x56
 
-	_ = queue.Push(buf)
+	_ = queue.Push(buf, nil)
 	err = queue.Head(cursor)
 	if err != nil {
 		t.Errorf("ReplicationBufferQueue Pop Error Fail %v", err)
@@ -93,22 +93,22 @@ func TestReplicationBufferQueue_Head(t *testing.T) {
 }
 
 func TestReplicationBufferQueue_Search(t *testing.T) {
-	cursor := &ReplicationBufferQueueCursor{nil, [16]byte{}, make([]byte, 64), 0, true}
+	cursor := &ReplicationBufferQueueCursor{nil, [16]byte{}, make([]byte, 64), nil, 0, true}
 	queue := NewReplicationBufferQueue(nil, 1024*1024, 4*1024*1024)
 
 	buf := make([]byte, 64)
-	_ = queue.Push(buf)
-	_ = queue.Push(buf)
+	_ = queue.Push(buf, nil)
+	_ = queue.Push(buf, nil)
 	buf[0] = 0xa5
 	buf[10] = 0x34
 	buf[54] = 0x56
-	_ = queue.Push(buf)
+	_ = queue.Push(buf, nil)
 
 	aofLock := &AofLock{buf: make([]byte, 64)}
 	aofLock.AofIndex = 43
 	aofLock.AofId = 343294329
 	_ = aofLock.Encode()
-	_ = queue.Push(aofLock.buf)
+	_ = queue.Push(aofLock.buf, nil)
 
 	err := queue.Search(aofLock.GetRequestId(), cursor)
 	if err != nil {
@@ -127,7 +127,7 @@ func TestReplicationBufferQueue_Search(t *testing.T) {
 }
 
 func TestReplicationBufferQueue_Run(t *testing.T) {
-	cursor := &ReplicationBufferQueueCursor{nil, [16]byte{}, make([]byte, 64), 0, true}
+	cursor := &ReplicationBufferQueueCursor{nil, [16]byte{}, make([]byte, 64), nil, 0, true}
 	queue := NewReplicationBufferQueue(nil, 1024*1024, 4*1024*1024)
 
 	go func() {
@@ -136,7 +136,7 @@ func TestReplicationBufferQueue_Run(t *testing.T) {
 		for i := 0; i < 100000; i++ {
 			buf[0], buf[1], buf[2], buf[3] = uint8(index), uint8(index>>8), uint8(index>>16), uint8(index>>24)
 			index++
-			_ = queue.Push(buf)
+			_ = queue.Push(buf, nil)
 			if index%1000 == 0 {
 				time.Sleep(2 * time.Millisecond)
 			}
@@ -169,18 +169,18 @@ func TestReplicationBufferQueue_Run(t *testing.T) {
 }
 
 func TestReplicationBufferQueue_Reduplicated(t *testing.T) {
-	cursor := &ReplicationBufferQueueCursor{nil, [16]byte{}, make([]byte, 64), 0, true}
+	cursor := &ReplicationBufferQueueCursor{nil, [16]byte{}, make([]byte, 64), nil, 0, true}
 	queue := NewReplicationBufferQueue(nil, 640, 4*1024*1024)
 	queue.AddPoll(cursor)
 
 	buf := make([]byte, 64)
 	for i := 0; i < 16; i++ {
-		_ = queue.Push(buf)
+		_ = queue.Push(buf, nil)
 	}
 	buf[0] = 0xa5
 	buf[10] = 0x34
 	buf[54] = 0x56
-	_ = queue.Push(buf)
+	_ = queue.Push(buf, nil)
 
 	for i := 0; i < 17; i++ {
 		err := queue.Pop(cursor)

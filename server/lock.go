@@ -10,6 +10,7 @@ type LockManager struct {
 	lockDb       *LockDB
 	lockKey      [16]byte
 	currentLock  *Lock
+	currentData  *LockData
 	locks        *LockQueue
 	lockMaps     map[[16]byte]*Lock
 	waitLocks    *LockQueue
@@ -26,7 +27,7 @@ type LockManager struct {
 
 func NewLockManager(lockDb *LockDB, command *protocol.LockCommand, glock *PriorityMutex, glockIndex uint16, freeLocks *LockQueue, state *protocol.LockDBState) *LockManager {
 	return &LockManager{lockDb, command.LockKey,
-		nil, nil, nil, nil, glock, freeLocks, nil, state, 0, 0,
+		nil, nil, nil, nil, nil, glock, freeLocks, nil, state, 0, 0,
 		glockIndex, command.DbId, false}
 }
 
@@ -73,11 +74,10 @@ func (self *LockManager) AddLock(lock *Lock) *Lock {
 
 	if self.currentLock == nil {
 		self.currentLock = lock
-		return lock
+	} else {
+		_ = self.locks.Push(lock)
+		self.lockMaps[lock.command.LockId] = lock
 	}
-
-	_ = self.locks.Push(lock)
-	self.lockMaps[lock.command.LockId] = lock
 	return lock
 }
 
@@ -237,7 +237,7 @@ func (self *LockManager) PushLockAof(lock *Lock) error {
 	}
 
 	fashHash := (uint32(self.lockKey[0])<<24 | uint32(self.lockKey[1])<<16 | uint32(self.lockKey[2])<<8 | uint32(self.lockKey[3])) ^ (uint32(self.lockKey[4])<<24 | uint32(self.lockKey[5])<<16 | uint32(self.lockKey[6])<<8 | uint32(self.lockKey[7])) ^ (uint32(self.lockKey[8])<<24 | uint32(self.lockKey[9])<<16 | uint32(self.lockKey[10])<<8 | uint32(self.lockKey[11])) ^ (uint32(self.lockKey[12])<<24 | uint32(self.lockKey[13])<<16 | uint32(self.lockKey[14])<<8 | uint32(self.lockKey[15]))
-	err := self.lockDb.aofChannels[fashHash%uint32(self.lockDb.managerMaxGlocks)].Push(lock.manager.dbId, lock, protocol.COMMAND_LOCK, lock.command, nil, 0)
+	err := self.lockDb.aofChannels[fashHash%uint32(self.lockDb.managerMaxGlocks)].Push(lock.manager.dbId, lock, protocol.COMMAND_LOCK, lock.command, nil, 0, lock.manager.GetLockData())
 	if err != nil {
 		self.lockDb.slock.Log().Errorf("Database lock push aof error DbId:%d LockKey:%x LockId:%x",
 			lock.command.DbId, lock.command.LockKey, lock.command.LockId)
@@ -261,7 +261,7 @@ func (self *LockManager) PushUnLockAof(dbId uint8, lock *Lock, lockCommand *prot
 	}
 
 	fashHash := (uint32(self.lockKey[0])<<24 | uint32(self.lockKey[1])<<16 | uint32(self.lockKey[2])<<8 | uint32(self.lockKey[3])) ^ (uint32(self.lockKey[4])<<24 | uint32(self.lockKey[5])<<16 | uint32(self.lockKey[6])<<8 | uint32(self.lockKey[7])) ^ (uint32(self.lockKey[8])<<24 | uint32(self.lockKey[9])<<16 | uint32(self.lockKey[10])<<8 | uint32(self.lockKey[11])) ^ (uint32(self.lockKey[12])<<24 | uint32(self.lockKey[13])<<16 | uint32(self.lockKey[14])<<8 | uint32(self.lockKey[15]))
-	err := self.lockDb.aofChannels[fashHash%uint32(self.lockDb.managerMaxGlocks)].Push(dbId, lock, protocol.COMMAND_UNLOCK, lockCommand, unLockCommand, aofFlag)
+	err := self.lockDb.aofChannels[fashHash%uint32(self.lockDb.managerMaxGlocks)].Push(dbId, lock, protocol.COMMAND_UNLOCK, lockCommand, unLockCommand, aofFlag, lock.manager.GetLockData())
 	if err != nil {
 		self.lockDb.slock.Log().Errorf("Database lock push aof error DbId:%d LockKey:%x LockId:%x",
 			lock.command.DbId, lock.command.LockKey, lock.command.LockId)
@@ -326,6 +326,26 @@ func (self *LockManager) GetOrNewLock(serverProtocol ServerProtocol, command *pr
 	return lock
 }
 
+func (self *LockManager) GetLockData() []byte {
+	if self.currentData != nil {
+		return self.currentData.Data
+	}
+	return nil
+}
+
+func (self *LockManager) ProcessLockData(command *protocol.LockCommand) {
+	if command.Data == nil {
+		return
+	}
+	lockCommandData := command.Data
+	switch lockCommandData.CommandType {
+	case protocol.LOCK_DATA_COMMAND_TYPE_SET:
+		self.currentData = &LockData{Data: lockCommandData.Data}
+		break
+	}
+	command.Data.Data = nil
+}
+
 type Lock struct {
 	manager             *LockManager
 	command             *protocol.LockCommand
@@ -355,6 +375,10 @@ func (self *Lock) GetDB() *LockDB {
 		return nil
 	}
 	return self.manager.GetDB()
+}
+
+type LockData struct {
+	Data []byte
 }
 
 type PriorityMutex struct {

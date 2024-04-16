@@ -19,6 +19,7 @@ import (
 type ReplicationBufferQueueItem struct {
 	nextItem  *ReplicationBufferQueueItem
 	buf       []byte
+	data      []byte
 	pollCount uint32
 	pollIndex uint32
 	seq       uint64
@@ -28,6 +29,7 @@ type ReplicationBufferQueueCursor struct {
 	currentItem      *ReplicationBufferQueueItem
 	currentRequestId [16]byte
 	buf              []byte
+	data             []byte
 	seq              uint64
 	writed           bool
 }
@@ -83,35 +85,53 @@ func (self *ReplicationBufferQueue) Close() error {
 	return nil
 }
 
-func (self *ReplicationBufferQueue) Push(buf []byte) error {
+func (self *ReplicationBufferQueue) Push(buf []byte, data []byte) error {
 	self.glock.Lock()
-	var queueItem *ReplicationBufferQueueItem
+	var queueItem *ReplicationBufferQueueItem = nil
 	if self.usedBufferSize >= self.bufferSize && self.tailItem != nil {
 		if self.tailItem.pollIndex < self.tailItem.pollCount && self.bufferSize < self.maxBufferSize {
 			self.bufferSize *= 2
 			self.dupCount++
-			if self.freeHeadItem != nil {
-				queueItem = self.freeHeadItem
-				self.freeHeadItem = self.freeHeadItem.nextItem
-			} else {
-				queueItem = &ReplicationBufferQueueItem{nil, make([]byte, 64), 0, 0, 0}
-			}
 		} else {
 			queueItem = self.tailItem
 			self.tailItem = self.tailItem.nextItem
-			self.usedBufferSize -= 64
+			if queueItem.data != nil {
+				self.usedBufferSize -= 64
+			} else {
+				self.usedBufferSize -= uint64(64 + len(queueItem.data))
+			}
+			if self.usedBufferSize >= self.bufferSize && self.tailItem != nil {
+				for self.usedBufferSize >= self.bufferSize && self.tailItem != nil {
+					queueItem.data = nil
+					queueItem.pollCount = 0
+					queueItem.pollIndex = 0
+					queueItem.seq = 0
+					queueItem.nextItem = self.freeHeadItem
+					self.freeHeadItem = queueItem
+
+					queueItem = self.tailItem
+					self.tailItem = self.tailItem.nextItem
+					if queueItem.data != nil {
+						self.usedBufferSize -= 64
+					} else {
+						self.usedBufferSize -= uint64(64 + len(queueItem.data))
+					}
+				}
+			}
 		}
-	} else {
+	}
+	if queueItem == nil {
 		if self.freeHeadItem != nil {
 			queueItem = self.freeHeadItem
 			self.freeHeadItem = self.freeHeadItem.nextItem
 		} else {
-			queueItem = &ReplicationBufferQueueItem{nil, make([]byte, 64), 0, 0, 0}
+			queueItem = &ReplicationBufferQueueItem{nil, make([]byte, 64), nil, 0, 0, 0}
 		}
 	}
 
 	queueItem.nextItem = nil
 	copy(queueItem.buf, buf)
+	queueItem.data = data
 	queueItem.pollCount = self.pollCount
 	queueItem.pollIndex = 0
 	queueItem.seq = self.seq
@@ -122,7 +142,11 @@ func (self *ReplicationBufferQueue) Push(buf []byte) error {
 		self.headItem.nextItem = queueItem
 		self.headItem = queueItem
 	}
-	self.usedBufferSize += 64
+	if data != nil {
+		self.usedBufferSize += 64
+	} else {
+		self.usedBufferSize += uint64(64 + len(data))
+	}
 	self.seq++
 	self.glock.Unlock()
 	return nil
@@ -130,7 +154,8 @@ func (self *ReplicationBufferQueue) Push(buf []byte) error {
 
 func (self *ReplicationBufferQueue) Pop(cursor *ReplicationBufferQueueCursor) error {
 	self.glock.RLock()
-	if cursor.currentItem == nil {
+	cursorCurrentItem := cursor.currentItem
+	if cursorCurrentItem == nil {
 		currentItem := self.tailItem
 		if currentItem == nil {
 			self.glock.RUnlock()
@@ -138,7 +163,7 @@ func (self *ReplicationBufferQueue) Pop(cursor *ReplicationBufferQueueCursor) er
 		}
 		cursor.currentItem = currentItem
 	} else {
-		buf := cursor.currentItem.buf
+		buf := cursorCurrentItem.buf
 		if buf == nil && len(buf) != 64 {
 			self.glock.RUnlock()
 			return errors.New("out of buf")
@@ -149,23 +174,24 @@ func (self *ReplicationBufferQueue) Pop(cursor *ReplicationBufferQueueCursor) er
 			self.glock.RUnlock()
 			return errors.New("out of buf")
 		}
-		if cursor.currentItem.nextItem == nil {
+		if cursorCurrentItem.nextItem == nil {
 			self.glock.RUnlock()
 			return io.EOF
 		}
-		cursor.currentItem = cursor.currentItem.nextItem
+		cursor.currentItem = cursorCurrentItem.nextItem
 	}
 
-	buf := cursor.currentItem.buf
+	buf := cursorCurrentItem.buf
 	if buf == nil && len(buf) != 64 {
 		self.glock.RUnlock()
 		return errors.New("out of buf")
 	}
 	copy(cursor.buf, buf)
+	cursor.data = cursorCurrentItem.data
 	cursor.currentRequestId[0], cursor.currentRequestId[1], cursor.currentRequestId[2], cursor.currentRequestId[3], cursor.currentRequestId[4], cursor.currentRequestId[5], cursor.currentRequestId[6], cursor.currentRequestId[7],
 		cursor.currentRequestId[8], cursor.currentRequestId[9], cursor.currentRequestId[10], cursor.currentRequestId[11], cursor.currentRequestId[12], cursor.currentRequestId[13], cursor.currentRequestId[14], cursor.currentRequestId[15] = buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
 		buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18]
-	cursor.seq = cursor.currentItem.seq
+	cursor.seq = cursorCurrentItem.seq
 	cursor.writed = false
 	self.glock.RUnlock()
 	return nil
@@ -185,6 +211,7 @@ func (self *ReplicationBufferQueue) Head(cursor *ReplicationBufferQueueCursor) e
 		return errors.New("out of buf")
 	}
 	copy(cursor.buf, buf)
+	cursor.data = currentItem.data
 	cursor.currentItem = currentItem
 	cursor.currentRequestId[0], cursor.currentRequestId[1], cursor.currentRequestId[2], cursor.currentRequestId[3], cursor.currentRequestId[4], cursor.currentRequestId[5], cursor.currentRequestId[6], cursor.currentRequestId[7],
 		cursor.currentRequestId[8], cursor.currentRequestId[9], cursor.currentRequestId[10], cursor.currentRequestId[11], cursor.currentRequestId[12], cursor.currentRequestId[13], cursor.currentRequestId[14], cursor.currentRequestId[15] = buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
@@ -221,6 +248,7 @@ func (self *ReplicationBufferQueue) Search(requestId [16]byte, cursor *Replicati
 			return errors.New("out of buf")
 		}
 		copy(cursor.buf, buf)
+		cursor.data = currentItem.data
 		cursor.currentItem = currentItem
 		cursor.currentRequestId[0], cursor.currentRequestId[1], cursor.currentRequestId[2], cursor.currentRequestId[3], cursor.currentRequestId[4], cursor.currentRequestId[5], cursor.currentRequestId[6], cursor.currentRequestId[7],
 			cursor.currentRequestId[8], cursor.currentRequestId[9], cursor.currentRequestId[10], cursor.currentRequestId[11], cursor.currentRequestId[12], cursor.currentRequestId[13], cursor.currentRequestId[14], cursor.currentRequestId[15] = buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
@@ -242,9 +270,9 @@ type ReplicationClient struct {
 	aof              *Aof
 	aofLock          *AofLock
 	currentRequestId [16]byte
-	rbufs            [][]byte
+	rbufs            []*AofLock
 	rbufIndex        int
-	rbufChannel      chan []byte
+	rbufChannel      chan *AofLock
 	wbuf             []byte
 	loadedCount      uint64
 	wakeupSignal     chan bool
@@ -256,10 +284,10 @@ type ReplicationClient struct {
 
 func NewReplicationClient(manager *ReplicationManager) *ReplicationClient {
 	channel := &ReplicationClient{manager, &sync.Mutex{}, nil, nil, manager.slock.GetAof(),
-		nil, [16]byte{}, make([][]byte, 16), 0, make(chan []byte, 8),
+		nil, [16]byte{}, make([]*AofLock, 16), 0, make(chan *AofLock, 8),
 		make([]byte, 64), 0, nil, make(chan bool, 1), false, true, false}
 	for i := 0; i < 16; i++ {
-		channel.rbufs[i] = make([]byte, 64)
+		channel.rbufs[i] = NewAofLock()
 	}
 	return channel
 }
@@ -484,8 +512,9 @@ func (self *ReplicationClient) recvFiles() error {
 
 	var aofFile *AofFile = nil
 	aofIndex := uint32(0)
+	dlbuf := make([]byte, 4)
 	for !self.closed {
-		err := self.readLock()
+		err := self.readLock(dlbuf)
 		if err != nil {
 			return err
 		}
@@ -545,6 +574,12 @@ func (self *ReplicationClient) recvFiles() error {
 		if err != nil {
 			return err
 		}
+		if self.aofLock.AofFlag&AOF_FLAG_CONTAINS_DATA != 0 {
+			err = aofFile.WriteLockData(self.aofLock)
+			if err != nil {
+				return err
+			}
+		}
 		self.loadedCount++
 
 		buf := self.aofLock.buf
@@ -571,7 +606,11 @@ func (self *ReplicationClient) Process() error {
 			return err
 		}
 		aof.AppendLock(self.aofLock)
-		_ = bufferQueue.Push(self.aofLock.buf)
+		if self.aofLock.AofFlag&AOF_FLAG_CONTAINS_DATA != 0 {
+			_ = bufferQueue.Push(self.aofLock.buf, self.aofLock.data)
+		} else {
+			_ = bufferQueue.Push(self.aofLock.buf, nil)
+		}
 		self.loadedCount++
 
 		buf := self.aofLock.buf
@@ -582,7 +621,7 @@ func (self *ReplicationClient) Process() error {
 	return io.EOF
 }
 
-func (self *ReplicationClient) readLock() error {
+func (self *ReplicationClient) readLock(dlbuf []byte) error {
 	buf := self.aofLock.buf
 	n, err := self.stream.Read(buf)
 	if err != nil {
@@ -603,14 +642,33 @@ func (self *ReplicationClient) readLock() error {
 	if err != nil {
 		return err
 	}
+	if self.aofLock.AofFlag&AOF_FLAG_CONTAINS_DATA != 0 {
+		if len(dlbuf) != 4 {
+			return errors.New("buf error")
+		}
+		_, err = self.stream.ReadBytes(dlbuf)
+		if err != nil {
+			return err
+		}
+		dataLen := int(uint32(dlbuf[0]) | uint32(dlbuf[1])<<8 | uint32(dlbuf[2])<<16 | uint32(dlbuf[3])<<16)
+		aofLockData := make([]byte, dataLen+4)
+		aofLockData[0], aofLockData[1], aofLockData[2], aofLockData[3] = dlbuf[0], dlbuf[1], dlbuf[2], dlbuf[3]
+		if dataLen > 0 {
+			_, err = self.stream.ReadBytes(aofLockData[4:])
+			if err != nil {
+				return err
+			}
+		}
+		self.aofLock.data = aofLockData
+	}
 	return nil
 }
 
 func (self *ReplicationClient) getLock() error {
 	for {
 		select {
-		case buf := <-self.rbufChannel:
-			if buf == nil {
+		case aofLock := <-self.rbufChannel:
+			if aofLock == nil {
 				self.aof.aofGlock.Lock()
 				if self.aof.aofFile.windex > 0 || self.aof.aofFile.dirtied {
 					self.aof.Flush()
@@ -619,11 +677,7 @@ func (self *ReplicationClient) getLock() error {
 				return io.EOF
 			}
 
-			self.aofLock.buf = buf
-			err := self.aofLock.Decode()
-			if err != nil {
-				return err
-			}
+			self.aofLock = aofLock
 			return nil
 		default:
 			if self.closed {
@@ -645,8 +699,8 @@ func (self *ReplicationClient) getLock() error {
 			self.aof.aofGlock.Unlock()
 
 			select {
-			case buf := <-self.rbufChannel:
-				if buf == nil {
+			case aofLock := <-self.rbufChannel:
+				if aofLock == nil {
 					self.aof.aofGlock.Lock()
 					if self.aof.aofFile.windex > 0 || self.aof.aofFile.dirtied {
 						self.aof.Flush()
@@ -655,11 +709,7 @@ func (self *ReplicationClient) getLock() error {
 					return io.EOF
 				}
 
-				self.aofLock.buf = buf
-				err := self.aofLock.Decode()
-				if err != nil {
-					return err
-				}
+				self.aofLock = aofLock
 				return nil
 			case <-time.After(200 * time.Millisecond):
 				self.aof.aofGlock.Lock()
@@ -667,12 +717,12 @@ func (self *ReplicationClient) getLock() error {
 					self.aof.Flush()
 				}
 				self.aof.aofGlock.Unlock()
-				buf := <-self.rbufChannel
-				if buf == nil {
+				aofLock := <-self.rbufChannel
+				if aofLock == nil {
 					return io.EOF
 				}
 
-				self.aofLock.buf = buf
+				self.aofLock = aofLock
 				err := self.aofLock.Decode()
 				if err != nil {
 					return err
@@ -684,9 +734,10 @@ func (self *ReplicationClient) getLock() error {
 }
 
 func (self *ReplicationClient) readProcess() {
+	dlbuf := make([]byte, 4)
 	for !self.closed {
-		buf := self.rbufs[self.rbufIndex]
-		n, err := self.stream.Read(buf)
+		aofLock := self.rbufs[self.rbufIndex]
+		n, err := self.stream.Read(aofLock.buf)
 		if err != nil {
 			self.rbufChannel <- nil
 			return
@@ -694,7 +745,7 @@ func (self *ReplicationClient) readProcess() {
 
 		if n < 64 {
 			for n < 64 {
-				nn, nerr := self.stream.Read(buf[n:])
+				nn, nerr := self.stream.Read(aofLock.buf[n:])
 				if nerr != nil {
 					self.rbufChannel <- nil
 					return
@@ -702,8 +753,31 @@ func (self *ReplicationClient) readProcess() {
 				n += nn
 			}
 		}
+		err = aofLock.Decode()
+		if err != nil {
+			self.rbufChannel <- nil
+			return
+		}
+		if aofLock.AofFlag&AOF_FLAG_CONTAINS_DATA != 0 {
+			_, err = self.stream.ReadBytes(dlbuf)
+			if err != nil {
+				self.rbufChannel <- nil
+				return
+			}
+			dataLen := int(uint32(dlbuf[0]) | uint32(dlbuf[1])<<8 | uint32(dlbuf[2])<<16 | uint32(dlbuf[3])<<16)
+			aofLockData := make([]byte, dataLen+4)
+			aofLockData[0], aofLockData[1], aofLockData[2], aofLockData[3] = dlbuf[0], dlbuf[1], dlbuf[2], dlbuf[3]
+			if dataLen > 0 {
+				_, err = self.stream.ReadBytes(aofLockData[4:])
+				if err != nil {
+					self.rbufChannel <- nil
+					return
+				}
+			}
+			aofLock.data = aofLockData
+		}
 
-		self.rbufChannel <- buf
+		self.rbufChannel <- aofLock
 		self.rbufIndex++
 		if self.rbufIndex >= len(self.rbufs) {
 			self.rbufIndex = 0
@@ -728,8 +802,19 @@ func (self *ReplicationClient) HandleAcked(ackLock *ReplicationAckLock) error {
 		return errors.New("stream closed")
 	}
 	err = self.stream.WriteBytes(self.wbuf)
+	if err != nil {
+		self.glock.Unlock()
+		return err
+	}
+	if ackLock.lockResult.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
+		err = self.stream.WriteBytes(ackLock.lockResult.Data.Data)
+		if err != nil {
+			self.glock.Unlock()
+			return err
+		}
+	}
 	self.glock.Unlock()
-	return err
+	return nil
 }
 
 func (self *ReplicationClient) sleepWhenRetryConnect() error {
@@ -778,7 +863,7 @@ func NewReplicationServer(manager *ReplicationManager, serverProtocol *BinarySer
 	waofLock := NewAofLock()
 	return &ReplicationServer{manager, serverProtocol.stream, serverProtocol,
 		manager.slock.GetAof(), NewAofLock(), waofLock,
-		&ReplicationBufferQueueCursor{nil, [16]byte{}, waofLock.buf, 0, true},
+		&ReplicationBufferQueueCursor{nil, [16]byte{}, waofLock.buf, nil, 0, true},
 		0, make(chan bool, 1), false, false, make(chan bool, 1), false}
 }
 
@@ -906,6 +991,12 @@ func (self *ReplicationServer) sendFiles() error {
 		if err != nil {
 			return true, err
 		}
+		if lock.AofFlag&AOF_FLAG_CONTAINS_DATA != 0 {
+			err = self.stream.WriteBytes(lock.data)
+			if err != nil {
+				return true, err
+			}
+		}
 		return true, nil
 	})
 	if err != nil {
@@ -979,6 +1070,13 @@ func (self *ReplicationServer) SendProcess() error {
 				atomic.AddUint32(&self.manager.serverActiveCount, 0xffffffff)
 				return err
 			}
+			if self.bufferCursor.data != nil {
+				err = self.stream.WriteBytes(self.bufferCursor.data)
+				if err != nil {
+					atomic.AddUint32(&self.manager.serverActiveCount, 0xffffffff)
+					return err
+				}
+			}
 			self.bufferCursor.writed = true
 			atomic.AddUint32(&self.bufferCursor.currentItem.pollIndex, 1)
 		}
@@ -1031,6 +1129,23 @@ func (self *ReplicationServer) RecvProcess() error {
 		err = lockResult.Decode(buf)
 		if err != nil {
 			return err
+		}
+		if lockResult.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
+			dlbuf := make([]byte, 4)
+			_, err = self.stream.ReadBytes(dlbuf)
+			if err != nil {
+				return err
+			}
+			dataLen := int(uint32(dlbuf[0]) | uint32(dlbuf[1])<<8 | uint32(dlbuf[2])<<16 | uint32(dlbuf[3])<<16)
+			lockResultCommandData := make([]byte, dataLen+4)
+			lockResultCommandData[0], lockResultCommandData[1], lockResultCommandData[2], lockResultCommandData[3] = dlbuf[0], dlbuf[1], dlbuf[2], dlbuf[3]
+			if dataLen > 0 {
+				_, err = self.stream.ReadBytes(lockResultCommandData[4:])
+				if err != nil {
+					return err
+				}
+			}
+			lockResult.Data = protocol.NewLockResultCommandData(lockResultCommandData)
 		}
 
 		err = self.aof.loadLockAck(lockResult)
@@ -1651,9 +1766,16 @@ func (self *ReplicationManager) PushLock(glockIndex uint16, lock *AofLock) error
 	}
 
 	buf := lock.buf
-	err := self.bufferQueue.Push(buf)
-	if err != nil {
-		return err
+	if lock.AofFlag&AOF_FLAG_CONTAINS_DATA != 0 {
+		err := self.bufferQueue.Push(buf, lock.data)
+		if err != nil {
+			return err
+		}
+	} else {
+		err := self.bufferQueue.Push(buf, nil)
+		if err != nil {
+			return err
+		}
 	}
 
 	self.currentRequestId[0], self.currentRequestId[1], self.currentRequestId[2], self.currentRequestId[3], self.currentRequestId[4], self.currentRequestId[5], self.currentRequestId[6], self.currentRequestId[7],

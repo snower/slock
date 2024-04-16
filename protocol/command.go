@@ -45,6 +45,7 @@ const (
 	LOCK_FLAG_FROM_AOF           = 0x04
 	LOCK_FLAG_CONCURRENT_CHECK   = 0x08
 	LOCK_FLAG_LOCK_TREE_LOCK     = 0x10
+	LOCK_FLAG_CONTAINS_DATA      = 0x20
 )
 
 const (
@@ -53,6 +54,7 @@ const (
 	UNLOCK_FLAG_FROM_AOF                        = 0x04
 	UNLOCK_FLAG_SUCCED_TO_LOCK_WAIT             = 0x08
 	UNLOCK_FLAG_UNLOCK_TREE_LOCK                = 0x10
+	UNLOCK_FLAG_CONTAINS_DATA                   = 0x20
 )
 
 const (
@@ -90,6 +92,8 @@ const (
 
 	CALL_COMMAND_CHARSET_UTF8 = 1
 )
+
+const LOCK_DATA_COMMAND_TYPE_SET = 0
 
 var ERROR_MSG []string = []string{
 	"OK",
@@ -326,6 +330,16 @@ func (self *InitResultCommand) Encode(buf []byte) error {
 	return nil
 }
 
+type LockCommandData struct {
+	Data        []byte
+	CommandType uint8
+	DataFlag    uint8
+}
+
+func NewLockCommandData(data []byte) *LockCommandData {
+	return &LockCommandData{nil, data[4], data[5]}
+}
+
 type LockCommand struct {
 	Command
 	Flag        uint8
@@ -348,13 +362,14 @@ type LockCommand struct {
 	Expried uint16
 	Count   uint16
 	Rcount  uint8
+	Data    *LockCommandData
 }
 
 func NewLockCommand(dbId uint8, lockKey [16]byte, lockId [16]byte, timeout uint16, expried uint16, count uint16) *LockCommand {
 	command := Command{Magic: MAGIC, Version: VERSION, CommandType: COMMAND_LOCK, RequestId: GenRequestId()}
-	lock_command := LockCommand{Command: command, Flag: 0, DbId: dbId, LockId: lockId, LockKey: lockKey, TimeoutFlag: 0,
-		Timeout: timeout, ExpriedFlag: 0, Expried: expried, Count: count, Rcount: 0}
-	return &lock_command
+	lockCommand := LockCommand{Command: command, Flag: 0, DbId: dbId, LockId: lockId, LockKey: lockKey, TimeoutFlag: 0,
+		Timeout: timeout, ExpriedFlag: 0, Expried: expried, Count: count, Rcount: 0, Data: nil}
+	return &lockCommand
 }
 
 func (self *LockCommand) Decode(buf []byte) error {
@@ -419,6 +434,16 @@ func (self *LockCommand) Encode(buf []byte) error {
 
 var RESULT_LOCK_COMMAND_BLANK_BYTERS = [4]byte{}
 
+type LockResultCommandData struct {
+	Data        []byte
+	CommandType uint8
+	DataFlag    uint8
+}
+
+func NewLockResultCommandData(data []byte) *LockResultCommandData {
+	return &LockResultCommandData{nil, data[4], data[5]}
+}
+
 type LockResultCommand struct {
 	ResultCommand
 	Flag    uint8
@@ -430,12 +455,17 @@ type LockResultCommand struct {
 	Lrcount uint8
 	Rcount  uint8
 	Blank   [4]byte
+	Data    *LockResultCommandData
 }
 
-func NewLockResultCommand(command *LockCommand, result uint8, flag uint8, lcount uint16, count uint16, lrcount uint8, rcount uint8) *LockResultCommand {
-	result_command := ResultCommand{MAGIC, VERSION, command.CommandType, command.RequestId, result}
-	return &LockResultCommand{result_command, flag, command.DbId, command.LockId, command.LockKey,
-		lcount, count, lrcount, rcount, RESULT_LOCK_COMMAND_BLANK_BYTERS}
+func NewLockResultCommand(command *LockCommand, result uint8, flag uint8, lcount uint16, count uint16, lrcount uint8, rcount uint8, data []byte) *LockResultCommand {
+	resultCommand := ResultCommand{MAGIC, VERSION, command.CommandType, command.RequestId, result}
+	var lockResultCommandData *LockResultCommandData = nil
+	if data != nil {
+		lockResultCommandData = NewLockResultCommandData(data)
+	}
+	return &LockResultCommand{resultCommand, flag, command.DbId, command.LockId, command.LockKey,
+		lcount, count, lrcount, rcount, RESULT_LOCK_COMMAND_BLANK_BYTERS, lockResultCommandData}
 }
 
 func (self *LockResultCommand) Decode(buf []byte) error {
@@ -505,8 +535,8 @@ type StateCommand struct {
 
 func NewStateCommand(dbId uint8) *StateCommand {
 	command := Command{Magic: MAGIC, Version: VERSION, CommandType: COMMAND_STATE, RequestId: GenRequestId()}
-	state_command := StateCommand{Command: command, Flag: 0, DbId: dbId, Blank: [43]byte{}}
-	return &state_command
+	stateCommand := StateCommand{Command: command, Flag: 0, DbId: dbId, Blank: [43]byte{}}
+	return &stateCommand
 }
 
 func (self *StateCommand) Decode(buf []byte) error {
@@ -555,11 +585,11 @@ type StateResultCommand struct {
 }
 
 func NewStateResultCommand(command *StateCommand, result uint8, flag uint8, dbState uint8, state *LockDBState) *StateResultCommand {
-	result_command := ResultCommand{MAGIC, VERSION, command.CommandType, command.RequestId, result}
+	resultCommand := ResultCommand{MAGIC, VERSION, command.CommandType, command.RequestId, result}
 	if state == nil {
 		state = &LockDBState{}
 	}
-	return &StateResultCommand{result_command, flag, dbState, command.DbId, *state, [1]byte{}}
+	return &StateResultCommand{resultCommand, flag, dbState, command.DbId, *state, [1]byte{}}
 }
 
 func (self *StateResultCommand) Decode(buf []byte) error {
@@ -665,8 +695,8 @@ type AdminCommand struct {
 
 func NewAdminCommand(adminType uint8) *AdminCommand {
 	command := Command{Magic: MAGIC, Version: VERSION, CommandType: COMMAND_ADMIN, RequestId: GenRequestId()}
-	admin_command := AdminCommand{Command: command, AdminType: adminType, Blank: [44]byte{}}
-	return &admin_command
+	adminCommand := AdminCommand{Command: command, AdminType: adminType, Blank: [44]byte{}}
+	return &adminCommand
 }
 
 func (self *AdminCommand) Decode(buf []byte) error {
@@ -709,8 +739,8 @@ type AdminResultCommand struct {
 }
 
 func NewAdminResultCommand(command *AdminCommand, result uint8) *AdminResultCommand {
-	result_command := ResultCommand{MAGIC, VERSION, command.CommandType, command.RequestId, result}
-	return &AdminResultCommand{result_command, [44]byte{}}
+	resultCommand := ResultCommand{MAGIC, VERSION, command.CommandType, command.RequestId, result}
+	return &AdminResultCommand{resultCommand, [44]byte{}}
 }
 
 func (self *AdminResultCommand) Decode(buf []byte) error {
@@ -794,8 +824,8 @@ type PingResultCommand struct {
 }
 
 func NewPingResultCommand(command *PingCommand, result uint8) *PingResultCommand {
-	result_command := ResultCommand{MAGIC, VERSION, command.CommandType, command.RequestId, result}
-	return &PingResultCommand{result_command, [44]byte{}}
+	resultCommand := ResultCommand{MAGIC, VERSION, command.CommandType, command.RequestId, result}
+	return &PingResultCommand{resultCommand, [44]byte{}}
 }
 
 func (self *PingResultCommand) Decode(buf []byte) error {
@@ -879,8 +909,8 @@ type QuitResultCommand struct {
 }
 
 func NewQuitResultCommand(command *QuitCommand, result uint8) *QuitResultCommand {
-	result_command := ResultCommand{MAGIC, VERSION, command.CommandType, command.RequestId, result}
-	return &QuitResultCommand{result_command, [44]byte{}}
+	resultCommand := ResultCommand{MAGIC, VERSION, command.CommandType, command.RequestId, result}
+	return &QuitResultCommand{resultCommand, [44]byte{}}
 }
 
 func (self *QuitResultCommand) Decode(buf []byte) error {
@@ -1175,9 +1205,9 @@ type SubscribeCommand struct {
 
 func NewSubscribeCommand(clientId uint32, subscribeId uint32, subscribeType uint8, lockKeyMask [16]byte, expried uint32, maxSize uint32) *SubscribeCommand {
 	command := Command{Magic: MAGIC, Version: VERSION, CommandType: COMMAND_SUBSCRIBE, RequestId: GenRequestId()}
-	leaderCommand := SubscribeCommand{Command: command, Flag: 0, ClientId: clientId, SubscribeId: subscribeId,
+	subscribeCommand := SubscribeCommand{Command: command, Flag: 0, ClientId: clientId, SubscribeId: subscribeId,
 		SubscribeType: subscribeType, LockKeyMask: lockKeyMask, Expried: expried, MaxSize: maxSize, Blank: [11]byte{}}
-	return &leaderCommand
+	return &subscribeCommand
 }
 
 func (self *SubscribeCommand) Decode(buf []byte) error {

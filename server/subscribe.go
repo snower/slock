@@ -28,12 +28,13 @@ type PublishLock struct {
 	Count       uint16
 	Lrcount     uint8
 	Rcount      uint8
+	data        []byte
 	buf         []byte
 }
 
 func NewPublishLock() *PublishLock {
 	return &PublishLock{protocol.MAGIC, protocol.VERSION, protocol.COMMAND_PUBLISH, [16]byte{}, 0,
-		0, 0, [16]byte{}, [16]byte{}, 0, 0, 0, 0, make([]byte, 64)}
+		0, 0, [16]byte{}, [16]byte{}, 0, 0, 0, 0, nil, make([]byte, 64)}
 
 }
 
@@ -313,6 +314,7 @@ func (self *SubscribeClient) Run() {
 }
 
 func (self *SubscribeClient) Process() error {
+	dlbuf := make([]byte, 4)
 	for !self.closed {
 		buf := self.publishLock.buf
 		n, err := self.stream.Read(buf)
@@ -337,6 +339,22 @@ func (self *SubscribeClient) Process() error {
 		err = self.publishLock.Decode()
 		if err != nil {
 			return err
+		}
+		if self.publishLock.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
+			_, err = self.stream.ReadBytes(dlbuf)
+			if err != nil {
+				return err
+			}
+			dataLen := int(uint32(dlbuf[0]) | uint32(dlbuf[1])<<8 | uint32(dlbuf[2])<<16 | uint32(dlbuf[3])<<16)
+			lockData := make([]byte, dataLen+4)
+			lockData[0], lockData[1], lockData[2], lockData[3] = dlbuf[0], dlbuf[1], dlbuf[2], dlbuf[3]
+			if dataLen > 0 {
+				_, err = self.stream.ReadBytes(lockData[4:])
+				if err != nil {
+					return err
+				}
+			}
+			self.publishLock.data = lockData
 		}
 
 		db := self.manager.slock.GetDB(self.publishLock.DbId)
@@ -501,7 +519,7 @@ func (self *Subscriber) processLock() {
 			if err != nil {
 				self.serverProtocol.Unlock()
 				self.glock.Lock()
-				self.bufferHead.rindex += tn - (tn % 64)
+				self.bufferHead.rindex += tn
 				self.processServerProcotolClose()
 				break
 			}
@@ -573,43 +591,32 @@ func (self *Subscriber) Push(lock *PublishLock) error {
 			continue
 		}
 
-		self.glock.Lock()
-		if self.bufferTail == nil || self.bufferTail.windex >= len(self.bufferTail.buf) {
-			buffer := self.manager.getBuffer()
-			if self.bufferTail != nil {
-				self.bufferTail.next = buffer
-			}
-			self.bufferTail = buffer
-			self.bufferSize += len(self.bufferTail.buf)
-			if self.bufferHead == nil {
-				self.bufferHead = self.bufferTail
-			}
-
-			if self.maxSize > 0 && uint32(self.bufferSize) >= self.maxSize {
-				buffer := self.bufferHead
-				self.bufferHead = self.bufferHead.next
-				self.manager.freeBuffer(buffer)
-				self.bufferSize -= len(buffer.buf)
-				if self.bufferHead == nil {
-					self.bufferTail = nil
-				}
-			}
-		}
-
 		versionId := uint32(0)
 		if self.manager.slock.arbiterManager != nil {
 			versionId = self.manager.slock.arbiterManager.version
 		}
-		copy(self.bufferTail.buf[self.bufferTail.windex:], lock.buf)
-		self.bufferTail.buf[self.bufferTail.windex+11] = byte(versionId)
-		self.bufferTail.buf[self.bufferTail.windex+12] = byte(versionId >> 8)
-		self.bufferTail.buf[self.bufferTail.windex+13] = byte(versionId >> 16)
-		self.bufferTail.buf[self.bufferTail.windex+14] = byte(versionId >> 24)
-		self.bufferTail.buf[self.bufferTail.windex+15] = byte(self.subscriberId)
-		self.bufferTail.buf[self.bufferTail.windex+16] = byte(self.subscriberId >> 8)
-		self.bufferTail.buf[self.bufferTail.windex+17] = byte(self.subscriberId >> 16)
-		self.bufferTail.buf[self.bufferTail.windex+18] = byte(self.subscriberId >> 24)
-		self.bufferTail.windex += 64
+		lock.buf[11], lock.buf[12], lock.buf[13], lock.buf[14] = byte(versionId), byte(versionId>>8), byte(versionId>>16), byte(versionId>>24)
+		lock.buf[15], lock.buf[16], lock.buf[17], lock.buf[18] = byte(self.subscriberId), byte(self.subscriberId>>8), byte(self.subscriberId>>16), byte(self.subscriberId>>24)
+
+		self.glock.Lock()
+		err := self.appendBufferData(lock.buf)
+		if err != nil {
+			self.glock.Unlock()
+			go func() {
+				_ = self.Close()
+			}()
+			return err
+		}
+		if lock.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
+			err = self.appendBufferData(lock.data)
+			if err != nil {
+				self.glock.Unlock()
+				go func() {
+					_ = self.Close()
+				}()
+			}
+			return err
+		}
 
 		if self.pulled {
 			self.pullWaiter <- true
@@ -665,6 +672,37 @@ func (self *Subscriber) Update(serverProtocol ServerProtocol, subscriberType uin
 		}
 	}
 	self.glock.Unlock()
+	return nil
+}
+
+func (self *Subscriber) appendBufferData(buf []byte) error {
+	dataLen, n := len(buf), 0
+	for n < dataLen {
+		if self.bufferTail == nil || self.bufferTail.windex >= len(self.bufferTail.buf) {
+			buffer := self.manager.getBuffer()
+			if self.maxSize > 0 && uint32(self.bufferSize) >= self.maxSize {
+				self.manager.freeBuffer(buffer)
+				return errors.New("fulled")
+			}
+
+			if self.bufferTail != nil {
+				self.bufferTail.next = buffer
+			}
+			self.bufferTail = buffer
+			self.bufferSize += len(self.bufferTail.buf)
+			if self.bufferHead == nil {
+				self.bufferHead = self.bufferTail
+			}
+		}
+
+		bufLen := len(self.bufferTail.buf) - self.bufferTail.windex
+		if bufLen >= dataLen {
+			copy(self.bufferTail.buf[self.bufferTail.windex:], buf[n:])
+			return nil
+		}
+		copy(self.bufferTail.buf[self.bufferTail.windex:], buf[n:n+bufLen])
+		n += bufLen
+	}
 	return nil
 }
 
@@ -756,7 +794,7 @@ func (self *SubscribeChannel) pullPublishLock() *PublishLock {
 	return publishLock
 }
 
-func (self *SubscribeChannel) Push(command *protocol.LockCommand, result uint8, lcount uint16, lrcount uint8) error {
+func (self *SubscribeChannel) Push(command *protocol.LockCommand, result uint8, lcount uint16, lrcount uint8, data []byte) error {
 	if self.closed {
 		return io.EOF
 	}
@@ -784,6 +822,10 @@ func (self *SubscribeChannel) Push(command *protocol.LockCommand, result uint8, 
 	publishLock.Count = command.Count
 	publishLock.Lrcount = lrcount
 	publishLock.Rcount = command.Rcount
+	if data != nil {
+		publishLock.data = data
+		publishLock.Flag |= protocol.LOCK_FLAG_CONTAINS_DATA
+	}
 
 	self.queueGlock.Lock()
 	self.pushPublishLock(publishLock)

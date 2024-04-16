@@ -439,8 +439,16 @@ func (self *TransparencyBinaryServerProtocol) ProcessParse(buf []byte) error {
 		lockCommand.Timeout, lockCommand.TimeoutFlag, lockCommand.Expried, lockCommand.ExpriedFlag = uint16(buf[53])|uint16(buf[54])<<8, uint16(buf[55])|uint16(buf[56])<<8, uint16(buf[57])|uint16(buf[58])<<8, uint16(buf[59])|uint16(buf[60])<<8
 		lockCommand.Count, lockCommand.Rcount = uint16(buf[61])|uint16(buf[62])<<8, uint8(buf[63])
 
+		if lockCommand.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
+			lockCommandData, err := self.serverProtocol.ProcessParseLockData(buf)
+			if err != nil {
+				return err
+			}
+			lockCommand.Data = lockCommandData
+		}
+
 		if lockCommand.DbId == 0xff {
-			err := self.serverProtocol.ProcessLockResultCommand(lockCommand, protocol.RESULT_UNKNOWN_DB, 0, 0)
+			err := self.serverProtocol.ProcessLockResultCommand(lockCommand, protocol.RESULT_UNKNOWN_DB, 0, 0, nil)
 			_ = self.serverProtocol.FreeLockCommand(lockCommand)
 			return err
 		}
@@ -455,14 +463,14 @@ func (self *TransparencyBinaryServerProtocol) ProcessParse(buf []byte) error {
 
 		clientProtocol, err := self.CheckClient()
 		if err != nil || clientProtocol == nil {
-			err := self.serverProtocol.ProcessLockResultCommand(lockCommand, protocol.RESULT_STATE_ERROR, 0, 0)
+			err := self.serverProtocol.ProcessLockResultCommand(lockCommand, protocol.RESULT_STATE_ERROR, 0, 0, nil)
 			_ = self.serverProtocol.FreeLockCommand(lockCommand)
 			return err
 		}
 
 		err = clientProtocol.Write(lockCommand)
 		if err != nil {
-			err := self.serverProtocol.ProcessLockResultCommand(lockCommand, protocol.RESULT_ERROR, 0, 0)
+			err := self.serverProtocol.ProcessLockResultCommand(lockCommand, protocol.RESULT_ERROR, 0, 0, nil)
 			_ = self.serverProtocol.FreeLockCommand(lockCommand)
 			return err
 		}
@@ -498,8 +506,16 @@ func (self *TransparencyBinaryServerProtocol) ProcessParse(buf []byte) error {
 		lockCommand.Timeout, lockCommand.TimeoutFlag, lockCommand.Expried, lockCommand.ExpriedFlag = uint16(buf[53])|uint16(buf[54])<<8, uint16(buf[55])|uint16(buf[56])<<8, uint16(buf[57])|uint16(buf[58])<<8, uint16(buf[59])|uint16(buf[60])<<8
 		lockCommand.Count, lockCommand.Rcount = uint16(buf[61])|uint16(buf[62])<<8, uint8(buf[63])
 
+		if lockCommand.Flag&protocol.UNLOCK_FLAG_CONTAINS_DATA != 0 {
+			lockCommandData, err := self.serverProtocol.ProcessParseLockData(buf)
+			if err != nil {
+				return err
+			}
+			lockCommand.Data = lockCommandData
+		}
+
 		if lockCommand.DbId == 0xff {
-			err := self.serverProtocol.ProcessLockResultCommand(lockCommand, protocol.RESULT_UNKNOWN_DB, 0, 0)
+			err := self.serverProtocol.ProcessLockResultCommand(lockCommand, protocol.RESULT_UNKNOWN_DB, 0, 0, nil)
 			_ = self.serverProtocol.FreeLockCommand(lockCommand)
 			return err
 		}
@@ -507,7 +523,7 @@ func (self *TransparencyBinaryServerProtocol) ProcessParse(buf []byte) error {
 		if self.slock.state == STATE_LEADER {
 			db := self.slock.dbs[lockCommand.DbId]
 			if db == nil {
-				err := self.ProcessLockResultCommand(lockCommand, protocol.RESULT_UNKNOWN_DB, 0, 0)
+				err := self.ProcessLockResultCommand(lockCommand, protocol.RESULT_UNKNOWN_DB, 0, 0, nil)
 				_ = self.serverProtocol.FreeLockCommand(lockCommand)
 				return err
 			}
@@ -516,14 +532,14 @@ func (self *TransparencyBinaryServerProtocol) ProcessParse(buf []byte) error {
 
 		clientProtocol, err := self.CheckClient()
 		if err != nil || clientProtocol == nil {
-			err := self.serverProtocol.ProcessLockResultCommand(lockCommand, protocol.RESULT_STATE_ERROR, 0, 0)
+			err := self.serverProtocol.ProcessLockResultCommand(lockCommand, protocol.RESULT_STATE_ERROR, 0, 0, nil)
 			_ = self.serverProtocol.FreeLockCommand(lockCommand)
 			return err
 		}
 
 		err = clientProtocol.Write(lockCommand)
 		if err != nil {
-			err := self.serverProtocol.ProcessLockResultCommand(lockCommand, protocol.RESULT_ERROR, 0, 0)
+			err := self.serverProtocol.ProcessLockResultCommand(lockCommand, protocol.RESULT_ERROR, 0, 0, nil)
 			_ = self.serverProtocol.FreeLockCommand(lockCommand)
 			return err
 		}
@@ -608,21 +624,21 @@ func (self *TransparencyBinaryServerProtocol) ProcessCommad(command protocol.ICo
 			lockCommand := command.(*protocol.LockCommand)
 
 			if lockCommand.DbId == 0xff {
-				err := self.serverProtocol.ProcessLockResultCommand(lockCommand, protocol.RESULT_UNKNOWN_DB, 0, 0)
+				err := self.serverProtocol.ProcessLockResultCommand(lockCommand, protocol.RESULT_UNKNOWN_DB, 0, 0, nil)
 				_ = self.serverProtocol.FreeLockCommand(lockCommand)
 				return err
 			}
 
 			clientProtocol, err := self.CheckClient()
 			if err != nil || clientProtocol == nil {
-				err := self.serverProtocol.ProcessLockResultCommand(lockCommand, protocol.RESULT_STATE_ERROR, 0, 0)
+				err := self.serverProtocol.ProcessLockResultCommand(lockCommand, protocol.RESULT_STATE_ERROR, 0, 0, nil)
 				_ = self.serverProtocol.FreeLockCommand(lockCommand)
 				return err
 			}
 
 			err = clientProtocol.Write(lockCommand)
 			if err != nil {
-				err := self.serverProtocol.ProcessLockResultCommand(lockCommand, protocol.RESULT_STATE_ERROR, 0, 0)
+				err := self.serverProtocol.ProcessLockResultCommand(lockCommand, protocol.RESULT_STATE_ERROR, 0, 0, nil)
 				_ = self.serverProtocol.FreeLockCommand(lockCommand)
 				return err
 			}
@@ -633,21 +649,21 @@ func (self *TransparencyBinaryServerProtocol) ProcessCommad(command protocol.ICo
 			lockCommand := command.(*protocol.LockCommand)
 
 			if lockCommand.DbId == 0xff {
-				err := self.ProcessLockResultCommand(lockCommand, protocol.RESULT_UNKNOWN_DB, 0, 0)
+				err := self.ProcessLockResultCommand(lockCommand, protocol.RESULT_UNKNOWN_DB, 0, 0, nil)
 				_ = self.FreeLockCommand(lockCommand)
 				return err
 			}
 
 			clientProtocol, err := self.CheckClient()
 			if err != nil || clientProtocol == nil {
-				err := self.serverProtocol.ProcessLockResultCommand(lockCommand, protocol.RESULT_STATE_ERROR, 0, 0)
+				err := self.serverProtocol.ProcessLockResultCommand(lockCommand, protocol.RESULT_STATE_ERROR, 0, 0, nil)
 				_ = self.serverProtocol.FreeLockCommand(lockCommand)
 				return err
 			}
 
 			err = clientProtocol.Write(lockCommand)
 			if err != nil {
-				err := self.serverProtocol.ProcessLockResultCommand(lockCommand, protocol.RESULT_STATE_ERROR, 0, 0)
+				err := self.serverProtocol.ProcessLockResultCommand(lockCommand, protocol.RESULT_STATE_ERROR, 0, 0, nil)
 				_ = self.serverProtocol.FreeLockCommand(lockCommand)
 				return err
 			}
@@ -688,12 +704,12 @@ func (self *TransparencyBinaryServerProtocol) ProcessLockCommand(lockCommand *pr
 	return self.serverProtocol.ProcessLockCommand(lockCommand)
 }
 
-func (self *TransparencyBinaryServerProtocol) ProcessLockResultCommand(command *protocol.LockCommand, result uint8, lcount uint16, lrcount uint8) error {
-	return self.serverProtocol.ProcessLockResultCommand(command, result, lcount, lrcount)
+func (self *TransparencyBinaryServerProtocol) ProcessLockResultCommand(command *protocol.LockCommand, result uint8, lcount uint16, lrcount uint8, data []byte) error {
+	return self.serverProtocol.ProcessLockResultCommand(command, result, lcount, lrcount, data)
 }
 
-func (self *TransparencyBinaryServerProtocol) ProcessLockResultCommandLocked(command *protocol.LockCommand, result uint8, lcount uint16, lrcount uint8) error {
-	return self.serverProtocol.ProcessLockResultCommandLocked(command, result, lcount, lrcount)
+func (self *TransparencyBinaryServerProtocol) ProcessLockResultCommandLocked(command *protocol.LockCommand, result uint8, lcount uint16, lrcount uint8, data []byte) error {
+	return self.serverProtocol.ProcessLockResultCommandLocked(command, result, lcount, lrcount, data)
 }
 
 func (self *TransparencyBinaryServerProtocol) GetStream() *Stream {
@@ -1023,12 +1039,12 @@ func (self *TransparencyTextServerProtocol) ProcessLockCommand(lockCommand *prot
 	return self.serverProtocol.ProcessLockCommand(lockCommand)
 }
 
-func (self *TransparencyTextServerProtocol) ProcessLockResultCommand(lockCommand *protocol.LockCommand, result uint8, lcount uint16, lrcount uint8) error {
-	return self.serverProtocol.ProcessLockResultCommand(lockCommand, result, lcount, lrcount)
+func (self *TransparencyTextServerProtocol) ProcessLockResultCommand(lockCommand *protocol.LockCommand, result uint8, lcount uint16, lrcount uint8, data []byte) error {
+	return self.serverProtocol.ProcessLockResultCommand(lockCommand, result, lcount, lrcount, data)
 }
 
-func (self *TransparencyTextServerProtocol) ProcessLockResultCommandLocked(command *protocol.LockCommand, result uint8, lcount uint16, lrcount uint8) error {
-	return self.serverProtocol.ProcessLockResultCommandLocked(command, result, lcount, lrcount)
+func (self *TransparencyTextServerProtocol) ProcessLockResultCommandLocked(command *protocol.LockCommand, result uint8, lcount uint16, lrcount uint8, data []byte) error {
+	return self.serverProtocol.ProcessLockResultCommandLocked(command, result, lcount, lrcount, data)
 }
 
 func (self *TransparencyTextServerProtocol) GetStream() *Stream {
@@ -1172,6 +1188,16 @@ func (self *TransparencyTextServerProtocol) commandHandlerLock(serverProtocol *T
 
 	bufIndex += copy(wbuf[bufIndex:], []byte("\r\n"))
 
+	if lockCommandResult.Data != nil {
+		bufIndex += copy(wbuf[bufIndex:], []byte("$4\r\nDATA"))
+
+		data := lockCommandResult.Data.Data[5:]
+		bufIndex += copy(wbuf[bufIndex:], []byte(fmt.Sprintf("\r\n$%d\r\n", len(data))))
+		bufIndex += copy(wbuf[bufIndex:], data)
+
+		bufIndex += copy(wbuf[bufIndex:], []byte("\r\n"))
+	}
+
 	_ = self.serverProtocol.FreeLockCommand(lockCommand)
 	self.serverProtocol.freeCommandResult = lockCommandResult
 	return self.stream.WriteBytes(wbuf[:bufIndex])
@@ -1279,6 +1305,16 @@ func (self *TransparencyTextServerProtocol) commandHandlerUnlock(serverProtocol 
 	bufIndex += copy(wbuf[bufIndex:], []byte(tr))
 
 	bufIndex += copy(wbuf[bufIndex:], []byte("\r\n"))
+
+	if lockCommandResult.Data != nil {
+		bufIndex += copy(wbuf[bufIndex:], []byte("$4\r\nDATA"))
+
+		data := lockCommandResult.Data.Data[5:]
+		bufIndex += copy(wbuf[bufIndex:], []byte(fmt.Sprintf("\r\n$%d\r\n", len(data))))
+		bufIndex += copy(wbuf[bufIndex:], data)
+
+		bufIndex += copy(wbuf[bufIndex:], []byte("\r\n"))
+	}
 
 	_ = self.serverProtocol.FreeLockCommand(lockCommand)
 	self.serverProtocol.freeCommandResult = lockCommandResult
