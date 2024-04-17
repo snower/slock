@@ -154,16 +154,16 @@ func (self *ReplicationBufferQueue) Push(buf []byte, data []byte) error {
 
 func (self *ReplicationBufferQueue) Pop(cursor *ReplicationBufferQueueCursor) error {
 	self.glock.RLock()
-	cursorCurrentItem := cursor.currentItem
-	if cursorCurrentItem == nil {
-		currentItem := self.tailItem
+	currentItem := cursor.currentItem
+	if currentItem == nil {
+		currentItem = self.tailItem
 		if currentItem == nil {
 			self.glock.RUnlock()
 			return io.EOF
 		}
 		cursor.currentItem = currentItem
 	} else {
-		buf := cursorCurrentItem.buf
+		buf := currentItem.buf
 		if buf == nil && len(buf) != 64 {
 			self.glock.RUnlock()
 			return errors.New("out of buf")
@@ -174,24 +174,28 @@ func (self *ReplicationBufferQueue) Pop(cursor *ReplicationBufferQueueCursor) er
 			self.glock.RUnlock()
 			return errors.New("out of buf")
 		}
-		if cursorCurrentItem.nextItem == nil {
+
+		nextCurrentItem := currentItem.nextItem
+		if nextCurrentItem == nil {
 			self.glock.RUnlock()
 			return io.EOF
 		}
-		cursor.currentItem = cursorCurrentItem.nextItem
+		atomic.AddUint32(&currentItem.pollIndex, 1)
+		currentItem = nextCurrentItem
+		cursor.currentItem = nextCurrentItem
 	}
 
-	buf := cursorCurrentItem.buf
+	buf := currentItem.buf
 	if buf == nil && len(buf) != 64 {
 		self.glock.RUnlock()
 		return errors.New("out of buf")
 	}
 	copy(cursor.buf, buf)
-	cursor.data = cursorCurrentItem.data
+	cursor.data = currentItem.data
 	cursor.currentRequestId[0], cursor.currentRequestId[1], cursor.currentRequestId[2], cursor.currentRequestId[3], cursor.currentRequestId[4], cursor.currentRequestId[5], cursor.currentRequestId[6], cursor.currentRequestId[7],
 		cursor.currentRequestId[8], cursor.currentRequestId[9], cursor.currentRequestId[10], cursor.currentRequestId[11], cursor.currentRequestId[12], cursor.currentRequestId[13], cursor.currentRequestId[14], cursor.currentRequestId[15] = buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
 		buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18]
-	cursor.seq = cursorCurrentItem.seq
+	cursor.seq = currentItem.seq
 	cursor.writed = false
 	self.glock.RUnlock()
 	return nil
@@ -1078,7 +1082,6 @@ func (self *ReplicationServer) SendProcess() error {
 				}
 			}
 			self.bufferCursor.writed = true
-			atomic.AddUint32(&self.bufferCursor.currentItem.pollIndex, 1)
 		}
 
 		bufferQueue := self.manager.bufferQueue
@@ -1145,7 +1148,7 @@ func (self *ReplicationServer) RecvProcess() error {
 					return err
 				}
 			}
-			lockResult.Data = protocol.NewLockResultCommandData(lockResultCommandData)
+			lockResult.Data = protocol.NewLockResultCommandDataFromOriginBytes(lockResultCommandData)
 		}
 
 		err = self.aof.loadLockAck(lockResult)

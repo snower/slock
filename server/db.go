@@ -1552,6 +1552,7 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 
 				lockManager.locked++
 				currentLock.locked++
+				lockData := lockManager.GetLockData()
 				if command.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
 					lockManager.ProcessLockData(command)
 				}
@@ -1575,7 +1576,7 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 				lockManager.state.LockedCount++
 				lockManager.glock.Unlock()
 
-				_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, uint16(lockManager.locked), currentLock.locked, lockManager.GetLockData())
+				_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, uint16(lockManager.locked), currentLock.locked, lockData)
 				_ = serverProtocol.FreeLockCommand(command)
 				return nil
 			} else {
@@ -1626,6 +1627,7 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 				return nil
 			}
 
+			lockData := lockManager.GetLockData()
 			if command.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
 				lockManager.ProcessLockData(command)
 			}
@@ -1639,14 +1641,14 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 			lockManager.state.LockedCount++
 			lockManager.glock.Unlock()
 
-			_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, uint16(lockManager.locked), lock.locked, lockManager.GetLockData())
-
+			_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, uint16(lockManager.locked), lock.locked, lockData)
 			if requireWakeup {
 				self.wakeUpWaitLocks(lockManager, serverProtocol)
 			}
 			return nil
 		}
 
+		lockData := lockManager.GetLockData()
 		if command.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
 			lockManager.ProcessLockData(command)
 		}
@@ -1660,7 +1662,7 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 		lockManager.state.LockCount++
 		lockManager.glock.Unlock()
 
-		_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, uint16(lockManager.locked), lock.locked, lockManager.GetLockData())
+		_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, uint16(lockManager.locked), lock.locked, lockData)
 		_ = serverProtocol.FreeLockCommand(command)
 
 		if requireWakeup {
@@ -1671,6 +1673,7 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 
 	if command.TimeoutFlag&protocol.TIMEOUT_FLAG_LESS_LOCK_VERSION_IS_LOCK_SUCCED != 0 {
 		if self.checkLessLockVersion(lockManager, command) {
+			lockData := lockManager.GetLockData()
 			if command.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
 				lockManager.ProcessLockData(command)
 			}
@@ -1682,7 +1685,7 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 			command.LockId = lockManager.currentLock.command.LockId
 			lockManager.glock.Unlock()
 
-			_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, uint16(lockManager.locked), lock.locked, lockManager.GetLockData())
+			_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, uint16(lockManager.locked), lock.locked, lockData)
 			_ = serverProtocol.FreeLockCommand(command)
 			return nil
 		}
@@ -1725,7 +1728,7 @@ func (self *LockDB) UnLock(serverProtocol ServerProtocol, command *protocol.Lock
 
 	lockManager := self.GetLockManager(command)
 	if lockManager == nil {
-		_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_UNLOCK_ERROR, 0, 0, lockManager.GetLockData())
+		_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_UNLOCK_ERROR, 0, 0, nil)
 		_ = serverProtocol.FreeLockCommand(command)
 		atomic.AddUint32(&self.states[self.managerMaxGlocks].UnlockErrorCount, 1)
 		return nil
@@ -1814,6 +1817,7 @@ func (self *LockDB) UnLock(serverProtocol ServerProtocol, command *protocol.Lock
 			if currentLock.locked == 0 {
 				unlocked = true
 			} else {
+				lockData := lockManager.GetLockData()
 				if command.Flag&protocol.UNLOCK_FLAG_CONTAINS_DATA != 0 {
 					lockManager.ProcessLockData(command)
 				}
@@ -1824,7 +1828,7 @@ func (self *LockDB) UnLock(serverProtocol ServerProtocol, command *protocol.Lock
 				lockManager.state.LockedCount--
 				lockManager.glock.Unlock()
 
-				_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, uint16(lockManager.locked), currentLock.locked, lockManager.GetLockData())
+				_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, uint16(lockManager.locked), currentLock.locked, lockData)
 				_ = serverProtocol.FreeLockCommand(command)
 			}
 		} else {
@@ -1834,6 +1838,7 @@ func (self *LockDB) UnLock(serverProtocol ServerProtocol, command *protocol.Lock
 
 		if unlocked {
 			//self.RemoveExpried(current_lock)
+			lockData := lockManager.GetLockData()
 			if command.Flag&protocol.UNLOCK_FLAG_CONTAINS_DATA != 0 {
 				lockManager.ProcessLockData(command)
 			}
@@ -1864,7 +1869,7 @@ func (self *LockDB) UnLock(serverProtocol ServerProtocol, command *protocol.Lock
 			if command.Flag&protocol.UNLOCK_FLAG_UNLOCK_TREE_LOCK == 0 || lockManager.locked > 1 ||
 				!self.unlockTreeLock(serverProtocol, command, lockManager, currentLockCommand, currentLock) {
 				lockManager.glock.Unlock()
-				_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, uint16(lockManager.locked), currentLock.locked, lockManager.GetLockData())
+				_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, uint16(lockManager.locked), currentLock.locked, lockData)
 				_ = serverProtocol.FreeLockCommand(currentLockCommand)
 				_ = serverProtocol.FreeLockCommand(command)
 			}
@@ -1873,6 +1878,7 @@ func (self *LockDB) UnLock(serverProtocol ServerProtocol, command *protocol.Lock
 		currentLockCommand := currentLock.command
 		//self.RemoveExpried(current_lock)
 		currentLock.expried = true
+		lockData := lockManager.GetLockData()
 		if command.Flag&protocol.UNLOCK_FLAG_CONTAINS_DATA != 0 {
 			lockManager.ProcessLockData(command)
 		}
@@ -1903,13 +1909,13 @@ func (self *LockDB) UnLock(serverProtocol ServerProtocol, command *protocol.Lock
 		if command.Flag&protocol.UNLOCK_FLAG_SUCCED_TO_LOCK_WAIT != 0 {
 			self.addUnlockLockCommandToWaitLock(lockManager, currentLockCommand, command, serverProtocol)
 
-			_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, uint16(lockManager.locked), currentLock.locked, lockManager.GetLockData())
+			_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, uint16(lockManager.locked), currentLock.locked, lockData)
 			_ = serverProtocol.FreeLockCommand(command)
 		} else {
 			if command.Flag&protocol.UNLOCK_FLAG_UNLOCK_TREE_LOCK == 0 || lockManager.locked > 1 ||
 				!self.unlockTreeLock(serverProtocol, command, lockManager, currentLockCommand, currentLock) {
 				lockManager.glock.Unlock()
-				_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, uint16(lockManager.locked), currentLock.locked, lockManager.GetLockData())
+				_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, uint16(lockManager.locked), currentLock.locked, lockData)
 				_ = serverProtocol.FreeLockCommand(currentLockCommand)
 				_ = serverProtocol.FreeLockCommand(command)
 			}
@@ -1995,6 +2001,7 @@ func (self *LockDB) wakeUpWaitLock(lockManager *LockManager, waitLock *Lock, ser
 		lockManager.AddLock(waitLock)
 		lockManager.locked++
 
+		lockData := lockManager.GetLockData()
 		if waitLock.command.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
 			lockManager.ProcessLockData(waitLock.command)
 		}
@@ -2011,13 +2018,14 @@ func (self *LockDB) wakeUpWaitLock(lockManager *LockManager, waitLock *Lock, ser
 		lockManager.glock.Unlock()
 
 		if waitLockProtocol.serverProtocol == serverProtocol {
-			_ = serverProtocol.ProcessLockResultCommand(waitLockCommand, protocol.RESULT_SUCCED, uint16(lockManager.locked), waitLock.locked, lockManager.GetLockData())
+			_ = serverProtocol.ProcessLockResultCommand(waitLockCommand, protocol.RESULT_SUCCED, uint16(lockManager.locked), waitLock.locked, lockData)
 		} else {
-			_ = waitLockProtocol.ProcessLockResultCommandLocked(waitLockCommand, protocol.RESULT_SUCCED, uint16(lockManager.locked), waitLock.locked, lockManager.GetLockData())
+			_ = waitLockProtocol.ProcessLockResultCommandLocked(waitLockCommand, protocol.RESULT_SUCCED, uint16(lockManager.locked), waitLock.locked, lockData)
 		}
 		return
 	}
 
+	lockData := lockManager.GetLockData()
 	if waitLock.command.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
 		lockManager.ProcessLockData(waitLock.command)
 	}
@@ -2030,10 +2038,10 @@ func (self *LockDB) wakeUpWaitLock(lockManager *LockManager, waitLock *Lock, ser
 	lockManager.glock.Unlock()
 
 	if waitLockProtocol.serverProtocol == serverProtocol {
-		_ = serverProtocol.ProcessLockResultCommand(waitLockCommand, protocol.RESULT_SUCCED, uint16(lockManager.locked), waitLock.locked, lockManager.GetLockData())
+		_ = serverProtocol.ProcessLockResultCommand(waitLockCommand, protocol.RESULT_SUCCED, uint16(lockManager.locked), waitLock.locked, lockData)
 		_ = serverProtocol.FreeLockCommand(waitLockCommand)
 	} else {
-		_ = waitLockProtocol.ProcessLockResultCommandLocked(waitLockCommand, protocol.RESULT_SUCCED, uint16(lockManager.locked), waitLock.locked, lockManager.GetLockData())
+		_ = waitLockProtocol.ProcessLockResultCommandLocked(waitLockCommand, protocol.RESULT_SUCCED, uint16(lockManager.locked), waitLock.locked, lockData)
 		_ = waitLockProtocol.FreeLockCommandLocked(waitLockCommand)
 	}
 }
@@ -2194,6 +2202,7 @@ func (self *LockDB) DoAckLock(lock *Lock, succed bool) {
 			lock.expriedTime = lock.startTime + int64(lock.command.Expried)/1000 + 1
 		}
 
+		lockData := lockManager.GetLockData()
 		if lock.command.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
 			lockManager.ProcessLockData(lock.command)
 		}
@@ -2207,7 +2216,7 @@ func (self *LockDB) DoAckLock(lock *Lock, succed bool) {
 		lockManager.state.LockedCount++
 		lockManager.glock.Unlock()
 
-		_ = lockProtocol.ProcessLockResultCommandLocked(lockCommand, protocol.RESULT_SUCCED, uint16(lockManager.locked), lock.locked, lockManager.GetLockData())
+		_ = lockProtocol.ProcessLockResultCommandLocked(lockCommand, protocol.RESULT_SUCCED, uint16(lockManager.locked), lock.locked, lockData)
 		return
 	}
 

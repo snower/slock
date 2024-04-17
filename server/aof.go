@@ -198,7 +198,12 @@ func (self *AofFile) Open() error {
 		err = self.WriteHeader()
 		if err != nil {
 			_ = self.file.Close()
-			_ = self.dataFile.Close()
+			if self.dataFile != nil {
+				_ = self.dataFile.Close()
+			}
+			self.file = nil
+			self.dataFile = nil
+			self.wbuf = nil
 			return err
 		}
 	} else {
@@ -206,7 +211,12 @@ func (self *AofFile) Open() error {
 		err = self.ReadHeader()
 		if err != nil {
 			_ = self.file.Close()
-			_ = self.dataFile.Close()
+			if self.dataFile != nil {
+				_ = self.dataFile.Close()
+			}
+			self.file = nil
+			self.dataFile = nil
+			self.rbuf = nil
 			return err
 		}
 	}
@@ -427,6 +437,9 @@ func (self *AofFile) AppendLock(lock *AofLock) error {
 }
 
 func (self *AofFile) WriteLockData(lock *AofLock) error {
+	if self.dataFile == nil {
+		return errors.New("data file error")
+	}
 	dataLen := len(lock.data)
 	n, err := self.dataFile.Write(lock.data)
 	if err != nil {
@@ -487,9 +500,11 @@ func (self *AofFile) Sync() error {
 	if err != nil {
 		return err
 	}
-	err = self.dataFile.Sync()
-	if err != nil {
-		return err
+	if self.dataFile != nil {
+		err = self.dataFile.Sync()
+		if err != nil {
+			return err
+		}
 	}
 	self.dirtied = false
 	return nil
@@ -521,9 +536,13 @@ func (self *AofFile) Close() error {
 	self.file = nil
 	self.wbuf = nil
 	self.rbuf = nil
-	err = self.dataFile.Close()
-	if err != nil {
-		return err
+
+	if self.dataFile != nil {
+		err = self.dataFile.Close()
+		if err != nil {
+			return err
+		}
+		self.dataFile = nil
 	}
 	return nil
 }
@@ -724,6 +743,7 @@ func (self *AofChannel) Load(lock *AofLock) error {
 	}
 
 	copy(aofLock.buf, lock.buf)
+	aofLock.data = lock.data
 	aofLock.HandleType = AOF_LOCK_TYPE_LOAD
 
 	self.queueGlock.Lock()
@@ -753,6 +773,7 @@ func (self *AofChannel) Replay(lock *AofLock) error {
 	}
 
 	copy(aofLock.buf, lock.buf)
+	aofLock.data = lock.data
 	aofLock.HandleType = AOF_LOCK_TYPE_REPLAY
 
 	self.queueGlock.Lock()
@@ -774,6 +795,7 @@ func (self *AofChannel) AofAcked(buf []byte, succed bool) error {
 	}
 
 	copy(aofLock.buf, buf)
+	aofLock.data = nil
 	if succed {
 		aofLock.Result = protocol.RESULT_SUCCED
 	} else {
@@ -815,6 +837,10 @@ func (self *AofChannel) Acked(commandResult *protocol.LockResultCommand) error {
 	aofLock.Lcount = commandResult.Lcount
 	aofLock.Lrcount = commandResult.Lrcount
 	aofLock.HandleType = AOF_LOCK_TYPE_ACK_ACKED
+	if commandResult.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
+		aofLock.data = commandResult.Data.Data
+		aofLock.AofFlag |= AOF_FLAG_CONTAINS_DATA
+	}
 
 	self.queueGlock.Lock()
 	self.pushAofLock(aofLock)
@@ -880,6 +906,7 @@ func (self *AofChannel) Handle(aofLock *AofLock) {
 	self.glock.Lock()
 	aofLock.lock = nil
 	if self.freeLockIndex < self.freeLockMax {
+		aofLock.data = nil
 		self.freeLocks[self.freeLockIndex] = aofLock
 		self.freeLockIndex++
 	}
@@ -933,6 +960,10 @@ func (self *AofChannel) HandleLoad(aofLock *AofLock) {
 	lockCommand.Expried = expriedTime + 1
 	lockCommand.Count = aofLock.Count
 	lockCommand.Rcount = aofLock.Rcount
+	if aofLock.AofFlag&AOF_FLAG_CONTAINS_DATA != 0 {
+		lockCommand.Data = protocol.NewLockCommandDataFromOriginBytes(aofLock.data)
+		lockCommand.Flag |= protocol.LOCK_FLAG_CONTAINS_DATA
+	}
 
 	err = self.serverProtocol.ProcessLockCommand(lockCommand)
 	if err == nil {
@@ -979,6 +1010,10 @@ func (self *AofChannel) HandleReplay(aofLock *AofLock) {
 	lockCommand.Expried = expriedTime + 1
 	lockCommand.Count = aofLock.Count
 	lockCommand.Rcount = aofLock.Rcount
+	if aofLock.AofFlag&AOF_FLAG_CONTAINS_DATA != 0 {
+		lockCommand.Data = protocol.NewLockCommandDataFromOriginBytes(aofLock.data)
+		lockCommand.Flag |= protocol.LOCK_FLAG_CONTAINS_DATA
+	}
 
 	err = self.serverProtocol.ProcessLockCommand(lockCommand)
 	if err == nil {
@@ -1106,9 +1141,9 @@ func (self *Aof) LoadAndInit() error {
 	}
 	aofFilenames = append(aofFilenames, appendFiles...)
 	err = self.LoadAofFiles(aofFilenames, time.Now().Unix(), func(filename string, aofFile *AofFile, lock *AofLock, firstLock bool) (bool, error) {
-		err := self.LoadLock(lock)
-		if err != nil {
-			return true, err
+		lerr := self.LoadLock(lock)
+		if lerr != nil {
+			return true, lerr
 		}
 		return true, nil
 	})
@@ -1280,28 +1315,28 @@ func (self *Aof) LoadAofFile(filename string, lock *AofLock, expriedTime int64, 
 
 	firstLock := true
 	for {
-		err := aofFile.ReadLock(lock)
-		if err == io.EOF {
-			err := aofFile.Close()
-			if err != nil {
-				return err
-			}
-			return nil
-		}
-
+		err = aofFile.ReadLock(lock)
 		if err != nil {
+			_ = aofFile.Close()
+			if err == io.EOF {
+				return nil
+			}
 			return err
 		}
 
 		err = lock.Decode()
 		if err != nil {
+			_ = aofFile.Close()
 			return err
 		}
 		if lock.AofFlag&AOF_FLAG_CONTAINS_DATA != 0 {
 			err = aofFile.ReadLockData(lock)
 			if err != nil {
+				_ = aofFile.Close()
 				return err
 			}
+		} else {
+			lock.data = nil
 		}
 
 		if lock.ExpriedFlag&protocol.EXPRIED_FLAG_MILLISECOND_TIME != 0 {
@@ -1320,10 +1355,11 @@ func (self *Aof) LoadAofFile(filename string, lock *AofLock, expriedTime int64, 
 
 		isStop, iterErr := iterFunc(filename, aofFile, lock, firstLock)
 		if iterErr != nil {
+			_ = aofFile.Close()
 			return iterErr
 		}
-
 		if !isStop {
+			_ = aofFile.Close()
 			return io.EOF
 		}
 		firstLock = false
@@ -1812,7 +1848,7 @@ func (self *Aof) loadRewriteAofFiles(aofFilenames []string) (*AofFile, []*AofFil
 			return true, err
 		}
 		if lock.AofFlag&AOF_FLAG_CONTAINS_DATA != 0 {
-			err = self.aofFile.WriteLockData(lock)
+			err = rewriteAofFile.WriteLockData(lock)
 			if err != nil {
 				return true, err
 			}

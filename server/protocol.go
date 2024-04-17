@@ -877,7 +877,7 @@ func (self *BinaryServerProtocol) Write(result protocol.CommandEncode) error {
 		break
 	case *protocol.LockResultCommand:
 		lockResultCommand := result.(*protocol.LockResultCommand)
-		if lockResultCommand.Data != nil {
+		if lockResultCommand.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
 			err = self.stream.WriteBytes(lockResultCommand.Data.Data)
 			if err != nil {
 				self.glock.Unlock()
@@ -1178,7 +1178,7 @@ func (self *BinaryServerProtocol) ProcessParseLockData(buf []byte) (*protocol.Lo
 	lockCommandData := make([]byte, dataLen+4)
 	lockCommandData[0], lockCommandData[1], lockCommandData[2], lockCommandData[3] = buf[0], buf[1], buf[2], buf[3]
 	if dataLen <= 0 {
-		return protocol.NewLockCommandData(lockCommandData), nil
+		return protocol.NewLockCommandDataFromOriginBytes(lockCommandData), nil
 	}
 
 	blen = self.rlen - rindex
@@ -1195,7 +1195,7 @@ func (self *BinaryServerProtocol) ProcessParseLockData(buf []byte) (*protocol.Lo
 			return nil, err
 		}
 	}
-	return protocol.NewLockCommandData(lockCommandData), nil
+	return protocol.NewLockCommandDataFromOriginBytes(lockCommandData), nil
 }
 
 func (self *BinaryServerProtocol) ProcessBuild(command protocol.ICommand) error {
@@ -1920,8 +1920,8 @@ func (self *TextServerProtocol) WriteCommand(result protocol.CommandEncode) erro
 			"RCOUNT",
 			fmt.Sprintf("%d", lockResultCommand.Rcount),
 		}
-		if lockResultCommand.Data != nil {
-			lockResults = append(lockResults, "DATA", string(lockResultCommand.Data.Data[5:]))
+		if lockResultCommand.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
+			lockResults = append(lockResults, "DATA", lockResultCommand.Data.GetStringData())
 		}
 		return self.stream.WriteBytes(self.parser.BuildResponse(true, "", lockResults))
 	}
@@ -2034,8 +2034,8 @@ func (self *TextServerProtocol) ProcessBuild(command protocol.ICommand) error {
 			"RCOUNT",
 			fmt.Sprintf("%d", lockResultCommand.Rcount),
 		}
-		if lockResultCommand.Data != nil {
-			lockResults = append(lockResults, "DATA", string(lockResultCommand.Data.Data[5:]))
+		if lockResultCommand.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
+			lockResults = append(lockResults, "DATA", lockResultCommand.Data.GetStringData())
 		}
 		return self.stream.WriteBytes(self.parser.BuildResponse(true, "", lockResults))
 	case protocol.COMMAND_UNLOCK:
@@ -2054,8 +2054,8 @@ func (self *TextServerProtocol) ProcessBuild(command protocol.ICommand) error {
 			"RCOUNT",
 			fmt.Sprintf("%d", lockResultCommand.Rcount),
 		}
-		if lockResultCommand.Data != nil {
-			lockResults = append(lockResults, "DATA", string(lockResultCommand.Data.Data[5:]))
+		if lockResultCommand.Flag&protocol.UNLOCK_FLAG_CONTAINS_DATA != 0 {
+			lockResults = append(lockResults, "DATA", lockResultCommand.Data.GetStringData())
 		}
 		return self.stream.WriteBytes(self.parser.BuildResponse(true, "", lockResults))
 	}
@@ -2222,9 +2222,9 @@ func (self *TextServerProtocol) ProcessLockResultCommand(lockCommand *protocol.L
 	lockResultCommad.RequestId = lockCommand.RequestId
 	lockResultCommad.Result = result
 	if data != nil {
-		lockResultCommad.Flag = 0
+		lockResultCommad.Flag = protocol.LOCK_FLAG_CONTAINS_DATA
 	} else {
-		lockResultCommad.Flag = 0x20
+		lockResultCommad.Flag = 0
 	}
 	lockResultCommad.DbId = lockCommand.DbId
 	lockResultCommad.LockId = lockCommand.LockId
@@ -2234,7 +2234,9 @@ func (self *TextServerProtocol) ProcessLockResultCommand(lockCommand *protocol.L
 	lockResultCommad.Lrcount = lrcount
 	lockResultCommad.Rcount = lockCommand.Rcount
 	if data != nil {
-		lockResultCommad.Data = protocol.NewLockResultCommandData(data)
+		lockResultCommad.Data = protocol.NewLockResultCommandDataFromOriginBytes(data)
+	} else {
+		lockResultCommad.Data = nil
 	}
 	self.freeCommandResult = nil
 	self.lockWaiter <- lockResultCommad
@@ -2486,11 +2488,13 @@ func (self *TextServerProtocol) ArgsToLockComand(args []string) (*protocol.LockC
 				command.CommandType += 7
 			}
 		case "SET":
-			dataLen := len(args[i+1])
-			data := make([]byte, dataLen+6)
-			data[0], data[1], data[2], data[3], data[4] = byte(dataLen), byte(dataLen>>8), byte(dataLen>>16), byte(dataLen>>24), 0
+			dataLen := len(args[i+1]) + 2
+			data := make([]byte, dataLen+4)
+			data[0], data[1], data[2], data[3] = byte(dataLen), byte(dataLen>>8), byte(dataLen>>16), byte(dataLen>>24)
+			data[4], data[5] = 0, 0
 			copy(data[6:], args[i+1])
-			command.Data = protocol.NewLockCommandData(data)
+			command.Data = protocol.NewLockCommandDataFromOriginBytes(data)
+			command.Flag |= protocol.LOCK_FLAG_CONTAINS_DATA
 		}
 	}
 
@@ -2566,7 +2570,11 @@ func (self *TextServerProtocol) commandHandlerLock(_ *TextServerProtocol, args [
 	tr := ""
 
 	wbuf := self.parser.GetWriteBuf()
-	bufIndex += copy(wbuf[bufIndex:], []byte("*12\r\n"))
+	if lockCommandResult.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
+		bufIndex += copy(wbuf[bufIndex:], []byte("*14\r\n"))
+	} else {
+		bufIndex += copy(wbuf[bufIndex:], []byte("*12\r\n"))
+	}
 
 	tr = fmt.Sprintf("%d", lockCommandResult.Result)
 	bufIndex += copy(wbuf[bufIndex:], []byte(fmt.Sprintf("$%d\r\n", len(tr))))
@@ -2604,18 +2612,19 @@ func (self *TextServerProtocol) commandHandlerLock(_ *TextServerProtocol, args [
 
 	bufIndex += copy(wbuf[bufIndex:], []byte("\r\n"))
 
-	if lockCommandResult.Data != nil {
-		bufIndex += copy(wbuf[bufIndex:], []byte("$4\r\nDATA"))
-
-		data := lockCommandResult.Data.Data[5:]
-		bufIndex += copy(wbuf[bufIndex:], []byte(fmt.Sprintf("\r\n$%d\r\n", len(data))))
-		bufIndex += copy(wbuf[bufIndex:], data)
-
-		bufIndex += copy(wbuf[bufIndex:], []byte("\r\n"))
+	err = self.stream.WriteBytes(wbuf[:bufIndex])
+	if err != nil {
+		lockCommandResult.Data = nil
+		self.freeCommandResult = lockCommandResult
+		return err
 	}
-
+	if lockCommandResult.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
+		data := lockCommandResult.Data.GetStringData()
+		err = self.stream.WriteBytes([]byte(fmt.Sprintf("$4\r\nDATA\r\n$%d\r\n%s\r\n", len(data), data)))
+	}
+	lockCommandResult.Data = nil
 	self.freeCommandResult = lockCommandResult
-	return self.stream.WriteBytes(wbuf[:bufIndex])
+	return err
 }
 
 func (self *TextServerProtocol) commandHandlerUnlock(_ *TextServerProtocol, args []string) error {
@@ -2668,7 +2677,11 @@ func (self *TextServerProtocol) commandHandlerUnlock(_ *TextServerProtocol, args
 	tr := ""
 
 	wbuf := self.parser.GetWriteBuf()
-	bufIndex += copy(wbuf[bufIndex:], []byte("*12\r\n"))
+	if lockCommandResult.Flag&protocol.UNLOCK_FLAG_CONTAINS_DATA != 0 {
+		bufIndex += copy(wbuf[bufIndex:], []byte("*14\r\n"))
+	} else {
+		bufIndex += copy(wbuf[bufIndex:], []byte("*12\r\n"))
+	}
 
 	tr = fmt.Sprintf("%d", lockCommandResult.Result)
 	bufIndex += copy(wbuf[bufIndex:], []byte(fmt.Sprintf("$%d\r\n", len(tr))))
@@ -2706,18 +2719,19 @@ func (self *TextServerProtocol) commandHandlerUnlock(_ *TextServerProtocol, args
 
 	bufIndex += copy(wbuf[bufIndex:], []byte("\r\n"))
 
-	if lockCommandResult.Data != nil {
-		bufIndex += copy(wbuf[bufIndex:], []byte("$4\r\nDATA"))
-
-		data := lockCommandResult.Data.Data[5:]
-		bufIndex += copy(wbuf[bufIndex:], []byte(fmt.Sprintf("\r\n$%d\r\n", len(data))))
-		bufIndex += copy(wbuf[bufIndex:], data)
-
-		bufIndex += copy(wbuf[bufIndex:], []byte("\r\n"))
+	err = self.stream.WriteBytes(wbuf[:bufIndex])
+	if err != nil {
+		lockCommandResult.Data = nil
+		self.freeCommandResult = lockCommandResult
+		return err
 	}
-
+	if lockCommandResult.Flag&protocol.UNLOCK_FLAG_CONTAINS_DATA != 0 {
+		data := lockCommandResult.Data.GetStringData()
+		err = self.stream.WriteBytes([]byte(fmt.Sprintf("$4\r\nDATA\r\n$%d\r\n%s\r\n", len(data), data)))
+	}
+	lockCommandResult.Data = nil
 	self.freeCommandResult = lockCommandResult
-	return self.stream.WriteBytes(wbuf[:bufIndex])
+	return err
 }
 
 func (self *TextServerProtocol) commandHandlerPush(_ *TextServerProtocol, args []string) error {

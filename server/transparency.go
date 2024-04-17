@@ -1150,7 +1150,11 @@ func (self *TransparencyTextServerProtocol) commandHandlerLock(serverProtocol *T
 	tr := ""
 
 	wbuf := self.serverProtocol.parser.GetWriteBuf()
-	bufIndex += copy(wbuf[bufIndex:], []byte("*12\r\n"))
+	if lockCommandResult.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
+		bufIndex += copy(wbuf[bufIndex:], []byte("*14\r\n"))
+	} else {
+		bufIndex += copy(wbuf[bufIndex:], []byte("*12\r\n"))
+	}
 
 	tr = fmt.Sprintf("%d", lockCommandResult.Result)
 	bufIndex += copy(wbuf[bufIndex:], []byte(fmt.Sprintf("$%d\r\n", len(tr))))
@@ -1188,19 +1192,21 @@ func (self *TransparencyTextServerProtocol) commandHandlerLock(serverProtocol *T
 
 	bufIndex += copy(wbuf[bufIndex:], []byte("\r\n"))
 
-	if lockCommandResult.Data != nil {
-		bufIndex += copy(wbuf[bufIndex:], []byte("$4\r\nDATA"))
-
-		data := lockCommandResult.Data.Data[5:]
-		bufIndex += copy(wbuf[bufIndex:], []byte(fmt.Sprintf("\r\n$%d\r\n", len(data))))
-		bufIndex += copy(wbuf[bufIndex:], data)
-
-		bufIndex += copy(wbuf[bufIndex:], []byte("\r\n"))
+	err = self.stream.WriteBytes(wbuf[:bufIndex])
+	if err != nil {
+		lockCommandResult.Data = nil
+		_ = self.serverProtocol.FreeLockCommand(lockCommand)
+		self.serverProtocol.freeCommandResult = lockCommandResult
+		return err
 	}
-
+	if lockCommandResult.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
+		data := lockCommandResult.Data.GetStringData()
+		err = self.stream.WriteBytes([]byte(fmt.Sprintf("$4\r\nDATA\r\n$%d\r\n%s\r\n", len(data), data)))
+	}
+	lockCommandResult.Data = nil
 	_ = self.serverProtocol.FreeLockCommand(lockCommand)
 	self.serverProtocol.freeCommandResult = lockCommandResult
-	return self.stream.WriteBytes(wbuf[:bufIndex])
+	return err
 }
 
 func (self *TransparencyTextServerProtocol) commandHandlerUnlock(serverProtocol *TextServerProtocol, args []string) error {
@@ -1268,7 +1274,11 @@ func (self *TransparencyTextServerProtocol) commandHandlerUnlock(serverProtocol 
 	tr := ""
 
 	wbuf := self.serverProtocol.parser.GetWriteBuf()
-	bufIndex += copy(wbuf[bufIndex:], []byte("*12\r\n"))
+	if lockCommandResult.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
+		bufIndex += copy(wbuf[bufIndex:], []byte("*12\r\n"))
+	} else {
+		bufIndex += copy(wbuf[bufIndex:], []byte("*14\r\n"))
+	}
 
 	tr = fmt.Sprintf("%d", lockCommandResult.Result)
 	bufIndex += copy(wbuf[bufIndex:], []byte(fmt.Sprintf("$%d\r\n", len(tr))))
@@ -1306,19 +1316,21 @@ func (self *TransparencyTextServerProtocol) commandHandlerUnlock(serverProtocol 
 
 	bufIndex += copy(wbuf[bufIndex:], []byte("\r\n"))
 
-	if lockCommandResult.Data != nil {
-		bufIndex += copy(wbuf[bufIndex:], []byte("$4\r\nDATA"))
-
-		data := lockCommandResult.Data.Data[5:]
-		bufIndex += copy(wbuf[bufIndex:], []byte(fmt.Sprintf("\r\n$%d\r\n", len(data))))
-		bufIndex += copy(wbuf[bufIndex:], data)
-
-		bufIndex += copy(wbuf[bufIndex:], []byte("\r\n"))
+	err = self.stream.WriteBytes(wbuf[:bufIndex])
+	if err != nil {
+		lockCommandResult.Data = nil
+		_ = self.serverProtocol.FreeLockCommand(lockCommand)
+		self.serverProtocol.freeCommandResult = lockCommandResult
+		return err
 	}
-
+	if lockCommandResult.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
+		data := lockCommandResult.Data.GetStringData()
+		err = self.stream.WriteBytes([]byte(fmt.Sprintf("$4\r\nDATA\r\n$%d\r\n%s\r\n", len(data), data)))
+	}
+	lockCommandResult.Data = nil
 	_ = self.serverProtocol.FreeLockCommand(lockCommand)
 	self.serverProtocol.freeCommandResult = lockCommandResult
-	return self.stream.WriteBytes(wbuf[:bufIndex])
+	return err
 }
 
 func (self *TransparencyTextServerProtocol) commandHandlerPush(serverProtocol *TextServerProtocol, args []string) error {

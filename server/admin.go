@@ -581,15 +581,12 @@ func (self *Admin) commandHandleShowLockWaitCommand(serverProtocol *TextServerPr
 				if lock.timeouted {
 					state |= 0x01
 				}
-
 				if lock.expried {
 					state |= 0x02
 				}
-
 				if lock.longWaitIndex > 0 {
 					state |= 0x04
 				}
-
 				if lock.isAof {
 					state |= 0x08
 				}
@@ -601,6 +598,10 @@ func (self *Admin) commandHandleShowLockWaitCommand(serverProtocol *TextServerPr
 				lockInfos = append(lockInfos, fmt.Sprintf("%d", lock.locked))
 				lockInfos = append(lockInfos, fmt.Sprintf("%d", lock.aofTime))
 				lockInfos = append(lockInfos, fmt.Sprintf("%d", state))
+				lockData := lockManager.GetLockData()
+				if lockData != nil {
+					lockInfos = append(lockInfos, string(lockData[6:]))
+				}
 			}
 		}
 	}

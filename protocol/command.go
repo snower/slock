@@ -336,8 +336,34 @@ type LockCommandData struct {
 	DataFlag    uint8
 }
 
-func NewLockCommandData(data []byte) *LockCommandData {
-	return &LockCommandData{nil, data[4], data[5]}
+func NewLockCommandDataFromOriginBytes(data []byte) *LockCommandData {
+	return &LockCommandData{data, data[4], data[5]}
+}
+
+func NewLockCommandDataFromBytes(data []byte, commandType uint8, dataFlag uint8) *LockCommandData {
+	dataLen := len(data)
+	buf := make([]byte, dataLen+6)
+	buf[0], buf[1], buf[2], buf[3] = byte(dataLen), byte(dataLen<<8), byte(dataLen<<16), byte(dataLen<<24)
+	buf[4], buf[5] = commandType, dataFlag
+	copy(buf[6:], data)
+	return &LockCommandData{buf, commandType, dataFlag}
+}
+
+func NewLockCommandDataFromString(data string, commandType uint8, dataFlag uint8) *LockCommandData {
+	dataLen := len(data)
+	buf := make([]byte, dataLen+6)
+	buf[0], buf[1], buf[2], buf[3] = byte(dataLen), byte(dataLen<<8), byte(dataLen<<16), byte(dataLen<<24)
+	buf[4], buf[5] = commandType, dataFlag
+	copy(buf[6:], data)
+	return &LockCommandData{buf, commandType, dataFlag}
+}
+
+func (self *LockCommandData) GetBytesData() []byte {
+	return self.Data[6:]
+}
+
+func (self *LockCommandData) GetStringData() string {
+	return string(self.Data[6:])
 }
 
 type LockCommand struct {
@@ -440,8 +466,34 @@ type LockResultCommandData struct {
 	DataFlag    uint8
 }
 
-func NewLockResultCommandData(data []byte) *LockResultCommandData {
-	return &LockResultCommandData{nil, data[4], data[5]}
+func NewLockResultCommandDataFromOriginBytes(data []byte) *LockResultCommandData {
+	return &LockResultCommandData{data, data[4], data[5]}
+}
+
+func NewLockResultCommandDataFromBytes(data []byte, commandType uint8, dataFlag uint8) *LockResultCommandData {
+	dataLen := len(data)
+	buf := make([]byte, dataLen+6)
+	buf[0], buf[1], buf[2], buf[3] = byte(dataLen), byte(dataLen<<8), byte(dataLen<<16), byte(dataLen<<24)
+	buf[4], buf[5] = commandType, dataFlag
+	copy(buf[6:], data)
+	return &LockResultCommandData{buf, commandType, dataFlag}
+}
+
+func NewLockResultCommandDataFromString(data string, commandType uint8, dataFlag uint8) *LockResultCommandData {
+	dataLen := len(data)
+	buf := make([]byte, dataLen+6)
+	buf[0], buf[1], buf[2], buf[3] = byte(dataLen), byte(dataLen<<8), byte(dataLen<<16), byte(dataLen<<24)
+	buf[4], buf[5] = commandType, dataFlag
+	copy(buf[6:], data)
+	return &LockResultCommandData{buf, commandType, dataFlag}
+}
+
+func (self *LockResultCommandData) GetBytesData() []byte {
+	return self.Data[6:]
+}
+
+func (self *LockResultCommandData) GetStringData() string {
+	return string(self.Data[6:])
 }
 
 type LockResultCommand struct {
@@ -462,7 +514,8 @@ func NewLockResultCommand(command *LockCommand, result uint8, flag uint8, lcount
 	resultCommand := ResultCommand{MAGIC, VERSION, command.CommandType, command.RequestId, result}
 	var lockResultCommandData *LockResultCommandData = nil
 	if data != nil {
-		lockResultCommandData = NewLockResultCommandData(data)
+		lockResultCommandData = NewLockResultCommandDataFromOriginBytes(data)
+		flag |= LOCK_FLAG_CONTAINS_DATA
 	}
 	return &LockResultCommand{resultCommand, flag, command.DbId, command.LockId, command.LockKey,
 		lcount, count, lrcount, rcount, RESULT_LOCK_COMMAND_BLANK_BYTERS, lockResultCommandData}
