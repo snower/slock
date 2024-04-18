@@ -25,6 +25,18 @@ type ReplicationBufferQueueItem struct {
 	seq       uint64
 }
 
+func NewReplicationBufferQueueItem() *ReplicationBufferQueueItem {
+	return &ReplicationBufferQueueItem{nil, make([]byte, 64), nil, 0, 0, 0}
+}
+
+func (self *ReplicationBufferQueueItem) Init(buf []byte) {
+	self.nextItem = nil
+	self.buf = buf
+	self.pollCount = 0
+	self.pollIndex = 0
+	self.seq = 0
+}
+
 type ReplicationBufferQueueCursor struct {
 	currentItem      *ReplicationBufferQueueItem
 	currentRequestId [16]byte
@@ -32,6 +44,10 @@ type ReplicationBufferQueueCursor struct {
 	data             []byte
 	seq              uint64
 	writed           bool
+}
+
+func NewReplicationBufferQueueCursor(buf []byte) *ReplicationBufferQueueCursor {
+	return &ReplicationBufferQueueCursor{nil, [16]byte{}, buf, nil, 0xffffffffffffffff, true}
 }
 
 type ReplicationBufferQueue struct {
@@ -53,7 +69,21 @@ func NewReplicationBufferQueue(manager *ReplicationManager, bufSize uint64, maxS
 	queue := &ReplicationBufferQueue{manager, &sync.RWMutex{}, nil,
 		nil, nil, 0, 0, bufSize, maxSize,
 		0, 0, false}
+	queue.InitFreeQueueItems(bufSize / 64)
 	return queue
+}
+
+func (self *ReplicationBufferQueue) InitFreeQueueItems(count uint64) {
+	queueItems := make([]ReplicationBufferQueueItem, count)
+	queueItemBuf := make([]byte, count*64)
+	for i := uint64(0); i < count; i++ {
+		queueItem := &queueItems[i]
+		queueItem.Init(queueItemBuf[i*64 : (i+1)*64])
+		if self.freeHeadItem != nil {
+			queueItem.nextItem = self.freeHeadItem
+		}
+		self.freeHeadItem = queueItem
+	}
 }
 
 func (self *ReplicationBufferQueue) AddPoll(cursor *ReplicationBufferQueueCursor) error {
@@ -90,6 +120,7 @@ func (self *ReplicationBufferQueue) Push(buf []byte, data []byte) error {
 	var queueItem *ReplicationBufferQueueItem = nil
 	if self.usedBufferSize >= self.bufferSize && self.tailItem != nil {
 		if self.tailItem.pollIndex < self.tailItem.pollCount && self.bufferSize < self.maxBufferSize {
+			self.InitFreeQueueItems(self.bufferSize / 64)
 			self.bufferSize *= 2
 			self.dupCount++
 		} else {
@@ -125,7 +156,7 @@ func (self *ReplicationBufferQueue) Push(buf []byte, data []byte) error {
 			queueItem = self.freeHeadItem
 			self.freeHeadItem = self.freeHeadItem.nextItem
 		} else {
-			queueItem = &ReplicationBufferQueueItem{nil, make([]byte, 64), nil, 0, 0, 0}
+			queueItem = NewReplicationBufferQueueItem()
 		}
 	}
 
@@ -161,28 +192,22 @@ func (self *ReplicationBufferQueue) Pop(cursor *ReplicationBufferQueueCursor) er
 			self.glock.RUnlock()
 			return io.EOF
 		}
+		if currentItem.seq-cursor.seq != 1 && currentItem.seq != 0 && cursor.seq != 0xffffffffffffffff {
+			self.glock.RUnlock()
+			return errors.New("out of buf")
+		}
 		cursor.currentItem = currentItem
 	} else {
-		buf := currentItem.buf
-		if buf == nil && len(buf) != 64 {
+		if currentItem.seq != cursor.seq {
 			self.glock.RUnlock()
 			return errors.New("out of buf")
 		}
-		requestId := cursor.currentRequestId
-		if requestId[0] != buf[3] || requestId[1] != buf[4] || requestId[2] != buf[5] || requestId[3] != buf[6] || requestId[4] != buf[7] || requestId[5] != buf[8] || requestId[6] != buf[9] || requestId[7] != buf[10] ||
-			requestId[8] != buf[11] || requestId[9] != buf[12] || requestId[10] != buf[13] || requestId[11] != buf[14] || requestId[12] != buf[15] || requestId[13] != buf[16] || requestId[14] != buf[17] || requestId[15] != buf[18] {
-			self.glock.RUnlock()
-			return errors.New("out of buf")
-		}
-
-		nextCurrentItem := currentItem.nextItem
-		if nextCurrentItem == nil {
+		currentItem = currentItem.nextItem
+		if currentItem == nil {
 			self.glock.RUnlock()
 			return io.EOF
 		}
-		atomic.AddUint32(&currentItem.pollIndex, 1)
-		currentItem = nextCurrentItem
-		cursor.currentItem = nextCurrentItem
+		cursor.currentItem = currentItem
 	}
 
 	buf := currentItem.buf
@@ -866,8 +891,7 @@ type ReplicationServer struct {
 func NewReplicationServer(manager *ReplicationManager, serverProtocol *BinaryServerProtocol) *ReplicationServer {
 	waofLock := NewAofLock()
 	return &ReplicationServer{manager, serverProtocol.stream, serverProtocol,
-		manager.slock.GetAof(), NewAofLock(), waofLock,
-		&ReplicationBufferQueueCursor{nil, [16]byte{}, waofLock.buf, nil, 0, true},
+		manager.slock.GetAof(), NewAofLock(), waofLock, NewReplicationBufferQueueCursor(waofLock.buf),
 		0, make(chan bool, 1), false, false, make(chan bool, 1), false}
 }
 
@@ -1082,6 +1106,7 @@ func (self *ReplicationServer) SendProcess() error {
 				}
 			}
 			self.bufferCursor.writed = true
+			atomic.AddUint32(&self.bufferCursor.currentItem.pollIndex, 1)
 		}
 
 		bufferQueue := self.manager.bufferQueue

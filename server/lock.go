@@ -237,7 +237,7 @@ func (self *LockManager) PushLockAof(lock *Lock) error {
 	}
 
 	fashHash := (uint32(self.lockKey[0])<<24 | uint32(self.lockKey[1])<<16 | uint32(self.lockKey[2])<<8 | uint32(self.lockKey[3])) ^ (uint32(self.lockKey[4])<<24 | uint32(self.lockKey[5])<<16 | uint32(self.lockKey[6])<<8 | uint32(self.lockKey[7])) ^ (uint32(self.lockKey[8])<<24 | uint32(self.lockKey[9])<<16 | uint32(self.lockKey[10])<<8 | uint32(self.lockKey[11])) ^ (uint32(self.lockKey[12])<<24 | uint32(self.lockKey[13])<<16 | uint32(self.lockKey[14])<<8 | uint32(self.lockKey[15]))
-	err := self.lockDb.aofChannels[fashHash%uint32(self.lockDb.managerMaxGlocks)].Push(lock.manager.dbId, lock, protocol.COMMAND_LOCK, lock.command, nil, 0, lock.manager.GetLockData())
+	err := self.lockDb.aofChannels[fashHash%uint32(self.lockDb.managerMaxGlocks)].Push(lock.manager.dbId, lock, protocol.COMMAND_LOCK, lock.command, nil, 0, lock.manager.AofLockData())
 	if err != nil {
 		self.lockDb.slock.Log().Errorf("Database lock push aof error DbId:%d LockKey:%x LockId:%x",
 			lock.command.DbId, lock.command.LockKey, lock.command.LockId)
@@ -261,7 +261,7 @@ func (self *LockManager) PushUnLockAof(dbId uint8, lock *Lock, lockCommand *prot
 	}
 
 	fashHash := (uint32(self.lockKey[0])<<24 | uint32(self.lockKey[1])<<16 | uint32(self.lockKey[2])<<8 | uint32(self.lockKey[3])) ^ (uint32(self.lockKey[4])<<24 | uint32(self.lockKey[5])<<16 | uint32(self.lockKey[6])<<8 | uint32(self.lockKey[7])) ^ (uint32(self.lockKey[8])<<24 | uint32(self.lockKey[9])<<16 | uint32(self.lockKey[10])<<8 | uint32(self.lockKey[11])) ^ (uint32(self.lockKey[12])<<24 | uint32(self.lockKey[13])<<16 | uint32(self.lockKey[14])<<8 | uint32(self.lockKey[15]))
-	err := self.lockDb.aofChannels[fashHash%uint32(self.lockDb.managerMaxGlocks)].Push(dbId, lock, protocol.COMMAND_UNLOCK, lockCommand, unLockCommand, aofFlag, lock.manager.GetLockData())
+	err := self.lockDb.aofChannels[fashHash%uint32(self.lockDb.managerMaxGlocks)].Push(dbId, lock, protocol.COMMAND_UNLOCK, lockCommand, unLockCommand, aofFlag, lock.manager.AofLockData())
 	if err != nil {
 		self.lockDb.slock.Log().Errorf("Database lock push aof error DbId:%d LockKey:%x LockId:%x",
 			lock.command.DbId, lock.command.LockKey, lock.command.LockId)
@@ -333,6 +333,14 @@ func (self *LockManager) GetLockData() []byte {
 	return nil
 }
 
+func (self *LockManager) AofLockData() []byte {
+	if self.currentData != nil && !self.currentData.isAof {
+		self.currentData.isAof = true
+		return self.currentData.Data
+	}
+	return nil
+}
+
 func (self *LockManager) ProcessLockData(command *protocol.LockCommand) {
 	if command.Data == nil {
 		return
@@ -340,10 +348,10 @@ func (self *LockManager) ProcessLockData(command *protocol.LockCommand) {
 	lockCommandData := command.Data
 	switch lockCommandData.CommandType {
 	case protocol.LOCK_DATA_COMMAND_TYPE_SET:
-		self.currentData = &LockData{Data: lockCommandData.Data}
+		self.currentData = NewLockData(lockCommandData.Data)
 		break
 	}
-	command.Data.Data = nil
+	command.Data = nil
 }
 
 type Lock struct {
@@ -378,7 +386,12 @@ func (self *Lock) GetDB() *LockDB {
 }
 
 type LockData struct {
-	Data []byte
+	Data  []byte
+	isAof bool
+}
+
+func NewLockData(data []byte) *LockData {
+	return &LockData{data, false}
 }
 
 type PriorityMutex struct {

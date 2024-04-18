@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -796,6 +797,7 @@ func (self *AofChannel) AofAcked(buf []byte, succed bool) error {
 
 	copy(aofLock.buf, buf)
 	aofLock.data = nil
+	aofLock.AofFlag = 0
 	if succed {
 		aofLock.Result = protocol.RESULT_SUCCED
 	} else {
@@ -1243,7 +1245,7 @@ func (self *Aof) FindAofFiles() ([]string, string, error) {
 		}
 
 		fileName := info.Name()
-		if len(fileName) >= 11 && fileName[:10] == "append.aof" {
+		if len(fileName) >= 11 && strings.HasPrefix(fileName, "append.aof.") && !strings.HasSuffix(fileName, ".dat") {
 			aofIndex, err := strconv.ParseInt(fileName[11:], 10, 64)
 			if err == nil {
 				aofIndexs[uint32(aofIndex)] = fileName
