@@ -30,14 +30,12 @@ func (self *StreamReaderBuffer) Read(buf []byte) int {
 	if self.index >= self.len {
 		return 0
 	}
-
 	bufSize, size := self.len-self.index, len(buf)
 	if bufSize > size {
 		copy(buf, self.buf[self.index:self.index+size])
 		self.index += size
 		return size
 	}
-
 	copy(buf[:bufSize], self.buf[self.index:self.len])
 	self.index, self.len = 0, 0
 	return bufSize
@@ -53,7 +51,6 @@ func (self *StreamReaderBuffer) ReadBytesSize(size int) []byte {
 		self.index += size
 		return buf
 	}
-
 	buf := self.buf[self.index:self.len]
 	self.index, self.len = 0, 0
 	return buf
@@ -62,7 +59,9 @@ func (self *StreamReaderBuffer) ReadBytesSize(size int) []byte {
 func (self *StreamReaderBuffer) ReadFromConn(conn net.Conn, size int) (int, error) {
 	bufSize := self.len - self.index
 	freeSize := self.cap - bufSize
-	if freeSize <= 0 {
+	if bufSize <= 0 {
+		self.index, self.len = 0, 0
+	} else if freeSize <= 0 {
 		return bufSize, nil
 	}
 	readConnSize := size - bufSize
@@ -111,15 +110,19 @@ func (self *Stream) ReadBytes(buf []byte) (int, error) {
 	}
 	bufLen := len(buf)
 	if bufLen <= self.readerBuffer.GetSize() {
-		n := self.readerBuffer.Read(buf)
-		return n, nil
+		index := self.readerBuffer.index + bufLen
+		copy(buf, self.readerBuffer.buf[self.readerBuffer.index:index])
+		self.readerBuffer.index = index
+		return bufLen, nil
 	} else if bufLen <= self.readerBuffer.GetCapSize() {
 		_, err := self.readerBuffer.ReadFromConn(self.conn, bufLen)
 		if err != nil {
 			return 0, err
 		}
-		n := self.readerBuffer.Read(buf)
-		return n, nil
+		index := self.readerBuffer.index + bufLen
+		copy(buf, self.readerBuffer.buf[self.readerBuffer.index:index])
+		self.readerBuffer.index = index
+		return bufLen, nil
 	}
 
 	n := self.readerBuffer.Read(buf)
@@ -148,14 +151,18 @@ func (self *Stream) ReadBytesSize(size int) ([]byte, error) {
 		return nil, io.EOF
 	}
 	if size <= self.readerBuffer.GetSize() {
-		buf := self.readerBuffer.ReadBytesSize(size)
+		index := self.readerBuffer.index + size
+		buf := self.readerBuffer.buf[self.readerBuffer.index:index]
+		self.readerBuffer.index = index
 		return buf, nil
 	} else if size <= self.readerBuffer.GetCapSize() {
 		_, err := self.readerBuffer.ReadFromConn(self.conn, size)
 		if err != nil {
 			return nil, err
 		}
-		buf := self.readerBuffer.ReadBytesSize(size)
+		index := self.readerBuffer.index + size
+		buf := self.readerBuffer.buf[self.readerBuffer.index:index]
+		self.readerBuffer.index = index
 		return buf, nil
 	}
 
@@ -217,7 +224,9 @@ func (self *Stream) ReadSize(size int) ([]byte, error) {
 		return nil, io.EOF
 	}
 	if size <= self.readerBuffer.GetSize() {
-		buf := self.readerBuffer.ReadBytesSize(size)
+		index := self.readerBuffer.index + size
+		buf := self.readerBuffer.buf[self.readerBuffer.index:index]
+		self.readerBuffer.index = index
 		return buf, nil
 	} else if size <= self.readerBuffer.GetCapSize() {
 		_, err := self.readerBuffer.ReadFromConn(self.conn, -1)
@@ -251,8 +260,10 @@ func (self *Stream) Read(buf []byte) (int, error) {
 	}
 	bufLen := len(buf)
 	if bufLen <= self.readerBuffer.GetSize() {
-		n := self.readerBuffer.Read(buf)
-		return n, nil
+		index := self.readerBuffer.index + bufLen
+		copy(buf, self.readerBuffer.buf[self.readerBuffer.index:index])
+		self.readerBuffer.index = index
+		return bufLen, nil
 	} else if bufLen <= self.readerBuffer.GetCapSize() {
 		_, err := self.readerBuffer.ReadFromConn(self.conn, -1)
 		if err != nil {
