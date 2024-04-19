@@ -238,9 +238,14 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 				if serverChannel.pulled == 1 {
 					status = "pending"
 				}
+				var behindOffset uint64
+				if self.slock.replicationManager.bufferQueue.seq < self.slock.replicationManager.bufferQueue.seq {
+					behindOffset = 0xffffffffffffffff - serverChannel.bufferCursor.seq + self.slock.replicationManager.bufferQueue.seq
+				} else {
+					behindOffset = self.slock.replicationManager.bufferQueue.seq - serverChannel.bufferCursor.seq
+				}
 				infos = append(infos, fmt.Sprintf("follower%d:host=%s,aof_id=%x,behind_offset=%d,status=%s", i+1,
-					serverChannel.protocol.RemoteAddr().String(), serverChannel.bufferCursor.currentRequestId,
-					self.slock.replicationManager.bufferQueue.seq-serverChannel.bufferCursor.seq, status))
+					serverChannel.protocol.RemoteAddr().String(), serverChannel.bufferCursor.currentRequestId, behindOffset-1, status))
 			}
 		} else {
 			infos = append(infos, "role:follower")
@@ -497,15 +502,12 @@ func (self *Admin) commandHandleShowLockCommand(serverProtocol *TextServerProtoc
 		if lock.timeouted {
 			state |= 0x01
 		}
-
 		if lock.expried {
 			state |= 0x02
 		}
-
 		if lock.longWaitIndex > 0 {
 			state |= 0x04
 		}
-
 		if lock.isAof {
 			state |= 0x08
 		}
@@ -517,6 +519,10 @@ func (self *Admin) commandHandleShowLockCommand(serverProtocol *TextServerProtoc
 		lockInfos = append(lockInfos, fmt.Sprintf("%d", lock.locked))
 		lockInfos = append(lockInfos, fmt.Sprintf("%d", lock.aofTime))
 		lockInfos = append(lockInfos, fmt.Sprintf("%d", state))
+		lockData := lockManager.GetLockData()
+		if lockData != nil {
+			lockInfos = append(lockInfos, string(lockData[6:]))
+		}
 	}
 
 	if lockManager.locks != nil {
@@ -531,15 +537,12 @@ func (self *Admin) commandHandleShowLockCommand(serverProtocol *TextServerProtoc
 				if lock.timeouted {
 					state |= 0x01
 				}
-
 				if lock.expried {
 					state |= 0x02
 				}
-
 				if lock.longWaitIndex > 0 {
 					state |= 0x04
 				}
-
 				if lock.isAof {
 					state |= 0x08
 				}
@@ -551,6 +554,10 @@ func (self *Admin) commandHandleShowLockCommand(serverProtocol *TextServerProtoc
 				lockInfos = append(lockInfos, fmt.Sprintf("%d", lock.locked))
 				lockInfos = append(lockInfos, fmt.Sprintf("%d", lock.aofTime))
 				lockInfos = append(lockInfos, fmt.Sprintf("%d", state))
+				lockData := lockManager.GetLockData()
+				if lockData != nil {
+					lockInfos = append(lockInfos, string(lockData[6:]))
+				}
 			}
 		}
 	}

@@ -541,9 +541,8 @@ func (self *ReplicationClient) recvFiles() error {
 
 	var aofFile *AofFile = nil
 	aofIndex := uint32(0)
-	dlbuf := make([]byte, 4)
 	for !self.closed {
-		err := self.readLock(dlbuf)
+		err := self.readLock()
 		if err != nil {
 			return err
 		}
@@ -650,21 +649,14 @@ func (self *ReplicationClient) Process() error {
 	return io.EOF
 }
 
-func (self *ReplicationClient) readLock(dlbuf []byte) error {
+func (self *ReplicationClient) readLock() error {
 	buf := self.aofLock.buf
-	n, err := self.stream.Read(buf)
+	n, err := self.stream.ReadBytes(buf)
 	if err != nil {
 		return err
 	}
-
-	if n < 64 {
-		for n < 64 {
-			nn, nerr := self.stream.Read(buf[n:])
-			if nerr != nil {
-				return nerr
-			}
-			n += nn
-		}
+	if n != 64 {
+		return errors.New("read buf size error")
 	}
 
 	err = self.aofLock.Decode()
@@ -672,23 +664,11 @@ func (self *ReplicationClient) readLock(dlbuf []byte) error {
 		return err
 	}
 	if self.aofLock.AofFlag&AOF_FLAG_CONTAINS_DATA != 0 {
-		if len(dlbuf) != 4 {
-			return errors.New("buf error")
-		}
-		_, err = self.stream.ReadBytes(dlbuf)
+		buf, err = self.stream.ReadBytesFrame()
 		if err != nil {
 			return err
 		}
-		dataLen := int(uint32(dlbuf[0]) | uint32(dlbuf[1])<<8 | uint32(dlbuf[2])<<16 | uint32(dlbuf[3])<<16)
-		aofLockData := make([]byte, dataLen+4)
-		aofLockData[0], aofLockData[1], aofLockData[2], aofLockData[3] = dlbuf[0], dlbuf[1], dlbuf[2], dlbuf[3]
-		if dataLen > 0 {
-			_, err = self.stream.ReadBytes(aofLockData[4:])
-			if err != nil {
-				return err
-			}
-		}
-		self.aofLock.data = aofLockData
+		self.aofLock.data = buf
 	}
 	return nil
 }
@@ -763,24 +743,16 @@ func (self *ReplicationClient) getLock() error {
 }
 
 func (self *ReplicationClient) readProcess() {
-	dlbuf := make([]byte, 4)
 	for !self.closed {
 		aofLock := self.rbufs[self.rbufIndex]
-		n, err := self.stream.Read(aofLock.buf)
+		n, err := self.stream.ReadBytes(aofLock.buf)
 		if err != nil {
 			self.rbufChannel <- nil
 			return
 		}
-
-		if n < 64 {
-			for n < 64 {
-				nn, nerr := self.stream.Read(aofLock.buf[n:])
-				if nerr != nil {
-					self.rbufChannel <- nil
-					return
-				}
-				n += nn
-			}
+		if n != 64 {
+			self.rbufChannel <- nil
+			return
 		}
 		err = aofLock.Decode()
 		if err != nil {
@@ -788,22 +760,12 @@ func (self *ReplicationClient) readProcess() {
 			return
 		}
 		if aofLock.AofFlag&AOF_FLAG_CONTAINS_DATA != 0 {
-			_, err = self.stream.ReadBytes(dlbuf)
-			if err != nil {
+			buf, derr := self.stream.ReadBytesFrame()
+			if derr != nil {
 				self.rbufChannel <- nil
 				return
 			}
-			dataLen := int(uint32(dlbuf[0]) | uint32(dlbuf[1])<<8 | uint32(dlbuf[2])<<16 | uint32(dlbuf[3])<<16)
-			aofLockData := make([]byte, dataLen+4)
-			aofLockData[0], aofLockData[1], aofLockData[2], aofLockData[3] = dlbuf[0], dlbuf[1], dlbuf[2], dlbuf[3]
-			if dataLen > 0 {
-				_, err = self.stream.ReadBytes(aofLockData[4:])
-				if err != nil {
-					self.rbufChannel <- nil
-					return
-				}
-			}
-			aofLock.data = aofLockData
+			aofLock.data = buf
 		}
 
 		self.rbufChannel <- aofLock
@@ -1043,19 +1005,12 @@ func (self *ReplicationServer) sendFiles() error {
 func (self *ReplicationServer) waitStarted() error {
 	buf := self.raofLock.buf
 	for !self.closed {
-		n, err := self.stream.Read(buf)
+		n, err := self.stream.ReadBytes(buf)
 		if err != nil {
 			return err
 		}
-
-		if n < 64 {
-			for n < 64 {
-				nn, nerr := self.stream.Read(buf[n:])
-				if nerr != nil {
-					return nerr
-				}
-				n += nn
-			}
+		if n != 64 {
+			return errors.New("read size error")
 		}
 
 		err = self.raofLock.Decode()
@@ -1139,19 +1094,12 @@ func (self *ReplicationServer) RecvProcess() error {
 	buf := self.raofLock.buf
 	lockResult := &protocol.LockResultCommand{}
 	for !self.closed {
-		n, err := self.stream.Read(buf)
+		n, err := self.stream.ReadBytes(buf)
 		if err != nil {
 			return err
 		}
-
-		if n < 64 {
-			for n < 64 {
-				nn, nerr := self.stream.Read(buf[n:])
-				if nerr != nil {
-					return nerr
-				}
-				n += nn
-			}
+		if n != 64 {
+			return errors.New("read size error")
 		}
 
 		err = lockResult.Decode(buf)
@@ -1159,21 +1107,11 @@ func (self *ReplicationServer) RecvProcess() error {
 			return err
 		}
 		if lockResult.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
-			dlbuf := make([]byte, 4)
-			_, err = self.stream.ReadBytes(dlbuf)
+			buf, err = self.stream.ReadBytesFrame()
 			if err != nil {
 				return err
 			}
-			dataLen := int(uint32(dlbuf[0]) | uint32(dlbuf[1])<<8 | uint32(dlbuf[2])<<16 | uint32(dlbuf[3])<<16)
-			lockResultCommandData := make([]byte, dataLen+4)
-			lockResultCommandData[0], lockResultCommandData[1], lockResultCommandData[2], lockResultCommandData[3] = dlbuf[0], dlbuf[1], dlbuf[2], dlbuf[3]
-			if dataLen > 0 {
-				_, err = self.stream.ReadBytes(lockResultCommandData[4:])
-				if err != nil {
-					return err
-				}
-			}
-			lockResult.Data = protocol.NewLockResultCommandDataFromOriginBytes(lockResultCommandData)
+			lockResult.Data = protocol.NewLockResultCommandDataFromOriginBytes(buf)
 		}
 
 		err = self.aof.loadLockAck(lockResult)

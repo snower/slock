@@ -314,22 +314,14 @@ func (self *SubscribeClient) Run() {
 }
 
 func (self *SubscribeClient) Process() error {
-	dlbuf := make([]byte, 4)
 	for !self.closed {
 		buf := self.publishLock.buf
-		n, err := self.stream.Read(buf)
+		n, err := self.stream.ReadBytes(buf)
 		if err != nil {
 			return err
 		}
-
-		if n < 64 {
-			for n < 64 {
-				nn, nerr := self.stream.Read(buf[n:])
-				if nerr != nil {
-					return nerr
-				}
-				n += nn
-			}
+		if n != 64 {
+			return errors.New("read buf size error")
 		}
 
 		if self.publishLock.buf[2] != protocol.COMMAND_PUBLISH {
@@ -341,20 +333,11 @@ func (self *SubscribeClient) Process() error {
 			return err
 		}
 		if self.publishLock.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
-			_, err = self.stream.ReadBytes(dlbuf)
+			buf, err = self.stream.ReadBytesFrame()
 			if err != nil {
 				return err
 			}
-			dataLen := int(uint32(dlbuf[0]) | uint32(dlbuf[1])<<8 | uint32(dlbuf[2])<<16 | uint32(dlbuf[3])<<16)
-			lockData := make([]byte, dataLen+4)
-			lockData[0], lockData[1], lockData[2], lockData[3] = dlbuf[0], dlbuf[1], dlbuf[2], dlbuf[3]
-			if dataLen > 0 {
-				_, err = self.stream.ReadBytes(lockData[4:])
-				if err != nil {
-					return err
-				}
-			}
-			self.publishLock.data = lockData
+			self.publishLock.data = buf
 		}
 
 		db := self.manager.slock.GetDB(self.publishLock.DbId)

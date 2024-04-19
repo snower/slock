@@ -27,12 +27,11 @@ type BinaryClientProtocol struct {
 	stream *Stream
 	rglock *sync.Mutex
 	wglock *sync.Mutex
-	rbuf   []byte
 	wbuf   []byte
 }
 
 func NewBinaryClientProtocol(stream *Stream) *BinaryClientProtocol {
-	return &BinaryClientProtocol{stream, &sync.Mutex{}, &sync.Mutex{}, make([]byte, 64), make([]byte, 64)}
+	return &BinaryClientProtocol{stream, &sync.Mutex{}, &sync.Mutex{}, make([]byte, 64)}
 }
 
 func (self *BinaryClientProtocol) Close() error {
@@ -43,118 +42,143 @@ func (self *BinaryClientProtocol) Read() (protocol.CommandDecode, error) {
 	defer self.rglock.Unlock()
 	self.rglock.Lock()
 
-	n, err := self.stream.ReadBytes(self.rbuf)
+	buf, err := self.stream.ReadBytesSize(64)
 	if err != nil {
 		return nil, err
 	}
-
-	if n != 64 {
+	if buf == nil || len(buf) != 64 {
 		return nil, errors.New("command data too short")
 	}
-
-	if uint8(self.rbuf[0]) != protocol.MAGIC {
+	if uint8(buf[0]) != protocol.MAGIC {
 		return nil, errors.New("unknown magic")
 	}
-
-	if uint8(self.rbuf[1]) != protocol.VERSION {
+	if uint8(buf[1]) != protocol.VERSION {
 		return nil, errors.New("unknown version")
 	}
 
-	switch uint8(self.rbuf[2]) {
+	switch uint8(buf[2]) {
 	case protocol.COMMAND_LOCK:
 		command := protocol.LockResultCommand{}
-		err := command.Decode(self.rbuf)
+		err = command.Decode(buf)
 		if err != nil {
 			return nil, err
+		}
+		if command.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
+			lockData, derr := self.stream.ReadBytesFrame()
+			if derr != nil {
+				return nil, derr
+			}
+			command.Data = protocol.NewLockResultCommandDataFromOriginBytes(lockData)
 		}
 		return &command, nil
 	case protocol.COMMAND_UNLOCK:
 		command := protocol.LockResultCommand{}
-		err := command.Decode(self.rbuf)
+		err = command.Decode(buf)
 		if err != nil {
 			return nil, err
+		}
+		if command.Flag&protocol.UNLOCK_FLAG_CONTAINS_DATA != 0 {
+			lockData, derr := self.stream.ReadBytesFrame()
+			if derr != nil {
+				return nil, derr
+			}
+			command.Data = protocol.NewLockResultCommandDataFromOriginBytes(lockData)
 		}
 		return &command, nil
 	case protocol.COMMAND_STATE:
 		command := protocol.StateResultCommand{}
-		err := command.Decode(self.rbuf)
+		err = command.Decode(buf)
 		if err != nil {
 			return nil, err
 		}
 		return &command, nil
 	case protocol.COMMAND_INIT:
 		command := protocol.InitResultCommand{}
-		err := command.Decode(self.rbuf)
+		err = command.Decode(buf)
 		if err != nil {
 			return nil, err
 		}
 		return &command, nil
 	case protocol.COMMAND_ADMIN:
 		command := protocol.AdminResultCommand{}
-		err := command.Decode(self.rbuf)
+		err = command.Decode(buf)
 		if err != nil {
 			return nil, err
 		}
 		return &command, nil
 	case protocol.COMMAND_PING:
 		command := protocol.PingResultCommand{}
-		err := command.Decode(self.rbuf)
+		err = command.Decode(buf)
 		if err != nil {
 			return nil, err
 		}
 		return &command, nil
 	case protocol.COMMAND_QUIT:
 		command := protocol.QuitResultCommand{}
-		err := command.Decode(self.rbuf)
+		err = command.Decode(buf)
 		if err != nil {
 			return nil, err
 		}
 		return &command, nil
 	case protocol.COMMAND_CALL:
 		command := protocol.CallResultCommand{}
-		err := command.Decode(self.rbuf)
+		err = command.Decode(buf)
 		if err != nil {
 			return nil, err
 		}
 		command.Data = make([]byte, command.ContentLen)
 		if command.ContentLen > 0 {
-			_, err := self.stream.ReadBytes(command.Data)
-			if err != nil {
-				return nil, err
+			_, derr := self.stream.ReadBytes(command.Data)
+			if derr != nil {
+				return nil, derr
 			}
 		}
 		return &command, nil
 	case protocol.COMMAND_WILL_LOCK:
 		command := protocol.LockResultCommand{}
-		err := command.Decode(self.rbuf)
+		err = command.Decode(buf)
 		if err != nil {
 			return nil, err
+		}
+		if command.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
+			lockData, derr := self.stream.ReadBytesFrame()
+			if derr != nil {
+				return nil, derr
+			}
+			command.Data = protocol.NewLockResultCommandDataFromOriginBytes(lockData)
 		}
 		return &command, nil
 	case protocol.COMMAND_WILL_UNLOCK:
 		command := protocol.LockResultCommand{}
-		err := command.Decode(self.rbuf)
+		err = command.Decode(buf)
 		if err != nil {
 			return nil, err
+		}
+		if command.Flag&protocol.UNLOCK_FLAG_CONTAINS_DATA != 0 {
+			lockData, derr := self.stream.ReadBytesFrame()
+			if derr != nil {
+				return nil, derr
+			}
+			command.Data = protocol.NewLockResultCommandDataFromOriginBytes(lockData)
 		}
 		return &command, nil
 	case protocol.COMMAND_LEADER:
 		command := protocol.LeaderResultCommand{}
-		err := command.Decode(self.rbuf)
+		err = command.Decode(buf)
 		if err != nil {
 			return nil, err
 		}
 		return &command, nil
 	case protocol.COMMAND_SUBSCRIBE:
 		command := protocol.SubscribeResultCommand{}
-		err := command.Decode(self.rbuf)
+		err = command.Decode(buf)
 		if err != nil {
 			return nil, err
 		}
 		return &command, nil
 	case protocol.COMMAND_PUBLISH:
 		command := protocol.LockResultCommand{}
-		err := command.Decode(self.rbuf)
+		err = command.Decode(buf)
 		if err != nil {
 			return nil, err
 		}
@@ -172,7 +196,6 @@ func (self *BinaryClientProtocol) Write(command protocol.CommandEncode) error {
 		self.wglock.Unlock()
 		return err
 	}
-
 	err = self.stream.WriteBytes(wbuf)
 	if err != nil {
 		self.wglock.Unlock()
@@ -180,10 +203,23 @@ func (self *BinaryClientProtocol) Write(command protocol.CommandEncode) error {
 	}
 
 	switch command.(type) {
+	case *protocol.LockCommand:
+		lockCommand := command.(*protocol.LockCommand)
+		if lockCommand.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
+			err = self.stream.WriteBytes(lockCommand.Data.Data)
+			if err != nil {
+				self.wglock.Unlock()
+				return err
+			}
+		}
 	case *protocol.CallCommand:
 		callCommand := command.(*protocol.CallCommand)
 		if callCommand.ContentLen > 0 {
 			err = self.stream.WriteBytes(callCommand.Data)
+			if err != nil {
+				self.wglock.Unlock()
+				return err
+			}
 		}
 	}
 	self.wglock.Unlock()
@@ -314,6 +350,9 @@ func (self *TextClientProtocol) ArgsToLockComandResult(args []string) (*protocol
 				return nil, errors.New("Response Parse RCOUNT Error")
 			}
 			lockCommandResult.Rcount = uint8(rcount)
+		case "DATA":
+			lockCommandResult.Data = protocol.NewLockResultCommandDataFromString(args[i+1], 0, 0)
+			lockCommandResult.Flag |= protocol.LOCK_FLAG_CONTAINS_DATA
 		}
 	}
 	return &lockCommandResult, nil
@@ -326,7 +365,7 @@ func (self *TextClientProtocol) Read() (protocol.CommandDecode, error) {
 	rbuf := self.parser.GetReadBuf()
 	for {
 		if self.parser.IsBufferEnd() {
-			n, err := self.stream.Read(rbuf)
+			n, err := self.stream.ReadFromConn(rbuf)
 			if err != nil {
 				return nil, err
 			}
@@ -391,7 +430,11 @@ func (self *TextClientProtocol) WriteCommand(result protocol.CommandEncode) erro
 	tr := ""
 
 	wbuf := self.parser.GetWriteBuf()
-	bufIndex += copy(wbuf[bufIndex:], []byte("*12\r\n"))
+	if lockCommandResult.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
+		bufIndex += copy(wbuf[bufIndex:], []byte("*14\r\n"))
+	} else {
+		bufIndex += copy(wbuf[bufIndex:], []byte("*12\r\n"))
+	}
 
 	tr = fmt.Sprintf("%d", lockCommandResult.Result)
 	bufIndex += copy(wbuf[bufIndex:], []byte(fmt.Sprintf("$%d\r\n", len(tr))))
@@ -429,7 +472,17 @@ func (self *TextClientProtocol) WriteCommand(result protocol.CommandEncode) erro
 
 	bufIndex += copy(wbuf[bufIndex:], []byte("\r\n"))
 
-	return self.stream.WriteBytes(wbuf[:bufIndex])
+	err := self.stream.WriteBytes(wbuf[:bufIndex])
+	if err != nil {
+		lockCommandResult.Data = nil
+		return err
+	}
+	if lockCommandResult.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
+		data := lockCommandResult.Data.GetStringData()
+		err = self.stream.WriteBytes([]byte(fmt.Sprintf("$4\r\nDATA\r\n$%d\r\n%s\r\n", len(data), data)))
+	}
+	lockCommandResult.Data = nil
+	return err
 }
 
 func (self *TextClientProtocol) GetStream() *Stream {

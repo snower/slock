@@ -362,7 +362,7 @@ func (self *AofFile) ReadLockData(lock *AofLock) error {
 			n += nn
 		}
 	}
-	dataLen := int(uint32(buf[0]) | uint32(buf[1])<<8 | uint32(buf[2])<<16 | uint32(buf[3])<<16)
+	dataLen := int(uint32(buf[0]) | uint32(buf[1])<<8 | uint32(buf[2])<<16 | uint32(buf[3])<<24)
 	aofLockData := make([]byte, dataLen+4)
 	aofLockData[0], aofLockData[1], aofLockData[2], aofLockData[3] = buf[0], buf[1], buf[2], buf[3]
 	if dataLen <= 0 {

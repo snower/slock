@@ -533,10 +533,7 @@ type BinaryServerProtocol struct {
 	freeCommands       []*protocol.LockCommand
 	freeCommandIndex   int
 	lockedFreeCommands *LockCommandQueue
-	rbuf               []byte
 	wbuf               []byte
-	rindex             int
-	rlen               int
 	callMethods        map[string]BinaryServerProtocolCallHandler
 	willCommands       *LockCommandQueue
 	totalCommandCount  uint64
@@ -547,8 +544,8 @@ type BinaryServerProtocol struct {
 func NewBinaryServerProtocol(slock *SLock, stream *Stream) *BinaryServerProtocol {
 	proxy := &ServerProtocolProxy{[16]byte{}, nil}
 	serverProtocol := &BinaryServerProtocol{slock, &sync.Mutex{}, stream, nil, make([]*ServerProtocolProxy, 0), make([]*protocol.LockCommand, FREE_COMMAND_MAX_SIZE),
-		0, NewLockCommandQueue(4, 64, FREE_COMMAND_QUEUE_INIT_SIZE), make([]byte, 1024), make([]byte, 64),
-		0, 0, nil, nil, 0, false, false}
+		0, NewLockCommandQueue(4, 64, FREE_COMMAND_QUEUE_INIT_SIZE), make([]byte, 64),
+		nil, nil, 0, false, false}
 	proxy.serverProtocol = serverProtocol
 	serverProtocol.InitLockCommand()
 	serverProtocol.session = slock.addServerProtocol(serverProtocol)
@@ -664,28 +661,14 @@ func (self *BinaryServerProtocol) Read() (protocol.CommandDecode, error) {
 	if self.closed {
 		return nil, errors.New("Protocol Closed")
 	}
-
-	blen := len(self.rbuf)
-	for self.rlen-self.rindex < 64 {
-		if self.rindex > 0 && blen-self.rindex < 64 {
-			for i := 0; self.rindex < self.rlen; self.rindex++ {
-				self.rbuf[i] = self.rbuf[self.rindex]
-				i++
-			}
-			self.rindex, self.rlen = 0, self.rlen-self.rindex
-		}
-		n, err := self.stream.conn.Read(self.rbuf[self.rlen:])
-		if err != nil {
-			return nil, err
-		}
-		self.rlen += n
+	buf, err := self.stream.ReadBytesSize(64)
+	if err != nil {
+		return nil, err
 	}
-
-	command, err := self.ReadParse(self.rbuf[self.rindex:])
-	self.rindex += 64
-	if self.rindex == self.rlen {
-		self.rindex, self.rlen = 0, 0
+	if buf == nil {
+		return nil, errors.New("read stream error")
 	}
+	command, err := self.ReadParse(buf)
 	return command, err
 }
 
@@ -714,9 +697,9 @@ func (self *BinaryServerProtocol) ReadParse(buf []byte) (protocol.CommandDecode,
 			return nil, err
 		}
 		if lockCommand.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
-			lockCommandData, err := self.ProcessParseLockData(buf)
-			if err != nil {
-				return nil, err
+			lockCommandData, derr := self.ProcessParseLockData()
+			if derr != nil {
+				return nil, derr
 			}
 			lockCommand.Data = lockCommandData
 		}
@@ -729,9 +712,9 @@ func (self *BinaryServerProtocol) ReadParse(buf []byte) (protocol.CommandDecode,
 			return nil, err
 		}
 		if lockCommand.Flag&protocol.UNLOCK_FLAG_CONTAINS_DATA != 0 {
-			lockCommandData, err := self.ProcessParseLockData(buf)
-			if err != nil {
-				return nil, err
+			lockCommandData, derr := self.ProcessParseLockData()
+			if derr != nil {
+				return nil, derr
 			}
 			lockCommand.Data = lockCommandData
 		}
@@ -783,22 +766,9 @@ func (self *BinaryServerProtocol) ReadParse(buf []byte) (protocol.CommandDecode,
 			}
 			callCommand.Data = make([]byte, callCommand.ContentLen)
 			if callCommand.ContentLen > 0 {
-				rindex, contentLen := self.rindex+64, int(callCommand.ContentLen)
-				if self.rlen-rindex >= contentLen {
-					copy(callCommand.Data, self.rbuf[rindex:rindex+contentLen])
-					self.rindex += contentLen
-					contentLen = 0
-				} else if self.rlen-rindex > 0 {
-					copy(callCommand.Data, self.rbuf[rindex:self.rlen])
-					contentLen -= self.rlen - rindex
-					self.rindex += self.rlen - rindex
-				}
-
-				if contentLen > 0 {
-					_, err := self.stream.ReadBytes(callCommand.Data[int(callCommand.ContentLen)-contentLen:])
-					if err != nil {
-						return nil, err
-					}
+				_, derr := self.stream.ReadBytes(callCommand.Data)
+				if derr != nil {
+					return nil, derr
 				}
 			}
 			return callCommand, nil
@@ -808,12 +778,26 @@ func (self *BinaryServerProtocol) ReadParse(buf []byte) (protocol.CommandDecode,
 			if err != nil {
 				return nil, err
 			}
+			if lockCommand.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
+				lockCommandData, derr := self.ProcessParseLockData()
+				if derr != nil {
+					return nil, derr
+				}
+				lockCommand.Data = lockCommandData
+			}
 			return lockCommand, nil
 		case protocol.COMMAND_WILL_UNLOCK:
 			lockCommand := self.GetLockCommand()
 			err := lockCommand.Decode(buf)
 			if err != nil {
 				return nil, err
+			}
+			if lockCommand.Flag&protocol.UNLOCK_FLAG_CONTAINS_DATA != 0 {
+				lockCommandData, derr := self.ProcessParseLockData()
+				if derr != nil {
+					return nil, derr
+				}
+				lockCommand.Data = lockCommandData
 			}
 			return lockCommand, nil
 		case protocol.COMMAND_LEADER:
@@ -855,26 +839,16 @@ func (self *BinaryServerProtocol) Write(result protocol.CommandEncode) error {
 
 	if n < 64 {
 		for n < 64 {
-			cn, err := self.stream.conn.Write(self.wbuf[n:])
-			if err != nil {
+			cn, cerr := self.stream.conn.Write(self.wbuf[n:])
+			if cerr != nil {
 				self.glock.Unlock()
-				return err
+				return cerr
 			}
 			n += cn
 		}
 	}
 
 	switch result.(type) {
-	case *protocol.LockCommand:
-		lockCommand := result.(*protocol.LockCommand)
-		if lockCommand.Data != nil {
-			err = self.stream.WriteBytes(lockCommand.Data.Data)
-			if err != nil {
-				self.glock.Unlock()
-				return err
-			}
-		}
-		break
 	case *protocol.LockResultCommand:
 		lockResultCommand := result.(*protocol.LockResultCommand)
 		if lockResultCommand.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
@@ -884,17 +858,15 @@ func (self *BinaryServerProtocol) Write(result protocol.CommandEncode) error {
 				return err
 			}
 		}
-		break
 	case *protocol.CallResultCommand:
 		callCommand := result.(*protocol.CallResultCommand)
 		if callCommand.ContentLen > 0 {
-			err := self.stream.WriteBytes(callCommand.Data)
+			err = self.stream.WriteBytes(callCommand.Data)
 			if err != nil {
 				self.glock.Unlock()
 				return err
 			}
 		}
-		break
 	}
 	self.glock.Unlock()
 	return nil
@@ -909,37 +881,20 @@ func (self *BinaryServerProtocol) WriteCommand(result protocol.CommandEncode) er
 }
 
 func (self *BinaryServerProtocol) Process() error {
-	buf := self.rbuf
-	blen := len(buf)
 	for !self.closed {
-		for self.rlen-self.rindex < 64 {
-			if self.rindex > 0 && blen-self.rindex < 64 {
-				for i := 0; self.rindex < self.rlen; self.rindex++ {
-					buf[i] = buf[self.rindex]
-					i++
-				}
-				self.rindex, self.rlen = 0, self.rlen-self.rindex
-			}
-			n, err := self.stream.conn.Read(buf[self.rlen:])
-			if err != nil {
-				return err
-			}
-			self.rlen += n
+		buf, err := self.stream.ReadBytesSize(64)
+		if err != nil {
+			return err
 		}
-
+		if buf == nil {
+			return errors.New("read stream error")
+		}
 		if self.slock.state != STATE_LEADER {
 			return AGAIN
 		}
-
-		for self.rlen-self.rindex >= 64 {
-			err := self.ProcessParse(buf[self.rindex:])
-			self.rindex += 64
-			if self.rindex >= self.rlen {
-				self.rindex, self.rlen = 0, 0
-			}
-			if err != nil {
-				return err
-			}
+		err = self.ProcessParse(buf)
+		if err != nil {
+			return err
 		}
 	}
 	return io.EOF
@@ -1008,7 +963,7 @@ func (self *BinaryServerProtocol) ProcessParse(buf []byte) error {
 		lockCommand.Count, lockCommand.Rcount = uint16(buf[61])|uint16(buf[62])<<8, uint8(buf[63])
 
 		if lockCommand.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
-			lockCommandData, err := self.ProcessParseLockData(buf)
+			lockCommandData, err := self.ProcessParseLockData()
 			if err != nil {
 				return err
 			}
@@ -1061,7 +1016,7 @@ func (self *BinaryServerProtocol) ProcessParse(buf []byte) error {
 		lockCommand.Count, lockCommand.Rcount = uint16(buf[61])|uint16(buf[62])<<8, uint8(buf[63])
 
 		if lockCommand.Flag&protocol.UNLOCK_FLAG_CONTAINS_DATA != 0 {
-			lockCommandData, err := self.ProcessParseLockData(buf)
+			lockCommandData, err := self.ProcessParseLockData()
 			if err != nil {
 				return err
 			}
@@ -1104,25 +1059,11 @@ func (self *BinaryServerProtocol) ProcessParse(buf []byte) error {
 			if err != nil {
 				return err
 			}
-
 			callCommand.Data = make([]byte, callCommand.ContentLen)
 			if callCommand.ContentLen > 0 {
-				rindex, contentLen := self.rindex+64, int(callCommand.ContentLen)
-				if self.rlen-rindex >= contentLen {
-					copy(callCommand.Data, self.rbuf[rindex:rindex+contentLen])
-					self.rindex += contentLen
-					contentLen = 0
-				} else if self.rlen-rindex > 0 {
-					copy(callCommand.Data, self.rbuf[rindex:self.rlen])
-					contentLen -= self.rlen - rindex
-					self.rindex += self.rlen - rindex
-				}
-
-				if contentLen > 0 {
-					_, err := self.stream.ReadBytes(callCommand.Data[int(callCommand.ContentLen)-contentLen:])
-					if err != nil {
-						return err
-					}
+				_, derr := self.stream.ReadBytes(callCommand.Data)
+				if derr != nil {
+					return derr
 				}
 			}
 			err = self.ProcessCommad(&callCommand)
@@ -1131,9 +1072,41 @@ func (self *BinaryServerProtocol) ProcessParse(buf []byte) error {
 			}
 			return nil
 		case protocol.COMMAND_WILL_LOCK:
-			command = self.GetLockCommand()
+			lockCommand = self.GetLockCommand()
+			err := lockCommand.Decode(buf)
+			if err != nil {
+				return err
+			}
+			if lockCommand.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
+				lockCommandData, derr := self.ProcessParseLockData()
+				if derr != nil {
+					return derr
+				}
+				lockCommand.Data = lockCommandData
+			}
+			err = self.ProcessCommad(lockCommand)
+			if err != nil {
+				return err
+			}
+			return nil
 		case protocol.COMMAND_WILL_UNLOCK:
-			command = self.GetLockCommand()
+			lockCommand = self.GetLockCommand()
+			err := lockCommand.Decode(buf)
+			if err != nil {
+				return err
+			}
+			if lockCommand.Flag&protocol.UNLOCK_FLAG_CONTAINS_DATA != 0 {
+				lockCommandData, derr := self.ProcessParseLockData()
+				if derr != nil {
+					return derr
+				}
+				lockCommand.Data = lockCommandData
+			}
+			err = self.ProcessCommad(lockCommand)
+			if err != nil {
+				return err
+			}
+			return nil
 		case protocol.COMMAND_LEADER:
 			command = &protocol.LeaderCommand{}
 		case protocol.COMMAND_SUBSCRIBE:
@@ -1153,49 +1126,12 @@ func (self *BinaryServerProtocol) ProcessParse(buf []byte) error {
 	return nil
 }
 
-func (self *BinaryServerProtocol) ProcessParseLockData(buf []byte) (*protocol.LockCommandData, error) {
-	rindex := self.rindex + 64
-	blen := self.rlen - rindex
-	if blen >= 4 {
-		buf = self.rbuf[rindex : rindex+4]
-		self.rindex += 4
-		rindex += 4
-	} else {
-		if blen > 0 {
-			copy(buf, self.rbuf[rindex:self.rlen])
-			self.rindex += blen
-			rindex += blen
-		}
-		_, err := self.stream.ReadBytes(buf[blen:4])
-		if err != nil {
-			return nil, err
-		}
+func (self *BinaryServerProtocol) ProcessParseLockData() (*protocol.LockCommandData, error) {
+	buf, err := self.stream.ReadBytesFrame()
+	if err != nil {
+		return nil, err
 	}
-	if len(buf) < 4 {
-		return nil, errors.New("buf error")
-	}
-	dataLen := int(uint32(buf[0]) | uint32(buf[1])<<8 | uint32(buf[2])<<16 | uint32(buf[3])<<24)
-	lockCommandData := make([]byte, dataLen+4)
-	lockCommandData[0], lockCommandData[1], lockCommandData[2], lockCommandData[3] = buf[0], buf[1], buf[2], buf[3]
-	if dataLen <= 0 {
-		return protocol.NewLockCommandDataFromOriginBytes(lockCommandData), nil
-	}
-
-	blen = self.rlen - rindex
-	if blen >= dataLen {
-		copy(lockCommandData[4:], self.rbuf[rindex:rindex+dataLen])
-		self.rindex += dataLen
-	} else {
-		if blen > 0 {
-			copy(lockCommandData[4:], self.rbuf[rindex:self.rlen])
-			self.rindex += blen
-		}
-		_, err := self.stream.ReadBytes(lockCommandData[blen+4:])
-		if err != nil {
-			return nil, err
-		}
-	}
-	return protocol.NewLockCommandDataFromOriginBytes(lockCommandData), nil
+	return protocol.NewLockCommandDataFromOriginBytes(buf), nil
 }
 
 func (self *BinaryServerProtocol) ProcessBuild(command protocol.ICommand) error {
@@ -1399,7 +1335,7 @@ func (self *BinaryServerProtocol) ProcessLockResultCommand(command *protocol.Loc
 		command.RequestId[8], command.RequestId[9], command.RequestId[10], command.RequestId[11], command.RequestId[12], command.RequestId[13], command.RequestId[14], command.RequestId[15]
 
 	if data != nil {
-		buf[19], buf[20], buf[21] = result, 0x20, byte(command.DbId)
+		buf[19], buf[20], buf[21] = result, protocol.LOCK_FLAG_CONTAINS_DATA, byte(command.DbId)
 	} else {
 		buf[19], buf[20], buf[21] = result, 0x00, byte(command.DbId)
 	}
@@ -1425,10 +1361,10 @@ func (self *BinaryServerProtocol) ProcessLockResultCommand(command *protocol.Loc
 
 	if n < 64 {
 		for n < 64 {
-			cn, err := self.stream.conn.Write(buf[n:])
-			if err != nil {
+			cn, cerr := self.stream.conn.Write(buf[n:])
+			if cerr != nil {
 				self.glock.Unlock()
-				return err
+				return cerr
 			}
 			n += cn
 		}
@@ -1768,8 +1704,8 @@ func (self *TextServerProtocol) FindHandler(name string) (TextServerProtocolComm
 		self.handlers["LOCK"] = self.commandHandlerLock
 		self.handlers["UNLOCK"] = self.commandHandlerUnlock
 		self.handlers["PUSH"] = self.commandHandlerPush
-		for name, handler := range self.slock.GetAdmin().GetHandlers() {
-			self.handlers[name] = handler
+		for hname, handler := range self.slock.GetAdmin().GetHandlers() {
+			self.handlers[hname] = handler
 		}
 	}
 
@@ -1847,7 +1783,7 @@ func (self *TextServerProtocol) Read() (protocol.CommandDecode, error) {
 	rbuf := self.parser.GetReadBuf()
 	for !self.closed {
 		if self.parser.IsBufferEnd() {
-			n, err := self.stream.Read(rbuf)
+			n, err := self.stream.ReadFromConn(rbuf)
 			if err != nil {
 				return nil, err
 			}
@@ -1861,9 +1797,9 @@ func (self *TextServerProtocol) Read() (protocol.CommandDecode, error) {
 		}
 
 		if self.parser.IsParseFinish() {
-			command, err := self.parser.GetRequestCommand()
+			command, perr := self.parser.GetRequestCommand()
 			self.parser.Reset()
-			return command, err
+			return command, perr
 		}
 	}
 	return nil, errors.New("Protocol Closed")
@@ -1892,7 +1828,7 @@ func (self *TextServerProtocol) ReadCommand() (protocol.CommandDecode, error) {
 			return nil, errors.New("Command Parse Error")
 		}
 
-		command, err := self.ArgsToLockComand(textServerCommand.Args)
+		command, err = self.ArgsToLockComand(textServerCommand.Args)
 		return command, err
 	}
 	return nil, errors.New("unknown command")
@@ -1932,7 +1868,7 @@ func (self *TextServerProtocol) Process() error {
 	rbuf := self.parser.GetReadBuf()
 	for !self.closed {
 		if self.parser.IsBufferEnd() {
-			n, err := self.stream.Read(rbuf)
+			n, err := self.stream.ReadFromConn(rbuf)
 			if err != nil {
 				return err
 			}
@@ -1952,18 +1888,17 @@ func (self *TextServerProtocol) Process() error {
 
 			self.totalCommandCount++
 			commandName := self.parser.GetCommandType()
-			if commandHandler, err := self.FindHandler(commandName); err == nil {
-				err := commandHandler(self, self.parser.GetArgs())
+			if commandHandler, ferr := self.FindHandler(commandName); ferr == nil {
+				err = commandHandler(self, self.parser.GetArgs())
 				if err != nil {
 					return err
 				}
 			} else {
-				err := self.commandHandlerUnknownCommand(self, self.parser.GetArgs())
+				err = self.commandHandlerUnknownCommand(self, self.parser.GetArgs())
 				if err != nil {
 					return err
 				}
 			}
-
 			self.parser.Reset()
 		}
 	}
@@ -1974,12 +1909,12 @@ func (self *TextServerProtocol) RunCommand() error {
 	self.totalCommandCount++
 	commandName := self.parser.GetCommandType()
 	if commandHandler, err := self.FindHandler(commandName); err == nil {
-		err := commandHandler(self, self.parser.GetArgs())
+		err = commandHandler(self, self.parser.GetArgs())
 		if err != nil {
 			return err
 		}
 	} else {
-		err := self.commandHandlerUnknownCommand(self, self.parser.GetArgs())
+		err = self.commandHandlerUnknownCommand(self, self.parser.GetArgs())
 		if err != nil {
 			return err
 		}
@@ -1999,13 +1934,13 @@ func (self *TextServerProtocol) ProcessParse(buf []byte) error {
 	if self.parser.IsParseFinish() {
 		self.totalCommandCount++
 		commandName := self.parser.GetCommandType()
-		if commandHandler, err := self.FindHandler(commandName); err == nil {
-			err := commandHandler(self, self.parser.GetArgs())
+		if commandHandler, ferr := self.FindHandler(commandName); ferr == nil {
+			err = commandHandler(self, self.parser.GetArgs())
 			if err != nil {
 				return err
 			}
 		} else {
-			err := self.commandHandlerUnknownCommand(self, self.parser.GetArgs())
+			err = self.commandHandlerUnknownCommand(self, self.parser.GetArgs())
 			if err != nil {
 				return err
 			}
@@ -2488,12 +2423,7 @@ func (self *TextServerProtocol) ArgsToLockComand(args []string) (*protocol.LockC
 				command.CommandType += 7
 			}
 		case "SET":
-			dataLen := len(args[i+1]) + 2
-			data := make([]byte, dataLen+4)
-			data[0], data[1], data[2], data[3] = byte(dataLen), byte(dataLen>>8), byte(dataLen>>16), byte(dataLen>>24)
-			data[4], data[5] = 0, 0
-			copy(data[6:], args[i+1])
-			command.Data = protocol.NewLockCommandDataFromOriginBytes(data)
+			command.Data = protocol.NewLockCommandDataFromString(args[i+1], 0, 0)
 			command.Flag |= protocol.LOCK_FLAG_CONTAINS_DATA
 		}
 	}

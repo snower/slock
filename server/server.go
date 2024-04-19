@@ -62,7 +62,7 @@ func (self *Server) Close() {
 			continue
 		}
 
-		err := stream.Close()
+		err = stream.Close()
 		if err != nil {
 			self.slock.Log().Errorf("Server connection close error %v", err)
 		}
@@ -160,7 +160,7 @@ func (self *Server) Serve() {
 		stream := NewStream(conn)
 		err = self.addStream(stream)
 		if err != nil {
-			err := stream.Close()
+			err = stream.Close()
 			if err != nil {
 				self.slock.Log().Errorf("Server connection close error %v", err)
 			}
@@ -203,7 +203,7 @@ func (self *Server) checkProtocol(stream *Stream) (ServerProtocol, error) {
 		}
 		self.slock.Log().Infof("Server binary protocol connection connected %s", serverProtocol.RemoteAddr().String())
 
-		err := serverProtocol.ProcessParse(buf)
+		err = serverProtocol.ProcessParse(buf)
 		if err != nil {
 			cerr := serverProtocol.Close()
 			if cerr != nil {
@@ -261,15 +261,14 @@ func (self *Server) handle(stream *Stream) {
 				if err == AGAIN {
 					binaryServerProtocol := serverProtocol.(*BinaryServerProtocol)
 					serverProtocol = NewTransparencyBinaryServerProtocol(self.slock, stream, binaryServerProtocol)
-					for binaryServerProtocol.rlen-binaryServerProtocol.rindex >= 64 {
-						err = serverProtocol.ProcessParse(binaryServerProtocol.rbuf[binaryServerProtocol.rindex:])
-						if err != nil {
+					for binaryServerProtocol.stream.readerBuffer.GetSize() >= 64 {
+						buf, rerr := binaryServerProtocol.stream.ReadBytesSize(64)
+						if rerr != nil {
 							break
 						}
-
-						binaryServerProtocol.rindex += 64
-						if binaryServerProtocol.rindex == binaryServerProtocol.rlen {
-							binaryServerProtocol.rindex, binaryServerProtocol.rlen = 0, 0
+						err = serverProtocol.ProcessParse(buf)
+						if err != nil {
+							break
 						}
 					}
 					if err == nil {
@@ -306,15 +305,14 @@ func (self *Server) handle(stream *Stream) {
 				transparencyServerProtocol := serverProtocol.(*TransparencyBinaryServerProtocol)
 				binaryServerProtocol := transparencyServerProtocol.serverProtocol
 				if err == AGAIN {
-					for binaryServerProtocol.rlen-binaryServerProtocol.rindex >= 64 {
-						err = binaryServerProtocol.ProcessParse(binaryServerProtocol.rbuf[binaryServerProtocol.rindex:])
-						if err != nil {
+					for binaryServerProtocol.stream.readerBuffer.GetSize() >= 64 {
+						buf, rerr := binaryServerProtocol.stream.ReadBytesSize(64)
+						if rerr != nil {
 							break
 						}
-
-						binaryServerProtocol.rindex += 64
-						if binaryServerProtocol.rindex == binaryServerProtocol.rlen {
-							binaryServerProtocol.rindex, binaryServerProtocol.rlen = 0, 0
+						err = binaryServerProtocol.ProcessParse(buf)
+						if err != nil {
+							break
 						}
 					}
 					if err == nil {

@@ -341,18 +341,18 @@ func NewLockCommandDataFromOriginBytes(data []byte) *LockCommandData {
 }
 
 func NewLockCommandDataFromBytes(data []byte, commandType uint8, dataFlag uint8) *LockCommandData {
-	dataLen := len(data)
-	buf := make([]byte, dataLen+6)
-	buf[0], buf[1], buf[2], buf[3] = byte(dataLen), byte(dataLen<<8), byte(dataLen<<16), byte(dataLen<<24)
+	dataLen := len(data) + 2
+	buf := make([]byte, dataLen+4)
+	buf[0], buf[1], buf[2], buf[3] = byte(dataLen), byte(dataLen>>8), byte(dataLen>>16), byte(dataLen>>24)
 	buf[4], buf[5] = commandType, dataFlag
 	copy(buf[6:], data)
 	return &LockCommandData{buf, commandType, dataFlag}
 }
 
 func NewLockCommandDataFromString(data string, commandType uint8, dataFlag uint8) *LockCommandData {
-	dataLen := len(data)
-	buf := make([]byte, dataLen+6)
-	buf[0], buf[1], buf[2], buf[3] = byte(dataLen), byte(dataLen<<8), byte(dataLen<<16), byte(dataLen<<24)
+	dataLen := len(data) + 2
+	buf := make([]byte, dataLen+4)
+	buf[0], buf[1], buf[2], buf[3] = byte(dataLen), byte(dataLen>>8), byte(dataLen>>16), byte(dataLen>>24)
 	buf[4], buf[5] = commandType, dataFlag
 	copy(buf[6:], data)
 	return &LockCommandData{buf, commandType, dataFlag}
@@ -471,18 +471,18 @@ func NewLockResultCommandDataFromOriginBytes(data []byte) *LockResultCommandData
 }
 
 func NewLockResultCommandDataFromBytes(data []byte, commandType uint8, dataFlag uint8) *LockResultCommandData {
-	dataLen := len(data)
-	buf := make([]byte, dataLen+6)
-	buf[0], buf[1], buf[2], buf[3] = byte(dataLen), byte(dataLen<<8), byte(dataLen<<16), byte(dataLen<<24)
+	dataLen := len(data) + 2
+	buf := make([]byte, dataLen+4)
+	buf[0], buf[1], buf[2], buf[3] = byte(dataLen), byte(dataLen>>8), byte(dataLen>>16), byte(dataLen>>24)
 	buf[4], buf[5] = commandType, dataFlag
 	copy(buf[6:], data)
 	return &LockResultCommandData{buf, commandType, dataFlag}
 }
 
 func NewLockResultCommandDataFromString(data string, commandType uint8, dataFlag uint8) *LockResultCommandData {
-	dataLen := len(data)
-	buf := make([]byte, dataLen+6)
-	buf[0], buf[1], buf[2], buf[3] = byte(dataLen), byte(dataLen<<8), byte(dataLen<<16), byte(dataLen<<24)
+	dataLen := len(data) + 2
+	buf := make([]byte, dataLen+4)
+	buf[0], buf[1], buf[2], buf[3] = byte(dataLen), byte(dataLen>>8), byte(dataLen>>16), byte(dataLen>>24)
 	buf[4], buf[5] = commandType, dataFlag
 	copy(buf[6:], data)
 	return &LockResultCommandData{buf, commandType, dataFlag}
