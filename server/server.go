@@ -254,6 +254,7 @@ func (self *Server) handle(stream *Stream) {
 		return
 	}
 
+	var buf []byte = nil
 	for {
 		switch serverProtocol.(type) {
 		case *BinaryServerProtocol:
@@ -261,16 +262,8 @@ func (self *Server) handle(stream *Stream) {
 				if err == AGAIN {
 					binaryServerProtocol := serverProtocol.(*BinaryServerProtocol)
 					serverProtocol = NewTransparencyBinaryServerProtocol(self.slock, stream, binaryServerProtocol)
-					for binaryServerProtocol.stream.readerBuffer.GetSize() >= 64 {
-						buf, rerr := binaryServerProtocol.stream.ReadBytesSize(64)
-						if rerr != nil {
-							break
-						}
-						err = serverProtocol.ProcessParse(buf)
-						if err != nil {
-							break
-						}
-					}
+					buf, binaryServerProtocol.rbuf = binaryServerProtocol.rbuf, nil
+					err = serverProtocol.ProcessParse(buf)
 					if err == nil {
 						err = serverProtocol.Process()
 					}
@@ -305,16 +298,8 @@ func (self *Server) handle(stream *Stream) {
 				transparencyServerProtocol := serverProtocol.(*TransparencyBinaryServerProtocol)
 				binaryServerProtocol := transparencyServerProtocol.serverProtocol
 				if err == AGAIN {
-					for binaryServerProtocol.stream.readerBuffer.GetSize() >= 64 {
-						buf, rerr := binaryServerProtocol.stream.ReadBytesSize(64)
-						if rerr != nil {
-							break
-						}
-						err = binaryServerProtocol.ProcessParse(buf)
-						if err != nil {
-							break
-						}
-					}
+					buf, binaryServerProtocol.rbuf = binaryServerProtocol.rbuf, nil
+					err = binaryServerProtocol.ProcessParse(buf)
 					if err == nil {
 						err = binaryServerProtocol.Process()
 					}
@@ -327,7 +312,10 @@ func (self *Server) handle(stream *Stream) {
 		case *TransparencyTextServerProtocol:
 			if self.slock.state == STATE_LEADER {
 				transparencyServerProtocol := serverProtocol.(*TransparencyTextServerProtocol)
-				err = transparencyServerProtocol.serverProtocol.Process()
+				err = transparencyServerProtocol.serverProtocol.RunCommand()
+				if err == nil {
+					err = transparencyServerProtocol.serverProtocol.Process()
+				}
 			} else {
 				err = serverProtocol.Process()
 			}

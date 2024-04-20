@@ -533,6 +533,7 @@ type BinaryServerProtocol struct {
 	freeCommands       []*protocol.LockCommand
 	freeCommandIndex   int
 	lockedFreeCommands *LockCommandQueue
+	rbuf               []byte
 	wbuf               []byte
 	callMethods        map[string]BinaryServerProtocolCallHandler
 	willCommands       *LockCommandQueue
@@ -544,7 +545,7 @@ type BinaryServerProtocol struct {
 func NewBinaryServerProtocol(slock *SLock, stream *Stream) *BinaryServerProtocol {
 	proxy := &ServerProtocolProxy{[16]byte{}, nil}
 	serverProtocol := &BinaryServerProtocol{slock, &sync.Mutex{}, stream, nil, make([]*ServerProtocolProxy, 0), make([]*protocol.LockCommand, FREE_COMMAND_MAX_SIZE),
-		0, NewLockCommandQueue(4, 64, FREE_COMMAND_QUEUE_INIT_SIZE), make([]byte, 64),
+		0, NewLockCommandQueue(4, 64, FREE_COMMAND_QUEUE_INIT_SIZE), nil, make([]byte, 64),
 		nil, nil, 0, false, false}
 	proxy.serverProtocol = serverProtocol
 	serverProtocol.InitLockCommand()
@@ -887,6 +888,7 @@ func (self *BinaryServerProtocol) Process() error {
 			return errors.New("read stream error")
 		}
 		if self.slock.state != STATE_LEADER {
+			self.rbuf = buf
 			return AGAIN
 		}
 		err = self.ProcessParse(buf)
@@ -901,6 +903,7 @@ func (self *BinaryServerProtocol) Process() error {
 			readerBuffer.index = index
 
 			if self.slock.state != STATE_LEADER {
+				self.rbuf = buf
 				return AGAIN
 			}
 			err = self.ProcessParse(buf)
