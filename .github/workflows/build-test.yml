@@ -56,22 +56,6 @@ jobs:
       - name: Test
         run: ./run-tests
 
-  build1-18:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-
-      - name: Set up Go
-        uses: actions/setup-go@v2
-        with:
-          go-version: 1.18
-
-      - name: Build
-        run: go build
-
-      - name: Test
-        run: ./run-tests
-
   build1-19:
     runs-on: ubuntu-latest
     steps:
@@ -81,6 +65,22 @@ jobs:
         uses: actions/setup-go@v2
         with:
           go-version: 1.19
+
+      - name: Build
+        run: go build
+
+      - name: Test
+        run: ./run-tests
+
+  build1-22:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Set up Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: 1.22
 
       - name: Build
         run: go build
