@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -258,7 +259,7 @@ func (self *Server) handle(stream *Stream) {
 		switch serverProtocol.(type) {
 		case *BinaryServerProtocol:
 			if self.slock.state != STATE_LEADER {
-				if err == AGAIN {
+				if errors.Is(err, AGAIN) {
 					binaryServerProtocol := serverProtocol.(*BinaryServerProtocol)
 					serverProtocol = NewTransparencyBinaryServerProtocol(self.slock, stream, binaryServerProtocol)
 					for binaryServerProtocol.stream.readerBuffer.GetSize() >= 64 {
@@ -283,7 +284,7 @@ func (self *Server) handle(stream *Stream) {
 			}
 		case *TextServerProtocol:
 			if self.slock.state != STATE_LEADER {
-				if err == AGAIN {
+				if errors.Is(err, AGAIN) {
 					textServerProtocol := serverProtocol.(*TextServerProtocol)
 					transparencyServerProtocol := NewTransparencyTextServerProtocol(self.slock, stream, textServerProtocol)
 					serverProtocol = transparencyServerProtocol
@@ -304,7 +305,7 @@ func (self *Server) handle(stream *Stream) {
 			if self.slock.state == STATE_LEADER {
 				transparencyServerProtocol := serverProtocol.(*TransparencyBinaryServerProtocol)
 				binaryServerProtocol := transparencyServerProtocol.serverProtocol
-				if err == AGAIN {
+				if errors.Is(err, AGAIN) {
 					for binaryServerProtocol.stream.readerBuffer.GetSize() >= 64 {
 						buf, rerr := binaryServerProtocol.stream.ReadBytesSize(64)
 						if rerr != nil {
@@ -336,10 +337,9 @@ func (self *Server) handle(stream *Stream) {
 		}
 
 		if err != nil {
-			if err == AGAIN {
+			if errors.Is(err, AGAIN) {
 				continue
 			}
-
 			if err != io.EOF && !self.stoped {
 				self.slock.Log().Errorf("Server protocol connection process error %v", err)
 			}

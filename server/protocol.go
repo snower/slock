@@ -836,16 +836,13 @@ func (self *BinaryServerProtocol) Write(result protocol.CommandEncode) error {
 		self.glock.Unlock()
 		return err
 	}
-
-	if n < 64 {
-		for n < 64 {
-			cn, cerr := self.stream.conn.Write(self.wbuf[n:])
-			if cerr != nil {
-				self.glock.Unlock()
-				return cerr
-			}
-			n += cn
+	for n < 64 {
+		cn, cerr := self.stream.conn.Write(self.wbuf[n:])
+		if cerr != nil {
+			self.glock.Unlock()
+			return cerr
 		}
+		n += cn
 	}
 
 	switch result.(type) {
@@ -895,6 +892,21 @@ func (self *BinaryServerProtocol) Process() error {
 		err = self.ProcessParse(buf)
 		if err != nil {
 			return err
+		}
+
+		readerBuffer := self.stream.readerBuffer
+		for readerBuffer.GetSize() >= 64 {
+			index := readerBuffer.index + 64
+			buf = readerBuffer.buf[readerBuffer.index:index]
+			readerBuffer.index = index
+
+			if self.slock.state != STATE_LEADER {
+				return AGAIN
+			}
+			err = self.ProcessParse(buf)
+			if err != nil {
+				return err
+			}
 		}
 	}
 	return io.EOF
@@ -1358,16 +1370,13 @@ func (self *BinaryServerProtocol) ProcessLockResultCommand(command *protocol.Loc
 		self.glock.Unlock()
 		return err
 	}
-
-	if n < 64 {
-		for n < 64 {
-			cn, cerr := self.stream.conn.Write(buf[n:])
-			if cerr != nil {
-				self.glock.Unlock()
-				return cerr
-			}
-			n += cn
+	for n < 64 {
+		cn, cerr := self.stream.conn.Write(buf[n:])
+		if cerr != nil {
+			self.glock.Unlock()
+			return cerr
 		}
+		n += cn
 	}
 
 	if data != nil {
@@ -2423,7 +2432,7 @@ func (self *TextServerProtocol) ArgsToLockComand(args []string) (*protocol.LockC
 				command.CommandType += 7
 			}
 		case "SET":
-			command.Data = protocol.NewLockCommandDataFromString(args[i+1], 0, 0)
+			command.Data = protocol.NewLockCommandDataFromString(args[i+1], protocol.LOCK_DATA_COMMAND_TYPE_SET, 0)
 			command.Flag |= protocol.LOCK_FLAG_CONTAINS_DATA
 		}
 	}

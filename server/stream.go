@@ -41,8 +41,9 @@ func (self *StreamReaderBuffer) Read(buf []byte) int {
 	}
 	bufSize, size := self.len-self.index, len(buf)
 	if bufSize > size {
-		copy(buf, self.buf[self.index:self.index+size])
-		self.index += size
+		index := self.index + size
+		copy(buf, self.buf[self.index:index])
+		self.index = index
 		return size
 	}
 	copy(buf[:bufSize], self.buf[self.index:self.len])
@@ -56,8 +57,9 @@ func (self *StreamReaderBuffer) ReadBytesSize(size int) []byte {
 	}
 	bufSize := self.len - self.index
 	if bufSize > size {
-		buf := self.buf[self.index : self.index+size]
-		self.index += size
+		index := self.index + size
+		buf := self.buf[self.index:index]
+		self.index = index
 		return buf
 	}
 	buf := self.buf[self.index:self.len]
@@ -69,8 +71,16 @@ func (self *StreamReaderBuffer) ReadFromConn(conn net.Conn, size int) (int, erro
 	bufSize := self.len - self.index
 	freeSize := self.cap - bufSize
 	if bufSize <= 0 {
+		if size < 0 {
+			n, err := conn.Read(self.buf)
+			if err != nil {
+				return bufSize, err
+			}
+			self.index, self.len = 0, n
+			return n, nil
+		}
 		self.index, self.len = 0, 0
-	} else if freeSize <= 0 {
+	} else if freeSize <= 0 || size < 0 {
 		return bufSize, nil
 	}
 	readConnSize := size - bufSize
@@ -152,14 +162,12 @@ func (self *Stream) ReadBytes(buf []byte) (int, error) {
 		return n + cn, err
 	}
 	cn += n
-	if cn < bufLen {
-		for cn < bufLen {
-			nn, nerr := self.conn.Read(buf[cn:])
-			if nerr != nil {
-				return cn + nn, nerr
-			}
-			cn += nn
+	for cn < bufLen {
+		nn, nerr := self.conn.Read(buf[cn:])
+		if nerr != nil {
+			return cn + nn, nerr
 		}
+		cn += nn
 	}
 	return cn, nil
 }
@@ -194,14 +202,12 @@ func (self *Stream) ReadBytesSize(size int) ([]byte, error) {
 		return nil, err
 	}
 	cn += n
-	if cn < size {
-		for cn < size {
-			nn, nerr := self.conn.Read(buf[cn:])
-			if nerr != nil {
-				return nil, nerr
-			}
-			cn += nn
+	for cn < size {
+		nn, nerr := self.conn.Read(buf[cn:])
+		if nerr != nil {
+			return nil, nerr
 		}
+		cn += nn
 	}
 	return buf, nil
 }
@@ -225,9 +231,25 @@ func (self *Stream) ReadBytesFrame() ([]byte, error) {
 		}
 		frameLen = int(uint32(buf[0]) | uint32(buf[1])<<8 | uint32(buf[2])<<16 | uint32(buf[3])<<24)
 	}
+
 	buf := make([]byte, frameLen+4)
 	buf[0], buf[1], buf[2], buf[3] = byte(frameLen), byte(frameLen>>8), byte(frameLen>>16), byte(frameLen>>24)
 	if frameLen <= 0 {
+		return buf, nil
+	}
+	if self.readerBuffer.GetSize() == 0 {
+		cn, err := self.conn.Read(buf[4:])
+		if err != nil {
+			return nil, err
+		}
+		cn += 4
+		for cn < frameLen {
+			nn, nerr := self.conn.Read(buf[cn:])
+			if nerr != nil {
+				return nil, nerr
+			}
+			cn += nn
+		}
 		return buf, nil
 	}
 	_, err := self.ReadBytes(buf[4:])
@@ -260,16 +282,17 @@ func (self *Stream) ReadSize(size int) ([]byte, error) {
 		return buf, nil
 	}
 
-	buf := make([]byte, size)
-	n := self.readerBuffer.Read(buf)
-	if n >= size {
+	bsize := self.readerBuffer.GetSize()
+	if bsize > 0 {
+		buf := self.readerBuffer.ReadBytesSize(bsize)
 		return buf, nil
 	}
-	cn, err := self.conn.Read(buf[n:])
+	buf := make([]byte, size)
+	n, err := self.conn.Read(buf)
 	if err != nil {
 		return nil, err
 	}
-	return buf[:n+cn], nil
+	return buf[:n], nil
 }
 
 func (self *Stream) Read(buf []byte) (int, error) {
@@ -292,41 +315,38 @@ func (self *Stream) Read(buf []byte) (int, error) {
 	}
 
 	n := self.readerBuffer.Read(buf)
-	if n >= bufLen {
+	if n > 0 {
 		return n, nil
 	}
-	cn, err := self.conn.Read(buf[n:])
-	return n + cn, err
+	return self.conn.Read(buf[n:])
 }
 
 func (self *Stream) ReadFromConn(buf []byte) (int, error) {
+	if self.closed {
+		return 0, io.EOF
+	}
 	n := self.readerBuffer.Read(buf)
-	if n >= len(buf) {
+	if n > 0 {
 		return n, nil
 	}
-	cn, err := self.conn.Read(buf[n:])
-	return n + cn, err
+	return self.conn.Read(buf)
 }
 
 func (self *Stream) WriteBytes(b []byte) error {
 	if self.closed {
 		return io.EOF
 	}
-
 	cn := len(b)
 	n, err := self.conn.Write(b)
 	if err != nil {
 		return err
 	}
-
-	if n < cn {
-		for n < cn {
-			nn, nerr := self.conn.Write(b[n:])
-			if nerr != nil {
-				return nerr
-			}
-			n += nn
+	for n < cn {
+		nn, nerr := self.conn.Write(b[n:])
+		if nerr != nil {
+			return nerr
 		}
+		n += nn
 	}
 	return nil
 }
@@ -335,7 +355,6 @@ func (self *Stream) Write(b []byte) (int, error) {
 	if self.closed {
 		return 0, io.EOF
 	}
-
 	return self.conn.Write(b)
 }
 
@@ -343,7 +362,6 @@ func (self *Stream) Close() error {
 	if self.closed {
 		return nil
 	}
-
 	self.closed = true
 	self.protocol = nil
 	return self.conn.Close()

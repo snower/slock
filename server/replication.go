@@ -32,7 +32,7 @@ func NewReplicationBufferQueueItem() *ReplicationBufferQueueItem {
 func (self *ReplicationBufferQueueItem) Init(buf []byte) {
 	self.nextItem = nil
 	self.buf = buf
-	self.pollCount = 0
+	self.pollCount = 0xffffffff
 	self.pollIndex = 0
 	self.seq = 0
 }
@@ -134,7 +134,7 @@ func (self *ReplicationBufferQueue) Push(buf []byte, data []byte) error {
 			if self.usedBufferSize >= self.bufferSize && self.tailItem != nil {
 				for self.usedBufferSize >= self.bufferSize && self.tailItem != nil {
 					queueItem.data = nil
-					queueItem.pollCount = 0
+					queueItem.pollCount = 0xffffffff
 					queueItem.pollIndex = 0
 					queueItem.seq = 0
 					queueItem.nextItem = self.freeHeadItem
@@ -186,7 +186,7 @@ func (self *ReplicationBufferQueue) Push(buf []byte, data []byte) error {
 func (self *ReplicationBufferQueue) Pop(cursor *ReplicationBufferQueueCursor) error {
 	self.glock.RLock()
 	currentItem := cursor.currentItem
-	if currentItem == nil {
+	if currentItem == nil || currentItem.pollCount == 0xffffffff {
 		currentItem = self.tailItem
 		if currentItem == nil {
 			self.glock.RUnlock()

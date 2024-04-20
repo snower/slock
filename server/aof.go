@@ -518,34 +518,28 @@ func (self *AofFile) Close() error {
 	if self.dirtied {
 		_ = self.Sync()
 	}
-
 	if self.ackIndex > 0 {
 		for i := 0; i < self.ackIndex; i++ {
 			_ = self.aof.lockAcked(self.ackRequests[i], false)
 		}
 		self.ackIndex = 0
 	}
-
 	if self.file == nil {
 		return errors.New("File Unopen")
 	}
 
 	err := self.file.Close()
-	if err != nil {
-		return err
+	if self.dataFile != nil {
+		derr := self.dataFile.Close()
+		if derr != nil && err == nil {
+			err = derr
+		}
 	}
 	self.file = nil
+	self.dataFile = nil
 	self.wbuf = nil
 	self.rbuf = nil
-
-	if self.dataFile != nil {
-		err = self.dataFile.Close()
-		if err != nil {
-			return err
-		}
-		self.dataFile = nil
-	}
-	return nil
+	return err
 }
 
 func (self *AofFile) GetSize() int {
@@ -1092,8 +1086,8 @@ func (self *Aof) Init() error {
 	}
 
 	self.dataDir = dataDir
-	if _, err := os.Stat(self.dataDir); os.IsNotExist(err) {
-		return err
+	if _, serr := os.Stat(self.dataDir); os.IsNotExist(serr) {
+		return serr
 	}
 	self.slock.Log().Infof("Aof config data dir %s", self.dataDir)
 
@@ -1111,8 +1105,8 @@ func (self *Aof) LoadAndInit() error {
 	}
 
 	self.dataDir = dataDir
-	if _, err := os.Stat(self.dataDir); os.IsNotExist(err) {
-		return err
+	if _, serr := os.Stat(self.dataDir); os.IsNotExist(serr) {
+		return serr
 	}
 	self.slock.Log().Infof("Aof config data dir %s", self.dataDir)
 
@@ -1122,9 +1116,9 @@ func (self *Aof) LoadAndInit() error {
 	}
 
 	if len(appendFiles) > 0 {
-		aofFileIndex, err := strconv.ParseInt(appendFiles[len(appendFiles)-1][11:], 10, 64)
-		if err != nil {
-			return err
+		aofFileIndex, perr := strconv.ParseInt(appendFiles[len(appendFiles)-1][11:], 10, 64)
+		if perr != nil {
+			return perr
 		}
 		self.aofFileIndex = uint32(aofFileIndex)
 	}
@@ -1170,8 +1164,8 @@ func (self *Aof) LoadMaxId() ([16]byte, error) {
 	}
 
 	self.dataDir = dataDir
-	if _, err := os.Stat(self.dataDir); os.IsNotExist(err) {
-		return [16]byte{}, err
+	if _, serr := os.Stat(self.dataDir); os.IsNotExist(serr) {
+		return [16]byte{}, serr
 	}
 
 	appendFiles, rewriteFile, err := self.FindAofFiles()
@@ -1183,8 +1177,8 @@ func (self *Aof) LoadMaxId() ([16]byte, error) {
 	aofLock.AofIndex = 1
 	fileAofId := aofLock.GetRequestId()
 	if len(appendFiles) > 0 {
-		aofFileIndex, err := strconv.ParseInt(appendFiles[len(appendFiles)-1][11:], 10, 64)
-		if err == nil {
+		aofFileIndex, perr := strconv.ParseInt(appendFiles[len(appendFiles)-1][11:], 10, 64)
+		if perr == nil {
 			aofLock.AofIndex = uint32(aofFileIndex)
 			aofLock.AofId = 0
 			fileAofId = aofLock.GetRequestId()
@@ -1198,12 +1192,13 @@ func (self *Aof) LoadMaxId() ([16]byte, error) {
 	aofFilenames = append(aofFilenames, appendFiles...)
 	for i := len(aofFilenames) - 1; i >= 0; i-- {
 		aofFile := NewAofFile(self, filepath.Join(self.dataDir, aofFilenames[i]), os.O_RDONLY, int(Config.AofFileBufferSize))
-		err := aofFile.Open()
+		err = aofFile.Open()
 		if err != nil {
 			return fileAofId, err
 		}
 		err = aofFile.ReadTail(aofLock)
 		if err != nil {
+			_ = aofFile.Close()
 			if err == io.EOF {
 				continue
 			}
@@ -1212,8 +1207,10 @@ func (self *Aof) LoadMaxId() ([16]byte, error) {
 
 		err = aofLock.Decode()
 		if err != nil {
+			_ = aofFile.Close()
 			return fileAofId, err
 		}
+		_ = aofFile.Close()
 		return aofLock.GetRequestId(), nil
 	}
 	return fileAofId, nil
@@ -1680,7 +1677,7 @@ func (self *Aof) Reset(aofFileIndex uint32) error {
 	}
 
 	if rewriteFile != "" {
-		err := os.Remove(filepath.Join(self.dataDir, rewriteFile))
+		err = os.Remove(filepath.Join(self.dataDir, rewriteFile))
 		if err != nil {
 			self.slock.Log().Errorf("Aof clear files remove %s error %v", rewriteFile, err)
 			return err
@@ -1689,7 +1686,7 @@ func (self *Aof) Reset(aofFileIndex uint32) error {
 	}
 
 	for _, appendFile := range appendFiles {
-		err := os.Remove(filepath.Join(self.dataDir, appendFile))
+		err = os.Remove(filepath.Join(self.dataDir, appendFile))
 		if err != nil {
 			self.slock.Log().Errorf("Aof clear files remove %s error %v", appendFile, err)
 			return err
@@ -1800,8 +1797,8 @@ func (self *Aof) findRewriteAofFiles() ([]string, error) {
 		aofFilenames = append(aofFilenames, rewriteFile)
 	}
 	for _, appendFile := range appendFiles {
-		aofFileIndex, err := strconv.ParseInt(appendFile[11:], 10, 64)
-		if err != nil {
+		aofFileIndex, perr := strconv.ParseInt(appendFile[11:], 10, 64)
+		if perr != nil {
 			continue
 		}
 
@@ -1862,11 +1859,13 @@ func (self *Aof) loadRewriteAofFiles(aofFilenames []string) (*AofFile, []*AofFil
 		return true, nil
 	})
 	if lerr != nil {
+		_ = rewriteAofFile.Close()
 		self.slock.Log().Errorf("Aof load and rewrite file error %v", err)
 	}
 
 	err = rewriteAofFile.Flush()
 	if err != nil {
+		_ = rewriteAofFile.Close()
 		self.slock.Log().Errorf("Aof rewrite flush file error %v", err)
 	}
 

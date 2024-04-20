@@ -364,6 +364,21 @@ func (self *TransparencyBinaryServerProtocol) Process() error {
 		if err != nil {
 			return err
 		}
+
+		readerBuffer := self.stream.readerBuffer
+		for readerBuffer.GetSize() >= 64 {
+			index := readerBuffer.index + 64
+			buf = readerBuffer.buf[readerBuffer.index:index]
+			readerBuffer.index = index
+
+			if self.slock.state == STATE_LEADER {
+				return AGAIN
+			}
+			err = self.ProcessParse(buf)
+			if err != nil {
+				return err
+			}
+		}
 	}
 	return io.EOF
 }
