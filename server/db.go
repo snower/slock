@@ -1353,7 +1353,8 @@ func (self *LockDB) doExpried(lock *Lock, forcedExpried bool) {
 	if !forcedExpried {
 		if self.status != STATE_LEADER {
 			if lock.expriedTime <= 0 || self.currentTime-lock.expriedTime < EXPRIED_WAIT_LEADER_MAX_TIME {
-				self.AddExpried(lock, self.currentTime+30)
+				lock.expriedTime = self.currentTime + 30
+				self.AddExpried(lock, lock.expriedTime)
 				lockManager.glock.Unlock()
 				return
 			}
