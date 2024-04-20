@@ -868,7 +868,7 @@ func (self *LockDB) flushExpried(glockIndex uint16, doExpried bool) {
 	} else {
 		for _, lock := range doExpriedLocks {
 			if !lock.isAof && lock.aofTime != 0xff {
-				_ = lock.manager.PushLockAof(lock)
+				_ = lock.manager.PushLockAof(lock, 0)
 			}
 		}
 	}
@@ -1313,7 +1313,7 @@ func (self *LockDB) AddExpried(lock *Lock, lockExpriedTime int64) {
 		if !lock.isAof && lock.aofTime != 0xff {
 			if self.currentTime-lock.startTime >= int64(lock.aofTime) {
 				for i := uint8(0); i < lock.locked; i++ {
-					_ = lock.manager.PushLockAof(lock)
+					_ = lock.manager.PushLockAof(lock, 0)
 				}
 			}
 		}
@@ -1443,7 +1443,7 @@ func (self *LockDB) AddMillisecondExpried(lock *Lock) {
 	_ = lockQueue.Push(lock)
 
 	if !lock.isAof && lock.aofTime == 0 {
-		_ = lock.manager.PushLockAof(lock)
+		_ = lock.manager.PushLockAof(lock, 0)
 	}
 }
 
@@ -1534,7 +1534,7 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 				}
 				currentLock.protocol = serverProtocol.GetProxy()
 				if currentLock.isAof {
-					_ = lockManager.PushLockAof(currentLock)
+					_ = lockManager.PushLockAof(currentLock, AOF_FLAG_UPDATED)
 				}
 
 				command.Expried = uint16(currentLock.expriedTime - currentLock.startTime)
@@ -1574,7 +1574,7 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 				}
 				currentLock.protocol = serverProtocol.GetProxy()
 				if currentLock.isAof {
-					_ = lockManager.PushLockAof(currentLock)
+					_ = lockManager.PushLockAof(currentLock, AOF_FLAG_UPDATED)
 				}
 				lockManager.state.LockCount++
 				lockManager.state.LockedCount++
@@ -1621,7 +1621,7 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 					self.AddMillisecondTimeOut(lock)
 				}
 				lock.refCount += 2
-				err := lockManager.PushLockAof(lock)
+				err := lockManager.PushLockAof(lock, 0)
 				if err == nil {
 					lockManager.glock.Unlock()
 				} else {
@@ -1827,7 +1827,7 @@ func (self *LockDB) UnLock(serverProtocol ServerProtocol, command *protocol.Lock
 					lockManager.ProcessLockData(command)
 				}
 				if currentLock.isAof {
-					_ = lockManager.PushUnLockAof(lockManager.dbId, currentLock, currentLock.command, command, true, 0)
+					_ = lockManager.PushUnLockAof(lockManager.dbId, currentLock, currentLock.command, command, true, AOF_FLAG_UPDATED)
 				}
 				lockManager.state.UnLockCount++
 				lockManager.state.LockedCount--
@@ -1987,7 +1987,7 @@ func (self *LockDB) wakeUpWaitLock(lockManager *LockManager, waitLock *Lock, ser
 		lockManager.AddLock(waitLock)
 		lockManager.locked++
 		waitLock.refCount++
-		err := lockManager.PushLockAof(waitLock)
+		err := lockManager.PushLockAof(waitLock, 0)
 		if err == nil {
 			lockManager.glock.Unlock()
 		} else {
@@ -2253,7 +2253,7 @@ func (self *LockDB) DoAckLock(lock *Lock, succed bool) {
 	self.wakeUpWaitLocks(lockManager, nil)
 }
 
-func (self *LockDB) HasLock(command *protocol.LockCommand) bool {
+func (self *LockDB) HasLock(command *protocol.LockCommand, checkUpdated bool) bool {
 	lockManager := self.GetLockManager(command)
 	if lockManager == nil {
 		return false
@@ -2274,12 +2274,16 @@ func (self *LockDB) HasLock(command *protocol.LockCommand) bool {
 		return false
 	}
 	currentLock := lockManager.GetLockedLock(command)
-	if currentLock != nil {
+	if currentLock == nil {
 		lockManager.glock.Unlock()
-		return true
+		return false
+	}
+	if checkUpdated && currentLock.command.RequestId != command.RequestId {
+		lockManager.glock.Unlock()
+		return false
 	}
 	lockManager.glock.Unlock()
-	return false
+	return true
 }
 
 func (self *LockDB) GetState() *protocol.LockDBState {

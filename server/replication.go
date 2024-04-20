@@ -569,7 +569,7 @@ func (self *ReplicationClient) recvFiles() error {
 		}
 
 		currentAofIndex := self.aofLock.AofIndex
-		if self.aofLock.AofFlag&AOF_FLAG_REWRITEd != 0 {
+		if self.aofLock.AofFlag&AOF_FLAG_REWRITED != 0 {
 			currentAofIndex = 0
 		}
 		if currentAofIndex != aofIndex || aofFile == nil {

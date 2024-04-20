@@ -21,9 +21,10 @@ const AOF_LOCK_TYPE_REPLAY = 2
 const AOF_LOCK_TYPE_ACK_FILE = 3
 const AOF_LOCK_TYPE_ACK_ACKED = 4
 
-const AOF_FLAG_REWRITEd = 0x0001
+const AOF_FLAG_REWRITED = 0x0001
 const AOF_FLAG_TIMEOUTED = 0x0002
 const AOF_FLAG_EXPRIED = 0x0004
+const AOF_FLAG_UPDATED = 0x0008
 const AOF_FLAG_REQUIRE_ACKED = 0x1000
 const AOF_FLAG_CONTAINS_DATA = 0x2000
 
@@ -1828,15 +1829,16 @@ func (self *Aof) loadRewriteAofFiles(aofFilenames []string) (*AofFile, []*AofFil
 		}
 
 		lockCommand.CommandType = lock.CommandType
+		lockCommand.RequestId = lock.GetRequestId()
 		lockCommand.DbId = lock.DbId
 		lockCommand.LockId = lock.LockId
 		lockCommand.LockKey = lock.LockKey
-		if !db.HasLock(lockCommand) {
+		if !db.HasLock(lockCommand, lock.CommandType == protocol.COMMAND_LOCK && lock.AofFlag&AOF_FLAG_UPDATED != 0 && lock.Rcount == 0) {
 			return true, nil
 		}
 
-		lock.AofFlag |= AOF_FLAG_REWRITEd
-		lock.buf[55] |= AOF_FLAG_REWRITEd
+		lock.AofFlag |= AOF_FLAG_REWRITED
+		lock.buf[55] |= AOF_FLAG_REWRITED
 		err = rewriteAofFile.AppendLock(lock)
 		if err != nil {
 			return true, err
