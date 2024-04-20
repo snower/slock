@@ -286,9 +286,7 @@ func (self *Server) handle(stream *Stream) {
 					}
 				} else {
 					serverProtocol = NewTransparencyTextServerProtocol(self.slock, stream, serverProtocol.(*TextServerProtocol))
-					if err == nil {
-						err = serverProtocol.Process()
-					}
+					err = serverProtocol.Process()
 				}
 			} else {
 				err = serverProtocol.Process()
@@ -312,9 +310,14 @@ func (self *Server) handle(stream *Stream) {
 		case *TransparencyTextServerProtocol:
 			if self.slock.state == STATE_LEADER {
 				transparencyServerProtocol := serverProtocol.(*TransparencyTextServerProtocol)
-				err = transparencyServerProtocol.serverProtocol.RunCommand()
-				if err == nil {
-					err = transparencyServerProtocol.serverProtocol.Process()
+				textServerProtocol := transparencyServerProtocol.serverProtocol
+				if err == AGAIN {
+					err = textServerProtocol.RunCommand()
+					if err == nil {
+						err = textServerProtocol.Process()
+					}
+				} else {
+					err = textServerProtocol.Process()
 				}
 			} else {
 				err = serverProtocol.Process()
