@@ -353,14 +353,12 @@ func (self *AofFile) ReadLockData(lock *AofLock) error {
 	if err != nil {
 		return err
 	}
-	if n < 4 {
-		for n < 4 {
-			nn, nerr := self.dataFile.Read(buf[n:])
-			if nerr != nil {
-				return nerr
-			}
-			n += nn
+	for n < 4 {
+		nn, nerr := self.dataFile.Read(buf[n:])
+		if nerr != nil {
+			return nerr
 		}
+		n += nn
 	}
 	dataLen := int(uint32(buf[0]) | uint32(buf[1])<<8 | uint32(buf[2])<<16 | uint32(buf[3])<<24)
 	aofLockData := make([]byte, dataLen+4)
@@ -374,14 +372,12 @@ func (self *AofFile) ReadLockData(lock *AofLock) error {
 	if err != nil {
 		return err
 	}
-	if n < dataLen {
-		for n < dataLen {
-			nn, nerr := self.dataFile.Read(aofLockData[n+4:])
-			if nerr != nil {
-				return nerr
-			}
-			n += nn
+	for n < dataLen {
+		nn, nerr := self.dataFile.Read(aofLockData[n+4:])
+		if nerr != nil {
+			return nerr
 		}
+		n += nn
 	}
 	lock.data = aofLockData
 	return nil
@@ -446,14 +442,12 @@ func (self *AofFile) WriteLockData(lock *AofLock) error {
 	if err != nil {
 		return err
 	}
-	if n < dataLen {
-		for n < dataLen {
-			nn, nerr := self.dataFile.Write(lock.data[n:])
-			if nerr != nil {
-				return nerr
-			}
-			n += nn
+	for n < dataLen {
+		nn, nerr := self.dataFile.Write(lock.data[n:])
+		if nerr != nil {
+			return nerr
 		}
+		n += nn
 	}
 	return nil
 }
@@ -791,6 +785,7 @@ func (self *AofChannel) AofAcked(buf []byte, succed bool) error {
 
 	copy(aofLock.buf, buf)
 	aofLock.data = nil
+	aofLock.Flag = 0
 	aofLock.AofFlag = 0
 	if succed {
 		aofLock.Result = protocol.RESULT_SUCCED
@@ -901,8 +896,8 @@ func (self *AofChannel) Handle(aofLock *AofLock) {
 
 	self.glock.Lock()
 	aofLock.lock = nil
+	aofLock.data = nil
 	if self.freeLockIndex < self.freeLockMax {
-		aofLock.data = nil
 		self.freeLocks[self.freeLockIndex] = aofLock
 		self.freeLockIndex++
 	}

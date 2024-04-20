@@ -842,6 +842,7 @@ func (self *SubscribeChannel) ClientPush(lock *PublishLock) error {
 	publishLock.Count = lock.Count
 	publishLock.Lrcount = lock.Lrcount
 	publishLock.Rcount = lock.Rcount
+	publishLock.data = lock.data
 
 	self.queueGlock.Lock()
 	self.pushPublishLock(publishLock)
@@ -891,6 +892,7 @@ func (self *SubscribeChannel) handle(publishLock *PublishLock) {
 	}
 
 	self.glock.Lock()
+	publishLock.data = nil
 	if self.freeLockIndex < self.freeLockMax {
 		self.freeLocks[self.freeLockIndex] = publishLock
 		self.freeLockIndex++

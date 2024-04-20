@@ -123,6 +123,7 @@ func (self *ReplicationBufferQueue) Push(buf []byte, data []byte) error {
 			self.InitFreeQueueItems(self.bufferSize / 64)
 			self.bufferSize *= 2
 			self.dupCount++
+			self.manager.slock.logger.Infof("Replication ring buffer duplicate %x %x", self.bufferSize, self.dupCount)
 		} else {
 			queueItem = self.tailItem
 			self.tailItem = self.tailItem.nextItem
@@ -550,7 +551,7 @@ func (self *ReplicationClient) recvFiles() error {
 		if self.aofLock.CommandType == protocol.COMMAND_INIT && self.aofLock.AofIndex == 0xffffffff &&
 			self.aofLock.AofId == 0xffffffff && self.aofLock.CommandTime == 0xffffffffffffffff {
 			if aofFile != nil {
-				err := aofFile.Flush()
+				err = aofFile.Flush()
 				if err != nil {
 					self.manager.slock.logger.Errorf("Replication client flush aof file %s error %v", aofFile.filename, err)
 				}
@@ -571,7 +572,7 @@ func (self *ReplicationClient) recvFiles() error {
 		}
 		if currentAofIndex != aofIndex || aofFile == nil {
 			if aofFile != nil {
-				err := aofFile.Flush()
+				err = aofFile.Flush()
 				if err != nil {
 					self.manager.slock.logger.Errorf("Replication client flush aof file %s error %v", aofFile.filename, err)
 				}
@@ -878,21 +879,21 @@ func (self *ReplicationServer) handleInitSync(command *protocol.CallCommand) (*p
 	}
 
 	if request.AofId == "" {
-		err := self.manager.bufferQueue.Head(self.bufferCursor)
+		err = self.manager.bufferQueue.Head(self.bufferCursor)
 		if err != nil {
 			self.waofLock.AofIndex = self.aof.aofFileIndex
 			self.waofLock.AofId = 0
 		} else {
 			self.waofLock.buf = self.bufferCursor.buf
-			err := self.waofLock.Decode()
+			err = self.waofLock.Decode()
 			if err != nil {
 				return protocol.NewCallResultCommand(command, 0, "ERR_DECODE", nil), nil
 			}
 		}
 		requestId := fmt.Sprintf("%x", self.waofLock.GetRequestId())
 		response := protobuf.SyncResponse{AofId: requestId}
-		data, err := proto.Marshal(&response)
-		if err != nil {
+		data, derr := proto.Marshal(&response)
+		if derr != nil {
 			return protocol.NewCallResultCommand(command, 0, "ERR_ENCODE", nil), nil
 		}
 		err = self.protocol.Write(protocol.NewCallResultCommand(command, 0, "", data))
@@ -906,9 +907,9 @@ func (self *ReplicationServer) handleInitSync(command *protocol.CallCommand) (*p
 			return nil, err
 		}
 		go (func() {
-			err := self.sendFiles()
-			if err != nil {
-				self.manager.slock.logger.Infof("Replication server handle client %s send files error %v", self.protocol.RemoteAddr().String(), err)
+			serr := self.sendFiles()
+			if serr != nil {
+				self.manager.slock.logger.Infof("Replication server handle client %s send files error %v", self.protocol.RemoteAddr().String(), serr)
 				_ = self.Close()
 				return
 			}
@@ -977,7 +978,7 @@ func (self *ReplicationServer) sendFiles() error {
 			return false, nil
 		}
 
-		err := self.stream.WriteBytes(lock.buf)
+		err = self.stream.WriteBytes(lock.buf)
 		if err != nil {
 			return true, err
 		}
@@ -1202,7 +1203,7 @@ func (self *ReplicationAckDB) PushLock(glockIndex uint16, lock *AofLock) error {
 
 	requestKey := self.updateRequestKey(glockIndex, lock)
 	if requestId, ok := self.requests[glockIndex][requestKey]; ok {
-		if _, ok := self.locks[glockIndex][requestId]; ok {
+		if _, ok = self.locks[glockIndex][requestId]; ok {
 			delete(self.locks[glockIndex], requestId)
 		}
 	}
@@ -1220,12 +1221,12 @@ func (self *ReplicationAckDB) PushUnLock(glockIndex uint16, lock *AofLock) error
 	requestKey := self.updateRequestKey(glockIndex, lock)
 	if requestId, ok := self.requests[glockIndex][requestKey]; ok {
 		delete(self.requests[glockIndex], requestKey)
-		if lock, ok := self.locks[glockIndex][requestId]; ok {
+		if rlock, rok := self.locks[glockIndex][requestId]; rok {
 			delete(self.locks[glockIndex], requestId)
 			self.ackGlocks[glockIndex].Unlock()
 
-			lockManager := lock.manager
-			lockManager.lockDb.DoAckLock(lock, false)
+			lockManager := rlock.manager
+			lockManager.lockDb.DoAckLock(rlock, false)
 			return nil
 		}
 	}
@@ -1240,7 +1241,7 @@ func (self *ReplicationAckDB) Process(glockIndex uint16, aofLock *AofLock) error
 		if aofLock.Result != 0 || lock.ackCount == 0xff {
 			delete(self.locks[glockIndex], requestId)
 			requestKey := self.updateRequestKey(glockIndex, aofLock)
-			if _, ok := self.requests[glockIndex][requestKey]; ok {
+			if _, ok = self.requests[glockIndex][requestKey]; ok {
 				delete(self.requests[glockIndex], requestKey)
 			}
 			self.ackGlocks[glockIndex].Unlock()
@@ -1258,7 +1259,7 @@ func (self *ReplicationAckDB) Process(glockIndex uint16, aofLock *AofLock) error
 
 		delete(self.locks[glockIndex], requestId)
 		requestKey := self.updateRequestKey(glockIndex, aofLock)
-		if _, ok := self.requests[glockIndex][requestKey]; ok {
+		if _, ok = self.requests[glockIndex][requestKey]; ok {
 			delete(self.requests[glockIndex], requestKey)
 		}
 		self.ackGlocks[glockIndex].Unlock()
@@ -1279,7 +1280,7 @@ func (self *ReplicationAckDB) ProcessAofed(glockIndex uint16, aofLock *AofLock) 
 		if aofLock.Result != 0 || lock.ackCount == 0xff {
 			delete(self.locks[glockIndex], requestId)
 			requestKey := self.updateRequestKey(glockIndex, aofLock)
-			if _, ok := self.requests[glockIndex][requestKey]; ok {
+			if _, ok = self.requests[glockIndex][requestKey]; ok {
 				delete(self.requests[glockIndex], requestKey)
 			}
 			self.ackGlocks[glockIndex].Unlock()
@@ -1297,7 +1298,7 @@ func (self *ReplicationAckDB) ProcessAofed(glockIndex uint16, aofLock *AofLock) 
 
 		delete(self.locks[glockIndex], requestId)
 		requestKey := self.updateRequestKey(glockIndex, aofLock)
-		if _, ok := self.requests[glockIndex][requestKey]; ok {
+		if _, ok = self.requests[glockIndex][requestKey]; ok {
 			delete(self.requests[glockIndex], requestKey)
 		}
 		self.ackGlocks[glockIndex].Unlock()
@@ -1622,10 +1623,10 @@ func (self *ReplicationManager) commandHandleSyncCommand(server_protocol *Binary
 	_ = self.addServerChannel(channel)
 	server_protocol.stream.streamType = STREAM_TYPE_AOF
 	go func() {
-		err := channel.SendProcess()
-		if err != nil {
-			if err != io.EOF && !self.closed {
-				self.slock.logger.Errorf("Replication handle client %s sync error %v", server_protocol.RemoteAddr().String(), err)
+		serr := channel.SendProcess()
+		if serr != nil {
+			if serr != io.EOF && !self.closed {
+				self.slock.logger.Errorf("Replication handle client %s sync error %v", server_protocol.RemoteAddr().String(), serr)
 			}
 			_ = channel.Close()
 		}
