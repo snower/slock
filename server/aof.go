@@ -1829,11 +1829,10 @@ func (self *Aof) loadRewriteAofFiles(aofFilenames []string) (*AofFile, []*AofFil
 		}
 
 		lockCommand.CommandType = lock.CommandType
-		lockCommand.RequestId = lock.GetRequestId()
 		lockCommand.DbId = lock.DbId
 		lockCommand.LockId = lock.LockId
 		lockCommand.LockKey = lock.LockKey
-		if !db.HasLock(lockCommand, lock.CommandType == protocol.COMMAND_LOCK && lock.AofFlag&AOF_FLAG_UPDATED != 0 && lock.Rcount == 0) {
+		if !db.HasLock(lockCommand) {
 			return true, nil
 		}
 

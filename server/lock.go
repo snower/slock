@@ -334,7 +334,7 @@ func (self *LockManager) GetLockData() []byte {
 }
 
 func (self *LockManager) AofLockData() []byte {
-	if self.currentData != nil && !self.currentData.isAof {
+	if self.currentData != nil {
 		self.currentData.isAof = true
 		return self.currentData.Data
 	}

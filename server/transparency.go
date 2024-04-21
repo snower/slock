@@ -467,6 +467,11 @@ func (self *TransparencyBinaryServerProtocol) ProcessParse(buf []byte) error {
 				db = self.slock.GetOrNewDB(lockCommand.DbId)
 			}
 			return db.Lock(self, lockCommand)
+		} else {
+			db := self.slock.dbs[lockCommand.DbId]
+			if db != nil && db.CheckProbableLock(self, lockCommand) {
+				return nil
+			}
 		}
 
 		clientProtocol, err := self.CheckClient()
@@ -654,6 +659,11 @@ func (self *TransparencyBinaryServerProtocol) ProcessCommad(command protocol.ICo
 				err := self.serverProtocol.ProcessLockResultCommand(lockCommand, protocol.RESULT_UNKNOWN_DB, 0, 0, nil)
 				_ = self.serverProtocol.FreeLockCommand(lockCommand)
 				return err
+			} else {
+				db := self.slock.dbs[lockCommand.DbId]
+				if db != nil && db.CheckProbableLock(self, lockCommand) {
+					return nil
+				}
 			}
 
 			clientProtocol, err := self.CheckClient()

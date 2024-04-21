@@ -2253,7 +2253,21 @@ func (self *LockDB) DoAckLock(lock *Lock, succed bool) {
 	self.wakeUpWaitLocks(lockManager, nil)
 }
 
-func (self *LockDB) HasLock(command *protocol.LockCommand, checkUpdated bool) bool {
+func (self *LockDB) CheckProbableLock(serverProtocol ServerProtocol, command *protocol.LockCommand) bool {
+	if command.Timeout == 0 && command.Flag&protocol.LOCK_FLAG_CONCURRENT_CHECK != 0 {
+		lockManager := self.GetOrNewLockManager(command)
+		if command.Count < 0xffff && lockManager.locked > uint32(command.Count) {
+			if lockManager.refCount > 0 {
+				_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_TIMEOUT, uint16(lockManager.locked), 0, lockManager.GetLockData())
+				_ = serverProtocol.FreeLockCommand(command)
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (self *LockDB) HasLock(command *protocol.LockCommand) bool {
 	lockManager := self.GetLockManager(command)
 	if lockManager == nil {
 		return false
@@ -2275,10 +2289,6 @@ func (self *LockDB) HasLock(command *protocol.LockCommand, checkUpdated bool) bo
 	}
 	currentLock := lockManager.GetLockedLock(command)
 	if currentLock == nil {
-		lockManager.glock.Unlock()
-		return false
-	}
-	if checkUpdated && currentLock.command.RequestId != command.RequestId {
 		lockManager.glock.Unlock()
 		return false
 	}
