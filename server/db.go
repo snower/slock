@@ -2268,15 +2268,13 @@ func (self *LockDB) DoAckLock(lock *Lock, succed bool) {
 				lockManager.currentData = NewLockDataUnsetData()
 			} else {
 				lockManager.currentData = currentData.recoverData
+				lockManager.currentData.isAof = false
 			}
 			currentData.recoverLock = nil
 			currentData.recoverData = nil
 		}
 	}
 	if lock.isAof {
-		if lockManager.currentData != nil {
-			lockManager.currentData.isAof = false
-		}
 		_ = lockManager.PushUnLockAof(lockManager.dbId, lock, lockCommand, nil, false, 0)
 	}
 

@@ -51,15 +51,19 @@ func (self *LockManager) AddLock(lock *Lock) *Lock {
 		}
 	}
 
-	switch lock.command.ExpriedFlag & 0x1300 {
-	case protocol.EXPRIED_FLAG_ZEOR_AOF_TIME:
-		lock.aofTime = 0
-	case protocol.EXPRIED_FLAG_UNLIMITED_AOF_TIME:
-		lock.aofTime = 0xff
-	case protocol.EXPRIED_FLAG_AOF_TIME_OF_EXPRIED_PARCENT:
-		lock.aofTime = uint8(float64(lock.command.Expried) * Config.DBLockAofParcentTime)
-	default:
-		lock.aofTime = self.lockDb.aofTime
+	if self.currentLock == nil {
+		switch lock.command.ExpriedFlag & 0x1300 {
+		case protocol.EXPRIED_FLAG_ZEOR_AOF_TIME:
+			lock.aofTime = 0
+		case protocol.EXPRIED_FLAG_UNLIMITED_AOF_TIME:
+			lock.aofTime = 0xff
+		case protocol.EXPRIED_FLAG_AOF_TIME_OF_EXPRIED_PARCENT:
+			lock.aofTime = uint8(float64(lock.command.Expried) * Config.DBLockAofParcentTime)
+		default:
+			lock.aofTime = self.lockDb.aofTime
+		}
+	} else {
+		lock.aofTime = self.currentLock.aofTime
 	}
 
 	lock.locked = 1
@@ -186,15 +190,17 @@ func (self *LockManager) UpdateLockedLock(lock *Lock, timeout uint16, timeout_fl
 		lock.expriedCheckedCount = 1
 	}
 
-	switch expried_flag & 0x1300 {
-	case protocol.EXPRIED_FLAG_ZEOR_AOF_TIME:
-		lock.aofTime = 0
-	case protocol.EXPRIED_FLAG_UNLIMITED_AOF_TIME:
-		lock.aofTime = 0xff
-	case protocol.EXPRIED_FLAG_AOF_TIME_OF_EXPRIED_PARCENT:
-		lock.aofTime = uint8(float64(expried) * Config.DBLockAofParcentTime)
-	default:
-		lock.aofTime = self.lockDb.aofTime
+	if !lock.isAof && self.currentLock == lock && self.locks.Head() == nil {
+		switch expried_flag & 0x1300 {
+		case protocol.EXPRIED_FLAG_ZEOR_AOF_TIME:
+			lock.aofTime = 0
+		case protocol.EXPRIED_FLAG_UNLIMITED_AOF_TIME:
+			lock.aofTime = 0xff
+		case protocol.EXPRIED_FLAG_AOF_TIME_OF_EXPRIED_PARCENT:
+			lock.aofTime = uint8(float64(expried) * Config.DBLockAofParcentTime)
+		default:
+			lock.aofTime = self.lockDb.aofTime
+		}
 	}
 }
 
