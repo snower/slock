@@ -2217,6 +2217,9 @@ func (self *LockDB) DoAckLock(lock *Lock, succed bool) {
 		lockData := lockManager.GetLockData()
 		if lock.command.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
 			lockManager.ProcessLockData(lock.command)
+			if lockManager.currentData != nil {
+				lockManager.currentData.isAof = true
+			}
 		}
 		if lock.command.ExpriedFlag&protocol.EXPRIED_FLAG_MILLISECOND_TIME == 0 {
 			self.AddExpried(lock, lock.expriedTime)
@@ -2237,6 +2240,9 @@ func (self *LockDB) DoAckLock(lock *Lock, succed bool) {
 	lockProtocol, lockCommand := lock.protocol, lock.command
 	lockManager.RemoveLock(lock)
 	if lock.isAof {
+		if lockManager.currentData != nil {
+			lockManager.currentData.isAof = false
+		}
 		_ = lockManager.PushUnLockAof(lockManager.dbId, lock, lockCommand, nil, false, 0)
 	}
 

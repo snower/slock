@@ -237,7 +237,7 @@ func (self *LockManager) PushLockAof(lock *Lock, aofFlag uint16) error {
 	}
 
 	fashHash := (uint32(self.lockKey[0])<<24 | uint32(self.lockKey[1])<<16 | uint32(self.lockKey[2])<<8 | uint32(self.lockKey[3])) ^ (uint32(self.lockKey[4])<<24 | uint32(self.lockKey[5])<<16 | uint32(self.lockKey[6])<<8 | uint32(self.lockKey[7])) ^ (uint32(self.lockKey[8])<<24 | uint32(self.lockKey[9])<<16 | uint32(self.lockKey[10])<<8 | uint32(self.lockKey[11])) ^ (uint32(self.lockKey[12])<<24 | uint32(self.lockKey[13])<<16 | uint32(self.lockKey[14])<<8 | uint32(self.lockKey[15]))
-	err := self.lockDb.aofChannels[fashHash%uint32(self.lockDb.managerMaxGlocks)].Push(lock.manager.dbId, lock, protocol.COMMAND_LOCK, lock.command, nil, aofFlag, lock.manager.AofLockData(protocol.COMMAND_LOCK))
+	err := self.lockDb.aofChannels[fashHash%uint32(self.lockDb.managerMaxGlocks)].Push(lock.manager.dbId, lock, protocol.COMMAND_LOCK, lock.command, nil, aofFlag, lock.manager.AofLockData(lock, protocol.COMMAND_LOCK))
 	if err != nil {
 		self.lockDb.slock.Log().Errorf("Database lock push aof error DbId:%d LockKey:%x LockId:%x",
 			lock.command.DbId, lock.command.LockKey, lock.command.LockId)
@@ -261,7 +261,7 @@ func (self *LockManager) PushUnLockAof(dbId uint8, lock *Lock, lockCommand *prot
 	}
 
 	fashHash := (uint32(self.lockKey[0])<<24 | uint32(self.lockKey[1])<<16 | uint32(self.lockKey[2])<<8 | uint32(self.lockKey[3])) ^ (uint32(self.lockKey[4])<<24 | uint32(self.lockKey[5])<<16 | uint32(self.lockKey[6])<<8 | uint32(self.lockKey[7])) ^ (uint32(self.lockKey[8])<<24 | uint32(self.lockKey[9])<<16 | uint32(self.lockKey[10])<<8 | uint32(self.lockKey[11])) ^ (uint32(self.lockKey[12])<<24 | uint32(self.lockKey[13])<<16 | uint32(self.lockKey[14])<<8 | uint32(self.lockKey[15]))
-	err := self.lockDb.aofChannels[fashHash%uint32(self.lockDb.managerMaxGlocks)].Push(dbId, lock, protocol.COMMAND_UNLOCK, lockCommand, unLockCommand, aofFlag, lock.manager.AofLockData(protocol.COMMAND_UNLOCK))
+	err := self.lockDb.aofChannels[fashHash%uint32(self.lockDb.managerMaxGlocks)].Push(dbId, lock, protocol.COMMAND_UNLOCK, lockCommand, unLockCommand, aofFlag, lock.manager.AofLockData(lock, protocol.COMMAND_UNLOCK))
 	if err != nil {
 		self.lockDb.slock.Log().Errorf("Database lock push aof error DbId:%d LockKey:%x LockId:%x",
 			lock.command.DbId, lock.command.LockKey, lock.command.LockId)
@@ -333,8 +333,18 @@ func (self *LockManager) GetLockData() []byte {
 	return nil
 }
 
-func (self *LockManager) AofLockData(commandType uint8) []byte {
-	if self.currentData != nil || (commandType == protocol.COMMAND_LOCK || !self.currentData.isAof) {
+func (self *LockManager) AofLockData(lock *Lock, commandType uint8) []byte {
+	if commandType == protocol.COMMAND_LOCK {
+		if lock.command.TimeoutFlag&protocol.TIMEOUT_FLAG_REQUIRE_ACKED != 0 && !lock.isAof {
+			return lock.manager.ProcessLockDataAckTry(lock.command)
+		}
+		if self.currentData != nil {
+			self.currentData.isAof = true
+			return self.currentData.Data
+		}
+	}
+
+	if self.currentData != nil && !self.currentData.isAof {
 		self.currentData.isAof = true
 		return self.currentData.Data
 	}
@@ -345,13 +355,35 @@ func (self *LockManager) ProcessLockData(command *protocol.LockCommand) {
 	if command.Data == nil {
 		return
 	}
+	lockData := self.ProcessLockDataToSetData(command)
+	if lockData != nil {
+		self.currentData = NewLockData(lockData)
+	}
+	command.Data = nil
+}
+
+func (self *LockManager) ProcessLockDataAckTry(command *protocol.LockCommand) []byte {
+	if command.Data == nil {
+		return nil
+	}
+	lockData := self.ProcessLockDataToSetData(command)
+	if lockData != nil {
+		self.currentData = NewLockDataEmptySetData()
+		command.Data = protocol.NewLockCommandDataFromOriginBytes(lockData)
+	}
+	return lockData
+}
+
+func (self *LockManager) ProcessLockDataToSetData(command *protocol.LockCommand) []byte {
+	if command.Data == nil {
+		return nil
+	}
 	lockCommandData := command.Data
 	switch lockCommandData.CommandType {
 	case protocol.LOCK_DATA_COMMAND_TYPE_SET:
-		self.currentData = NewLockData(lockCommandData.Data)
-		break
+		return lockCommandData.Data
 	}
-	command.Data = nil
+	return nil
 }
 
 type Lock struct {
@@ -392,6 +424,10 @@ type LockData struct {
 
 func NewLockData(data []byte) *LockData {
 	return &LockData{data, false}
+}
+
+func NewLockDataEmptySetData() *LockData {
+	return &LockData{[]byte{2, 0, 0, 0, protocol.LOCK_DATA_COMMAND_TYPE_SET, 0}, false}
 }
 
 type PriorityMutex struct {
