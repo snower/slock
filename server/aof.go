@@ -925,8 +925,10 @@ func (self *AofChannel) HandleLoad(aofLock *AofLock) {
 		expriedTime = aofLock.ExpriedTime
 	} else if aofLock.ExpriedFlag&protocol.EXPRIED_FLAG_MINUTE_TIME != 0 {
 		expriedTime = aofLock.ExpriedTime
+	} else if aofLock.ExpriedTime > 0 {
+		expriedTime = uint16(int64(aofLock.CommandTime+uint64(aofLock.ExpriedTime))-self.lockDb.currentTime) + 1
 	} else {
-		expriedTime = uint16(int64(aofLock.CommandTime+uint64(aofLock.ExpriedTime)) - self.lockDb.currentTime)
+		expriedTime = 0
 	}
 
 	lockCommand := self.serverProtocol.GetLockCommand()
@@ -943,7 +945,7 @@ func (self *AofChannel) HandleLoad(aofLock *AofLock) {
 	}
 	lockCommand.Timeout = 0
 	lockCommand.ExpriedFlag = aofLock.ExpriedFlag
-	lockCommand.Expried = expriedTime + 1
+	lockCommand.Expried = expriedTime
 	lockCommand.Count = aofLock.Count
 	lockCommand.Rcount = aofLock.Rcount
 	if aofLock.AofFlag&AOF_FLAG_CONTAINS_DATA != 0 {
@@ -971,8 +973,10 @@ func (self *AofChannel) HandleReplay(aofLock *AofLock) {
 		expriedTime = aofLock.ExpriedTime
 	} else if aofLock.ExpriedFlag&protocol.EXPRIED_FLAG_MINUTE_TIME != 0 {
 		expriedTime = aofLock.ExpriedTime
+	} else if aofLock.ExpriedTime > 0 {
+		expriedTime = uint16(int64(aofLock.CommandTime+uint64(aofLock.ExpriedTime))-self.lockDb.currentTime) + 1
 	} else {
-		expriedTime = uint16(int64(aofLock.CommandTime+uint64(aofLock.ExpriedTime)) - self.lockDb.currentTime)
+		expriedTime = 0
 	}
 
 	lockCommand := self.serverProtocol.GetLockCommand()
@@ -993,7 +997,7 @@ func (self *AofChannel) HandleReplay(aofLock *AofLock) {
 	}
 	lockCommand.Timeout = 0
 	lockCommand.ExpriedFlag = aofLock.ExpriedFlag
-	lockCommand.Expried = expriedTime + 1
+	lockCommand.Expried = expriedTime
 	lockCommand.Count = aofLock.Count
 	lockCommand.Rcount = aofLock.Rcount
 	if aofLock.AofFlag&AOF_FLAG_CONTAINS_DATA != 0 {
@@ -1337,7 +1341,7 @@ func (self *Aof) LoadAofFile(filename string, lock *AofLock, expriedTime int64, 
 				continue
 			}
 		} else if lock.ExpriedFlag&protocol.EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME == 0 {
-			if int64(lock.CommandTime+uint64(lock.ExpriedTime)) <= expriedTime {
+			if lock.ExpriedTime > 0 && int64(lock.CommandTime+uint64(lock.ExpriedTime)) <= expriedTime {
 				continue
 			}
 		}
@@ -1826,7 +1830,9 @@ func (self *Aof) loadRewriteAofFiles(aofFilenames []string) (*AofFile, []*AofFil
 		lockCommand.DbId = lock.DbId
 		lockCommand.LockId = lock.LockId
 		lockCommand.LockKey = lock.LockKey
-		if !db.HasLock(lockCommand) {
+		lockCommand.ExpriedFlag = lock.ExpriedFlag
+		lockCommand.Expried = lock.ExpriedTime
+		if !db.HasLock(lockCommand, lock.data) {
 			return true, nil
 		}
 
