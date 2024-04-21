@@ -10,7 +10,6 @@ import (
 	"github.com/snower/slock/protocol/protobuf"
 	"google.golang.org/protobuf/proto"
 	"io"
-	"io/ioutil"
 	"math/big"
 	"net"
 	"os"
@@ -74,7 +73,7 @@ func (self *ArbiterStore) Load(manager *ArbiterManager) error {
 		return err
 	}
 
-	data, err := ioutil.ReadAll(file)
+	data, err := io.ReadAll(file)
 	if err != nil {
 		manager.slock.Log().Errorf("Arbiter read meta file error %v", err)
 		_ = file.Close()

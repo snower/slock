@@ -342,7 +342,7 @@ func (self *SubscribeClient) Process() error {
 
 		db := self.manager.slock.GetDB(self.publishLock.DbId)
 		if db == nil {
-			self.manager.slock.GetOrNewDB(self.publishLock.DbId)
+			db = self.manager.slock.GetOrNewDB(self.publishLock.DbId)
 		}
 		publishId := uint64(buf[3]) | uint64(buf[4])<<8 | uint64(buf[5])<<16 | uint64(buf[6])<<24 | uint64(buf[7])<<32 | uint64(buf[8])<<40 | uint64(buf[9])<<48 | uint64(buf[10])<<56
 		err = db.subscribeChannels[publishId%uint64(db.managerMaxGlocks)].ClientPush(self.publishLock)
@@ -1043,7 +1043,7 @@ func (self *SubscribeManager) handleSubscribeCommand(serverProtocol ServerProtoc
 		if s, ok := self.subscribers[command.SubscribeId]; ok {
 			if s.clientId != command.ClientId {
 				self.glock.Unlock()
-				return protocol.NewSubscribeResultCommand(command, protocol.RESULT_ERROR, subscriber.subscriberId), nil
+				return protocol.NewSubscribeResultCommand(command, protocol.RESULT_ERROR, s.subscriberId), nil
 			}
 			subscriber = s
 		}

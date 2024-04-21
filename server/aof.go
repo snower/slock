@@ -245,21 +245,15 @@ func (self *AofFile) ReadHeader() error {
 	}
 
 	headerLen := uint16(self.buf[10]) | uint16(self.buf[11])<<8
-	if headerLen != 0x0000 {
-		return errors.New("AOF File Header Len Error")
-	}
-
 	if headerLen > 0 {
-		n, err := self.rbuf.Read(make([]byte, headerLen))
+		n, err = self.rbuf.Read(make([]byte, headerLen))
 		if err != nil {
 			return err
 		}
-
 		if n != int(headerLen) {
 			return errors.New("File is not AOF FIle")
 		}
 	}
-
 	self.size += 12 + int(headerLen)
 	return nil
 }

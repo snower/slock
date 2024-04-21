@@ -86,7 +86,7 @@ func (self *ReplicationBufferQueue) InitFreeQueueItems(count uint64) {
 	}
 }
 
-func (self *ReplicationBufferQueue) AddPoll(cursor *ReplicationBufferQueueCursor) error {
+func (self *ReplicationBufferQueue) AddPoll(cursor *ReplicationBufferQueueCursor) {
 	self.glock.Lock()
 	self.pollCount++
 	currentItem := cursor.currentItem
@@ -95,10 +95,9 @@ func (self *ReplicationBufferQueue) AddPoll(cursor *ReplicationBufferQueueCursor
 		currentItem = currentItem.nextItem
 	}
 	self.glock.Unlock()
-	return nil
 }
 
-func (self *ReplicationBufferQueue) RemovePoll(cursor *ReplicationBufferQueueCursor) error {
+func (self *ReplicationBufferQueue) RemovePoll(cursor *ReplicationBufferQueueCursor) {
 	self.glock.Lock()
 	self.pollCount--
 	currentItem := cursor.currentItem
@@ -107,7 +106,6 @@ func (self *ReplicationBufferQueue) RemovePoll(cursor *ReplicationBufferQueueCur
 		currentItem = currentItem.nextItem
 	}
 	self.glock.Unlock()
-	return nil
 }
 
 func (self *ReplicationBufferQueue) Close() error {
