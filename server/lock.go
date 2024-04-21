@@ -354,8 +354,22 @@ func (self *LockManager) ProcessLockData(command *protocol.LockCommand) {
 	lockCommandData := command.Data
 	switch lockCommandData.CommandType {
 	case protocol.LOCK_DATA_COMMAND_TYPE_SET:
+		if command.CommandType == protocol.COMMAND_LOCK && command.ExpriedFlag&0x4440 == 0 && command.Expried == 0 {
+			if self.currentData != nil && self.currentData.commandType == protocol.LOCK_DATA_COMMAND_TYPE_SET {
+				if self.currentData.Equal(command.Data.Data) {
+					command.Data = nil
+					return
+				}
+			}
+		}
 		self.currentData = NewLockData(lockCommandData.Data)
 	case protocol.LOCK_DATA_COMMAND_TYPE_UNSET:
+		if command.CommandType == protocol.COMMAND_LOCK && command.ExpriedFlag&0x4440 == 0 && command.Expried == 0 {
+			if self.currentData != nil && self.currentData.commandType == protocol.LOCK_DATA_COMMAND_TYPE_UNSET {
+				command.Data = nil
+				return
+			}
+		}
 		self.currentData = NewLockDataUnsetData()
 	}
 	command.Data = nil
@@ -414,6 +428,18 @@ func (self *LockData) GetData() []byte {
 		return self.data
 	}
 	return nil
+}
+
+func (self *LockData) Equal(lockData []byte) bool {
+	if len(self.data) != len(lockData) {
+		return false
+	}
+	for i := 0; i < len(self.data); i++ {
+		if self.data[i] != lockData[i] {
+			return false
+		}
+	}
+	return true
 }
 
 type PriorityMutex struct {

@@ -2326,17 +2326,10 @@ func (self *LockDB) HasLock(command *protocol.LockCommand, aofLockData []byte) b
 		lockManager.glock.Unlock()
 		return false
 	}
-	if command.ExpriedFlag&0x4440 == 0 && command.Expried == 0 {
-		if aofLockData == nil || lockManager.currentData == nil || lockManager.currentData.data == nil || len(aofLockData) != len(lockManager.currentData.data) {
+	if command.CommandType == protocol.COMMAND_LOCK && command.ExpriedFlag&0x4440 == 0 && command.Expried == 0 {
+		if aofLockData == nil || lockManager.currentData == nil || lockManager.currentData.data == nil || !lockManager.currentData.Equal(aofLockData) {
 			lockManager.glock.Unlock()
 			return false
-		}
-		currentLockData := lockManager.currentData.data
-		for i := 0; i < len(aofLockData); i++ {
-			if aofLockData[i] != currentLockData[i] {
-				lockManager.glock.Unlock()
-				return false
-			}
 		}
 		lockManager.glock.Unlock()
 		return true
