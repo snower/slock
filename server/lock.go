@@ -328,7 +328,7 @@ func (self *LockManager) GetOrNewLock(serverProtocol ServerProtocol, command *pr
 
 func (self *LockManager) GetLockData() []byte {
 	if self.currentData != nil {
-		return self.currentData.Data
+		return self.currentData.GetData()
 	}
 	return nil
 }
@@ -336,7 +336,7 @@ func (self *LockManager) GetLockData() []byte {
 func (self *LockManager) AofLockData(commandType uint8) []byte {
 	if self.currentData != nil && (commandType == protocol.COMMAND_LOCK || !self.currentData.isAof) {
 		self.currentData.isAof = true
-		return self.currentData.Data
+		return self.currentData.data
 	}
 	return nil
 }
@@ -349,6 +349,8 @@ func (self *LockManager) ProcessLockData(command *protocol.LockCommand) {
 	switch lockCommandData.CommandType {
 	case protocol.LOCK_DATA_COMMAND_TYPE_SET:
 		self.currentData = NewLockData(lockCommandData.Data)
+	case protocol.LOCK_DATA_COMMAND_TYPE_UNSET:
+		self.currentData = NewLockDataUnsetData()
 	}
 	command.Data = nil
 }
@@ -385,14 +387,27 @@ func (self *Lock) GetDB() *LockDB {
 }
 
 type LockData struct {
-	Data        []byte
-	recoverData *LockData
+	data        []byte
 	recoverLock *Lock
+	recoverData *LockData
+	commandType uint8
 	isAof       bool
 }
 
 func NewLockData(data []byte) *LockData {
-	return &LockData{data, nil, nil, false}
+	return &LockData{data, nil, nil, data[4], false}
+}
+
+func NewLockDataUnsetData() *LockData {
+	return &LockData{[]byte{2, 0, 0, 0, protocol.LOCK_DATA_COMMAND_TYPE_UNSET, 0}, nil, nil,
+		protocol.LOCK_DATA_COMMAND_TYPE_UNSET, false}
+}
+
+func (self *LockData) GetData() []byte {
+	if self.data != nil && self.commandType != protocol.LOCK_DATA_COMMAND_TYPE_UNSET {
+		return self.data
+	}
+	return nil
 }
 
 type PriorityMutex struct {

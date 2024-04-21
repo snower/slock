@@ -93,7 +93,10 @@ const (
 	CALL_COMMAND_CHARSET_UTF8 = 1
 )
 
-const LOCK_DATA_COMMAND_TYPE_SET = 0
+const (
+	LOCK_DATA_COMMAND_TYPE_SET   = 0
+	LOCK_DATA_COMMAND_TYPE_UNSET = 1
+)
 
 var ERROR_MSG []string = []string{
 	"OK",

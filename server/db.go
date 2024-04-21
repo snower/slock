@@ -2230,12 +2230,12 @@ func (self *LockDB) DoAckLock(lock *Lock, succed bool) {
 			lock.expriedTime = lock.startTime + int64(lock.command.Expried)/1000 + 1
 		}
 
-		var lockData []byte
+		var lockData []byte = nil
 		if lockManager.currentData != nil {
 			currentData := lockManager.currentData
 			if currentData.recoverLock == lock {
 				if currentData.recoverData != nil {
-					lockData = currentData.recoverData.Data
+					lockData = currentData.recoverData.GetData()
 				}
 				currentData.recoverLock = nil
 				currentData.recoverData = nil
@@ -2264,7 +2264,11 @@ func (self *LockDB) DoAckLock(lock *Lock, succed bool) {
 	if lockManager.currentData != nil {
 		currentData := lockManager.currentData
 		if currentData.recoverLock == lock {
-			lockManager.currentData = currentData.recoverData
+			if currentData.recoverData == nil {
+				lockManager.currentData = NewLockDataUnsetData()
+			} else {
+				lockManager.currentData = currentData.recoverData
+			}
 			currentData.recoverLock = nil
 			currentData.recoverData = nil
 		}
