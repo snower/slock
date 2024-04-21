@@ -1617,6 +1617,14 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 			lockManager.locked++
 
 			if command.TimeoutFlag&protocol.TIMEOUT_FLAG_REQUIRE_ACKED != 0 && !lock.isAof && lock.aofTime != 0xff {
+				if command.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
+					currentLockData := lockManager.currentData
+					lockManager.ProcessLockData(command)
+					if lockManager.currentData != nil {
+						lockManager.currentData.recoverLock = lock
+						lockManager.currentData.recoverData = currentLockData
+					}
+				}
 				if command.TimeoutFlag&protocol.TIMEOUT_FLAG_MILLISECOND_TIME == 0 {
 					self.AddTimeOut(lock, lock.timeoutTime)
 				} else {
@@ -1989,6 +1997,14 @@ func (self *LockDB) wakeUpWaitLock(lockManager *LockManager, waitLock *Lock, ser
 		lockManager.AddLock(waitLock)
 		lockManager.locked++
 		waitLock.refCount++
+		if waitLock.command.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
+			currentLockData := lockManager.currentData
+			lockManager.ProcessLockData(waitLock.command)
+			if lockManager.currentData != nil {
+				lockManager.currentData.recoverLock = waitLock
+				lockManager.currentData.recoverData = currentLockData
+			}
+		}
 		err := lockManager.PushLockAof(waitLock, 0)
 		if err == nil {
 			lockManager.glock.Unlock()
@@ -2214,11 +2230,17 @@ func (self *LockDB) DoAckLock(lock *Lock, succed bool) {
 			lock.expriedTime = lock.startTime + int64(lock.command.Expried)/1000 + 1
 		}
 
-		lockData := lockManager.GetLockData()
-		if lock.command.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
-			lockManager.ProcessLockData(lock.command)
-			if lockManager.currentData != nil {
-				lockManager.currentData.isAof = true
+		var lockData []byte
+		if lockManager.currentData != nil {
+			currentData := lockManager.currentData
+			if currentData.recoverLock == lock {
+				if currentData.recoverData != nil {
+					lockData = currentData.recoverData.Data
+				}
+				currentData.recoverLock = nil
+				currentData.recoverData = nil
+			} else {
+				lockData = lockManager.GetLockData()
 			}
 		}
 		if lock.command.ExpriedFlag&protocol.EXPRIED_FLAG_MILLISECOND_TIME == 0 {
@@ -2239,6 +2261,14 @@ func (self *LockDB) DoAckLock(lock *Lock, succed bool) {
 	lockManager.locked -= uint32(lockLocked)
 	lockProtocol, lockCommand := lock.protocol, lock.command
 	lockManager.RemoveLock(lock)
+	if lockManager.currentData != nil {
+		currentData := lockManager.currentData
+		if currentData.recoverLock == lock {
+			lockManager.currentData = currentData.recoverData
+			currentData.recoverLock = nil
+			currentData.recoverData = nil
+		}
+	}
 	if lock.isAof {
 		if lockManager.currentData != nil {
 			lockManager.currentData.isAof = false
