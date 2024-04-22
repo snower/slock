@@ -19,6 +19,8 @@ func main() {
 	timeoutFlag := flag.Int("timeout_flag", 0, "timeout_flag")
 	expried := flag.Int("expried", 5, "expried")
 	expriedFlag := flag.Int("expried_flag", 0, "expried_flag")
+	dataLength := flag.Int("data_length", 0, "data_length")
+	dataRate := flag.Float64("data_rate", 0.5, "data_rate")
 
 	flag.Parse()
 
@@ -47,26 +49,26 @@ func main() {
 			*count = 500000
 		}
 
-		benchFunc(*clientCount, *conc, *count, keys, *port, *host, uint32(*timeout)|uint32(*timeoutFlag)<<16, uint32(*expried)|uint32(*expriedFlag)<<16)
+		benchFunc(*clientCount, *conc, *count, keys, *port, *host, uint32(*timeout)|uint32(*timeoutFlag)<<16, uint32(*expried)|uint32(*expriedFlag)<<16, *dataLength, *dataRate)
 		fmt.Println("Succed")
 		return
 	}
 
-	benchFunc(1, 1, 200000, keys, *port, *host, uint32(*timeout)|uint32(*timeoutFlag)<<16, uint32(*expried)|uint32(*expriedFlag)<<16)
+	benchFunc(1, 1, 200000, keys, *port, *host, uint32(*timeout)|uint32(*timeoutFlag)<<16, uint32(*expried)|uint32(*expriedFlag)<<16, *dataLength, *dataRate)
 
-	benchFunc(1, 16, 300000, keys, *port, *host, uint32(*timeout)|uint32(*timeoutFlag)<<16, uint32(*expried)|uint32(*expriedFlag)<<16)
+	benchFunc(1, 16, 300000, keys, *port, *host, uint32(*timeout)|uint32(*timeoutFlag)<<16, uint32(*expried)|uint32(*expriedFlag)<<16, *dataLength, *dataRate)
 
-	benchFunc(8, 64, 500000, keys, *port, *host, uint32(*timeout)|uint32(*timeoutFlag)<<16, uint32(*expried)|uint32(*expriedFlag)<<16)
+	benchFunc(8, 64, 500000, keys, *port, *host, uint32(*timeout)|uint32(*timeoutFlag)<<16, uint32(*expried)|uint32(*expriedFlag)<<16, *dataLength, *dataRate)
 
-	benchFunc(16, 64, 500000, keys, *port, *host, uint32(*timeout)|uint32(*timeoutFlag)<<16, uint32(*expried)|uint32(*expriedFlag)<<16)
+	benchFunc(16, 64, 500000, keys, *port, *host, uint32(*timeout)|uint32(*timeoutFlag)<<16, uint32(*expried)|uint32(*expriedFlag)<<16, *dataLength, *dataRate)
 
-	benchFunc(64, 64, 500000, keys, *port, *host, uint32(*timeout)|uint32(*timeoutFlag)<<16, uint32(*expried)|uint32(*expriedFlag)<<16)
+	benchFunc(64, 64, 500000, keys, *port, *host, uint32(*timeout)|uint32(*timeoutFlag)<<16, uint32(*expried)|uint32(*expriedFlag)<<16, *dataLength, *dataRate)
 
-	benchFunc(16, 256, 500000, keys, *port, *host, uint32(*timeout)|uint32(*timeoutFlag)<<16, uint32(*expried)|uint32(*expriedFlag)<<16)
+	benchFunc(16, 256, 500000, keys, *port, *host, uint32(*timeout)|uint32(*timeoutFlag)<<16, uint32(*expried)|uint32(*expriedFlag)<<16, *dataLength, *dataRate)
 
-	benchFunc(64, 512, 500000, keys, *port, *host, uint32(*timeout)|uint32(*timeoutFlag)<<16, uint32(*expried)|uint32(*expriedFlag)<<16)
+	benchFunc(64, 512, 500000, keys, *port, *host, uint32(*timeout)|uint32(*timeoutFlag)<<16, uint32(*expried)|uint32(*expriedFlag)<<16, *dataLength, *dataRate)
 
-	benchFunc(512, 512, 500000, keys, *port, *host, uint32(*timeout)|uint32(*timeoutFlag)<<16, uint32(*expried)|uint32(*expriedFlag)<<16)
+	benchFunc(512, 512, 500000, keys, *port, *host, uint32(*timeout)|uint32(*timeoutFlag)<<16, uint32(*expried)|uint32(*expriedFlag)<<16, *dataLength, *dataRate)
 
 	fmt.Println("Succed")
 }

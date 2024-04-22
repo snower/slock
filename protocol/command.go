@@ -362,11 +362,29 @@ func NewLockCommandDataFromString(data string, commandType uint8, dataFlag uint8
 	return &LockCommandData{buf, commandType, dataFlag}
 }
 
+func NewLockCommandDataSetData(data []byte) *LockCommandData {
+	return NewLockCommandDataFromBytes(data, LOCK_DATA_COMMAND_TYPE_SET, 0)
+}
+
+func NewLockCommandDataSetString(data string) *LockCommandData {
+	return NewLockCommandDataFromString(data, LOCK_DATA_COMMAND_TYPE_SET, 0)
+}
+
+func NewLockCommandDataUnsetData() *LockCommandData {
+	return NewLockCommandDataFromBytes([]byte{}, LOCK_DATA_COMMAND_TYPE_UNSET, 0)
+}
+
 func (self *LockCommandData) GetBytesData() []byte {
+	if self.Data == nil || self.CommandType == LOCK_DATA_COMMAND_TYPE_UNSET {
+		return nil
+	}
 	return self.Data[6:]
 }
 
 func (self *LockCommandData) GetStringData() string {
+	if self.Data == nil || self.CommandType == LOCK_DATA_COMMAND_TYPE_UNSET {
+		return ""
+	}
 	return string(self.Data[6:])
 }
 
@@ -462,6 +480,10 @@ func (self *LockCommand) Encode(buf []byte) error {
 	return nil
 }
 
+func (self *LockCommand) GetLockData() *LockCommandData {
+	return self.Data
+}
+
 var RESULT_LOCK_COMMAND_BLANK_BYTERS = [4]byte{}
 
 type LockResultCommandData struct {
@@ -493,10 +515,16 @@ func NewLockResultCommandDataFromString(data string, commandType uint8, dataFlag
 }
 
 func (self *LockResultCommandData) GetBytesData() []byte {
+	if self.Data == nil || self.CommandType == LOCK_DATA_COMMAND_TYPE_UNSET {
+		return nil
+	}
 	return self.Data[6:]
 }
 
 func (self *LockResultCommandData) GetStringData() string {
+	if self.Data == nil || self.CommandType == LOCK_DATA_COMMAND_TYPE_UNSET {
+		return ""
+	}
 	return string(self.Data[6:])
 }
 
@@ -581,6 +609,10 @@ func (self *LockResultCommand) Encode(buf []byte) error {
 	buf[54], buf[55], buf[56], buf[57], buf[58], buf[59], buf[60], buf[61] = byte(self.Lcount), byte(self.Lcount>>8), byte(self.Count), byte(self.Count>>8), byte(self.Lrcount), byte(self.Rcount), 0x00, 0x00
 	buf[62], buf[63] = 0x00, 0x00
 	return nil
+}
+
+func (self *LockResultCommand) GetLockData() *LockResultCommandData {
+	return self.Data
 }
 
 type StateCommand struct {

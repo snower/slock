@@ -109,7 +109,7 @@ func (self *GroupEvent) Wait(timeout uint32) (bool, error) {
 		byte(self.clientId), byte(self.clientId >> 8), byte(self.clientId >> 16), byte(self.clientId >> 24),
 		byte(self.clientId >> 32), byte(self.clientId >> 40), byte(self.clientId >> 48), byte(self.clientId >> 56)}
 	self.waitLock = &Lock{self.db, lockId, self.groupKey, timeout | uint32(protocol.TIMEOUT_FLAG_LESS_LOCK_VERSION_IS_LOCK_SUCCED)<<16, 0, 0, 0}
-	lockResultCommand, err := self.waitLock.doLock(0, self.waitLock.lockId, self.waitLock.timeout, self.waitLock.expried, self.waitLock.count, self.waitLock.rcount)
+	lockResultCommand, err := self.waitLock.doLock(0, self.waitLock.lockId, self.waitLock.timeout, self.waitLock.expried, self.waitLock.count, self.waitLock.rcount, nil)
 	if err != nil {
 		return false, &LockError{0x80, lockResultCommand, err}
 	}
@@ -134,7 +134,7 @@ func (self *GroupEvent) WaitAndTimeoutRetryClear(timeout uint32) (bool, error) {
 		byte(self.clientId >> 32), byte(self.clientId >> 40), byte(self.clientId >> 48), byte(self.clientId >> 56)}
 	timeout = timeout | uint32(protocol.TIMEOUT_FLAG_LESS_LOCK_VERSION_IS_LOCK_SUCCED)<<16
 	self.waitLock = &Lock{self.db, lockId, self.groupKey, timeout, 0, 0, 0}
-	lockResultCommand, err := self.waitLock.doLock(0, self.waitLock.lockId, self.waitLock.timeout, self.waitLock.expried, self.waitLock.count, self.waitLock.rcount)
+	lockResultCommand, err := self.waitLock.doLock(0, self.waitLock.lockId, self.waitLock.timeout, self.waitLock.expried, self.waitLock.count, self.waitLock.rcount, nil)
 	if err != nil {
 		return false, &LockError{0x80, lockResultCommand, err}
 	}

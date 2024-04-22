@@ -119,10 +119,10 @@ func (self *ReplicationBufferQueue) Push(buf []byte, data []byte) error {
 	if self.usedBufferSize >= self.bufferSize && self.tailItem != nil {
 		if self.tailItem.pollIndex < self.tailItem.pollCount && self.bufferSize < self.maxBufferSize {
 			self.InitFreeQueueItems(self.bufferSize / 64)
-			self.bufferSize *= 2
+			self.bufferSize = self.bufferSize * 2
 			self.dupCount++
 			if self.manager != nil {
-				self.manager.slock.logger.Infof("Replication ring buffer duplicate %x %x", self.bufferSize, self.dupCount)
+				self.manager.slock.logger.Infof("Replication ring buffer duplicate %d %d", self.bufferSize, self.dupCount)
 			}
 		} else {
 			queueItem = self.tailItem

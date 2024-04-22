@@ -69,7 +69,6 @@ func (self *StreamReaderBuffer) ReadBytesSize(size int) []byte {
 
 func (self *StreamReaderBuffer) ReadFromConn(conn net.Conn, size int) (int, error) {
 	bufSize := self.len - self.index
-	freeSize := self.cap - bufSize
 	if bufSize <= 0 {
 		if size < 0 {
 			n, err := conn.Read(self.buf)
@@ -80,11 +79,11 @@ func (self *StreamReaderBuffer) ReadFromConn(conn net.Conn, size int) (int, erro
 			return n, nil
 		}
 		self.index, self.len = 0, 0
-	} else if freeSize <= 0 || size < 0 {
+	} else if self.cap-bufSize <= 0 || size < 0 {
 		return bufSize, nil
 	}
 	readConnSize := size - bufSize
-	if freeSize < readConnSize && self.index > 0 {
+	if self.cap-self.len < readConnSize && self.index > 0 {
 		copy(self.buf, self.buf[self.index:self.len])
 		self.len = self.len - self.index
 		self.index = 0
@@ -237,9 +236,8 @@ func (self *Stream) ReadBytesFrame() ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		cn += 4
 		for cn < frameLen {
-			nn, nerr := self.conn.Read(buf[cn:])
+			nn, nerr := self.conn.Read(buf[cn+4:])
 			if nerr != nil {
 				return nil, nerr
 			}
