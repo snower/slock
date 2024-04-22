@@ -431,15 +431,7 @@ func (self *LockData) GetData() []byte {
 }
 
 func (self *LockData) Equal(lockData []byte) bool {
-	if len(self.data) != len(lockData) {
-		return false
-	}
-	for i := 0; i < len(self.data); i++ {
-		if self.data[i] != lockData[i] {
-			return false
-		}
-	}
-	return true
+	return len(self.data) == len(lockData) && string(self.data) == string(lockData)
 }
 
 type PriorityMutex struct {

@@ -781,6 +781,9 @@ func (self *SubscribeChannel) Push(command *protocol.LockCommand, result uint8, 
 	if self.closed {
 		return io.EOF
 	}
+	if self.manager.slock.state != STATE_LEADER {
+		return nil
+	}
 
 	var publishLock *PublishLock = nil
 	self.glock.Lock()
