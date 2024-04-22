@@ -30,7 +30,7 @@ func (self *LockError) GetStringData() string {
 	return ""
 }
 
-func (self LockError) Error() string {
+func (self *LockError) Error() string {
 	if self.Err == nil {
 		return fmt.Sprintf("error code %d", self.Result)
 	}
