@@ -85,12 +85,9 @@ func (self *StreamReaderBuffer) ReadFromConn(conn net.Conn, size int) (int, erro
 	}
 	readConnSize := size - bufSize
 	if freeSize < readConnSize && self.index > 0 {
-		index := 0
-		for ; self.index < self.len; self.index++ {
-			self.buf[index] = self.buf[self.index]
-			index++
-		}
-		self.index, self.len = 0, index
+		copy(self.buf, self.buf[self.index:self.len])
+		self.len = self.len - self.index
+		self.index = 0
 	}
 	n, err := conn.Read(self.buf[self.len:])
 	if err != nil {
