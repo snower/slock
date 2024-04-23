@@ -40,7 +40,8 @@ type Client struct {
 	dbLock            *sync.Mutex
 	requests          map[[16]byte]chan protocol.ICommand
 	requestLock       *sync.Mutex
-	subscribes        map[uint32]*Subscriber
+	subscribers       map[uint32]*Subscriber
+	fastSubscribers   []*Subscriber
 	subscribeLock     *sync.Mutex
 	serverAddress     string
 	clientId          [16]byte
@@ -54,7 +55,7 @@ func NewClient(host string, port uint) *Client {
 	address := fmt.Sprintf("%s:%d", host, port)
 	client := &Client{&sync.Mutex{}, nil, nil, make([]*Database, 256),
 		&sync.Mutex{}, make(map[[16]byte]chan protocol.ICommand, 4096), &sync.Mutex{},
-		make(map[uint32]*Subscriber, 4), &sync.Mutex{}, address, protocol.GenClientId(),
+		make(map[uint32]*Subscriber, 4), make([]*Subscriber, 0), &sync.Mutex{}, address, protocol.GenClientId(),
 		false, make(chan bool, 1), nil, nil}
 	return client
 }
@@ -81,24 +82,27 @@ func (self *Client) Close() error {
 	self.glock.Unlock()
 
 	subscriberClosedWaiters := make([]chan bool, 0)
-	self.subscribeLock.Lock()
-	for _, subscriber := range self.subscribes {
+	for _, subscriber := range self.fastSubscribers {
 		go func(subscriber *Subscriber) {
 			err := self.CloseSubscribe(subscriber)
 			if err != nil {
 				self.subscribeLock.Lock()
-				if _, ok := self.subscribes[subscriber.subscribeId]; ok {
-					delete(self.subscribes, subscriber.subscribeId)
+				if _, ok := self.subscribers[subscriber.subscribeId]; ok {
+					delete(self.subscribers, subscriber.subscribeId)
+					subscribers := make([]*Subscriber, 0, len(self.subscribers))
+					for _, s := range self.subscribers {
+						subscribers = append(subscribers, s)
+					}
+					self.fastSubscribers = subscribers
 				}
 				subscriber.closed = true
+				self.subscribeLock.Unlock()
 				close(subscriber.channel)
 				close(subscriber.closedWaiter)
-				self.subscribeLock.Unlock()
 			}
 		}(subscriber)
 		subscriberClosedWaiters = append(subscriberClosedWaiters, subscriber.closedWaiter)
 	}
-	self.subscribeLock.Unlock()
 	for _, closedWaiter := range subscriberClosedWaiters {
 		<-closedWaiter
 	}
@@ -195,8 +199,7 @@ func (self *Client) reconnect() ClientProtocol {
 }
 
 func (self *Client) reconnectUpdateSubcribers() {
-	self.subscribeLock.Lock()
-	for _, subscriber := range self.subscribes {
+	for _, subscriber := range self.fastSubscribers {
 		go func(subscriber *Subscriber) {
 			err := self.UpdateSubscribe(subscriber)
 			if err != nil {
@@ -204,7 +207,6 @@ func (self *Client) reconnectUpdateSubcribers() {
 			}
 		}(subscriber)
 	}
-	self.subscribeLock.Unlock()
 }
 
 func (self *Client) initProtocol(clientProtocol ClientProtocol, clientId [16]byte) error {
@@ -242,8 +244,8 @@ func (self *Client) handleInitCommandResult(initResultCommand *protocol.InitResu
 func (self *Client) process() {
 	for !self.closed {
 		if self.protocol == nil {
-			err := self.reconnect()
-			if err != nil {
+			clientProtocol := self.reconnect()
+			if clientProtocol != nil {
 				return
 			}
 			continue
@@ -258,8 +260,8 @@ func (self *Client) process() {
 			}
 			self.protocol = nil
 			self.glock.Unlock()
-			err := self.reconnect()
-			if err != nil {
+			clientProtocol := self.reconnect()
+			if clientProtocol != nil {
 				return
 			}
 			continue
@@ -305,9 +307,10 @@ func (self *Client) handleCommand(command protocol.ICommand) error {
 	case protocol.COMMAND_PUBLISH:
 		lockCommand := command.(*protocol.LockResultCommand)
 		subscribeId := uint32(lockCommand.RequestId[12]) | uint32(lockCommand.RequestId[13])<<8 | uint32(lockCommand.RequestId[14])<<16 | uint32(lockCommand.RequestId[15])<<24
-		self.subscribeLock.Lock()
-		if subscriber, ok := self.subscribes[subscribeId]; ok {
-			self.subscribeLock.Unlock()
+		for _, subscriber := range self.fastSubscribers {
+			if subscriber.subscribeId != subscribeId {
+				continue
+			}
 			return subscriber.Push(lockCommand)
 		}
 		return nil
@@ -457,7 +460,12 @@ func (self *Client) SubscribeMask(lockKeyMask [16]byte, expried uint32, maxSize 
 
 	subscriber := NewSubscriber(self, clientId, subscribeResultCommand.SubscribeId, lockKeyMask, expried, maxSize)
 	self.subscribeLock.Lock()
-	self.subscribes[subscriber.subscribeId] = subscriber
+	self.subscribers[subscriber.subscribeId] = subscriber
+	subscribers := make([]*Subscriber, 0, len(self.subscribers))
+	for _, s := range self.subscribers {
+		subscribers = append(subscribers, s)
+	}
+	self.fastSubscribers = subscribers
 	self.subscribeLock.Unlock()
 	return subscriber, nil
 }
@@ -482,17 +490,22 @@ func (self *Client) CloseSubscribe(s ISubscriber) error {
 	}
 
 	self.subscribeLock.Lock()
-	if _, ok := self.subscribes[subscriber.subscribeId]; ok {
-		delete(self.subscribes, subscriber.subscribeId)
+	if _, ok = self.subscribers[subscriber.subscribeId]; ok {
+		delete(self.subscribers, subscriber.subscribeId)
+		subscribers := make([]*Subscriber, 0, len(self.subscribers))
+		for _, s := range self.subscribers {
+			subscribers = append(subscribers, s)
+		}
+		self.fastSubscribers = subscribers
 	}
 	subscriber.closed = true
+	self.subscribeLock.Unlock()
 	close(subscriber.channel)
 	close(subscriber.closedWaiter)
-	self.subscribeLock.Unlock()
 	if subscriber.replset != nil {
 		hasAvailable := false
-		for _, s := range subscriber.replset.subscribers {
-			if !s.closed {
+		for _, rs := range subscriber.replset.subscribers {
+			if !rs.closed {
 				hasAvailable = true
 			}
 		}
@@ -556,7 +569,7 @@ func NewReplsetClient(hosts []string) *ReplsetClient {
 	for _, host := range hosts {
 		client := &Client{&sync.Mutex{}, replsetClient, nil, replsetClient.dbs,
 			replsetClient.dbLock, make(map[[16]byte]chan protocol.ICommand, 64), &sync.Mutex{},
-			make(map[uint32]*Subscriber, 4), &sync.Mutex{}, host, protocol.GenClientId(),
+			make(map[uint32]*Subscriber, 4), make([]*Subscriber, 0), &sync.Mutex{}, host, protocol.GenClientId(),
 			false, make(chan bool, 1), nil, nil}
 		replsetClient.clients = append(replsetClient.clients, client)
 	}

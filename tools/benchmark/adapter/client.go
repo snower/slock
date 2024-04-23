@@ -44,17 +44,19 @@ func runClientBenchmark(slockClient *client.Client, count *uint32, maxCount uint
 			}
 		}
 
-		if dataLength > 0 && rand.Float64() >= dataRate {
-			_, err := lock.UnlockWithData(randLockData(dataLength))
-			if err != nil {
-				fmt.Printf("UnLock Error %v\n", err)
-				continue
-			}
-		} else {
-			_, err := lock.Unlock()
-			if err != nil {
-				fmt.Printf("UnLock Error %v\n", err)
-				continue
+		if (expried & 0xffff) > 0 {
+			if dataLength > 0 && rand.Float64() >= dataRate {
+				_, err := lock.UnlockWithData(randLockData(dataLength))
+				if err != nil {
+					fmt.Printf("UnLock Error %v\n", err)
+					continue
+				}
+			} else {
+				_, err := lock.Unlock()
+				if err != nil {
+					fmt.Printf("UnLock Error %v\n", err)
+					continue
+				}
 			}
 		}
 

@@ -53,7 +53,6 @@ func (self *Subscriber) Push(resultCommand *protocol.LockResultCommand) error {
 	if self.closed {
 		return errors.New("closed")
 	}
-
 	if self.replset != nil {
 		return self.replset.Push(resultCommand)
 	}

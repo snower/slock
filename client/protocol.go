@@ -35,6 +35,9 @@ func NewBinaryClientProtocol(stream *Stream) *BinaryClientProtocol {
 }
 
 func (self *BinaryClientProtocol) Close() error {
+	if self.stream == nil {
+		return nil
+	}
 	return self.stream.Close()
 }
 
@@ -182,6 +185,13 @@ func (self *BinaryClientProtocol) Read() (protocol.CommandDecode, error) {
 		if err != nil {
 			return nil, err
 		}
+		if command.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
+			lockData, derr := self.stream.ReadBytesFrame()
+			if derr != nil {
+				return nil, derr
+			}
+			command.Data = protocol.NewLockResultCommandDataFromOriginBytes(lockData)
+		}
 		return &command, nil
 	default:
 		return nil, errors.New("unknown command")
@@ -260,6 +270,9 @@ func NewTextClientProtocol(stream *Stream) *TextClientProtocol {
 }
 
 func (self *TextClientProtocol) Close() error {
+	if self.stream == nil {
+		return nil
+	}
 	return self.stream.Close()
 }
 
