@@ -1664,8 +1664,9 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 
 		lockData := lockManager.GetLockData()
 		if command.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
+			isRequireAof := (lockManager.currentLock != nil && lockManager.currentLock.isAof) || (lockManager.currentData != nil && lockManager.currentData.isAof)
 			lockManager.ProcessLockData(command)
-			if lockManager.currentData != nil && !lockManager.currentData.isAof {
+			if isRequireAof && lockManager.currentData != nil && !lockManager.currentData.isAof {
 				_ = lockManager.PushLockAof(lock, 0)
 			}
 		}
@@ -2051,8 +2052,9 @@ func (self *LockDB) wakeUpWaitLock(lockManager *LockManager, waitLock *Lock, ser
 
 	lockData := lockManager.GetLockData()
 	if waitLock.command.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
+		isRequireAof := (lockManager.currentLock != nil && lockManager.currentLock.isAof) || (lockManager.currentData != nil && lockManager.currentData.isAof)
 		lockManager.ProcessLockData(waitLock.command)
-		if lockManager.currentData != nil && !lockManager.currentData.isAof {
+		if isRequireAof && lockManager.currentData != nil && !lockManager.currentData.isAof {
 			_ = lockManager.PushLockAof(waitLock, 0)
 		}
 	}

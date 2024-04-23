@@ -9,7 +9,7 @@ import (
 func TestDB_ListLocks(t *testing.T) {
 	testWithClient(t, func(client *Client) {
 		lock := client.Lock(testString2Key("TestListLocks"), 5, 5)
-		err := lock.Lock()
+		_, err := lock.Lock()
 		if err != nil {
 			t.Errorf("DB Lock Fail %v", err)
 			return
@@ -40,7 +40,7 @@ func TestDB_ListLocks(t *testing.T) {
 			}
 		}
 
-		err = lock.Unlock()
+		_, err = lock.Unlock()
 		if err != nil {
 			t.Errorf("DB Unlock Fail %v", err)
 			return
@@ -51,7 +51,7 @@ func TestDB_ListLocks(t *testing.T) {
 func TestDB_ListLockeds(t *testing.T) {
 	testWithClient(t, func(client *Client) {
 		lock := client.Lock(testString2Key("TestListLockeds"), 5, 5)
-		err := lock.Lock()
+		_, err := lock.Lock()
 		if err != nil {
 			t.Errorf("DB Lock Fail %v", err)
 			return
@@ -74,7 +74,7 @@ func TestDB_ListLockeds(t *testing.T) {
 			return
 		}
 
-		err = lock.Unlock()
+		_, err = lock.Unlock()
 		if err != nil {
 			t.Errorf("DB Unlock Fail %v", err)
 			return
@@ -85,7 +85,7 @@ func TestDB_ListLockeds(t *testing.T) {
 func TestDB_ListWaits(t *testing.T) {
 	testWithClient(t, func(client *Client) {
 		lock := client.Lock(testString2Key("TestListWaits"), 5, 5)
-		err := lock.Lock()
+		_, err := lock.Lock()
 		if err != nil {
 			t.Errorf("DB Lock Fail %v", err)
 			return
@@ -93,7 +93,7 @@ func TestDB_ListWaits(t *testing.T) {
 
 		waitLock := client.Lock(testString2Key("TestListWaits"), 5, 0)
 		go func() {
-			err := waitLock.Lock()
+			_, err := waitLock.Lock()
 			if err != nil {
 				t.Errorf("DB Wait Lock Fail %v", err)
 				return
@@ -118,7 +118,7 @@ func TestDB_ListWaits(t *testing.T) {
 			return
 		}
 
-		err = lock.Unlock()
+		_, err = lock.Unlock()
 		if err != nil {
 			t.Errorf("DB Unlock Fail %v", err)
 			return

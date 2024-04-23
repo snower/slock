@@ -6,6 +6,8 @@ import (
 	"github.com/snower/slock/protocol"
 )
 
+var WaitTimeout = errors.New("timeout")
+
 type LockError struct {
 	Result        uint8
 	CommandResult *protocol.LockResultCommand
@@ -147,172 +149,172 @@ func (self *Lock) doUnlock(flag uint8, lockId [16]byte, timeout uint32, expried 
 	return lockResultCommand, nil
 }
 
-func (self *Lock) Lock() *LockError {
+func (self *Lock) Lock() (*protocol.LockResultCommand, error) {
 	lockResultCommand, err := self.doLock(0, self.lockId, self.timeout, self.expried, self.count, self.rcount, nil)
 	if err != nil {
-		return &LockError{0x80, lockResultCommand, err}
+		return lockResultCommand, &LockError{0x80, lockResultCommand, err}
 	}
 
 	if lockResultCommand.Result != 0 {
-		return &LockError{lockResultCommand.Result, lockResultCommand, err}
+		return lockResultCommand, &LockError{lockResultCommand.Result, lockResultCommand, err}
 	}
-	return nil
+	return lockResultCommand, nil
 }
 
-func (self *Lock) LockWithData(data *protocol.LockCommandData) *LockError {
+func (self *Lock) LockWithData(data *protocol.LockCommandData) (*protocol.LockResultCommand, error) {
 	lockResultCommand, err := self.doLock(0, self.lockId, self.timeout, self.expried, self.count, self.rcount, data)
 	if err != nil {
-		return &LockError{0x80, lockResultCommand, err}
+		return lockResultCommand, &LockError{0x80, lockResultCommand, err}
 	}
 
 	if lockResultCommand.Result != 0 {
-		return &LockError{lockResultCommand.Result, lockResultCommand, err}
+		return lockResultCommand, &LockError{lockResultCommand.Result, lockResultCommand, err}
 	}
-	return nil
+	return lockResultCommand, nil
 }
 
-func (self *Lock) Unlock() *LockError {
+func (self *Lock) Unlock() (*protocol.LockResultCommand, error) {
 	lockResultCommand, err := self.doUnlock(0, self.lockId, self.timeout, self.expried, self.count, self.rcount, nil)
 	if err != nil {
-		return &LockError{0x80, lockResultCommand, err}
+		return lockResultCommand, &LockError{0x80, lockResultCommand, err}
 	}
 
 	if lockResultCommand.Result != 0 {
-		return &LockError{lockResultCommand.Result, lockResultCommand, err}
+		return lockResultCommand, &LockError{lockResultCommand.Result, lockResultCommand, err}
 	}
-	return nil
+	return lockResultCommand, nil
 }
 
-func (self *Lock) UnlockWithData(data *protocol.LockCommandData) *LockError {
+func (self *Lock) UnlockWithData(data *protocol.LockCommandData) (*protocol.LockResultCommand, error) {
 	lockResultCommand, err := self.doUnlock(0, self.lockId, self.timeout, self.expried, self.count, self.rcount, data)
 	if err != nil {
-		return &LockError{0x80, lockResultCommand, err}
+		return lockResultCommand, &LockError{0x80, lockResultCommand, err}
 	}
 
 	if lockResultCommand.Result != 0 {
-		return &LockError{lockResultCommand.Result, lockResultCommand, err}
+		return lockResultCommand, &LockError{lockResultCommand.Result, lockResultCommand, err}
 	}
-	return nil
+	return lockResultCommand, nil
 }
 
-func (self *Lock) LockShow() *LockError {
+func (self *Lock) LockShow() (*protocol.LockResultCommand, error) {
 	lockResultCommand, err := self.doLock(protocol.LOCK_FLAG_SHOW_WHEN_LOCKED, [16]byte{}, 0, 0, 0xffff, 0xff, nil)
 	if err != nil {
-		return &LockError{0x80, lockResultCommand, err}
+		return lockResultCommand, &LockError{0x80, lockResultCommand, err}
 	}
 
 	if lockResultCommand.Result == protocol.RESULT_UNOWN_ERROR {
-		return &LockError{0, lockResultCommand, nil}
+		return lockResultCommand, nil
 	}
-	return &LockError{lockResultCommand.Result, lockResultCommand, errors.New("show error")}
+	return lockResultCommand, &LockError{lockResultCommand.Result, lockResultCommand, errors.New("show error")}
 }
 
-func (self *Lock) LockUpdate() *LockError {
+func (self *Lock) LockUpdate() (*protocol.LockResultCommand, error) {
 	lockResultCommand, err := self.doLock(protocol.LOCK_FLAG_UPDATE_WHEN_LOCKED, self.lockId, self.timeout, self.expried, self.count, self.rcount, nil)
 	if err != nil {
-		return &LockError{0x80, lockResultCommand, err}
+		return lockResultCommand, &LockError{0x80, lockResultCommand, err}
 	}
 
 	if lockResultCommand.Result == 0 || lockResultCommand.Result == protocol.RESULT_LOCKED_ERROR {
-		return &LockError{0, lockResultCommand, nil}
+		return lockResultCommand, nil
 	}
-	return &LockError{lockResultCommand.Result, lockResultCommand, errors.New("update error")}
+	return lockResultCommand, &LockError{lockResultCommand.Result, lockResultCommand, errors.New("update error")}
 }
 
-func (self *Lock) LockUpdateWithData(data *protocol.LockCommandData) *LockError {
+func (self *Lock) LockUpdateWithData(data *protocol.LockCommandData) (*protocol.LockResultCommand, error) {
 	lockResultCommand, err := self.doLock(protocol.LOCK_FLAG_UPDATE_WHEN_LOCKED, self.lockId, self.timeout, self.expried, self.count, self.rcount, data)
 	if err != nil {
-		return &LockError{0x80, lockResultCommand, err}
+		return lockResultCommand, &LockError{0x80, lockResultCommand, err}
 	}
 
 	if lockResultCommand.Result == 0 || lockResultCommand.Result == protocol.RESULT_LOCKED_ERROR {
-		return &LockError{0, lockResultCommand, nil}
+		return lockResultCommand, nil
 	}
-	return &LockError{lockResultCommand.Result, lockResultCommand, errors.New("update error")}
+	return lockResultCommand, &LockError{lockResultCommand.Result, lockResultCommand, errors.New("update error")}
 }
 
-func (self *Lock) UnlockHead() *LockError {
+func (self *Lock) UnlockHead() (*protocol.LockResultCommand, error) {
 	lockResultCommand, err := self.doUnlock(protocol.UNLOCK_FLAG_UNLOCK_FIRST_LOCK_WHEN_UNLOCKED, [16]byte{}, self.timeout, self.expried, self.count, self.rcount, nil)
 	if err != nil {
-		return &LockError{0x80, lockResultCommand, err}
+		return lockResultCommand, &LockError{0x80, lockResultCommand, err}
 	}
 
 	if lockResultCommand.Result == 0 {
-		return &LockError{lockResultCommand.Result, lockResultCommand, nil}
+		return lockResultCommand, nil
 	}
-	return &LockError{lockResultCommand.Result, lockResultCommand, errors.New("unlock error")}
+	return lockResultCommand, &LockError{lockResultCommand.Result, lockResultCommand, errors.New("unlock error")}
 }
 
-func (self *Lock) UnlockHeadWithData(data *protocol.LockCommandData) *LockError {
+func (self *Lock) UnlockHeadWithData(data *protocol.LockCommandData) (*protocol.LockResultCommand, error) {
 	lockResultCommand, err := self.doUnlock(protocol.UNLOCK_FLAG_UNLOCK_FIRST_LOCK_WHEN_UNLOCKED, [16]byte{}, self.timeout, self.expried, self.count, self.rcount, data)
 	if err != nil {
-		return &LockError{0x80, lockResultCommand, err}
+		return lockResultCommand, &LockError{0x80, lockResultCommand, err}
 	}
 
 	if lockResultCommand.Result == 0 {
-		return &LockError{lockResultCommand.Result, lockResultCommand, nil}
+		return lockResultCommand, nil
 	}
-	return &LockError{lockResultCommand.Result, lockResultCommand, errors.New("unlock error")}
+	return lockResultCommand, &LockError{lockResultCommand.Result, lockResultCommand, errors.New("unlock error")}
 }
 
-func (self *Lock) UnlockRetoLockWait() *LockError {
+func (self *Lock) UnlockRetoLockWait() (*protocol.LockResultCommand, error) {
 	lockResultCommand, err := self.doUnlock(protocol.UNLOCK_FLAG_SUCCED_TO_LOCK_WAIT, self.lockId, self.timeout, self.expried, self.count, self.rcount, nil)
 	if err != nil {
-		return &LockError{0x80, lockResultCommand, err}
+		return lockResultCommand, &LockError{0x80, lockResultCommand, err}
 	}
 
 	if lockResultCommand.Result == 0 {
-		return &LockError{lockResultCommand.Result, lockResultCommand, nil}
+		return lockResultCommand, nil
 	}
-	return &LockError{lockResultCommand.Result, lockResultCommand, errors.New("unlock error")}
+	return lockResultCommand, &LockError{lockResultCommand.Result, lockResultCommand, errors.New("unlock error")}
 }
 
-func (self *Lock) UnlockRetoLockWaitWithData(data *protocol.LockCommandData) *LockError {
+func (self *Lock) UnlockRetoLockWaitWithData(data *protocol.LockCommandData) (*protocol.LockResultCommand, error) {
 	lockResultCommand, err := self.doUnlock(protocol.UNLOCK_FLAG_SUCCED_TO_LOCK_WAIT, self.lockId, self.timeout, self.expried, self.count, self.rcount, data)
 	if err != nil {
-		return &LockError{0x80, lockResultCommand, err}
+		return lockResultCommand, &LockError{0x80, lockResultCommand, err}
 	}
 
 	if lockResultCommand.Result == 0 {
-		return &LockError{lockResultCommand.Result, lockResultCommand, nil}
+		return lockResultCommand, nil
 	}
-	return &LockError{lockResultCommand.Result, lockResultCommand, errors.New("unlock error")}
+	return lockResultCommand, &LockError{lockResultCommand.Result, lockResultCommand, errors.New("unlock error")}
 }
 
-func (self *Lock) UnlockHeadRetoLockWait() *LockError {
+func (self *Lock) UnlockHeadRetoLockWait() (*protocol.LockResultCommand, error) {
 	lockResultCommand, err := self.doUnlock(protocol.UNLOCK_FLAG_UNLOCK_FIRST_LOCK_WHEN_UNLOCKED|protocol.UNLOCK_FLAG_SUCCED_TO_LOCK_WAIT, [16]byte{}, self.timeout, self.expried, self.count, self.rcount, nil)
 	if err != nil {
-		return &LockError{0x80, lockResultCommand, err}
+		return lockResultCommand, &LockError{0x80, lockResultCommand, err}
 	}
 
 	if lockResultCommand.Result == 0 {
-		return &LockError{lockResultCommand.Result, lockResultCommand, nil}
+		return lockResultCommand, nil
 	}
-	return &LockError{lockResultCommand.Result, lockResultCommand, errors.New("unlock error")}
+	return lockResultCommand, &LockError{lockResultCommand.Result, lockResultCommand, errors.New("unlock error")}
 }
 
-func (self *Lock) UnlockHeadRetoLockWaitWithData(data *protocol.LockCommandData) *LockError {
+func (self *Lock) UnlockHeadRetoLockWaitWithData(data *protocol.LockCommandData) (*protocol.LockResultCommand, error) {
 	lockResultCommand, err := self.doUnlock(protocol.UNLOCK_FLAG_UNLOCK_FIRST_LOCK_WHEN_UNLOCKED|protocol.UNLOCK_FLAG_SUCCED_TO_LOCK_WAIT, [16]byte{}, self.timeout, self.expried, self.count, self.rcount, data)
 	if err != nil {
-		return &LockError{0x80, lockResultCommand, err}
+		return lockResultCommand, &LockError{0x80, lockResultCommand, err}
 	}
 
 	if lockResultCommand.Result == 0 {
-		return &LockError{lockResultCommand.Result, lockResultCommand, nil}
+		return lockResultCommand, nil
 	}
-	return &LockError{lockResultCommand.Result, lockResultCommand, errors.New("unlock error")}
+	return lockResultCommand, &LockError{lockResultCommand.Result, lockResultCommand, errors.New("unlock error")}
 }
 
-func (self *Lock) CancelWait() *LockError {
+func (self *Lock) CancelWait() (*protocol.LockResultCommand, error) {
 	lockResultCommand, err := self.doUnlock(protocol.UNLOCK_FLAG_CANCEL_WAIT_LOCK_WHEN_UNLOCKED, self.lockId, self.timeout, self.expried, self.count, self.rcount, nil)
 	if err != nil {
-		return &LockError{0x80, lockResultCommand, err}
+		return lockResultCommand, &LockError{0x80, lockResultCommand, err}
 	}
 
 	if lockResultCommand.Result == protocol.RESULT_LOCKED_ERROR {
-		return &LockError{0, lockResultCommand, nil}
+		return lockResultCommand, nil
 	}
-	return &LockError{lockResultCommand.Result, lockResultCommand, errors.New("cancel error")}
+	return lockResultCommand, &LockError{lockResultCommand.Result, lockResultCommand, errors.New("cancel error")}
 }
 
 func (self *Lock) SendLock() error {

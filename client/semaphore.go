@@ -29,57 +29,53 @@ func (self *Semaphore) GetExpried() uint32 {
 	return self.expried
 }
 
-func (self *Semaphore) Acquire() *LockError {
+func (self *Semaphore) Acquire() (*protocol.LockResultCommand, error) {
 	lock := &Lock{self.db, self.db.GenLockId(), self.semaphoreKey, self.timeout, self.expried, self.count, 0}
 	return lock.Lock()
 }
 
-func (self *Semaphore) Release() *LockError {
+func (self *Semaphore) Release() (*protocol.LockResultCommand, error) {
 	lock := &Lock{self.db, [16]byte{}, self.semaphoreKey, self.timeout, self.expried, self.count, 0}
-	err := lock.UnlockHead()
-	if err.Err != nil {
-		return err
-	}
-	return nil
+	return lock.UnlockHead()
 }
 
-func (self *Semaphore) ReleaseN(n int) (int, *LockError) {
+func (self *Semaphore) ReleaseN(n int) (int, error) {
 	lock := &Lock{self.db, [16]byte{}, self.semaphoreKey, self.timeout, self.expried, self.count, 0}
 	for i := 0; i < n; i++ {
-		err := lock.UnlockHead()
-		if err.Err != nil {
+		_, err := lock.UnlockHead()
+		if err != nil {
 			return i + 1, err
 		}
 	}
 	return n, nil
 }
 
-func (self *Semaphore) ReleaseAll() *LockError {
+func (self *Semaphore) ReleaseAll() error {
 	lock := &Lock{self.db, [16]byte{}, self.semaphoreKey, self.timeout, self.expried, self.count, 0}
 	for {
-		err := lock.UnlockHead()
-		if err.Result == protocol.RESULT_UNLOCK_ERROR {
+		result, err := lock.UnlockHead()
+		if result != nil && result.Result == protocol.RESULT_UNLOCK_ERROR {
 			return nil
 		}
-		if err.Err != nil {
+		if err != nil {
 			return err
 		}
 	}
 }
 
-func (self *Semaphore) Count() (int, *LockError) {
+func (self *Semaphore) Count() (int, error) {
 	lock := &Lock{self.db, self.db.GenLockId(), self.semaphoreKey, 0, 0, self.count, 0}
-	err := lock.LockShow()
-	if err.CommandResult.Result == protocol.RESULT_SUCCED {
-		return 0, nil
-	}
-
-	if err.CommandResult.Result == protocol.RESULT_UNOWN_ERROR {
-		return int(err.CommandResult.Lcount), nil
-	}
-
-	if err.CommandResult.Result == protocol.RESULT_TIMEOUT {
-		return int(self.count), nil
+	result, err := lock.LockShow()
+	if result != nil {
+		if result.Result == protocol.RESULT_SUCCED {
+			return 0, nil
+		}
+		if result.Result == protocol.RESULT_UNOWN_ERROR {
+			return int(result.Lcount), nil
+		}
+		if result.Result == protocol.RESULT_TIMEOUT {
+			return int(self.count), nil
+		}
 	}
 	return 0, err
 }

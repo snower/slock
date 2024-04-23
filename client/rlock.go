@@ -1,5 +1,7 @@
 package client
 
+import "github.com/snower/slock/protocol"
+
 type RLock struct {
 	db      *Database
 	lockKey [16]byte
@@ -25,10 +27,18 @@ func (self *RLock) GetExpried() uint32 {
 	return self.expried
 }
 
-func (self *RLock) Lock() *LockError {
+func (self *RLock) Lock() (*protocol.LockResultCommand, error) {
 	return self.lock.Lock()
 }
 
-func (self *RLock) Unlock() *LockError {
+func (self *RLock) LockWithData(data *protocol.LockCommandData) (*protocol.LockResultCommand, error) {
+	return self.lock.LockWithData(data)
+}
+
+func (self *RLock) Unlock() (*protocol.LockResultCommand, error) {
 	return self.lock.Unlock()
+}
+
+func (self *RLock) UnlockWithData(data *protocol.LockCommandData) (*protocol.LockResultCommand, error) {
+	return self.lock.UnlockWithData(data)
 }

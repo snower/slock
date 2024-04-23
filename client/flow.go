@@ -44,7 +44,7 @@ func (self *MaxConcurrentFlow) SetExpriedFlag(flag uint16) uint16 {
 	return oflag
 }
 
-func (self *MaxConcurrentFlow) Acquire() *LockError {
+func (self *MaxConcurrentFlow) Acquire() (*protocol.LockResultCommand, error) {
 	self.glock.Lock()
 	if self.flowLock == nil {
 		self.flowLock = &Lock{self.db, self.db.GenLockId(), self.flowKey, self.timeout, self.expried, self.count, 0}
@@ -53,7 +53,7 @@ func (self *MaxConcurrentFlow) Acquire() *LockError {
 	return self.flowLock.Lock()
 }
 
-func (self *MaxConcurrentFlow) Release() *LockError {
+func (self *MaxConcurrentFlow) Release() (*protocol.LockResultCommand, error) {
 	self.glock.Lock()
 	if self.flowLock == nil {
 		self.flowLock = &Lock{self.db, self.db.GenLockId(), self.flowKey, self.timeout, self.expried, self.count, 0}
@@ -100,7 +100,7 @@ func (self *TokenBucketFlow) SetExpriedFlag(flag uint16) uint16 {
 	return oflag
 }
 
-func (self *TokenBucketFlow) Acquire() *LockError {
+func (self *TokenBucketFlow) Acquire() (*protocol.LockResultCommand, error) {
 	self.glock.Lock()
 	if self.period < 3 {
 		expried := uint32(math.Ceil(self.period*1000)) | 0x04000000
@@ -116,14 +116,14 @@ func (self *TokenBucketFlow) Acquire() *LockError {
 	self.flowLock = &Lock{self.db, self.db.GenLockId(), self.flowKey, 0, expried, self.count, 0}
 	self.glock.Unlock()
 
-	err := self.flowLock.Lock()
-	if err != nil && err.Result == protocol.RESULT_TIMEOUT {
+	result, err := self.flowLock.Lock()
+	if err != nil && result != nil && result.Result == protocol.RESULT_TIMEOUT {
 		self.glock.Lock()
-		expried := uint32(math.Ceil(self.period))
+		expried = uint32(math.Ceil(self.period))
 		expried |= uint32(self.expriedFlag) << 16
 		self.flowLock = &Lock{self.db, self.db.GenLockId(), self.flowKey, self.timeout, expried, self.count, 0}
 		self.glock.Unlock()
 		return self.flowLock.Lock()
 	}
-	return err
+	return result, err
 }

@@ -10,44 +10,56 @@ type TreeLeafLock struct {
 	lock     *Lock
 }
 
-func (self *TreeLeafLock) Lock() *LockError {
+func (self *TreeLeafLock) Lock() (*protocol.LockResultCommand, error) {
 	parentLock, childLock, cerr := self.treeLock.checkTreeLock()
 	if cerr != nil {
-		return cerr
+		return nil, cerr
 	}
 
 	lockResultCommand, err := self.lock.doLock(0, self.lock.lockId, self.lock.timeout, self.lock.expried, 0xffff, 0, nil)
 	if err != nil {
 		if childLock != nil {
-			_ = childLock.Unlock()
+			_, _ = childLock.Unlock()
 		}
 		if parentLock != nil {
-			_ = parentLock.Unlock()
+			_, _ = parentLock.Unlock()
 		}
-		return &LockError{0x80, lockResultCommand, err}
+		return lockResultCommand, &LockError{0x80, lockResultCommand, err}
 	}
 	if lockResultCommand.Result != 0 {
 		if childLock != nil {
-			_ = childLock.Unlock()
+			_, _ = childLock.Unlock()
 		}
 		if parentLock != nil {
-			_ = parentLock.Unlock()
+			_, _ = parentLock.Unlock()
 		}
-		return &LockError{lockResultCommand.Result, lockResultCommand, err}
+		return lockResultCommand, &LockError{lockResultCommand.Result, lockResultCommand, err}
 	}
-	return nil
+	return lockResultCommand, nil
 }
 
-func (self *TreeLeafLock) Unlock() *LockError {
+func (self *TreeLeafLock) Unlock() (*protocol.LockResultCommand, error) {
 	lockResultCommand, err := self.lock.doUnlock(protocol.UNLOCK_FLAG_UNLOCK_TREE_LOCK, self.lock.lockId, self.lock.timeout, self.lock.expried, 0xffff, 0, nil)
 	if err != nil {
-		return &LockError{0x80, lockResultCommand, err}
+		return lockResultCommand, &LockError{0x80, lockResultCommand, err}
 	}
 
 	if lockResultCommand.Result != 0 {
-		return &LockError{lockResultCommand.Result, lockResultCommand, err}
+		return lockResultCommand, &LockError{lockResultCommand.Result, lockResultCommand, err}
 	}
-	return nil
+	return lockResultCommand, nil
+}
+
+func (self *TreeLeafLock) UnlockWithData(data *protocol.LockCommandData) (*protocol.LockResultCommand, error) {
+	lockResultCommand, err := self.lock.doUnlock(protocol.UNLOCK_FLAG_UNLOCK_TREE_LOCK, self.lock.lockId, self.lock.timeout, self.lock.expried, 0xffff, 0, data)
+	if err != nil {
+		return lockResultCommand, &LockError{0x80, lockResultCommand, err}
+	}
+
+	if lockResultCommand.Result != 0 {
+		return lockResultCommand, &LockError{lockResultCommand.Result, lockResultCommand, err}
+	}
+	return lockResultCommand, nil
 }
 
 func (self *TreeLeafLock) GetLockKey() [16]byte {
@@ -90,43 +102,62 @@ func (self *TreeLock) LoadChild(lockKey [16]byte) *TreeLock {
 	return &TreeLock{self.db, self.lockKey, lockKey, self.timeout, self.expried, false, nil}
 }
 
-func (self *TreeLock) Lock() *LockError {
+func (self *TreeLock) Lock() (*protocol.LockResultCommand, error) {
 	checkLock := &Lock{self.db, self.db.GenLockId(), self.lockKey, self.timeout, 0, 0, 0}
-	err := checkLock.Lock()
+	result, err := checkLock.Lock()
 	if err != nil {
-		return err
+		return result, err
 	}
 
 	if self.leafLock != nil {
-		return nil
+		return result, nil
 	}
 	leafLock := self.NewLeafLock()
-	err = leafLock.Lock()
+	result, err = leafLock.Lock()
 	if err != nil {
-		return err
+		return result, err
 	}
 	self.leafLock = leafLock
-	return nil
+	return result, nil
 }
 
-func (self *TreeLock) Unlock() *LockError {
+func (self *TreeLock) Unlock() (*protocol.LockResultCommand, error) {
 	if self.leafLock == nil {
-		return nil
+		return nil, nil
 	}
-	err := self.leafLock.Unlock()
+	result, err := self.leafLock.Unlock()
 	if err != nil {
-		return err
+		return result, err
 	}
 	self.leafLock = nil
-	return nil
+	return result, nil
 }
 
-func (self *TreeLock) Wait(timeout uint32) *LockError {
+func (self *TreeLock) UnlockWithData(data *protocol.LockCommandData) (*protocol.LockResultCommand, error) {
+	if self.leafLock == nil {
+		return nil, nil
+	}
+	result, err := self.leafLock.UnlockWithData(data)
+	if err != nil {
+		return result, err
+	}
+	self.leafLock = nil
+	return result, nil
+}
+
+func (self *TreeLock) Wait(timeout uint32) (*protocol.LockResultCommand, error) {
 	checkLock := &Lock{self.db, self.db.GenLockId(), self.lockKey, timeout, 0, 0, 0}
-	return checkLock.Lock()
+	result, err := checkLock.Lock()
+	if err != nil {
+		return result, err
+	}
+	if result.Result == protocol.RESULT_TIMEOUT {
+		return result, WaitTimeout
+	}
+	return result, nil
 }
 
-func (self *TreeLock) checkTreeLock() (*Lock, *Lock, *LockError) {
+func (self *TreeLock) checkTreeLock() (*Lock, *Lock, error) {
 	if self.isRoot {
 		return nil, nil, nil
 	}
@@ -146,11 +177,11 @@ func (self *TreeLock) checkTreeLock() (*Lock, *Lock, *LockError) {
 	parentLock := &Lock{self.db, self.lockKey, self.parentKey, self.timeout, self.expried, 0, 0}
 	lockResultCommand, err = parentLock.doLock(0, parentLock.lockId, 0, self.expried, 0xffff, 0, nil)
 	if err != nil {
-		_ = childLock.Unlock()
+		_, _ = childLock.Unlock()
 		return nil, nil, &LockError{0x80, lockResultCommand, err}
 	}
 	if lockResultCommand.Result != 0 && lockResultCommand.Result != protocol.RESULT_LOCKED_ERROR {
-		_ = childLock.Unlock()
+		_, _ = childLock.Unlock()
 		return nil, nil, &LockError{lockResultCommand.Result, lockResultCommand, err}
 	}
 	return parentLock, childLock, nil

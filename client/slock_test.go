@@ -55,13 +55,13 @@ func TestClient_Open(t *testing.T) {
 	}
 
 	lock := client.Lock(testString2Key("testClient"), 5, 5)
-	lerr := lock.Lock()
+	_, lerr := lock.Lock()
 	if lerr != nil {
 		t.Errorf("Client Lock Fail %v", lerr)
 		return
 	}
 
-	ulerr := lock.Unlock()
+	_, ulerr := lock.Unlock()
 	if ulerr != nil {
 		t.Errorf("Client UnLock Fail %v", ulerr)
 		return
@@ -83,13 +83,13 @@ func TestReplsetClient_Open(t *testing.T) {
 	}
 
 	lock := client.Lock(testString2Key("testReplset"), 5, 5)
-	lerr := lock.Lock()
+	_, lerr := lock.Lock()
 	if lerr != nil {
 		t.Errorf("Client Lock Fail %v", lerr)
 		return
 	}
 
-	ulerr := lock.Unlock()
+	_, ulerr := lock.Unlock()
 	if ulerr != nil {
 		t.Errorf("Client UnLock Fail %v", ulerr)
 		return

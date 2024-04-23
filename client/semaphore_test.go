@@ -5,13 +5,13 @@ import "testing"
 func TestSemaphore_Acquire(t *testing.T) {
 	testWithClient(t, func(client *Client) {
 		semaphore := client.Semaphore(testString2Key("TestRWLock"), 0, 5, 2)
-		err := semaphore.Acquire()
+		_, err := semaphore.Acquire()
 		if err != nil {
 			t.Errorf("Semaphore Acquire1 Fail %v", err)
 			return
 		}
 
-		err = semaphore.Acquire()
+		_, err = semaphore.Acquire()
 		if err != nil {
 			t.Errorf("Semaphore Acquire2 Fail %v", err)
 			return
@@ -27,13 +27,13 @@ func TestSemaphore_Acquire(t *testing.T) {
 			return
 		}
 
-		err = semaphore.Acquire()
+		_, err = semaphore.Acquire()
 		if err == nil {
 			t.Errorf("Semaphore Acquire3 Fail %v", err)
 			return
 		}
 
-		err = semaphore.Release()
+		_, err = semaphore.Release()
 		if err != nil {
 			t.Errorf("Semaphore Release1 Fail %v", err)
 			return
@@ -49,7 +49,7 @@ func TestSemaphore_Acquire(t *testing.T) {
 			return
 		}
 
-		err = semaphore.Acquire()
+		_, err = semaphore.Acquire()
 		if err != nil {
 			t.Errorf("Semaphore ReAcquire3 Fail %v", err)
 			return
