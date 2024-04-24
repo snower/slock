@@ -187,7 +187,7 @@ func TestEvent_DefaultSetWithData(t *testing.T) {
 			return
 		}
 
-		_, err = event.Clear()
+		_, err = event.ClearWithUnsetData()
 		if err != nil {
 			t.Errorf("Event Wait Clear Fail %v", err)
 			return
@@ -195,9 +195,13 @@ func TestEvent_DefaultSetWithData(t *testing.T) {
 
 		go func() {
 			time.Sleep(20 * time.Millisecond)
-			_, err = event.SetWithData(protocol.NewLockCommandDataSetString("bbb"))
-			if err != nil {
-				t.Errorf("Event Wakeup Set Fail %v", err)
+			result, serr := event.SetWithData(protocol.NewLockCommandDataSetString("bbb"))
+			if serr != nil {
+				t.Errorf("Event Wakeup Set Fail %v", serr)
+				return
+			}
+			if result.GetLockData() != nil {
+				t.Errorf("Event Wakeup Set Data Fail %v", result.GetLockData())
 				return
 			}
 		}()
@@ -243,7 +247,7 @@ func TestEvent_DefaultClearWithData(t *testing.T) {
 			return
 		}
 
-		_, err = event.Clear()
+		_, err = event.ClearWithUnsetData()
 		if err != nil {
 			t.Errorf("Event Clear Fail %v", err)
 			return
@@ -261,9 +265,13 @@ func TestEvent_DefaultClearWithData(t *testing.T) {
 
 		go func() {
 			time.Sleep(20 * time.Millisecond)
-			_, err = event.SetWithData(protocol.NewLockCommandDataSetString("bbb"))
-			if err != nil {
-				t.Errorf("Event Wakeup Set Fail %v", err)
+			result, serr := event.SetWithData(protocol.NewLockCommandDataSetString("bbb"))
+			if serr != nil {
+				t.Errorf("Event Wakeup Set Fail %v", serr)
+				return
+			}
+			if result.GetLockData() != nil {
+				t.Errorf("Event Wakeup Set Data Fail %v", result.GetLockData())
 				return
 			}
 		}()

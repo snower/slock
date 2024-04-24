@@ -10,14 +10,17 @@ import (
 )
 
 type Database struct {
-	dbId   uint8
-	client IClient
-	glock  *sync.Mutex
-	closed bool
+	dbId               uint8
+	client             IClient
+	glock              *sync.Mutex
+	closed             bool
+	defaultTimeoutFlag uint16
+	defaultExpriedFlag uint16
 }
 
 func NewDatabase(dbId uint8, client IClient) *Database {
-	return &Database{dbId, client, &sync.Mutex{}, false}
+	return &Database{dbId, client, &sync.Mutex{}, false,
+		client.GetDefaultTimeoutFlag(), client.GetDefaultExpriedFlag()}
 }
 
 func (self *Database) Close() error {
@@ -40,7 +43,14 @@ func (self *Database) sendCommand(command protocol.ICommand) error {
 }
 
 func (self *Database) Lock(lockKey [16]byte, timeout uint32, expried uint32) *Lock {
-	return NewLock(self, lockKey, timeout, expried)
+	lock := NewLock(self, lockKey, timeout, expried)
+	if self.defaultTimeoutFlag > 0 {
+		lock.SetTimeoutFlag(self.defaultTimeoutFlag)
+	}
+	if self.defaultExpriedFlag > 0 {
+		lock.SetExpriedFlag(self.defaultExpriedFlag)
+	}
+	return lock
 }
 
 func (self *Database) Event(eventKey [16]byte, timeout uint32, expried uint32, defaultSeted bool) *Event {
@@ -180,4 +190,20 @@ func (self *Database) GenRequestId() [16]byte {
 
 func (self *Database) GenLockId() [16]byte {
 	return protocol.GenLockId()
+}
+
+func (self *Database) SetDefaultTimeoutFlag(timeoutFlag uint16) {
+	self.defaultTimeoutFlag = timeoutFlag
+}
+
+func (self *Database) SetDefaultExpriedFlag(expriedFlag uint16) {
+	self.defaultExpriedFlag = expriedFlag
+}
+
+func (self *Database) GetDefaultTimeoutFlag() uint16 {
+	return self.defaultTimeoutFlag
+}
+
+func (self *Database) GetDefaultExpriedFlag() uint16 {
+	return self.defaultExpriedFlag
 }

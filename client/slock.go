@@ -30,25 +30,31 @@ type IClient interface {
 	UpdateSubscribe(subscriber ISubscriber) error
 	GenRequestId() [16]byte
 	Unavailable() chan bool
+	SetDefaultTimeoutFlag(timeoutFlag uint16)
+	SetDefaultExpriedFlag(expriedFlag uint16)
+	GetDefaultTimeoutFlag() uint16
+	GetDefaultExpriedFlag() uint16
 }
 
 type Client struct {
-	glock             *sync.Mutex
-	replset           *ReplsetClient
-	protocol          ClientProtocol
-	dbs               []*Database
-	dbLock            *sync.Mutex
-	requests          map[[16]byte]chan protocol.ICommand
-	requestLock       *sync.Mutex
-	subscribers       map[uint32]*Subscriber
-	fastSubscribers   []*Subscriber
-	subscribeLock     *sync.Mutex
-	serverAddress     string
-	clientId          [16]byte
-	closed            bool
-	closedWaiter      chan bool
-	reconnectWaiter   chan bool
-	unavailableWaiter chan bool
+	glock              *sync.Mutex
+	replset            *ReplsetClient
+	protocol           ClientProtocol
+	dbs                []*Database
+	dbLock             *sync.Mutex
+	requests           map[[16]byte]chan protocol.ICommand
+	requestLock        *sync.Mutex
+	subscribers        map[uint32]*Subscriber
+	fastSubscribers    []*Subscriber
+	subscribeLock      *sync.Mutex
+	serverAddress      string
+	clientId           [16]byte
+	closed             bool
+	closedWaiter       chan bool
+	reconnectWaiter    chan bool
+	unavailableWaiter  chan bool
+	defaultTimeoutFlag uint16
+	defaultExpriedFlag uint16
 }
 
 func NewClient(host string, port uint) *Client {
@@ -56,7 +62,7 @@ func NewClient(host string, port uint) *Client {
 	client := &Client{&sync.Mutex{}, nil, nil, make([]*Database, 256),
 		&sync.Mutex{}, make(map[[16]byte]chan protocol.ICommand, 4096), &sync.Mutex{},
 		make(map[uint32]*Subscriber, 4), make([]*Subscriber, 0), &sync.Mutex{}, address, protocol.GenClientId(),
-		false, make(chan bool, 1), nil, nil}
+		false, make(chan bool, 1), nil, nil, 0, 0}
 	return client
 }
 
@@ -551,26 +557,54 @@ func (self *Client) Unavailable() chan bool {
 	return self.unavailableWaiter
 }
 
+func (self *Client) SetDefaultTimeoutFlag(timeoutFlag uint16) {
+	self.defaultTimeoutFlag = timeoutFlag
+	for _, db := range self.dbs {
+		if db != nil {
+			db.SetDefaultTimeoutFlag(timeoutFlag)
+		}
+	}
+}
+
+func (self *Client) SetDefaultExpriedFlag(expriedFlag uint16) {
+	self.defaultExpriedFlag = expriedFlag
+	for _, db := range self.dbs {
+		if db != nil {
+			db.SetDefaultExpriedFlag(expriedFlag)
+		}
+	}
+}
+
+func (self *Client) GetDefaultTimeoutFlag() uint16 {
+	return self.defaultTimeoutFlag
+}
+
+func (self *Client) GetDefaultExpriedFlag() uint16 {
+	return self.defaultExpriedFlag
+}
+
 type ReplsetClient struct {
-	glock             *sync.Mutex
-	clients           []*Client
-	availableClients  []*Client
-	dbs               []*Database
-	dbLock            *sync.Mutex
-	closed            bool
-	closedWaiter      chan bool
-	unavailableWaiter chan bool
+	glock              *sync.Mutex
+	clients            []*Client
+	availableClients   []*Client
+	dbs                []*Database
+	dbLock             *sync.Mutex
+	closed             bool
+	closedWaiter       chan bool
+	unavailableWaiter  chan bool
+	defaultTimeoutFlag uint16
+	defaultExpriedFlag uint16
 }
 
 func NewReplsetClient(hosts []string) *ReplsetClient {
 	replsetClient := &ReplsetClient{&sync.Mutex{}, make([]*Client, 0), make([]*Client, 0),
-		make([]*Database, 256), &sync.Mutex{}, false, make(chan bool, 1), nil}
+		make([]*Database, 256), &sync.Mutex{}, false, make(chan bool, 1), nil, 0, 0}
 
 	for _, host := range hosts {
 		client := &Client{&sync.Mutex{}, replsetClient, nil, replsetClient.dbs,
 			replsetClient.dbLock, make(map[[16]byte]chan protocol.ICommand, 64), &sync.Mutex{},
 			make(map[uint32]*Subscriber, 4), make([]*Subscriber, 0), &sync.Mutex{}, host, protocol.GenClientId(),
-			false, make(chan bool, 1), nil, nil}
+			false, make(chan bool, 1), nil, nil, 0, 0}
 		replsetClient.clients = append(replsetClient.clients, client)
 	}
 	return replsetClient
@@ -798,4 +832,30 @@ func (self *ReplsetClient) Unavailable() chan bool {
 	}
 	self.glock.Unlock()
 	return self.unavailableWaiter
+}
+
+func (self *ReplsetClient) SetDefaultTimeoutFlag(timeoutFlag uint16) {
+	self.defaultTimeoutFlag = timeoutFlag
+	for _, db := range self.dbs {
+		if db != nil {
+			db.SetDefaultTimeoutFlag(timeoutFlag)
+		}
+	}
+}
+
+func (self *ReplsetClient) SetDefaultExpriedFlag(expriedFlag uint16) {
+	self.defaultExpriedFlag = expriedFlag
+	for _, db := range self.dbs {
+		if db != nil {
+			db.SetDefaultExpriedFlag(expriedFlag)
+		}
+	}
+}
+
+func (self *ReplsetClient) GetDefaultTimeoutFlag() uint16 {
+	return self.defaultTimeoutFlag
+}
+
+func (self *ReplsetClient) GetDefaultExpriedFlag() uint16 {
+	return self.defaultExpriedFlag
 }

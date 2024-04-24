@@ -54,6 +54,17 @@ func (self *GroupEvent) Clear() (*protocol.LockResultCommand, error) {
 	return self.eventLock.LockUpdate()
 }
 
+func (self *GroupEvent) ClearWithUnsetData() (*protocol.LockResultCommand, error) {
+	self.glock.Lock()
+	lockId := [16]byte{byte(self.versionId), byte(self.versionId >> 8), byte(self.versionId >> 16), byte(self.versionId >> 24),
+		byte(self.versionId >> 32), byte(self.versionId >> 40), byte(self.versionId >> 48), byte(self.versionId >> 56),
+		0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
+	timeout := self.timeout | uint32(protocol.TIMEOUT_FLAG_LESS_LOCK_VERSION_IS_LOCK_SUCCED)<<16
+	self.eventLock = &Lock{self.db, lockId, self.groupKey, timeout, self.expried, 0, 0}
+	self.glock.Unlock()
+	return self.eventLock.LockUpdateWithData(protocol.NewLockCommandDataUnsetData())
+}
+
 func (self *GroupEvent) Set() (*protocol.LockResultCommand, error) {
 	self.glock.Lock()
 	if self.eventLock == nil {

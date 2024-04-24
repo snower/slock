@@ -77,6 +77,32 @@ func (self *Event) Clear() (*protocol.LockResultCommand, error) {
 	return result, err
 }
 
+func (self *Event) ClearWithUnsetData() (*protocol.LockResultCommand, error) {
+	if self.setedMode == EVENT_MODE_DEFAULT_SET {
+		self.glock.Lock()
+		if self.eventLock == nil {
+			self.eventLock = &Lock{self.db, self.eventKey, self.eventKey, self.timeout, self.expried, 0, 0}
+		}
+		self.glock.Unlock()
+		return self.eventLock.LockUpdateWithData(protocol.NewLockCommandDataUnsetData())
+	}
+
+	self.glock.Lock()
+	if self.eventLock == nil {
+		self.eventLock = &Lock{self.db, self.eventKey, self.eventKey, self.timeout, self.expried, 1, 0}
+	}
+	self.glock.Unlock()
+
+	result, err := self.eventLock.UnlockWithData(protocol.NewLockCommandDataUnsetData())
+	if err == nil {
+		return result, nil
+	}
+	if result != nil && result.Result == protocol.RESULT_UNLOCK_ERROR {
+		return result, nil
+	}
+	return result, err
+}
+
 func (self *Event) Set() (*protocol.LockResultCommand, error) {
 	if self.setedMode == EVENT_MODE_DEFAULT_SET {
 		self.glock.Lock()

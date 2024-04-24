@@ -418,7 +418,7 @@ func TestLock_WithData(t *testing.T) {
 			t.Errorf("Lock LockWithData Fail %v", err)
 			return
 		}
-		if result.GetLockData() != nil && result.GetLockData().GetStringData() == "aaa" {
+		if result.GetLockData() != nil {
 			t.Errorf("Lock LockWithData Result LockData Fail %v", result.GetLockData())
 			return
 		}
@@ -432,26 +432,88 @@ func TestLock_WithData(t *testing.T) {
 			return
 		}
 
-		lock = client.Lock(testString2Key("TestData"), 50, 10)
+		lock = client.Lock(testString2Key("TestData1"), 50, 10)
 		lock.SetCount(10)
 		result, err = lock.LockWithData(protocol.NewLockCommandDataSetString("aaa"))
 		if err != nil {
 			t.Errorf("Lock LockWithData Fail %v", err)
 			return
 		}
-		if result.GetLockData() == nil || result.GetLockData().GetStringData() != "aaa" {
+		if result.GetLockData() != nil {
 			t.Errorf("Lock LockWithData Result LockData Fail %v", result.GetLockData())
 			return
 		}
-		ulock := client.Lock(testString2Key("TestData"), 50, 0)
-		ulock.SetCount(10)
-		result, err = ulock.LockWithData(protocol.NewLockCommandDataSetString("bbb"))
+		ulock1 := client.Lock(testString2Key("TestData1"), 50, 10)
+		ulock1.SetCount(10)
+		result, err = ulock1.LockWithData(protocol.NewLockCommandDataSetString("bbb"))
 		if err != nil {
-			t.Errorf("Lock LockWithData Expried Fail %v", err)
+			t.Errorf("Lock LockWithData1 Expried Fail %v", err)
 			return
 		}
 		if result.GetLockData() == nil || result.GetLockData().GetStringData() != "aaa" {
-			t.Errorf("Lock LockWithData Expried Result LockData Fail %v", result.GetLockData())
+			t.Errorf("Lock LockWithData1 Expried Result LockData Fail %v", result.GetLockData())
+			return
+		}
+		ulock2 := client.Lock(testString2Key("TestData1"), 50, 10)
+		ulock2.SetCount(10)
+		result, err = ulock2.LockWithData(protocol.NewLockCommandDataSetString("ccc"))
+		if err != nil {
+			t.Errorf("Lock LockWithData2 Expried Fail %v", err)
+			return
+		}
+		if result.GetLockData() == nil || result.GetLockData().GetStringData() != "bbb" {
+			t.Errorf("Lock LockWithData2 Expried Result LockData Fail %v", result.GetLockData())
+			return
+		}
+
+		result, err = lock.Unlock()
+		if err != nil {
+			t.Errorf("Lock Unlock Fail %v", err)
+			return
+		}
+		if result.GetLockData() == nil || result.GetLockData().GetStringData() != "ccc" {
+			t.Errorf("Lock Unlock Result LockData Fail %v", result.GetLockData())
+			return
+		}
+		result, err = ulock1.UnlockWithData(protocol.NewLockCommandDataUnsetData())
+		if err != nil {
+			t.Errorf("Lock Unlock1 Fail %v", err)
+			return
+		}
+		if result.GetLockData() == nil || result.GetLockData().GetStringData() != "ccc" {
+			t.Errorf("Lock Unlock1 Result LockData Fail %v", result.GetLockData())
+			return
+		}
+		result, err = ulock2.Unlock()
+		if err != nil {
+			t.Errorf("Lock Unlock2 Fail %v", err)
+			return
+		}
+		if result.GetLockData() != nil {
+			t.Errorf("Lock Unlock2 Result LockData Fail %v", result.GetLockData())
+			return
+		}
+
+		lock = client.Lock(testString2Key("TestData2"), 50, 10)
+		lock.SetCount(10)
+		result, err = lock.LockWithData(protocol.NewLockCommandDataSetString("aaa"))
+		if err != nil {
+			t.Errorf("Lock LockWithData Fail %v", err)
+			return
+		}
+		if result.GetLockData() != nil {
+			t.Errorf("Lock LockWithData Result LockData Fail %v", result.GetLockData())
+			return
+		}
+		ulock1 = client.Lock(testString2Key("TestData2"), 50, 0)
+		ulock1.SetCount(10)
+		result, err = ulock1.LockWithData(protocol.NewLockCommandDataSetString("bbb"))
+		if err != nil {
+			t.Errorf("Lock LockWithData1 Expried Fail %v", err)
+			return
+		}
+		if result.GetLockData() == nil || result.GetLockData().GetStringData() != "aaa" {
+			t.Errorf("Lock LockWithData1 Expried Result LockData Fail %v", result.GetLockData())
 			return
 		}
 		result, err = lock.Unlock()
@@ -461,6 +523,96 @@ func TestLock_WithData(t *testing.T) {
 		}
 		if result.GetLockData() == nil || result.GetLockData().GetStringData() != "bbb" {
 			t.Errorf("Lock Unlock Result LockData Fail %v", result.GetLockData())
+			return
+		}
+	})
+}
+
+func TestLock_RequireAck(t *testing.T) {
+	testWithClient(t, func(client *Client) {
+		lock := client.Lock(testString2Key("TestAck"), 50, 10)
+		lock.SetTimeoutFlag(protocol.TIMEOUT_FLAG_REQUIRE_ACKED)
+		result, err := lock.Lock()
+		if err != nil {
+			t.Errorf("Lock LockWithData Fail %v", err)
+			return
+		}
+		if result.GetLockData() != nil {
+			t.Errorf("Lock LockWithData Result LockData Fail %v", result.GetLockData())
+			return
+		}
+		result, err = lock.Unlock()
+		if err != nil {
+			t.Errorf("Lock Unlock Fail %v", err)
+			return
+		}
+		if result.GetLockData() != nil {
+			t.Errorf("Lock Unlock Result LockData Fail %v", result.GetLockData())
+			return
+		}
+
+		lock = client.Lock(testString2Key("TestAck1"), 50, 10)
+		lock.SetTimeoutFlag(protocol.TIMEOUT_FLAG_REQUIRE_ACKED)
+		lock.SetCount(10)
+		result, err = lock.LockWithData(protocol.NewLockCommandDataSetString("aaa"))
+		if err != nil {
+			t.Errorf("Lock LockWithData Fail %v", err)
+			return
+		}
+		if result.GetLockData() != nil {
+			t.Errorf("Lock LockWithData Result LockData Fail %v", result.GetLockData())
+			return
+		}
+		ulock1 := client.Lock(testString2Key("TestAck1"), 50, 10)
+		lock.SetTimeoutFlag(protocol.TIMEOUT_FLAG_REQUIRE_ACKED)
+		ulock1.SetCount(10)
+		result, err = ulock1.LockWithData(protocol.NewLockCommandDataSetString("bbb"))
+		if err != nil {
+			t.Errorf("Lock LockWithData1 Expried Fail %v", err)
+			return
+		}
+		if result.GetLockData() == nil || result.GetLockData().GetStringData() != "aaa" {
+			t.Errorf("Lock LockWithData1 Expried Result LockData Fail %v", result.GetLockData())
+			return
+		}
+		ulock2 := client.Lock(testString2Key("TestAck1"), 50, 10)
+		lock.SetTimeoutFlag(protocol.TIMEOUT_FLAG_REQUIRE_ACKED)
+		ulock2.SetCount(10)
+		result, err = ulock2.LockWithData(protocol.NewLockCommandDataSetString("ccc"))
+		if err != nil {
+			t.Errorf("Lock LockWithData2 Expried Fail %v", err)
+			return
+		}
+		if result.GetLockData() == nil || result.GetLockData().GetStringData() != "bbb" {
+			t.Errorf("Lock LockWithData2 Expried Result LockData Fail %v", result.GetLockData())
+			return
+		}
+
+		result, err = lock.Unlock()
+		if err != nil {
+			t.Errorf("Lock Unlock Fail %v", err)
+			return
+		}
+		if result.GetLockData() == nil || result.GetLockData().GetStringData() != "ccc" {
+			t.Errorf("Lock Unlock Result LockData Fail %v", result.GetLockData())
+			return
+		}
+		result, err = ulock1.UnlockWithData(protocol.NewLockCommandDataUnsetData())
+		if err != nil {
+			t.Errorf("Lock Unlock1 Fail %v", err)
+			return
+		}
+		if result.GetLockData() == nil || result.GetLockData().GetStringData() != "ccc" {
+			t.Errorf("Lock Unlock1 Result LockData Fail %v", result.GetLockData())
+			return
+		}
+		result, err = ulock2.Unlock()
+		if err != nil {
+			t.Errorf("Lock Unlock2 Fail %v", err)
+			return
+		}
+		if result.GetLockData() != nil {
+			t.Errorf("Lock Unlock2 Result LockData Fail %v", result.GetLockData())
 			return
 		}
 	})
