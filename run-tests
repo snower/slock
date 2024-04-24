@@ -74,7 +74,8 @@ please run 'go run benchmarks/benchmark/benchmark.go' on your changes before com
     exit 1
 fi
 
-echo "Benchmark Multi Key Single Lock Info:
+echo "
+Benchmark Multi Key Single Lock Info:
 $BENCH_OUTPUTS
 "
 
@@ -92,7 +93,8 @@ please run 'go run benchmarks/benchmark/benchmark.go' on your changes before com
     exit 1
 fi
 
-echo "Benchmark Single Key Multi Lock Info:
+echo "
+Benchmark Single Key Multi Lock Info:
 $BENCH_OUTPUTS
 "
 
@@ -110,7 +112,8 @@ please run 'go run benchmarks/benchmark/benchmark.go' on your changes before com
     exit 1
 fi
 
-echo "Benchmark Multi Key Multi Lock Require Ack Info:
+echo "
+Benchmark Multi Key Multi Lock Require Ack Info:
 $BENCH_OUTPUTS
 "
 
@@ -128,7 +131,8 @@ please run 'go run benchmarks/benchmark/benchmark.go' on your changes before com
     exit 1
 fi
 
-echo "Benchmark Multi Key Multi Lock With Data Info:
+echo "
+Benchmark Multi Key Multi Lock With Data Info:
 $BENCH_OUTPUTS
 "
 
@@ -146,7 +150,8 @@ please run 'go run benchmarks/benchmark/benchmark.go' on your changes before com
     exit 1
 fi
 
-echo "Benchmark Multi Key Multi Require Ack And Lock With Data Info:
+echo "
+Benchmark Multi Key Multi Require Ack And Lock With Data Info:
 $BENCH_OUTPUTS
 "
 
@@ -164,7 +169,8 @@ please run 'go run benchmarks/benchmark/benchmark.go' on your changes before com
     exit 1
 fi
 
-echo "Benchmark Parallel Lock Info:
+echo "
+Benchmark Parallel Lock Info:
 $BENCH_OUTPUTS
 "
 

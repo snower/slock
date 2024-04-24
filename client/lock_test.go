@@ -525,6 +525,70 @@ func TestLock_WithData(t *testing.T) {
 			t.Errorf("Lock Unlock Result LockData Fail %v", result.GetLockData())
 			return
 		}
+
+		lock = client.Lock(testString2Key("TestData3"), 50, 10)
+		lock.SetCount(10)
+		result, err = lock.LockWithData(protocol.NewLockCommandDataIncrData(2))
+		if err != nil {
+			t.Errorf("Lock LockWithData Incr Fail %v", err)
+			return
+		}
+		if result.GetLockData() != nil {
+			t.Errorf("Lock LockWithData Incr Result LockData Fail %v", result.GetLockData())
+			return
+		}
+		ulock1 = client.Lock(testString2Key("TestData3"), 50, 0)
+		ulock1.SetCount(10)
+		result, err = ulock1.LockWithData(protocol.NewLockCommandDataIncrData(-3))
+		if err != nil {
+			t.Errorf("Lock LockWithData1 Incr Expried Fail %v", err)
+			return
+		}
+		if result.GetLockData() == nil || result.GetLockData().GetIncrValue() != 2 {
+			t.Errorf("Lock LockWithData1 Incr Expried Result LockData Fail %v", result.GetLockData())
+			return
+		}
+		result, err = lock.Unlock()
+		if err != nil {
+			t.Errorf("Lock Unlock Incr Fail %v", err)
+			return
+		}
+		if result.GetLockData() == nil || result.GetLockData().GetIncrValue() != -1 {
+			t.Errorf("Lock Unlock Incr Result LockData Fail %v", result.GetLockData())
+			return
+		}
+
+		lock = client.Lock(testString2Key("TestData4"), 50, 10)
+		lock.SetCount(10)
+		result, err = lock.LockWithData(protocol.NewLockCommandDataAppendString("aaa"))
+		if err != nil {
+			t.Errorf("Lock LockWithData Append Fail %v", err)
+			return
+		}
+		if result.GetLockData() != nil {
+			t.Errorf("Lock LockWithData Append Result LockData Fail %v", result.GetLockData())
+			return
+		}
+		ulock1 = client.Lock(testString2Key("TestData4"), 50, 0)
+		ulock1.SetCount(10)
+		result, err = ulock1.LockWithData(protocol.NewLockCommandDataAppendString("bbb"))
+		if err != nil {
+			t.Errorf("Lock LockWithData1 Append Expried Fail %v", err)
+			return
+		}
+		if result.GetLockData() == nil || result.GetLockData().GetStringData() != "aaa" {
+			t.Errorf("Lock LockWithData1 Append Expried Result LockData Fail %v", result.GetLockData())
+			return
+		}
+		result, err = lock.Unlock()
+		if err != nil {
+			t.Errorf("Lock Unlock Append Fail %v", err)
+			return
+		}
+		if result.GetLockData() == nil || result.GetLockData().GetStringData() != "aaabbb" {
+			t.Errorf("Lock Unlock Append Result LockData Fail %v", result.GetLockData())
+			return
+		}
 	})
 }
 

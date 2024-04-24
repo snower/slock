@@ -95,8 +95,10 @@ const (
 )
 
 const (
-	LOCK_DATA_COMMAND_TYPE_SET   = 0
-	LOCK_DATA_COMMAND_TYPE_UNSET = 1
+	LOCK_DATA_COMMAND_TYPE_SET    = 0
+	LOCK_DATA_COMMAND_TYPE_UNSET  = 1
+	LOCK_DATA_COMMAND_TYPE_INCR   = 2
+	LOCK_DATA_COMMAND_TYPE_APPEND = 3
 )
 
 var ERROR_MSG []string = []string{
@@ -371,7 +373,21 @@ func NewLockCommandDataSetString(data string) *LockCommandData {
 }
 
 func NewLockCommandDataUnsetData() *LockCommandData {
-	return NewLockCommandDataFromBytes([]byte{}, LOCK_DATA_COMMAND_TYPE_UNSET, 0)
+	return &LockCommandData{[]byte{2, 0, 0, 0, LOCK_DATA_COMMAND_TYPE_UNSET, 0}, LOCK_DATA_COMMAND_TYPE_UNSET, 0}
+}
+
+func NewLockCommandDataIncrData(incrValue int64) *LockCommandData {
+	return &LockCommandData{[]byte{10, 0, 0, 0, LOCK_DATA_COMMAND_TYPE_INCR, 0,
+		byte(incrValue), byte(incrValue >> 8), byte(incrValue >> 16), byte(incrValue >> 24), byte(incrValue >> 32), byte(incrValue >> 40), byte(incrValue >> 48), byte(incrValue >> 56)},
+		LOCK_DATA_COMMAND_TYPE_INCR, 0}
+}
+
+func NewLockCommandDataAppendData(data []byte) *LockCommandData {
+	return NewLockCommandDataFromBytes(data, LOCK_DATA_COMMAND_TYPE_APPEND, 0)
+}
+
+func NewLockCommandDataAppendString(data string) *LockCommandData {
+	return NewLockCommandDataFromString(data, LOCK_DATA_COMMAND_TYPE_APPEND, 0)
 }
 
 func (self *LockCommandData) GetBytesData() []byte {
@@ -386,6 +402,24 @@ func (self *LockCommandData) GetStringData() string {
 		return ""
 	}
 	return string(self.Data[6:])
+}
+
+func (self *LockCommandData) GetIncrValue() int64 {
+	if self.Data == nil || self.CommandType == LOCK_DATA_COMMAND_TYPE_UNSET {
+		return 0
+	}
+	value := int64(0)
+	for i := 0; i < 8; i++ {
+		if i+6 >= len(self.Data) {
+			break
+		}
+		if i > 0 {
+			value |= int64(self.Data[i+6]) << (i * 8)
+		} else {
+			value |= int64(self.Data[i+6])
+		}
+	}
+	return value
 }
 
 type LockCommand struct {
@@ -526,6 +560,24 @@ func (self *LockResultCommandData) GetStringData() string {
 		return ""
 	}
 	return string(self.Data[6:])
+}
+
+func (self *LockResultCommandData) GetIncrValue() int64 {
+	if self.Data == nil || self.CommandType == LOCK_DATA_COMMAND_TYPE_UNSET {
+		return 0
+	}
+	value := int64(0)
+	for i := 0; i < 8; i++ {
+		if i+6 >= len(self.Data) {
+			break
+		}
+		if i > 0 {
+			value |= int64(self.Data[i+6]) << (i * 8)
+		} else {
+			value |= int64(self.Data[i+6])
+		}
+	}
+	return value
 }
 
 type LockResultCommand struct {
