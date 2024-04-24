@@ -1,6 +1,7 @@
 package client
 
 import (
+	"github.com/snower/slock/protocol"
 	"sync"
 	"testing"
 )
@@ -100,4 +101,61 @@ func TestReplsetClient_Open(t *testing.T) {
 		t.Errorf("Client Close Fail %v", err)
 		return
 	}
+}
+
+func TestClient_ListLocks(t *testing.T) {
+	testWithClient(t, func(client *Client) {
+		lock := client.Lock(testString2Key("testList"), 5, 300)
+		_, err := lock.LockWithData(protocol.NewLockCommandDataSetString("aaa"))
+		if err != nil {
+			t.Errorf("TestClient_ListLocks Lock Fail %v", err)
+			return
+		}
+
+		response, err := client.SelectDB(0).ListLocks(10)
+		if err != nil {
+			t.Errorf("TestClient_ListLocks ListLocks Fail %v", err)
+			return
+		}
+		if response.Locks == nil || len(response.Locks) != 1 {
+			t.Errorf("TestClient_ListLocks ListLocks Empty %v", response.Locks)
+			return
+		}
+		if response.Locks[0].LockData == nil || string(response.Locks[0].LockData.Data) != "aaa" {
+			t.Errorf("TestClient_ListLocks ListLocks Data Empty %v", response.Locks)
+			return
+		}
+
+		lockKey := [16]byte{}
+		for i := 0; i < 16; i++ {
+			lockKey[i] = response.Locks[0].LockKey[i]
+		}
+		lockResponse, err := client.SelectDB(0).ListLockLockeds(lockKey, 10)
+		if err != nil {
+			t.Errorf("TestClient_ListLocks ListLockLockeds Fail %v", err)
+			return
+		}
+		if lockResponse.Locks == nil || len(lockResponse.Locks) != 1 {
+			t.Errorf("TestClient_ListLocks ListLockLockeds Empty %v", response.Locks)
+			return
+		}
+		if lockResponse.LockData == nil || string(lockResponse.LockData.Data) != "aaa" {
+			t.Errorf("TestClient_ListLocks ListLockLockeds Data Empty %v", response.Locks)
+			return
+		}
+
+		waitResponse, err := client.SelectDB(0).ListLockWaits(lockKey, 10)
+		if err != nil {
+			t.Errorf("TestClient_ListLocks ListLockWaits Fail %v", err)
+			return
+		}
+		if waitResponse.Locks != nil && len(waitResponse.Locks) != 1 {
+			t.Errorf("TestClient_ListLocks ListLockWaits Not Empty %v", response.Locks)
+			return
+		}
+		if waitResponse.LockData == nil || string(waitResponse.LockData.Data) != "aaa" {
+			t.Errorf("TestClient_ListLocks ListLockWaits Data Empty %v", response.Locks)
+			return
+		}
+	})
 }

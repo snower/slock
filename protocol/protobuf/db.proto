@@ -2,9 +2,16 @@ syntax = "proto3";
 option go_package = "github.com/snower/slock/protocol/protobuf";
 package protobuf;
 
+message LockDBLockData {
+  bytes data = 1;
+  uint32 commandType = 2;
+  uint32 data_flag = 3;
+}
+
 message LockDBLock {
   bytes lock_key = 1;
   uint32 locked_count = 2;
+  LockDBLockData lock_data = 3;
 }
 
 message LockDBLockCommand {
@@ -59,6 +66,7 @@ message LockDBListLockedResponse {
   bytes lock_key = 1;
   uint32 locked_count = 2;
   repeated LockDBLockLocked locks = 3;
+  LockDBLockData lock_data = 4;
 }
 
 message LockDBListWaitRequest {
@@ -70,4 +78,5 @@ message LockDBListWaitResponse {
   bytes lock_key = 1;
   uint32 locked_count = 2;
   repeated LockDBLockWait locks = 3;
+  LockDBLockData lock_data = 4;
 }

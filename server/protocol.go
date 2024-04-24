@@ -1532,14 +1532,24 @@ func (self *BinaryServerProtocol) commandHandleListLockCommand(_ *BinaryServerPr
 	for _, value := range db.fastLocks {
 		lockManager := value.manager
 		if lockManager != nil && lockManager.locked > 0 {
-			locks = append(locks, &protobuf.LockDBLock{LockKey: lockManager.lockKey[:], LockedCount: lockManager.locked})
+			lockData := lockManager.GetLockData()
+			var lockDBLockData *protobuf.LockDBLockData = nil
+			if lockData != nil {
+				lockDBLockData = &protobuf.LockDBLockData{Data: lockData[6:], CommandType: uint32(lockData[4]), DataFlag: uint32(lockData[5])}
+			}
+			locks = append(locks, &protobuf.LockDBLock{LockKey: lockManager.lockKey[:], LockedCount: lockManager.locked, LockData: lockDBLockData})
 		}
 	}
 
 	db.mGlock.Lock()
 	for _, lockManager := range db.locks {
 		if lockManager.locked > 0 {
-			locks = append(locks, &protobuf.LockDBLock{LockKey: lockManager.lockKey[:], LockedCount: lockManager.locked})
+			lockData := lockManager.GetLockData()
+			var lockDBLockData *protobuf.LockDBLockData = nil
+			if lockData != nil {
+				lockDBLockData = &protobuf.LockDBLockData{Data: lockData[6:], CommandType: uint32(lockData[4]), DataFlag: uint32(lockData[5])}
+			}
+			locks = append(locks, &protobuf.LockDBLock{LockKey: lockManager.lockKey[:], LockedCount: lockManager.locked, LockData: lockDBLockData})
 		}
 	}
 	db.mGlock.Unlock()
@@ -1609,9 +1619,15 @@ func (self *BinaryServerProtocol) commandHandleListLockedCommand(_ *BinaryServer
 			}
 		}
 	}
+
+	lockData := lockManager.GetLockData()
+	var lockDBLockData *protobuf.LockDBLockData = nil
+	if lockData != nil {
+		lockDBLockData = &protobuf.LockDBLockData{Data: lockData[6:], CommandType: uint32(lockData[4]), DataFlag: uint32(lockData[5])}
+	}
 	lockManager.glock.Unlock()
 
-	response := protobuf.LockDBListLockedResponse{LockKey: lockManager.lockKey[:], LockedCount: lockManager.locked, Locks: locks}
+	response := protobuf.LockDBListLockedResponse{LockKey: lockManager.lockKey[:], LockedCount: lockManager.locked, Locks: locks, LockData: lockDBLockData}
 	data, err := proto.Marshal(&response)
 	if err != nil {
 		return protocol.NewCallResultCommand(command, protocol.RESULT_ERROR, "ENCODE_ERROR", nil), nil
@@ -1662,9 +1678,15 @@ func (self *BinaryServerProtocol) commandHandleListWaitCommand(_ *BinaryServerPr
 			}
 		}
 	}
+
+	lockData := lockManager.GetLockData()
+	var lockDBLockData *protobuf.LockDBLockData = nil
+	if lockData != nil {
+		lockDBLockData = &protobuf.LockDBLockData{Data: lockData[6:], CommandType: uint32(lockData[4]), DataFlag: uint32(lockData[5])}
+	}
 	lockManager.glock.Unlock()
 
-	response := protobuf.LockDBListWaitResponse{LockKey: lockManager.lockKey[:], LockedCount: lockManager.locked, Locks: locks}
+	response := protobuf.LockDBListWaitResponse{LockKey: lockManager.lockKey[:], LockedCount: lockManager.locked, Locks: locks, LockData: lockDBLockData}
 	data, err := proto.Marshal(&response)
 	if err != nil {
 		return protocol.NewCallResultCommand(command, protocol.RESULT_ERROR, "ENCODE_ERROR", nil), nil
