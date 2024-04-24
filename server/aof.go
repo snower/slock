@@ -509,11 +509,10 @@ func (self *AofFile) Close() error {
 		}
 		self.ackIndex = 0
 	}
-	if self.file == nil {
-		return errors.New("File Unopen")
+	var err error = nil
+	if self.file != nil {
+		err = self.file.Close()
 	}
-
-	err := self.file.Close()
 	if self.dataFile != nil {
 		derr := self.dataFile.Close()
 		if derr != nil && err == nil {
@@ -1368,12 +1367,12 @@ func (self *Aof) Close() {
 	_ = self.WaitFlushAofChannel()
 	_ = self.WaitRewriteAofFiles()
 
+	self.aofGlock.Lock()
 	if self.aofFile != nil {
-		self.aofGlock.Lock()
 		_ = self.aofFile.Close()
 		self.aofFile = nil
-		self.aofGlock.Unlock()
 	}
+	self.aofGlock.Unlock()
 	self.slock.logger.Infof("Aof closed")
 }
 
@@ -1519,6 +1518,9 @@ func (self *Aof) loadLockAck(lockResult *protocol.LockResultCommand) error {
 
 func (self *Aof) PushLock(glockIndex uint16, lock *AofLock) {
 	self.aofGlock.Lock()
+	if self.aofFile == nil {
+		return
+	}
 	self.aofId++
 	_ = lock.UpdateAofIndexId(self.aofFileIndex, self.aofId)
 
@@ -1562,6 +1564,9 @@ func (self *Aof) PushLock(glockIndex uint16, lock *AofLock) {
 
 func (self *Aof) AppendLock(lock *AofLock) {
 	self.aofGlock.Lock()
+	if self.aofFile == nil {
+		return
+	}
 	if lock.AofIndex != self.aofFileIndex || self.aofFile == nil {
 		self.aofFileIndex = lock.AofIndex - 1
 		self.aofId = lock.AofId

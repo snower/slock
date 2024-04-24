@@ -535,8 +535,13 @@ func (self *ReplicationClient) recvFiles() error {
 		}
 		self.aof.glock.Unlock()
 	}()
-	_ = self.aof.WaitRewriteAofFiles()
+
 	self.aof.glock.Lock()
+	for self.aof.isRewriting {
+		self.aof.glock.Unlock()
+		_ = self.aof.WaitRewriteAofFiles()
+		self.aof.glock.Lock()
+	}
 	self.aof.isRewriting = true
 	self.aof.glock.Unlock()
 
