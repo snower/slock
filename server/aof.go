@@ -448,28 +448,26 @@ func (self *AofFile) WriteLockData(lock *AofLock) error {
 }
 
 func (self *AofFile) Flush() error {
-	if self.windex == 0 {
+	if self.windex == 0 && self.ackIndex == 0 {
 		return nil
 	}
-	if self.file == nil {
-		return errors.New("File Unopen")
-	}
-
-	tn := 0
-	for tn < self.windex {
-		n, err := self.file.Write(self.wbuf[tn:self.windex])
-		if err != nil {
-			self.windex = 0
-			for i := 0; i < self.ackIndex; i++ {
-				_ = self.aof.lockAcked(self.ackRequests[i], false)
+	if self.file != nil {
+		tn := 0
+		for tn < self.windex {
+			n, err := self.file.Write(self.wbuf[tn:self.windex])
+			if err != nil {
+				self.windex = 0
+				for i := 0; i < self.ackIndex; i++ {
+					_ = self.aof.lockAcked(self.ackRequests[i], false)
+				}
+				self.ackIndex = 0
+				return err
 			}
-			self.ackIndex = 0
-			return err
+			tn += n
 		}
-		tn += n
+		self.windex = 0
+		self.dirtied = true
 	}
-	self.windex = 0
-	self.dirtied = true
 
 	for i := 0; i < self.ackIndex; i++ {
 		_ = self.aof.lockAcked(self.ackRequests[i], true)
@@ -482,16 +480,14 @@ func (self *AofFile) Sync() error {
 	if !self.dirtied {
 		return nil
 	}
-	if self.file == nil {
-		return errors.New("File Unopen")
-	}
-
-	err := self.file.Sync()
-	if err != nil {
-		return err
+	if self.file != nil {
+		err := self.file.Sync()
+		if err != nil {
+			return err
+		}
 	}
 	if self.dataFile != nil {
-		err = self.dataFile.Sync()
+		err := self.dataFile.Sync()
 		if err != nil {
 			return err
 		}
@@ -1433,11 +1429,9 @@ func (self *Aof) waitLockAofChannel(_ *AofChannel) {
 
 	self.aofGlock.Lock()
 	if self.aofFile != nil {
-		if self.aofFile.windex > 0 && self.aofFile.ackIndex > 0 {
-			err := self.aofFile.Flush()
-			if err != nil {
-				self.slock.Log().Errorf("Aof flush file error %v", err)
-			}
+		err := self.aofFile.Flush()
+		if err != nil {
+			self.slock.Log().Errorf("Aof flush file error %v", err)
 		}
 	}
 	if self.channelFlushWaiter != nil {
@@ -1453,9 +1447,7 @@ func (self *Aof) syncFileAofChannel(_ *AofChannel) {
 	}
 
 	self.aofGlock.Lock()
-	if self.aofFile.windex > 0 || self.aofFile.dirtied {
-		self.Flush()
-	}
+	self.Flush()
 	self.aofGlock.Unlock()
 }
 
@@ -1618,15 +1610,19 @@ func (self *Aof) lockLoaded(aofChannel *AofChannel, _ *MemWaiterServerProtocol, 
 }
 
 func (self *Aof) Flush() {
-	err := self.aofFile.Flush()
-	if err != nil {
-		self.slock.Log().Errorf("Aof flush file error %v", err)
+	if self.aofFile == nil {
 		return
 	}
-	err = self.aofFile.Sync()
-	if err != nil {
-		self.slock.Log().Errorf("Aof Sync file error %v", err)
-		return
+	if self.aofFile.windex > 0 || self.aofFile.dirtied || self.aofFile.ackIndex > 0 {
+		err := self.aofFile.Flush()
+		if err != nil {
+			self.slock.Log().Errorf("Aof flush file error %v", err)
+			return
+		}
+		err = self.aofFile.Sync()
+		if err != nil {
+			self.slock.Log().Errorf("Aof Sync file error %v", err)
+		}
 	}
 }
 
@@ -1657,7 +1653,6 @@ func (self *Aof) Reset(aofFileIndex uint32) error {
 
 	if self.aofFile != nil {
 		self.Flush()
-
 		err := self.aofFile.Close()
 		if err != nil {
 			self.slock.Log().Errorf("Aof close file %s.%d error %v", "append.aof", self.aofFileIndex, err)
@@ -1705,11 +1700,11 @@ func (self *Aof) Reset(aofFileIndex uint32) error {
 func (self *Aof) RewriteAofFile() error {
 	if self.aofFile != nil {
 		self.Flush()
-
 		err := self.aofFile.Close()
 		if err != nil {
 			self.slock.Log().Errorf("Aof close file %s.%d error %v", "append.aof", self.aofFileIndex, err)
 		}
+		self.aofFile = nil
 	}
 
 	aofFilename := fmt.Sprintf("%s.%d", "append.aof", self.aofFileIndex+1)

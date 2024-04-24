@@ -696,27 +696,21 @@ func (self *ReplicationClient) getLock() error {
 		case aofLock := <-self.rbufChannel:
 			if aofLock == nil {
 				self.aof.aofGlock.Lock()
-				if self.aof.aofFile.windex > 0 || self.aof.aofFile.dirtied {
-					self.aof.Flush()
-				}
+				self.aof.Flush()
 				self.aof.aofGlock.Unlock()
 				return io.EOF
 			}
-
 			self.aofLock = aofLock
 			return nil
 		default:
 			if self.closed {
 				self.aof.aofGlock.Lock()
-				if self.aof.aofFile.windex > 0 || self.aof.aofFile.dirtied {
-					self.aof.Flush()
-				}
+				self.aof.Flush()
 				self.aof.aofGlock.Unlock()
 				return io.EOF
 			}
-
 			self.aof.aofGlock.Lock()
-			if self.aof.aofFile.windex > 0 && self.aof.aofFile.ackIndex > 0 {
+			if self.aof.aofFile != nil {
 				err := self.aof.aofFile.Flush()
 				if err != nil {
 					self.manager.slock.Log().Errorf("Replication flush file error %v", err)
@@ -728,9 +722,7 @@ func (self *ReplicationClient) getLock() error {
 			case aofLock := <-self.rbufChannel:
 				if aofLock == nil {
 					self.aof.aofGlock.Lock()
-					if self.aof.aofFile.windex > 0 || self.aof.aofFile.dirtied {
-						self.aof.Flush()
-					}
+					self.aof.Flush()
 					self.aof.aofGlock.Unlock()
 					return io.EOF
 				}
@@ -739,9 +731,7 @@ func (self *ReplicationClient) getLock() error {
 				return nil
 			case <-time.After(200 * time.Millisecond):
 				self.aof.aofGlock.Lock()
-				if self.aof.aofFile.windex > 0 || self.aof.aofFile.dirtied {
-					self.aof.Flush()
-				}
+				self.aof.Flush()
 				self.aof.aofGlock.Unlock()
 				aofLock := <-self.rbufChannel
 				if aofLock == nil {
