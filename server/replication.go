@@ -545,6 +545,9 @@ func (self *ReplicationClient) recvFiles() error {
 	for !self.closed {
 		err := self.readLock()
 		if err != nil {
+			if aofFile != nil {
+				_ = aofFile.Close()
+			}
 			return err
 		}
 
@@ -597,15 +600,24 @@ func (self *ReplicationClient) recvFiles() error {
 
 		err = self.aof.LoadLock(self.aofLock)
 		if err != nil {
+			if aofFile != nil {
+				_ = aofFile.Close()
+			}
 			return err
 		}
 		err = aofFile.AppendLock(self.aofLock)
 		if err != nil {
+			if aofFile != nil {
+				_ = aofFile.Close()
+			}
 			return err
 		}
 		if self.aofLock.AofFlag&AOF_FLAG_CONTAINS_DATA != 0 {
 			err = aofFile.WriteLockData(self.aofLock)
 			if err != nil {
+				if aofFile != nil {
+					_ = aofFile.Close()
+				}
 				return err
 			}
 		}
@@ -615,6 +627,10 @@ func (self *ReplicationClient) recvFiles() error {
 		self.currentRequestId[0], self.currentRequestId[1], self.currentRequestId[2], self.currentRequestId[3], self.currentRequestId[4], self.currentRequestId[5], self.currentRequestId[6], self.currentRequestId[7],
 			self.currentRequestId[8], self.currentRequestId[9], self.currentRequestId[10], self.currentRequestId[11], self.currentRequestId[12], self.currentRequestId[13], self.currentRequestId[14], self.currentRequestId[15] = buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
 			buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18]
+	}
+
+	if aofFile != nil {
+		_ = aofFile.Close()
 	}
 	return io.EOF
 }
@@ -901,20 +917,8 @@ func (self *ReplicationServer) handleInitSync(command *protocol.CallCommand) (*p
 			return nil, err
 		}
 		self.manager.slock.logger.Infof("Replication server recv client %s send files start by aof_id %s", self.protocol.RemoteAddr().String(), requestId)
-
 		err = self.waitStarted()
-		if err != nil {
-			return nil, err
-		}
-		go (func() {
-			serr := self.sendFiles()
-			if serr != nil {
-				self.manager.slock.logger.Infof("Replication server handle client %s send files error %v", self.protocol.RemoteAddr().String(), serr)
-				_ = self.Close()
-				return
-			}
-		})()
-		return nil, nil
+		return nil, err
 	}
 
 	self.manager.slock.logger.Infof("Replication server recv client %s sync require start by aof_id %s", self.protocol.RemoteAddr().String(), request.AofId)
@@ -943,18 +947,13 @@ func (self *ReplicationServer) handleInitSync(command *protocol.CallCommand) (*p
 		return protocol.NewCallResultCommand(command, 0, "ERR_ENCODE", nil), nil
 	}
 	err = self.protocol.Write(protocol.NewCallResultCommand(command, 0, "", data))
-
 	if err != nil {
 		return nil, err
 	}
-	self.sendedFiles = true
 	self.manager.slock.logger.Infof("Replication server handle client %s send start by aof_id %s", self.protocol.RemoteAddr().String(), requestId)
-
 	err = self.waitStarted()
-	if err != nil {
-		return nil, err
-	}
-	return nil, nil
+	self.sendedFiles = true
+	return nil, err
 }
 
 func (self *ReplicationServer) sendFiles() error {
@@ -1047,6 +1046,16 @@ func (self *ReplicationServer) sendFilesFinished() error {
 
 func (self *ReplicationServer) SendProcess() error {
 	atomic.AddUint32(&self.manager.serverActiveCount, 1)
+	if !self.sendedFiles {
+		err := self.sendFiles()
+		if err != nil {
+			atomic.AddUint32(&self.manager.serverActiveCount, 0xffffffff)
+			self.manager.slock.logger.Infof("Replication server handle client %s send files error %v", self.protocol.RemoteAddr().String(), err)
+			_ = self.Close()
+			return err
+		}
+	}
+
 	for !self.closed {
 		if !self.bufferCursor.writed {
 			err := self.stream.WriteBytes(self.bufferCursor.buf)
@@ -1611,7 +1620,6 @@ func (self *ReplicationManager) commandHandleSyncCommand(server_protocol *Binary
 		}
 		return result, err
 	}
-
 	if result != nil {
 		channel.closed = true
 		close(channel.closedWaiter)
@@ -1752,7 +1760,7 @@ func (self *ReplicationManager) PushLock(glockIndex uint16, lock *AofLock) error
 }
 
 func (self *ReplicationManager) WakeupServerChannel() error {
-	if atomic.CompareAndSwapUint32(&self.serverActiveCount, self.serverCount, self.serverCount) {
+	if atomic.LoadUint32(&self.serverActiveCount) == self.serverCount {
 		return nil
 	}
 	for _, channel := range self.serverChannels {
