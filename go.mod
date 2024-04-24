@@ -15,5 +15,5 @@ require (
 
 require (
 	github.com/hhkbp2/go-strftime v0.0.0-20150709091403-d82166ec6782 // indirect
-	golang.org/x/sys v0.1.0 // indirect
+	golang.org/x/sys v0.19.0 // indirect
 )
