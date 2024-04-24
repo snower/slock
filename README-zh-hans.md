@@ -6,8 +6,8 @@
 
 # 简介
 
-高性能分布式状态同步与原子操作数据库。。通过锁队列、高性能异步二进制网络协议提供良好的多核支持。
-可用于尖峰、同步、事件通知、并发控制等。支持Redis客户端。
+高性能分布式状态同步与原子操作数据库，提供服务级原子操作语义，通过锁队列、高性能异步二进制网络协议提供良好的多核支持。
+可用于削峰限流、加锁同步、事件通知、并发控制等。
 
 * [安装](#安装)
 * [快速启动服务器](#快速启动服务器)
@@ -359,6 +359,7 @@ PUSH lock_key [TIMEOUT seconds] [EXPRIED seconds] [LOCK_ID lock_id_string] [FLAG
 0x02 when_unlocked_cancel_wait 等待锁定时取消等待
 0x08 when_unloked_to_lock_wait_queue 如果解锁成功则再次放入锁定等待队列
 0x10 when_unloked_to_unlock_tree_lock 如果解锁成功则执行树结构解锁
+0x20 contains_data 本次操作包含数据，如果执行成功则执行数据操作
 ```
 
 #### Timeout参数FLAG
@@ -379,6 +380,7 @@ PUSH lock_key [TIMEOUT seconds] [EXPRIED seconds] [LOCK_ID lock_id_string] [FLAG
 0x2000 update_no_reset_timeout_checked_count 用Lock命令更新Flag更新锁定信息是，不重置超时队列计数器
 0x4000 timeout_flag_less_lock_version_is_lock_succed 已加锁，但lock版本小于当前锁定版本则返回锁定成功（lock版本为lock_id低8字节）
 0x8000 keeplive 连接不断开则不超时，则此时设置的超时时间为检查连接存活状态的延时间隔
+0x20 contains_data 本次操作包含数据，如果执行成功则执行数据操作
 ```
 
 #### Expried参数FLAG

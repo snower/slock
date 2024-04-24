@@ -8,8 +8,8 @@ High-performance distributed sync service and atomic DB
 
 # About
 
-High-performance distributed sync service and atomic DB. Provides good multi-core support through lock queues, high-performance asynchronous binary network protocols.
-Can be used for spikes, synchronization, event notification, concurrency control, etc. Support Redis client.
+The high-performance distributed state synchronization and atomic operation database provides service-level atomic operation semantics and provides good multi-core support through lock queues and high-performance asynchronous binary network protocols.
+It can be used for peak and current limiting, lock synchronization, event notification, concurrency control, etc.
 
 * [Install](#install)
 * [Quick Start Server](#quick-Start-server)
@@ -348,6 +348,7 @@ Return [RESULT_CODE, RESULG_MSG, 'LOCK_ID', lock_id, 'LCOUNT', lcount, 'COUNT', 
 0x02 when_locked_update_lock Update lock information when locked
 0x08 concurrent_check The timeout error is returned if the lock count is exceeded without adding a lock when the timeout time is 0.
 0x10 lock_tree_lock is number lock
+0x20 This operation contains data. If the execution is successful, the data operation will be performed.
 ```
 
 #### UnLock Command FLAG
@@ -360,6 +361,7 @@ Return [RESULT_CODE, RESULG_MSG, 'LOCK_ID', lock_id, 'LCOUNT', lcount, 'COUNT', 
 0x02 when_unlocked_cancel_wait Cancel wait when waiting for lock
 0x08 when_unloked_to_lock_wait_queue If the unlock is successful, put it into the lock waiting queue again
 0x10 when_unloked_to_unlock_tree_lock If the unlock is successful, execute the tree structure unlock
+0x20 This operation contains data. If the execution is successful, the data operation will be performed.
 ```
 
 #### Timeout Parameter FLAG
