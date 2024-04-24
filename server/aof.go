@@ -1120,6 +1120,7 @@ func (self *Aof) LoadAndInit() error {
 	self.aofFile = NewAofFile(self, filepath.Join(self.dataDir, fmt.Sprintf("%s.%d", "append.aof", self.aofFileIndex+1)), os.O_WRONLY, int(Config.AofFileBufferSize))
 	err = self.aofFile.Open()
 	if err != nil {
+		self.aofFile = nil
 		return err
 	}
 	self.aofFileIndex++
@@ -1693,6 +1694,7 @@ func (self *Aof) Reset(aofFileIndex uint32) error {
 	self.aofFile = NewAofFile(self, filepath.Join(self.dataDir, fmt.Sprintf("%s.%d", "append.aof", self.aofFileIndex+1)), os.O_WRONLY, int(Config.AofFileBufferSize))
 	err = self.aofFile.Open()
 	if err != nil {
+		self.aofFile = nil
 		return err
 	}
 	self.aofFileIndex++
@@ -1855,16 +1857,12 @@ func (self *Aof) loadRewriteAofFiles(aofFilenames []string) (*AofFile, []*AofFil
 		return true, nil
 	})
 	if lerr != nil {
-		_ = rewriteAofFile.Close()
 		self.slock.Log().Errorf("Aof load and rewrite file error %v", err)
 	}
-
 	err = rewriteAofFile.Flush()
 	if err != nil {
-		_ = rewriteAofFile.Close()
 		self.slock.Log().Errorf("Aof rewrite flush file error %v", err)
 	}
-
 	err = rewriteAofFile.Close()
 	if err != nil {
 		self.slock.Log().Errorf("Aof rewrite close file error %v", err)
