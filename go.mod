@@ -1,6 +1,6 @@
 module github.com/snower/slock
 
-go 1.22
+go 1.18
 
 require (
 	github.com/hhkbp2/go-logging v0.3.7
