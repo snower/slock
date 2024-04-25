@@ -1540,6 +1540,7 @@ func (self *Aof) loadLockAck(lockResult *protocol.LockResultCommand) error {
 func (self *Aof) PushLock(glockIndex uint16, lock *AofLock) {
 	self.aofGlock.Lock()
 	if self.aofFile == nil {
+		self.aofGlock.Unlock()
 		return
 	}
 	self.aofId++
@@ -1586,6 +1587,7 @@ func (self *Aof) PushLock(glockIndex uint16, lock *AofLock) {
 func (self *Aof) AppendLock(lock *AofLock) {
 	self.aofGlock.Lock()
 	if self.aofFile == nil {
+		self.aofGlock.Unlock()
 		return
 	}
 	if lock.AofIndex != self.aofFileIndex || self.aofFile == nil {
@@ -1612,7 +1614,7 @@ func (self *Aof) AppendLock(lock *AofLock) {
 func (self *Aof) lockAcked(buf []byte, succed bool) error {
 	db := self.slock.dbs[buf[20]]
 	if db == nil {
-		return nil
+		db = self.slock.GetOrNewDB(buf[20])
 	}
 
 	fashHash := (uint32(buf[37])<<24 | uint32(buf[38])<<16 | uint32(buf[39])<<8 | uint32(buf[40])) ^ (uint32(buf[41])<<24 | uint32(buf[42])<<16 | uint32(buf[43])<<8 | uint32(buf[44])) ^ (uint32(buf[45])<<24 | uint32(buf[46])<<16 | uint32(buf[47])<<8 | uint32(buf[48])) ^ (uint32(buf[49])<<24 | uint32(buf[50])<<16 | uint32(buf[51])<<8 | uint32(buf[52]))

@@ -660,6 +660,7 @@ func (self *ReplicationClient) Process() error {
 		} else {
 			_ = bufferQueue.Push(self.aofLock.buf, nil)
 		}
+		_ = self.manager.WakeupServerChannel()
 		self.loadedCount++
 
 		buf := self.aofLock.buf
@@ -1119,7 +1120,7 @@ func (self *ReplicationServer) RecvProcess() error {
 }
 
 type ReplicationAckLock struct {
-	lockResult protocol.LockResultCommand
+	lockResult *protocol.LockResultCommand
 	aofResult  uint8
 	locked     bool
 	aofed      bool
@@ -1127,7 +1128,7 @@ type ReplicationAckLock struct {
 
 func NewReplicationAckLock() *ReplicationAckLock {
 	resultCommand := protocol.ResultCommand{Magic: protocol.MAGIC, Version: protocol.VERSION, CommandType: 0, RequestId: [16]byte{}, Result: 0}
-	lockResult := protocol.LockResultCommand{ResultCommand: resultCommand, Flag: 0, DbId: 0, LockId: [16]byte{}, LockKey: [16]byte{},
+	lockResult := &protocol.LockResultCommand{ResultCommand: resultCommand, Flag: 0, DbId: 0, LockId: [16]byte{}, LockKey: [16]byte{},
 		Count: 0, Lcount: 0, Lrcount: 0, Rcount: 0, Blank: protocol.RESULT_LOCK_COMMAND_BLANK_BYTERS}
 	return &ReplicationAckLock{lockResult, 0, false, false}
 }
