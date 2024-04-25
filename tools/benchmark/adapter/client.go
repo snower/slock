@@ -21,8 +21,14 @@ func randLockData(dataLength int) *protocol.LockCommandData {
 }
 
 func runClientBenchmark(slockClient *client.Client, count *uint32, maxCount uint32, keys [][16]byte, waiter chan bool, timeout uint32, expried uint32, dataLength int, dataRate float64) {
+	isClose := false
+	go func() {
+		<-slockClient.Unavailable()
+		isClose = true
+	}()
+
 	var lockKey [16]byte
-	for {
+	for !isClose {
 		if keys == nil {
 			lockKey = slockClient.SelectDB(0).GenLockId()
 		} else {
@@ -62,10 +68,10 @@ func runClientBenchmark(slockClient *client.Client, count *uint32, maxCount uint
 
 		atomic.AddUint32(count, 2)
 		if *count > maxCount {
-			close(waiter)
-			return
+			break
 		}
 	}
+	close(waiter)
 }
 
 func StartClientBenchmark(clientCount int, concurrentc int, maxCount int, keys [][16]byte, port int, host string, timeout uint32, expried uint32, dataLength int, dataRate float64) {
@@ -104,5 +110,8 @@ func StartClientBenchmark(clientCount int, concurrentc int, maxCount int, keys [
 	}
 	endTime := time.Now().UnixNano()
 	pt := float64(endTime-startTime) / 1000000000.0
+	for _, slockClient := range clients {
+		_ = slockClient.Close()
+	}
 	fmt.Printf("%d %fs %fr/s\n\n", count, pt, float64(count)/pt)
 }
