@@ -137,7 +137,7 @@ Benchmark Single Key Multi Lock Info:
 $BENCH_OUTPUTS
 "
 
-BENCH_CMD="go run tools/benchmark/main.go --client=4 --conc=8 --count=10000 --timeout_flag=4096"
+BENCH_CMD="go run tools/benchmark/main.go --port=5659 --client=4 --conc=8 --count=10000 --timeout_flag=4096"
 BENCH_OUTPUTS=$(which timeout > /dev/null 2>&1 && timeout 120 $BENCH_CMD 2>&1 || $BENCH_CMD 2>&1)
 BENCH_SUCCEDS=$(echo "$BENCH_OUTPUTS" | grep "Succed")
 if [ -z "$BENCH_SUCCEDS" ]
@@ -156,7 +156,7 @@ Benchmark Multi Key Single Lock Require Ack Info:
 $BENCH_OUTPUTS
 "
 
-BENCH_CMD="go run tools/benchmark/main.go --client=4 --conc=16 --count=100000 --data_length=4096"
+BENCH_CMD="go run tools/benchmark/main.go --port=5659 --client=4 --conc=16 --count=100000 --data_length=4096"
 BENCH_OUTPUTS=$(which timeout > /dev/null 2>&1 && timeout 120 $BENCH_CMD 2>&1 || $BENCH_CMD 2>&1)
 BENCH_SUCCEDS=$(echo "$BENCH_OUTPUTS" | grep "Succed")
 if [ -z "$BENCH_SUCCEDS" ]
@@ -175,7 +175,7 @@ Benchmark Multi Key Single Lock With Data Info:
 $BENCH_OUTPUTS
 "
 
-BENCH_CMD="go run tools/benchmark/main.go --client=4 --conc=8 --count=10000  --timeout_flag=4096 --data_length=4096"
+BENCH_CMD="go run tools/benchmark/main.go --port=5659 --client=4 --conc=8 --count=10000  --timeout_flag=4096 --data_length=4096"
 BENCH_OUTPUTS=$(which timeout > /dev/null 2>&1 && timeout 120 $BENCH_CMD 2>&1 || $BENCH_CMD 2>&1)
 BENCH_SUCCEDS=$(echo "$BENCH_OUTPUTS" | grep "Succed")
 if [ -z "$BENCH_SUCCEDS" ]
@@ -191,6 +191,25 @@ fi
 
 echo "
 Benchmark Multi Key Single Require Ack And Lock With Data Info:
+$BENCH_OUTPUTS
+"
+
+BENCH_CMD="go run tools/benchmark/main.go --client=4 --conc=16 --count=200000"
+BENCH_OUTPUTS=$(which timeout > /dev/null 2>&1 && timeout 120 $BENCH_CMD 2>&1 || $BENCH_CMD 2>&1)
+BENCH_SUCCEDS=$(echo "$BENCH_OUTPUTS" | grep "Succed")
+if [ -z "$BENCH_SUCCEDS" ]
+    then
+        log_error "slock benchmark transparency multi key single lock failed for the following reasons:
+                   $BENCH_OUTPUTS
+please run 'go run benchmarks/benchmark/benchmark.go' on your changes before committing."
+
+    ps -ef | grep slock | grep -v grep | awk '{print $2}' | xargs kill -HUP > /dev/null 2>&1
+    ps -ef | grep benchmark | grep -v grep | awk '{print $2}' | xargs kill -HUP > /dev/null 2>&1
+    exit 1
+fi
+
+echo "
+Benchmark Transparency Multi Key Single Lock Info:
 $BENCH_OUTPUTS
 "
 
@@ -218,10 +237,12 @@ SLOCK_INFOS=$(slock info --port=5658 2>&1)
 echo "Slock 5658 Info:
 $SLOCK_INFOS
 "
+
 SLOCK_INFOS=$(slock info --port=5657 2>&1)
 echo "Slock 5657 Info:
 $SLOCK_INFOS
 "
+
 SLOCK_INFOS=$(slock info --port=5659 2>&1)
 echo "Slock 5659 Info:
 $SLOCK_INFOS
@@ -236,7 +257,7 @@ ps -ef | grep benchmark | grep -v grep | awk '{print $2}' | xargs kill -HUP > /d
 sleep 2
 
 echo "Slock Log:"
-cat $LOG_FILENAME | grep -v protocol | grep -v connection | grep "Transparency client"
+cat $LOG_FILENAME | grep -v protocol | grep -v connection | grep -v "Transparency client"
 echo
 
 exit 0
