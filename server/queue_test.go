@@ -451,7 +451,24 @@ func TestLockQueueIter(t *testing.T) {
 		}
 	}
 
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 50; i++ {
+		_ = q.Pop()
+	}
+	for i := range q.IterNodes() {
+		nodeQueues := q.IterNodeQueues(int32(i))
+		if len(nodeQueues) == 0 {
+			t.Error("LockQueue Pop After Iter Empty Fail")
+			return
+		}
+		for _, lock := range nodeQueues {
+			if lock == nil {
+				t.Error("LockQueue Pop After Iter Fail")
+				return
+			}
+		}
+	}
+
+	for i := 0; i < 50; i++ {
 		_ = q.Pop()
 	}
 	for i := range q.IterNodes() {
@@ -459,12 +476,6 @@ func TestLockQueueIter(t *testing.T) {
 		if len(nodeQueues) != 0 {
 			t.Error("LockQueue Pop After Iter Not Empty Fail")
 			return
-		}
-		for _, lock := range nodeQueues {
-			if lock != nil {
-				t.Error("LockQueue Pop After Iter Fail")
-				return
-			}
 		}
 	}
 }
@@ -915,7 +926,24 @@ func TestLockCommandQueueIter(t *testing.T) {
 		}
 	}
 
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 50; i++ {
+		_ = q.Pop()
+	}
+	for i := range q.IterNodes() {
+		nodeQueues := q.IterNodeQueues(int32(i))
+		if len(nodeQueues) == 0 {
+			t.Error("LockQueue Pop After Iter Empty Fail")
+			return
+		}
+		for _, lock := range nodeQueues {
+			if lock == nil {
+				t.Error("LockQueue Pop After Iter Fail")
+				return
+			}
+		}
+	}
+
+	for i := 0; i < 50; i++ {
 		_ = q.Pop()
 	}
 	for i := range q.IterNodes() {
@@ -923,12 +951,6 @@ func TestLockCommandQueueIter(t *testing.T) {
 		if len(nodeQueues) != 0 {
 			t.Error("LockQueue Pop After Iter Not Empty Fail")
 			return
-		}
-		for _, lock := range nodeQueues {
-			if lock != nil {
-				t.Error("LockQueue Pop After Iter Fail")
-				return
-			}
 		}
 	}
 }
