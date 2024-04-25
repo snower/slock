@@ -2457,8 +2457,29 @@ func (self *TextServerProtocol) ArgsToLockComand(args []string) (*protocol.LockC
 				command.CommandType += 7
 			}
 		case "SET":
-			command.Data = protocol.NewLockCommandDataFromString(args[i+1], protocol.LOCK_DATA_COMMAND_TYPE_SET, 0)
+			command.Data = protocol.NewLockCommandDataSetString(args[i+1])
 			command.Flag |= protocol.LOCK_FLAG_CONTAINS_DATA
+		case "UNSET":
+			command.Data = protocol.NewLockCommandDataUnsetData()
+			command.Flag |= protocol.LOCK_FLAG_CONTAINS_DATA
+		case "INCR":
+			incrValue, err := strconv.Atoi(args[i+1])
+			if err != nil {
+				return nil, errors.New("Command Parse INCR Error")
+			}
+			command.Data = protocol.NewLockCommandDataIncrData(int64(incrValue))
+			command.Flag |= protocol.LOCK_FLAG_CONTAINS_DATA
+		case "APPEND":
+			command.Data = protocol.NewLockCommandDataAppendString(args[i+1])
+			command.Flag |= protocol.LOCK_FLAG_CONTAINS_DATA
+		case "SHIFT":
+			lengthValue, err := strconv.Atoi(args[i+1])
+			if err != nil {
+				return nil, errors.New("Command Parse SHIFT Error")
+			}
+			command.Data = protocol.NewLockCommandDataShiftData(uint32(lengthValue))
+			command.Flag |= protocol.LOCK_FLAG_CONTAINS_DATA
+
 		}
 	}
 

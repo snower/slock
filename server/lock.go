@@ -347,10 +347,11 @@ func (self *LockManager) AofLockData(commandType uint8) []byte {
 	return nil
 }
 
-func (self *LockManager) ProcessLockData(command *protocol.LockCommand) {
+func (self *LockManager) ProcessLockData(command *protocol.LockCommand, lock *Lock, requireRecover bool) {
 	if command.Data == nil {
 		return
 	}
+	currentLockData := self.currentData
 	lockCommandData := command.Data
 	switch lockCommandData.CommandType {
 	case protocol.LOCK_DATA_COMMAND_TYPE_SET:
@@ -363,6 +364,10 @@ func (self *LockManager) ProcessLockData(command *protocol.LockCommand) {
 			}
 		}
 		self.currentData = NewLockData(lockCommandData.Data, protocol.LOCK_DATA_COMMAND_TYPE_SET)
+		if requireRecover {
+			self.currentData.recoverLock = lock
+			self.currentData.recoverData = currentLockData
+		}
 	case protocol.LOCK_DATA_COMMAND_TYPE_UNSET:
 		if command.CommandType == protocol.COMMAND_LOCK && command.ExpriedFlag&0x4440 == 0 && command.Expried == 0 {
 			if self.currentData != nil && self.currentData.commandType == protocol.LOCK_DATA_COMMAND_TYPE_UNSET {
@@ -371,22 +376,31 @@ func (self *LockManager) ProcessLockData(command *protocol.LockCommand) {
 			}
 		}
 		self.currentData = NewLockDataUnsetData()
+		if requireRecover {
+			self.currentData.recoverLock = lock
+			self.currentData.recoverData = currentLockData
+		}
 	case protocol.LOCK_DATA_COMMAND_TYPE_INCR:
 		incrValue := command.GetLockData().GetIncrValue()
+		recoverValue := incrValue
 		if self.currentData != nil && self.currentData.GetData() != nil {
 			incrValue += self.currentData.GetIncrValue()
-			if len(command.Data.Data) == 14 {
-				data := command.Data.Data
-				data[4], data[5] = protocol.LOCK_DATA_COMMAND_TYPE_SET, 0
-				data[6], data[7], data[8], data[9], data[10], data[11], data[12], data[13] = byte(incrValue), byte(incrValue>>8), byte(incrValue>>16), byte(incrValue>>24), byte(incrValue>>32), byte(incrValue>>40), byte(incrValue>>48), byte(incrValue>>56)
-				self.currentData = NewLockData(data, protocol.LOCK_DATA_COMMAND_TYPE_INCR)
-				command.Data = nil
-				return
-			}
 		}
-		self.currentData = NewLockData([]byte{10, 0, 0, 0, protocol.LOCK_DATA_COMMAND_TYPE_SET, 0,
-			byte(incrValue), byte(incrValue >> 8), byte(incrValue >> 16), byte(incrValue >> 24), byte(incrValue >> 32), byte(incrValue >> 40), byte(incrValue >> 48), byte(incrValue >> 56)},
-			protocol.LOCK_DATA_COMMAND_TYPE_INCR)
+		if len(command.Data.Data) == 14 {
+			data := command.Data.Data
+			data[4], data[5] = protocol.LOCK_DATA_COMMAND_TYPE_SET, 0
+			data[6], data[7], data[8], data[9], data[10], data[11], data[12], data[13] = byte(incrValue), byte(incrValue>>8), byte(incrValue>>16), byte(incrValue>>24), byte(incrValue>>32), byte(incrValue>>40), byte(incrValue>>48), byte(incrValue>>56)
+			self.currentData = NewLockData(data, protocol.LOCK_DATA_COMMAND_TYPE_INCR)
+		} else {
+			self.currentData = NewLockData([]byte{10, 0, 0, 0, protocol.LOCK_DATA_COMMAND_TYPE_SET, 0,
+				byte(incrValue), byte(incrValue >> 8), byte(incrValue >> 16), byte(incrValue >> 24), byte(incrValue >> 32), byte(incrValue >> 40), byte(incrValue >> 48), byte(incrValue >> 56)},
+				protocol.LOCK_DATA_COMMAND_TYPE_INCR)
+		}
+		if requireRecover {
+			self.currentData.recoverLock = lock
+			self.currentData.recoverData = currentLockData
+			self.currentData.recoverValue = recoverValue
+		}
 	case protocol.LOCK_DATA_COMMAND_TYPE_APPEND:
 		if self.currentData == nil || self.currentData.GetData() == nil {
 			lockCommandData.Data[4] = protocol.LOCK_DATA_COMMAND_TYPE_SET
@@ -400,8 +414,125 @@ func (self *LockManager) ProcessLockData(command *protocol.LockCommand) {
 			copy(data[len(self.currentData.data):], lockCommandData.Data[6:])
 			self.currentData = NewLockData(data, protocol.LOCK_DATA_COMMAND_TYPE_APPEND)
 		}
+		if requireRecover {
+			self.currentData.recoverLock = lock
+			self.currentData.recoverData = currentLockData
+			self.currentData.recoverValue = uint64(len(self.currentData.data)-len(lockCommandData.Data)+6)<<32 | uint64(len(lockCommandData.Data)-6)
+		}
+	case protocol.LOCK_DATA_COMMAND_TYPE_SHIFT:
+		lengthValue := int(lockCommandData.GetShiftLengthValue())
+		if currentLockData.GetData() != nil && lengthValue > 0 {
+			if lengthValue > len(currentLockData.data) {
+				lengthValue = len(currentLockData.data)
+			}
+			dataLen := len(currentLockData.data) - lengthValue - 4
+			data := make([]byte, dataLen+4)
+			data[0], data[1], data[2], data[3] = byte(dataLen), byte(dataLen>>8), byte(dataLen>>16), byte(dataLen>>24)
+			data[4], data[5] = protocol.LOCK_DATA_COMMAND_TYPE_SET, 0
+			copy(data[6:], currentLockData.data[6+lengthValue:])
+			self.currentData = NewLockData(data, protocol.LOCK_DATA_COMMAND_TYPE_SHIFT)
+			if requireRecover {
+				shiftData := make([]byte, lengthValue)
+				copy(shiftData, currentLockData.data[6:6+lengthValue])
+				self.currentData.recoverLock = lock
+				self.currentData.recoverData = currentLockData
+				self.currentData.recoverValue = shiftData
+			}
+		}
+	}
+
+	if !requireRecover && currentLockData != nil {
+		if currentLockData.recoverLock != nil {
+			self.currentData.recoverData = currentLockData
+		} else if currentLockData.recoverData != nil {
+			self.currentData.recoverData = currentLockData.recoverData
+			currentLockData.recoverData = nil
+		}
 	}
 	command.Data = nil
+}
+
+func (self *LockManager) ProcessAckLockData(lock *Lock) []byte {
+	currentData := self.currentData
+	for currentData != nil && currentData.recoverLock != lock {
+		currentData = currentData.recoverData
+	}
+	if currentData == nil {
+		return self.GetLockData()
+	}
+
+	var lockData []byte = nil
+	currentData.recoverLock = nil
+	if currentData.recoverData != nil {
+		lockData = currentData.recoverData.GetData()
+		if currentData.recoverData.recoverData == nil {
+			currentData.recoverData = nil
+		}
+	}
+	currentData.recoverValue = nil
+	return lockData
+}
+
+func (self *LockManager) ProcessRecoverLockData(lock *Lock) {
+	currentData := self.currentData
+	for currentData != nil && currentData.recoverLock != lock {
+		currentData = currentData.recoverData
+	}
+	if currentData == nil || (self.currentData.commandType != protocol.LOCK_DATA_COMMAND_TYPE_UNSET && currentData.commandType != self.currentData.commandType) {
+		return
+	}
+
+	switch currentData.commandType {
+	case protocol.LOCK_DATA_COMMAND_TYPE_SET:
+		if currentData.recoverData == nil {
+			self.currentData = NewLockDataUnsetData()
+		} else {
+			self.currentData = currentData.recoverData
+			self.currentData.isAof = false
+		}
+	case protocol.LOCK_DATA_COMMAND_TYPE_UNSET:
+		if currentData.recoverData == nil {
+			self.currentData = NewLockDataUnsetData()
+		} else {
+			self.currentData = currentData.recoverData
+			self.currentData.isAof = false
+		}
+	case protocol.LOCK_DATA_COMMAND_TYPE_INCR:
+		incrValue := currentData.recoverValue.(int64)
+		if currentData.GetData() != nil {
+			incrValue = currentData.GetIncrValue() - incrValue
+		}
+		self.currentData = NewLockData([]byte{10, 0, 0, 0, protocol.LOCK_DATA_COMMAND_TYPE_SET, 0,
+			byte(incrValue), byte(incrValue >> 8), byte(incrValue >> 16), byte(incrValue >> 24), byte(incrValue >> 32), byte(incrValue >> 40), byte(incrValue >> 48), byte(incrValue >> 56)},
+			protocol.LOCK_DATA_COMMAND_TYPE_INCR)
+	case protocol.LOCK_DATA_COMMAND_TYPE_APPEND:
+		posValue := currentData.recoverValue.(uint64)
+		indexValue, lenValue := int(uint32(posValue>>32)), int(uint32(posValue))
+		if len(currentData.data) >= indexValue+lenValue {
+			dataLen := len(currentData.data) - 4 - lenValue
+			data := make([]byte, dataLen+4)
+			data[0], data[1], data[2], data[3] = byte(dataLen), byte(dataLen>>8), byte(dataLen>>16), byte(dataLen>>24)
+			data[4], data[5] = protocol.LOCK_DATA_COMMAND_TYPE_SET, 0
+			copy(data[6:], currentData.data[6:indexValue])
+			copy(data[indexValue:], currentData.data[indexValue+lenValue:])
+			self.currentData = NewLockData(data, protocol.LOCK_DATA_COMMAND_TYPE_APPEND)
+		}
+	case protocol.LOCK_DATA_COMMAND_TYPE_SHIFT:
+		shiftData := currentData.recoverValue.([]byte)
+		dataLen := len(shiftData) + len(currentData.data) - 4
+		data := make([]byte, dataLen+4)
+		data[0], data[1], data[2], data[3] = byte(dataLen), byte(dataLen>>8), byte(dataLen>>16), byte(dataLen>>24)
+		data[4], data[5] = protocol.LOCK_DATA_COMMAND_TYPE_SET, 0
+		copy(data[6:], shiftData)
+		copy(data[6+len(shiftData):], currentData.data[6:])
+		self.currentData = NewLockData(data, protocol.LOCK_DATA_COMMAND_TYPE_SHIFT)
+	}
+
+	currentData.recoverLock = nil
+	if currentData.recoverData != nil && currentData.recoverData.recoverData == nil {
+		currentData.recoverData = nil
+	}
+	currentData.recoverValue = nil
 }
 
 type Lock struct {
@@ -436,20 +567,21 @@ func (self *Lock) GetDB() *LockDB {
 }
 
 type LockData struct {
-	data        []byte
-	recoverLock *Lock
-	recoverData *LockData
-	commandType uint8
-	isAof       bool
+	data         []byte
+	recoverLock  *Lock
+	recoverData  *LockData
+	recoverValue interface{}
+	commandType  uint8
+	isAof        bool
 }
 
 func NewLockData(data []byte, commandType uint8) *LockData {
-	return &LockData{data, nil, nil, commandType, false}
+	return &LockData{data, nil, nil, nil, commandType, false}
 }
 
 func NewLockDataUnsetData() *LockData {
 	return &LockData{[]byte{2, 0, 0, 0, protocol.LOCK_DATA_COMMAND_TYPE_UNSET, 0}, nil, nil,
-		protocol.LOCK_DATA_COMMAND_TYPE_UNSET, false}
+		nil, protocol.LOCK_DATA_COMMAND_TYPE_UNSET, false}
 }
 
 func (self *LockData) GetData() []byte {

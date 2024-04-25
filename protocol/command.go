@@ -99,6 +99,7 @@ const (
 	LOCK_DATA_COMMAND_TYPE_UNSET  = 1
 	LOCK_DATA_COMMAND_TYPE_INCR   = 2
 	LOCK_DATA_COMMAND_TYPE_APPEND = 3
+	LOCK_DATA_COMMAND_TYPE_SHIFT  = 4
 )
 
 var ERROR_MSG []string = []string{
@@ -390,6 +391,11 @@ func NewLockCommandDataAppendString(data string) *LockCommandData {
 	return NewLockCommandDataFromString(data, LOCK_DATA_COMMAND_TYPE_APPEND, 0)
 }
 
+func NewLockCommandDataShiftData(lengthValue uint32) *LockCommandData {
+	return &LockCommandData{[]byte{6, 0, 0, 0, LOCK_DATA_COMMAND_TYPE_SHIFT, 0,
+		byte(lengthValue), byte(lengthValue >> 8), byte(lengthValue >> 16), byte(lengthValue >> 24)}, LOCK_DATA_COMMAND_TYPE_SHIFT, 0}
+}
+
 func (self *LockCommandData) GetBytesData() []byte {
 	if self.Data == nil || self.CommandType == LOCK_DATA_COMMAND_TYPE_UNSET {
 		return nil
@@ -417,6 +423,24 @@ func (self *LockCommandData) GetIncrValue() int64 {
 			value |= int64(self.Data[i+6]) << (i * 8)
 		} else {
 			value |= int64(self.Data[i+6])
+		}
+	}
+	return value
+}
+
+func (self *LockCommandData) GetShiftLengthValue() uint32 {
+	if self.Data == nil || self.CommandType == LOCK_DATA_COMMAND_TYPE_UNSET {
+		return 0
+	}
+	value := uint32(0)
+	for i := 0; i < 4; i++ {
+		if i+6 >= len(self.Data) {
+			break
+		}
+		if i > 0 {
+			value |= uint32(self.Data[i+6]) << (i * 8)
+		} else {
+			value |= uint32(self.Data[i+6])
 		}
 	}
 	return value

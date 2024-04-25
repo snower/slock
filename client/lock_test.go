@@ -569,7 +569,7 @@ func TestLock_WithData(t *testing.T) {
 			t.Errorf("Lock LockWithData Append Result LockData Fail %v", result.GetLockData())
 			return
 		}
-		ulock1 = client.Lock(testString2Key("TestData4"), 50, 0)
+		ulock1 = client.Lock(testString2Key("TestData4"), 50, 10)
 		ulock1.SetCount(10)
 		result, err = ulock1.LockWithData(protocol.NewLockCommandDataAppendString("bbb"))
 		if err != nil {
@@ -580,13 +580,22 @@ func TestLock_WithData(t *testing.T) {
 			t.Errorf("Lock LockWithData1 Append Expried Result LockData Fail %v", result.GetLockData())
 			return
 		}
-		result, err = lock.Unlock()
+		result, err = lock.UnlockWithData(protocol.NewLockCommandDataShiftData(2))
 		if err != nil {
 			t.Errorf("Lock Unlock Append Fail %v", err)
 			return
 		}
 		if result.GetLockData() == nil || result.GetLockData().GetStringData() != "aaabbb" {
 			t.Errorf("Lock Unlock Append Result LockData Fail %v", result.GetLockData())
+			return
+		}
+		result, err = ulock1.Unlock()
+		if err != nil {
+			t.Errorf("Lock Unlock1 Append Fail %v", err)
+			return
+		}
+		if result.GetLockData() == nil || result.GetLockData().GetStringData() != "abbb" {
+			t.Errorf("Lock Unlock1 Append Result LockData Fail %v", result.GetLockData())
 			return
 		}
 	})

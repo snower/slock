@@ -295,7 +295,8 @@ func (self *LockQueue) IterNodes() [][]*Lock {
 	return self.queues[self.headNodeIndex : self.tailNodeIndex+1]
 }
 
-func (self *LockQueue) IterNodeQueues(nodeIndex int32) []*Lock {
+func (self *LockQueue) IterNodeQueues(index int32) []*Lock {
+	nodeIndex := self.headNodeIndex + index
 	if nodeIndex == self.headNodeIndex {
 		if nodeIndex == self.tailNodeIndex {
 			return self.queues[nodeIndex][self.headQueueIndex:self.tailQueueIndex]
@@ -597,7 +598,8 @@ func (self *LockCommandQueue) IterNodes() [][]*protocol.LockCommand {
 	return self.queues[self.headNodeIndex : self.tailNodeIndex+1]
 }
 
-func (self *LockCommandQueue) IterNodeQueues(nodeIndex int32) []*protocol.LockCommand {
+func (self *LockCommandQueue) IterNodeQueues(index int32) []*protocol.LockCommand {
+	nodeIndex := self.headNodeIndex + index
 	if nodeIndex == self.headNodeIndex {
 		if nodeIndex == self.tailNodeIndex {
 			return self.queues[nodeIndex][self.headQueueIndex:self.tailQueueIndex]
