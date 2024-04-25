@@ -260,7 +260,7 @@ func (self *DefaultServerProtocol) FreeLockCommandLocked(command *protocol.LockC
 
 var defaultServerProtocol *DefaultServerProtocol = nil
 
-type MemWaiterServerProtocolResultCallback func(*MemWaiterServerProtocol, *protocol.LockCommand, uint8, uint16, uint8) error
+type MemWaiterServerProtocolResultCallback func(*MemWaiterServerProtocol, *protocol.LockCommand, uint8, uint16, uint8, []byte) error
 
 type MemWaiterServerProtocol struct {
 	slock              *SLock
@@ -354,7 +354,7 @@ func (self *MemWaiterServerProtocol) ProcessLockCommand(lockCommand *protocol.Lo
 
 func (self *MemWaiterServerProtocol) ProcessLockResultCommand(command *protocol.LockCommand, result uint8, lcount uint16, lrcount uint8, data []byte) error {
 	if self.resultCallback != nil {
-		return self.resultCallback(self, command, result, lcount, lrcount)
+		return self.resultCallback(self, command, result, lcount, lrcount, data)
 	}
 
 	self.glock.Lock()

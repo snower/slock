@@ -1054,7 +1054,7 @@ func (self *AofChannel) HandleAofAcked(aofLock *AofLock) {
 func (self *AofChannel) HandleAcked(aofLock *AofLock) {
 	db := self.aof.slock.replicationManager.GetAckDB(aofLock.DbId)
 	if db != nil {
-		_ = db.Process(self.lockDbGlockIndex, aofLock)
+		_ = db.ProcessAcked(self.lockDbGlockIndex, aofLock)
 	}
 }
 
@@ -1401,7 +1401,7 @@ func (self *Aof) NewAofChannel(lockDb *LockDB, lockDbGlockIndex uint16, lockDbGl
 	self.glock.Lock()
 	serverProtocol := NewMemWaiterServerProtocol(self.slock)
 	aofChannel := NewAofChannel(self, lockDb, lockDbGlockIndex, lockDbGlock)
-	_ = serverProtocol.SetResultCallback(func(serverProtocol *MemWaiterServerProtocol, command *protocol.LockCommand, result uint8, lcount uint16, lrcount uint8) error {
+	_ = serverProtocol.SetResultCallback(func(serverProtocol *MemWaiterServerProtocol, command *protocol.LockCommand, result uint8, lcount uint16, lrcount uint8, data []byte) error {
 		return self.lockLoaded(aofChannel, serverProtocol, command, result, lcount, lrcount)
 	})
 	aofChannel.serverProtocol = serverProtocol
@@ -1628,7 +1628,7 @@ func (self *Aof) lockLoaded(aofChannel *AofChannel, _ *MemWaiterServerProtocol, 
 
 		db := self.slock.replicationManager.GetOrNewAckDB(command.DbId)
 		if db != nil {
-			return db.ProcessAcked(aofChannel.lockDbGlockIndex, command, result, lcount, lrcount)
+			return db.ProcessAckLocked(aofChannel.lockDbGlockIndex, command, result, lcount, lrcount)
 		}
 		return nil
 	}

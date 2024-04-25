@@ -1229,7 +1229,7 @@ func (self *ReplicationAckDB) PushUnLock(glockIndex uint16, lock *AofLock) error
 	return nil
 }
 
-func (self *ReplicationAckDB) Process(glockIndex uint16, aofLock *AofLock) error {
+func (self *ReplicationAckDB) ProcessAcked(glockIndex uint16, aofLock *AofLock) error {
 	requestId := aofLock.GetRequestId()
 	self.ackGlocks[glockIndex].Lock()
 	if lock, ok := self.locks[glockIndex][requestId]; ok {
@@ -1311,15 +1311,19 @@ func (self *ReplicationAckDB) PushAckLock(glockIndex uint16, aofLock *AofLock) e
 	requestId := aofLock.GetRequestId()
 	self.ackGlocks[glockIndex].Lock()
 	if ackLock, ok := self.ackLocks[glockIndex][requestId]; !ok {
-		self.glock.Lock()
 		if self.freeAckLocksIndex > 0 {
-			self.freeAckLocksIndex--
-			ackLock = self.freeAckLocks[self.freeAckLocksIndex]
-			self.glock.Unlock()
-			ackLock.locked = false
-			ackLock.aofed = false
+			self.glock.Lock()
+			if self.freeAckLocksIndex > 0 {
+				self.freeAckLocksIndex--
+				ackLock = self.freeAckLocks[self.freeAckLocksIndex]
+				self.glock.Unlock()
+				ackLock.locked = false
+				ackLock.aofed = false
+			} else {
+				self.glock.Unlock()
+				ackLock = NewReplicationAckLock()
+			}
 		} else {
-			self.glock.Unlock()
 			ackLock = NewReplicationAckLock()
 		}
 		self.ackLocks[glockIndex][requestId] = ackLock
@@ -1328,7 +1332,7 @@ func (self *ReplicationAckDB) PushAckLock(glockIndex uint16, aofLock *AofLock) e
 	return nil
 }
 
-func (self *ReplicationAckDB) ProcessAcked(glockIndex uint16, command *protocol.LockCommand, result uint8, lcount uint16, lrcount uint8) error {
+func (self *ReplicationAckDB) ProcessAckLocked(glockIndex uint16, command *protocol.LockCommand, result uint8, lcount uint16, lrcount uint8) error {
 	self.ackGlocks[glockIndex].Lock()
 	ackLock, ok := self.ackLocks[glockIndex][command.RequestId]
 	if !ok {
@@ -1348,7 +1352,6 @@ func (self *ReplicationAckDB) ProcessAcked(glockIndex uint16, command *protocol.
 	ackLock.lockResult.Lrcount = lrcount
 	ackLock.lockResult.Rcount = command.Rcount
 	ackLock.locked = true
-
 	if !ackLock.aofed {
 		self.ackGlocks[glockIndex].Unlock()
 		return nil
@@ -1359,12 +1362,14 @@ func (self *ReplicationAckDB) ProcessAcked(glockIndex uint16, command *protocol.
 	if self.manager.clientChannel != nil {
 		_ = self.manager.clientChannel.HandleAcked(ackLock)
 	}
-	self.glock.Lock()
 	if self.freeAckLocksIndex < self.freeAckLocksMax {
-		self.freeAckLocks[self.freeAckLocksIndex] = ackLock
-		self.freeAckLocksIndex++
+		self.glock.Lock()
+		if self.freeAckLocksIndex < self.freeAckLocksMax {
+			self.freeAckLocks[self.freeAckLocksIndex] = ackLock
+			self.freeAckLocksIndex++
+		}
+		self.glock.Unlock()
 	}
-	self.glock.Unlock()
 	return nil
 }
 
@@ -1373,14 +1378,18 @@ func (self *ReplicationAckDB) ProcessAckAofed(glockIndex uint16, aofLock *AofLoc
 	self.ackGlocks[glockIndex].Lock()
 	ackLock, ok := self.ackLocks[glockIndex][requestId]
 	if !ok {
-		self.glock.Lock()
 		if self.freeAckLocksIndex > 0 {
-			self.freeAckLocksIndex--
-			ackLock = self.freeAckLocks[self.freeAckLocksIndex]
-			self.glock.Unlock()
-			ackLock.locked = false
+			self.glock.Lock()
+			if self.freeAckLocksIndex > 0 {
+				self.freeAckLocksIndex--
+				ackLock = self.freeAckLocks[self.freeAckLocksIndex]
+				self.glock.Unlock()
+				ackLock.locked = false
+			} else {
+				self.glock.Unlock()
+				ackLock = NewReplicationAckLock()
+			}
 		} else {
-			self.glock.Unlock()
 			ackLock = NewReplicationAckLock()
 		}
 		self.ackLocks[glockIndex][requestId] = ackLock
@@ -1388,7 +1397,6 @@ func (self *ReplicationAckDB) ProcessAckAofed(glockIndex uint16, aofLock *AofLoc
 
 	ackLock.aofResult = aofLock.Result
 	ackLock.aofed = true
-
 	if !ackLock.locked {
 		self.ackGlocks[glockIndex].Unlock()
 		return nil
@@ -1399,12 +1407,14 @@ func (self *ReplicationAckDB) ProcessAckAofed(glockIndex uint16, aofLock *AofLoc
 	if self.manager.clientChannel != nil {
 		_ = self.manager.clientChannel.HandleAcked(ackLock)
 	}
-	self.glock.Lock()
 	if self.freeAckLocksIndex < self.freeAckLocksMax {
-		self.freeAckLocks[self.freeAckLocksIndex] = ackLock
-		self.freeAckLocksIndex++
+		self.glock.Lock()
+		if self.freeAckLocksIndex < self.freeAckLocksMax {
+			self.freeAckLocks[self.freeAckLocksIndex] = ackLock
+			self.freeAckLocksIndex++
+		}
+		self.glock.Unlock()
 	}
-	self.glock.Unlock()
 	return nil
 }
 
