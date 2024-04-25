@@ -46,7 +46,7 @@ func (self *ArbiterStore) Init(manager *ArbiterManager) error {
 		return err
 	}
 
-	if _, err := os.Stat(dataDir); os.IsNotExist(err) {
+	if _, err = os.Stat(dataDir); os.IsNotExist(err) {
 		manager.slock.Log().Errorf("Arbiter config meta data dir error %v", err)
 		return err
 	}
@@ -315,7 +315,6 @@ func (self *ArbiterClient) handleInit() error {
 }
 
 func (self *ArbiterClient) Run() {
-	_ = self.member.clientOffline(self)
 	for !self.closed {
 		if self.protocol == nil {
 			err := self.Open(self.member.host)
@@ -1826,7 +1825,7 @@ func (self *ArbiterManager) memberStatusUpdated(member *ArbiterMember) error {
 		}
 
 		onlineCount := 0
-		for _, member := range self.members {
+		for _, member = range self.members {
 			if member.status == ARBITER_MEMBER_STATUS_ONLINE {
 				onlineCount++
 			}
@@ -2250,7 +2249,7 @@ func (self *ArbiterManager) commandHandleAnnouncementCommand(serverProtocol *Bin
 
 		if self.ownMember.role != ARBITER_ROLE_LEADER {
 			self.glock.Lock()
-			err := self.updateStatus()
+			err = self.updateStatus()
 			if err != nil {
 				self.slock.Log().Errorf("Arbiter handle announcement update status error %v", err)
 			}
@@ -2368,8 +2367,8 @@ func (self *ArbiterManager) commandHandleMemberListCommand(serverProtocol *Binar
 
 		response := protobuf.ArbiterMemberListResponse{Name: self.name, Gid: self.gid, Version: self.version, Vertime: self.vertime,
 			Owner: self.ownMember.host, Members: members, CommitId: self.voter.commitId}
-		data, err := proto.Marshal(&response)
-		if err != nil {
+		data, rerr := proto.Marshal(&response)
+		if rerr != nil {
 			return protocol.NewCallResultCommand(command, 0, "ERR_ENCODE", nil)
 		}
 		return protocol.NewCallResultCommand(command, 0, "", data)
