@@ -452,8 +452,7 @@ func (self *AofFile) Flush() error {
 		return nil
 	}
 	if self.file != nil {
-		tn := 0
-		for tn < self.windex {
+		for tn := 0; tn < self.windex; {
 			n, err := self.file.Write(self.wbuf[tn:self.windex])
 			if err != nil {
 				self.windex = 0
@@ -625,13 +624,17 @@ func (self *AofChannel) Push(dbId uint8, lock *Lock, commandType uint8, lockComm
 	}
 
 	var aofLock *AofLock
-	self.glock.Lock()
 	if self.freeLockIndex > 0 {
-		self.freeLockIndex--
-		aofLock = self.freeLocks[self.freeLockIndex]
-		self.glock.Unlock()
+		self.glock.Lock()
+		if self.freeLockIndex > 0 {
+			self.freeLockIndex--
+			aofLock = self.freeLocks[self.freeLockIndex]
+			self.glock.Unlock()
+		} else {
+			self.glock.Unlock()
+			aofLock = NewAofLock()
+		}
 	} else {
-		self.glock.Unlock()
 		aofLock = NewAofLock()
 	}
 
@@ -711,13 +714,17 @@ func (self *AofChannel) Load(lock *AofLock) error {
 		self.lockDbGlock.LowPriorityUnlock()
 	}
 	var aofLock *AofLock
-	self.glock.Lock()
 	if self.freeLockIndex > 0 {
-		self.freeLockIndex--
-		aofLock = self.freeLocks[self.freeLockIndex]
-		self.glock.Unlock()
+		self.glock.Lock()
+		if self.freeLockIndex > 0 {
+			self.freeLockIndex--
+			aofLock = self.freeLocks[self.freeLockIndex]
+			self.glock.Unlock()
+		} else {
+			self.glock.Unlock()
+			aofLock = NewAofLock()
+		}
 	} else {
-		self.glock.Unlock()
 		aofLock = NewAofLock()
 	}
 
@@ -741,13 +748,17 @@ func (self *AofChannel) Replay(lock *AofLock) error {
 		self.lockDbGlock.LowPriorityUnlock()
 	}
 	var aofLock *AofLock
-	self.glock.Lock()
 	if self.freeLockIndex > 0 {
-		self.freeLockIndex--
-		aofLock = self.freeLocks[self.freeLockIndex]
-		self.glock.Unlock()
+		self.glock.Lock()
+		if self.freeLockIndex > 0 {
+			self.freeLockIndex--
+			aofLock = self.freeLocks[self.freeLockIndex]
+			self.glock.Unlock()
+		} else {
+			self.glock.Unlock()
+			aofLock = NewAofLock()
+		}
 	} else {
-		self.glock.Unlock()
 		aofLock = NewAofLock()
 	}
 
@@ -763,13 +774,17 @@ func (self *AofChannel) Replay(lock *AofLock) error {
 
 func (self *AofChannel) AofAcked(buf []byte, succed bool) error {
 	var aofLock *AofLock
-	self.glock.Lock()
 	if self.freeLockIndex > 0 {
-		self.freeLockIndex--
-		aofLock = self.freeLocks[self.freeLockIndex]
-		self.glock.Unlock()
+		self.glock.Lock()
+		if self.freeLockIndex > 0 {
+			self.freeLockIndex--
+			aofLock = self.freeLocks[self.freeLockIndex]
+			self.glock.Unlock()
+		} else {
+			self.glock.Unlock()
+			aofLock = NewAofLock()
+		}
 	} else {
-		self.glock.Unlock()
 		aofLock = NewAofLock()
 	}
 
@@ -792,13 +807,17 @@ func (self *AofChannel) AofAcked(buf []byte, succed bool) error {
 
 func (self *AofChannel) Acked(commandResult *protocol.LockResultCommand) error {
 	var aofLock *AofLock
-	self.glock.Lock()
 	if self.freeLockIndex > 0 {
-		self.freeLockIndex--
-		aofLock = self.freeLocks[self.freeLockIndex]
-		self.glock.Unlock()
+		self.glock.Lock()
+		if self.freeLockIndex > 0 {
+			self.freeLockIndex--
+			aofLock = self.freeLocks[self.freeLockIndex]
+			self.glock.Unlock()
+		} else {
+			self.glock.Unlock()
+			aofLock = NewAofLock()
+		}
 	} else {
-		self.glock.Unlock()
 		aofLock = NewAofLock()
 	}
 
@@ -884,14 +903,16 @@ func (self *AofChannel) Handle(aofLock *AofLock) {
 		self.HandleAcked(aofLock)
 	}
 
-	self.glock.Lock()
 	aofLock.lock = nil
 	aofLock.data = nil
 	if self.freeLockIndex < self.freeLockMax {
-		self.freeLocks[self.freeLockIndex] = aofLock
-		self.freeLockIndex++
+		self.glock.Lock()
+		if self.freeLockIndex < self.freeLockMax {
+			self.freeLocks[self.freeLockIndex] = aofLock
+			self.freeLockIndex++
+		}
+		self.glock.Unlock()
 	}
-	self.glock.Unlock()
 }
 
 func (self *AofChannel) HandleLock(aofLock *AofLock) {
@@ -1618,13 +1639,15 @@ func (self *Aof) Flush() {
 	if self.aofFile == nil {
 		return
 	}
-	if self.aofFile.windex > 0 || self.aofFile.dirtied || self.aofFile.ackIndex > 0 {
+	if self.aofFile.windex > 0 || self.aofFile.ackIndex > 0 {
 		err := self.aofFile.Flush()
 		if err != nil {
 			self.slock.Log().Errorf("Aof flush file error %v", err)
 			return
 		}
-		err = self.aofFile.Sync()
+	}
+	if self.aofFile.dirtied {
+		err := self.aofFile.Sync()
 		if err != nil {
 			self.slock.Log().Errorf("Aof Sync file error %v", err)
 		}

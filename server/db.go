@@ -1203,7 +1203,7 @@ func (self *LockDB) doTimeOut(lock *Lock, forcedExpried bool) {
 	if lockLocked > 0 {
 		lockManager.locked -= uint32(lockLocked)
 		lockManager.RemoveLock(lock)
-		if lock.ackCount != 0xff {
+		if lockCommand.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 && lock.ackCount != 0xff {
 			lockManager.ProcessRecoverLockData(lock)
 		}
 		if lock.isAof {
@@ -2224,7 +2224,12 @@ func (self *LockDB) DoAckLock(lock *Lock, succed bool) {
 			lock.expriedTime = lock.startTime + int64(lock.command.Expried)/1000 + 1
 		}
 
-		lockData := lockManager.ProcessAckLockData(lock)
+		var lockData []byte = nil
+		if lock.command.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
+			lockData = lockManager.ProcessAckLockData(lock)
+		} else {
+			lockData = lockManager.GetLockData()
+		}
 		if lock.command.ExpriedFlag&protocol.EXPRIED_FLAG_MILLISECOND_TIME == 0 {
 			self.AddExpried(lock, lock.expriedTime)
 		} else {
@@ -2243,7 +2248,9 @@ func (self *LockDB) DoAckLock(lock *Lock, succed bool) {
 	lockManager.locked -= uint32(lockLocked)
 	lockProtocol, lockCommand := lock.protocol, lock.command
 	lockManager.RemoveLock(lock)
-	lockManager.ProcessRecoverLockData(lock)
+	if lockCommand.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
+		lockManager.ProcessRecoverLockData(lock)
+	}
 	if lock.isAof {
 		_ = lockManager.PushUnLockAof(lockManager.dbId, lock, lockCommand, nil, false, 0)
 	}

@@ -650,7 +650,6 @@ func (self *ReplicationClient) Process() error {
 		if err != nil {
 			return err
 		}
-
 		err = aof.ReplayLock(self.aofLock)
 		if err != nil {
 			return err
@@ -664,9 +663,11 @@ func (self *ReplicationClient) Process() error {
 		self.loadedCount++
 
 		buf := self.aofLock.buf
-		self.currentRequestId[0], self.currentRequestId[1], self.currentRequestId[2], self.currentRequestId[3], self.currentRequestId[4], self.currentRequestId[5], self.currentRequestId[6], self.currentRequestId[7],
-			self.currentRequestId[8], self.currentRequestId[9], self.currentRequestId[10], self.currentRequestId[11], self.currentRequestId[12], self.currentRequestId[13], self.currentRequestId[14], self.currentRequestId[15] = buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
-			buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18]
+		if len(buf) >= 64 {
+			self.currentRequestId[0], self.currentRequestId[1], self.currentRequestId[2], self.currentRequestId[3], self.currentRequestId[4], self.currentRequestId[5], self.currentRequestId[6], self.currentRequestId[7],
+				self.currentRequestId[8], self.currentRequestId[9], self.currentRequestId[10], self.currentRequestId[11], self.currentRequestId[12], self.currentRequestId[13], self.currentRequestId[14], self.currentRequestId[15] = buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
+				buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18]
+		}
 	}
 	return io.EOF
 }
@@ -714,14 +715,15 @@ func (self *ReplicationClient) getLock() error {
 				self.aof.aofGlock.Unlock()
 				return io.EOF
 			}
-			self.aof.aofGlock.Lock()
-			if self.aof.aofFile != nil {
-				err := self.aof.aofFile.Flush()
+			aofFile := self.aof.aofFile
+			if aofFile != nil && (aofFile.windex > 0 || aofFile.ackIndex > 0) {
+				self.aof.aofGlock.Lock()
+				err := aofFile.Flush()
 				if err != nil {
 					self.manager.slock.Log().Errorf("Replication flush file error %v", err)
 				}
+				self.aof.aofGlock.Unlock()
 			}
-			self.aof.aofGlock.Unlock()
 
 			select {
 			case aofLock := <-self.rbufChannel:
@@ -731,7 +733,6 @@ func (self *ReplicationClient) getLock() error {
 					self.aof.aofGlock.Unlock()
 					return io.EOF
 				}
-
 				self.aofLock = aofLock
 				return nil
 			case <-time.After(200 * time.Millisecond):
@@ -742,12 +743,7 @@ func (self *ReplicationClient) getLock() error {
 				if aofLock == nil {
 					return io.EOF
 				}
-
 				self.aofLock = aofLock
-				err := self.aofLock.Decode()
-				if err != nil {
-					return err
-				}
 				return nil
 			}
 		}
@@ -758,11 +754,7 @@ func (self *ReplicationClient) readProcess() {
 	for !self.closed {
 		aofLock := self.rbufs[self.rbufIndex]
 		n, err := self.stream.ReadBytes(aofLock.buf)
-		if err != nil {
-			self.rbufChannel <- nil
-			return
-		}
-		if n != 64 {
+		if err != nil || n != 64 {
 			self.rbufChannel <- nil
 			return
 		}
@@ -786,8 +778,7 @@ func (self *ReplicationClient) readProcess() {
 			self.rbufIndex = 0
 		}
 	}
-
-	self.rbufChannel <- nil
+	close(self.rbufChannel)
 }
 
 func (self *ReplicationClient) HandleAcked(ackLock *ReplicationAckLock) error {
@@ -1748,9 +1739,11 @@ func (self *ReplicationManager) PushLock(glockIndex uint16, lock *AofLock) error
 		}
 	}
 
-	self.currentRequestId[0], self.currentRequestId[1], self.currentRequestId[2], self.currentRequestId[3], self.currentRequestId[4], self.currentRequestId[5], self.currentRequestId[6], self.currentRequestId[7],
-		self.currentRequestId[8], self.currentRequestId[9], self.currentRequestId[10], self.currentRequestId[11], self.currentRequestId[12], self.currentRequestId[13], self.currentRequestId[14], self.currentRequestId[15] = buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
-		buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18]
+	if len(buf) >= 64 {
+		self.currentRequestId[0], self.currentRequestId[1], self.currentRequestId[2], self.currentRequestId[3], self.currentRequestId[4], self.currentRequestId[5], self.currentRequestId[6], self.currentRequestId[7],
+			self.currentRequestId[8], self.currentRequestId[9], self.currentRequestId[10], self.currentRequestId[11], self.currentRequestId[12], self.currentRequestId[13], self.currentRequestId[14], self.currentRequestId[15] = buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
+			buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18]
+	}
 	return nil
 }
 
@@ -1759,7 +1752,7 @@ func (self *ReplicationManager) WakeupServerChannel() error {
 		return nil
 	}
 	for _, channel := range self.serverChannels {
-		if atomic.CompareAndSwapUint32(&channel.pulled, 1, 1) {
+		if atomic.LoadUint32(&channel.pulled) == 1 {
 			channel.pulledWaiter <- true
 			atomic.AddUint32(&channel.pulled, 0xffffffff)
 		}
@@ -1937,7 +1930,6 @@ func (self *ReplicationManager) FlushDB() error {
 			_ = db.FlushDB()
 		}
 	}
-
 	if self.slock.state != STATE_LEADER {
 		for _, db := range self.ackDbs {
 			if db != nil {
