@@ -39,14 +39,16 @@ run_gotest "github.com/snower/slock/protocol"
 run_gotest "github.com/snower/slock/server"
 
 export PATH=$(pwd):$PATH
-WORKLOAD_DIR="/tmp/$(date '+%Y%m%d%H%M%S')/"
+WORKLOAD_DIR="/tmp/$(date '+%Y%m%d%H%M%S')"
 mkdir $WORKLOAD_DIR
+echo "Workload: ${WORKLOAD_DIR}"
 
-DATA_DIR="${WORKLOAD_DIR}/data5657/"
+echo "Start Slock Server 5657"
+DATA_DIR="${WORKLOAD_DIR}/data5657"
 mkdir $DATA_DIR
-cp .github/data/5657-meta.pb $DATA_DIR
-LOG_FILENAME="${DATA_DIR}slock.log"
-slock --port=5657 --data_dir="$DATA_DIR" > $LOG_FILENAME 2>&1 &
+cp .github/data/5657-meta.pb $DATA_DIR/meta.pb
+LOG_FILENAME="${DATA_DIR}/slock.log"
+slock --port=5657 --data_dir=$DATA_DIR --replset=test > $LOG_FILENAME 2>&1 &
 SLOCK_PS=$(ps aux | grep slock | grep 5657 | grep -v grep)
 if [ -z "$SLOCK_PS" ]
     then
@@ -58,11 +60,12 @@ please run 'slock' on your changes before committing."
 fi
 sleep 3
 
-DATA_DIR="${WORKLOAD_DIR}/data5659/"
+echo "Start Slock Server 5659"
+DATA_DIR="${WORKLOAD_DIR}/data5659"
 mkdir $DATA_DIR
-cp .github/data/5659-meta.pb $DATA_DIR
-LOG_FILENAME="${DATA_DIR}slock.log"
-slock --port=5659 --data_dir="$DATA_DIR" > $LOG_FILENAME 2>&1 &
+cp .github/data/5659-meta.pb $DATA_DIR/meta.pb
+LOG_FILENAME="${DATA_DIR}/slock.log"
+slock --port=5659 --data_dir=$DATA_DIR --replset=test > $LOG_FILENAME 2>&1 &
 SLOCK_PS=$(ps aux | grep slock | grep 5659 | grep -v grep)
 if [ -z "$SLOCK_PS" ]
     then
@@ -74,11 +77,12 @@ please run 'slock' on your changes before committing."
 fi
 sleep 3
 
-DATA_DIR="${WORKLOAD_DIR}/data5658/"
+echo "Start Slock Server 5658"
+DATA_DIR="${WORKLOAD_DIR}/data5658"
 mkdir $DATA_DIR
-cp .github/data/5658-meta.pb $DATA_DIR
-LOG_FILENAME="${DATA_DIR}slock.log"
-slock --port=5658 --data_dir="$DATA_DIR" > $LOG_FILENAME 2>&1 &
+cp .github/data/5658-meta.pb $DATA_DIR/meta.pb
+LOG_FILENAME="${DATA_DIR}/slock.log"
+slock --port=5658 --data_dir=$DATA_DIR --replset=test > $LOG_FILENAME 2>&1 &
 SLOCK_PS=$(ps aux | grep slock | grep 5658 | grep -v grep)
 if [ -z "$SLOCK_PS" ]
     then
