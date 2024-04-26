@@ -315,10 +315,10 @@ type ReplicationClient struct {
 
 func NewReplicationClient(manager *ReplicationManager) *ReplicationClient {
 	channel := &ReplicationClient{manager, &sync.Mutex{}, nil, nil, manager.slock.GetAof(),
-		nil, [16]byte{}, make([]*AofLock, 64), 0, make(chan *AofLock, 64),
+		nil, [16]byte{}, make([]*AofLock, 256), 0, make(chan *AofLock, 64),
 		make(chan *AofLock, 64), make(chan *AofLock, 64), 0, nil, make(chan bool, 1),
 		false, true, false}
-	for i := 0; i < 64; i++ {
+	for i := 0; i < len(channel.rbufs); i++ {
 		channel.rbufs[i] = NewAofLock()
 	}
 	return channel
@@ -1249,9 +1249,13 @@ func (self *ReplicationAckDB) ProcessLeaderPushUnLock(glockIndex uint16, aofLock
 	if lock == nil {
 		return nil
 	}
+	lockCommand := lock.command
+	if lockCommand == nil {
+		return nil
+	}
 	self.ackGlocks[glockIndex].Lock()
-	if requestId, ok := self.commandAofs[glockIndex][lock.command.RequestId]; ok {
-		delete(self.commandAofs[glockIndex], lock.command.RequestId)
+	if requestId, ok := self.commandAofs[glockIndex][lockCommand.RequestId]; ok {
+		delete(self.commandAofs[glockIndex], lockCommand.RequestId)
 		if _, ok = self.aofLocks[glockIndex][requestId]; ok {
 			delete(self.aofLocks[glockIndex], requestId)
 		}
@@ -1771,7 +1775,7 @@ func (self *ReplicationManager) GetOrNewAckDB(dbId uint8) *ReplicationAckDB {
 }
 
 func (self *ReplicationManager) PushLock(glockIndex uint16, aofLock *AofLock) error {
-	if aofLock.AofFlag&AOF_FLAG_REQUIRE_ACKED != 0 && aofLock.lock != nil {
+	if self.slock.state == STATE_LEADER && aofLock.AofFlag&AOF_FLAG_REQUIRE_ACKED != 0 && aofLock.lock != nil {
 		db := self.GetOrNewAckDB(aofLock.DbId)
 		switch aofLock.CommandType {
 		case protocol.COMMAND_LOCK:
@@ -1791,7 +1795,7 @@ func (self *ReplicationManager) PushLock(glockIndex uint16, aofLock *AofLock) er
 	if aofLock.AofFlag&AOF_FLAG_CONTAINS_DATA != 0 {
 		err := self.bufferQueue.Push(buf, aofLock.data)
 		if err != nil {
-			if aofLock.CommandType == protocol.COMMAND_LOCK && aofLock.AofFlag&AOF_FLAG_REQUIRE_ACKED != 0 && aofLock.lock != nil {
+			if self.slock.state == STATE_LEADER && aofLock.CommandType == protocol.COMMAND_LOCK && aofLock.AofFlag&AOF_FLAG_REQUIRE_ACKED != 0 && aofLock.lock != nil {
 				db := self.slock.replicationManager.GetAckDB(aofLock.DbId)
 				if db != nil {
 					_ = db.ProcessLeaderPushUnLock(glockIndex, aofLock)
@@ -1802,7 +1806,7 @@ func (self *ReplicationManager) PushLock(glockIndex uint16, aofLock *AofLock) er
 	} else {
 		err := self.bufferQueue.Push(buf, nil)
 		if err != nil {
-			if aofLock.CommandType == protocol.COMMAND_LOCK && aofLock.AofFlag&AOF_FLAG_REQUIRE_ACKED != 0 && aofLock.lock != nil {
+			if self.slock.state == STATE_LEADER && aofLock.CommandType == protocol.COMMAND_LOCK && aofLock.AofFlag&AOF_FLAG_REQUIRE_ACKED != 0 && aofLock.lock != nil {
 				db := self.slock.replicationManager.GetAckDB(aofLock.DbId)
 				if db != nil {
 					_ = db.ProcessLeaderPushUnLock(glockIndex, aofLock)
