@@ -1718,7 +1718,12 @@ func (self *ReplicationManager) addServerChannel(channel *ReplicationServer) err
 	self.glock.Lock()
 	self.serverChannels = append(self.serverChannels, channel)
 	self.serverCount = uint32(len(self.serverChannels))
-	ackCount := len(self.serverChannels) + 1
+	ackCount := 0
+	if self.slock.arbiterManager != nil {
+		ackCount = len(self.slock.arbiterManager.GetMembers())/2 + 1
+	} else {
+		ackCount = len(self.serverChannels) + 1
+	}
 	for _, db := range self.ackDbs {
 		if db != nil {
 			db.ackCount = uint8(ackCount)
@@ -1739,7 +1744,12 @@ func (self *ReplicationManager) removeServerChannel(channel *ReplicationServer) 
 	}
 	self.serverChannels = serverChannels
 	self.serverCount = uint32(len(serverChannels))
-	ackCount := len(self.serverChannels) + 1
+	ackCount := 0
+	if self.slock.arbiterManager != nil {
+		ackCount = len(self.slock.arbiterManager.members)/2 + 1
+	} else {
+		ackCount = len(self.serverChannels) + 1
+	}
 	for _, db := range self.ackDbs {
 		if db != nil {
 			db.ackCount = uint8(ackCount)
@@ -1782,8 +1792,14 @@ func (self *ReplicationManager) GetOrNewAckDB(dbId uint8) *ReplicationAckDB {
 
 	self.glock.Lock()
 	if self.ackDbs[dbId] == nil {
+		ackCount := 0
+		if self.slock.arbiterManager != nil {
+			ackCount = len(self.slock.arbiterManager.GetMembers())/2 + 1
+		} else {
+			ackCount = len(self.serverChannels) + 1
+		}
 		self.ackDbs[dbId] = NewReplicationAckDB(self)
-		self.ackDbs[dbId].ackCount = uint8(len(self.serverChannels) + 1)
+		self.ackDbs[dbId].ackCount = uint8(ackCount)
 	}
 	self.glock.Unlock()
 	return self.ackDbs[dbId]
@@ -1891,6 +1907,15 @@ func (self *ReplicationManager) SwitchToLeader() error {
 	}
 	self.slock.updateState(STATE_LEADER)
 	self.leaderAddress = ""
+
+	if self.slock.arbiterManager != nil {
+		ackCount := len(self.slock.arbiterManager.GetMembers())/2 + 1
+		for _, db := range self.ackDbs {
+			if db != nil {
+				db.ackCount = uint8(ackCount)
+			}
+		}
+	}
 	self.glock.Unlock()
 
 	if self.clientChannel != nil {
