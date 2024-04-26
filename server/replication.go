@@ -1153,7 +1153,6 @@ func (self *ReplicationServer) RecvProcess() error {
 			}
 			lockResult.Data = protocol.NewLockResultCommandDataFromOriginBytes(buf)
 		}
-
 		err = self.aof.loadLockAck(lockResult)
 		if err != nil {
 			return err
@@ -1410,7 +1409,12 @@ func (self *ReplicationAckDB) ProcessFollowerAckLocked(glockIndex uint16, comman
 	delete(self.ackLocks[glockIndex], command.RequestId)
 	self.ackGlocks[glockIndex].Unlock()
 	if self.manager.clientChannel != nil {
-		_ = self.manager.clientChannel.HandleAcked(ackLock)
+		err := self.manager.clientChannel.HandleAcked(ackLock)
+		if err != nil {
+			self.manager.slock.Log().Errorf("Replication client write ack error %v", err)
+		}
+	} else {
+		self.manager.slock.Log().Errorf("Replication client write ack not open")
 	}
 	if self.freeAckLocksIndex < self.freeAckLocksMax {
 		self.glock.Lock()
@@ -1454,7 +1458,12 @@ func (self *ReplicationAckDB) ProcessFollowerAckAofed(glockIndex uint16, aofLock
 	delete(self.ackLocks[glockIndex], requestId)
 	self.ackGlocks[glockIndex].Unlock()
 	if self.manager.clientChannel != nil {
-		_ = self.manager.clientChannel.HandleAcked(ackLock)
+		err := self.manager.clientChannel.HandleAcked(ackLock)
+		if err != nil {
+			self.manager.slock.Log().Errorf("Replication client write ack error %v", err)
+		}
+	} else {
+		self.manager.slock.Log().Errorf("Replication client write ack not open")
 	}
 	if self.freeAckLocksIndex < self.freeAckLocksMax {
 		self.glock.Lock()
@@ -1473,7 +1482,10 @@ func (self *ReplicationAckDB) SwitchToLeader() error {
 		for _, ackLock := range ackLocks {
 			if self.manager.clientChannel != nil {
 				ackLock.aofResult = protocol.RESULT_ERROR
-				_ = self.manager.clientChannel.HandleAcked(ackLock)
+				err := self.manager.clientChannel.HandleAcked(ackLock)
+				if err != nil {
+					self.manager.slock.Log().Errorf("Replication client write ack error %v", err)
+				}
 			}
 
 			self.glock.Lock()
@@ -1514,7 +1526,10 @@ func (self *ReplicationAckDB) FlushDB() error {
 		for _, ackLock := range self.ackLocks[i] {
 			if self.manager.clientChannel != nil {
 				ackLock.aofResult = protocol.RESULT_ERROR
-				_ = self.manager.clientChannel.HandleAcked(ackLock)
+				err := self.manager.clientChannel.HandleAcked(ackLock)
+				if err != nil {
+					self.manager.slock.Log().Errorf("Replication client write ack error %v", err)
+				}
 			}
 
 			self.glock.Lock()
