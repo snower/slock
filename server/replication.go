@@ -306,6 +306,7 @@ type ReplicationClient struct {
 	aofQueue         chan *AofLock
 	pushQueue        chan *AofLock
 	loadedCount      uint64
+	appendWaiter     chan bool
 	wakeupSignal     chan bool
 	closedWaiter     chan bool
 	closed           bool
@@ -316,7 +317,7 @@ type ReplicationClient struct {
 func NewReplicationClient(manager *ReplicationManager) *ReplicationClient {
 	channel := &ReplicationClient{manager, &sync.Mutex{}, nil, nil, manager.slock.GetAof(),
 		nil, [16]byte{}, make([]*AofLock, 256), 0, make(chan *AofLock, 64),
-		make(chan *AofLock, 64), make(chan *AofLock, 64), 0, nil, make(chan bool, 1),
+		make(chan *AofLock, 64), make(chan *AofLock, 64), 0, nil, nil, make(chan bool, 1),
 		false, true, false}
 	for i := 0; i < len(channel.rbufs); i++ {
 		channel.rbufs[i] = NewAofLock()
@@ -393,6 +394,12 @@ func (self *ReplicationClient) Run() {
 			_ = self.protocol.Close()
 		}
 		self.glock.Lock()
+		appendWaiter := self.appendWaiter
+		if appendWaiter != nil {
+			self.glock.Unlock()
+			<-appendWaiter
+			self.glock.Lock()
+		}
 		self.stream = nil
 		self.protocol = nil
 		self.glock.Unlock()
@@ -728,7 +735,24 @@ func (self *ReplicationClient) ProcessReplayLock() {
 }
 
 func (self *ReplicationClient) ProcessAofAppend() {
+	self.glock.Lock()
+	if self.appendWaiter != nil {
+		close(self.appendWaiter)
+	}
+	self.appendWaiter = make(chan bool)
+	self.glock.Unlock()
+	defer func() {
+		self.glock.Lock()
+		if self.appendWaiter != nil {
+			close(self.appendWaiter)
+			self.appendWaiter = nil
+		}
+		self.glock.Unlock()
+	}()
+
 	aof := self.aof
+	requestId := [16]byte{self.currentRequestId[0], self.currentRequestId[1], self.currentRequestId[2], self.currentRequestId[3], self.currentRequestId[4], self.currentRequestId[5], self.currentRequestId[6], self.currentRequestId[7],
+		self.currentRequestId[8], self.currentRequestId[9], self.currentRequestId[10], self.currentRequestId[11], self.currentRequestId[12], self.currentRequestId[13], self.currentRequestId[14], self.currentRequestId[15]}
 	for !self.closed {
 		select {
 		case aofLock := <-self.aofQueue:
@@ -736,13 +760,16 @@ func (self *ReplicationClient) ProcessAofAppend() {
 				self.aof.aofGlock.Lock()
 				self.aof.Flush()
 				self.aof.aofGlock.Unlock()
+				self.currentRequestId[0], self.currentRequestId[1], self.currentRequestId[2], self.currentRequestId[3], self.currentRequestId[4], self.currentRequestId[5], self.currentRequestId[6], self.currentRequestId[7],
+					self.currentRequestId[8], self.currentRequestId[9], self.currentRequestId[10], self.currentRequestId[11], self.currentRequestId[12], self.currentRequestId[13], self.currentRequestId[14], self.currentRequestId[15] = requestId[0], requestId[1], requestId[2], requestId[3], requestId[4], requestId[5], requestId[6], requestId[7],
+					requestId[8], requestId[9], requestId[10], requestId[11], requestId[12], requestId[13], requestId[14], requestId[15]
 				return
 			}
 			aof.AppendLock(aofLock)
 			buf := aofLock.buf
 			if len(buf) >= 64 {
-				self.currentRequestId[0], self.currentRequestId[1], self.currentRequestId[2], self.currentRequestId[3], self.currentRequestId[4], self.currentRequestId[5], self.currentRequestId[6], self.currentRequestId[7],
-					self.currentRequestId[8], self.currentRequestId[9], self.currentRequestId[10], self.currentRequestId[11], self.currentRequestId[12], self.currentRequestId[13], self.currentRequestId[14], self.currentRequestId[15] = buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
+				requestId[0], requestId[1], requestId[2], requestId[3], requestId[4], requestId[5], requestId[6], requestId[7],
+					requestId[8], requestId[9], requestId[10], requestId[11], requestId[12], requestId[13], requestId[14], requestId[15] = buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
 					buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18]
 			}
 		default:
@@ -750,6 +777,9 @@ func (self *ReplicationClient) ProcessAofAppend() {
 				self.aof.aofGlock.Lock()
 				self.aof.Flush()
 				self.aof.aofGlock.Unlock()
+				self.currentRequestId[0], self.currentRequestId[1], self.currentRequestId[2], self.currentRequestId[3], self.currentRequestId[4], self.currentRequestId[5], self.currentRequestId[6], self.currentRequestId[7],
+					self.currentRequestId[8], self.currentRequestId[9], self.currentRequestId[10], self.currentRequestId[11], self.currentRequestId[12], self.currentRequestId[13], self.currentRequestId[14], self.currentRequestId[15] = requestId[0], requestId[1], requestId[2], requestId[3], requestId[4], requestId[5], requestId[6], requestId[7],
+					requestId[8], requestId[9], requestId[10], requestId[11], requestId[12], requestId[13], requestId[14], requestId[15]
 				return
 			}
 			aofFile := self.aof.aofFile
@@ -760,6 +790,9 @@ func (self *ReplicationClient) ProcessAofAppend() {
 					self.manager.slock.Log().Errorf("Replication flush file error %v", err)
 				}
 				self.aof.aofGlock.Unlock()
+				self.currentRequestId[0], self.currentRequestId[1], self.currentRequestId[2], self.currentRequestId[3], self.currentRequestId[4], self.currentRequestId[5], self.currentRequestId[6], self.currentRequestId[7],
+					self.currentRequestId[8], self.currentRequestId[9], self.currentRequestId[10], self.currentRequestId[11], self.currentRequestId[12], self.currentRequestId[13], self.currentRequestId[14], self.currentRequestId[15] = requestId[0], requestId[1], requestId[2], requestId[3], requestId[4], requestId[5], requestId[6], requestId[7],
+					requestId[8], requestId[9], requestId[10], requestId[11], requestId[12], requestId[13], requestId[14], requestId[15]
 			}
 
 			select {
@@ -768,19 +801,25 @@ func (self *ReplicationClient) ProcessAofAppend() {
 					self.aof.aofGlock.Lock()
 					self.aof.Flush()
 					self.aof.aofGlock.Unlock()
+					self.currentRequestId[0], self.currentRequestId[1], self.currentRequestId[2], self.currentRequestId[3], self.currentRequestId[4], self.currentRequestId[5], self.currentRequestId[6], self.currentRequestId[7],
+						self.currentRequestId[8], self.currentRequestId[9], self.currentRequestId[10], self.currentRequestId[11], self.currentRequestId[12], self.currentRequestId[13], self.currentRequestId[14], self.currentRequestId[15] = requestId[0], requestId[1], requestId[2], requestId[3], requestId[4], requestId[5], requestId[6], requestId[7],
+						requestId[8], requestId[9], requestId[10], requestId[11], requestId[12], requestId[13], requestId[14], requestId[15]
 					return
 				}
 				aof.AppendLock(aofLock)
 				buf := aofLock.buf
 				if len(buf) >= 64 {
-					self.currentRequestId[0], self.currentRequestId[1], self.currentRequestId[2], self.currentRequestId[3], self.currentRequestId[4], self.currentRequestId[5], self.currentRequestId[6], self.currentRequestId[7],
-						self.currentRequestId[8], self.currentRequestId[9], self.currentRequestId[10], self.currentRequestId[11], self.currentRequestId[12], self.currentRequestId[13], self.currentRequestId[14], self.currentRequestId[15] = buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
+					requestId[0], requestId[1], requestId[2], requestId[3], requestId[4], requestId[5], requestId[6], requestId[7],
+						requestId[8], requestId[9], requestId[10], requestId[11], requestId[12], requestId[13], requestId[14], requestId[15] = buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
 						buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18]
 				}
 			case <-time.After(200 * time.Millisecond):
 				self.aof.aofGlock.Lock()
 				self.aof.Flush()
 				self.aof.aofGlock.Unlock()
+				self.currentRequestId[0], self.currentRequestId[1], self.currentRequestId[2], self.currentRequestId[3], self.currentRequestId[4], self.currentRequestId[5], self.currentRequestId[6], self.currentRequestId[7],
+					self.currentRequestId[8], self.currentRequestId[9], self.currentRequestId[10], self.currentRequestId[11], self.currentRequestId[12], self.currentRequestId[13], self.currentRequestId[14], self.currentRequestId[15] = requestId[0], requestId[1], requestId[2], requestId[3], requestId[4], requestId[5], requestId[6], requestId[7],
+					requestId[8], requestId[9], requestId[10], requestId[11], requestId[12], requestId[13], requestId[14], requestId[15]
 				aofLock := <-self.aofQueue
 				if aofLock == nil {
 					return
@@ -788,8 +827,8 @@ func (self *ReplicationClient) ProcessAofAppend() {
 				aof.AppendLock(aofLock)
 				buf := aofLock.buf
 				if len(buf) >= 64 {
-					self.currentRequestId[0], self.currentRequestId[1], self.currentRequestId[2], self.currentRequestId[3], self.currentRequestId[4], self.currentRequestId[5], self.currentRequestId[6], self.currentRequestId[7],
-						self.currentRequestId[8], self.currentRequestId[9], self.currentRequestId[10], self.currentRequestId[11], self.currentRequestId[12], self.currentRequestId[13], self.currentRequestId[14], self.currentRequestId[15] = buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
+					requestId[0], requestId[1], requestId[2], requestId[3], requestId[4], requestId[5], requestId[6], requestId[7],
+						requestId[8], requestId[9], requestId[10], requestId[11], requestId[12], requestId[13], requestId[14], requestId[15] = buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
 						buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18]
 				}
 			}
