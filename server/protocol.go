@@ -251,6 +251,7 @@ func (self *DefaultServerProtocol) FreeLockCommand(command *protocol.LockCommand
 }
 
 func (self *DefaultServerProtocol) FreeLockCommandLocked(command *protocol.LockCommand) error {
+	command.Data = nil
 	self.slock.freeLockCommandLock.Lock()
 	_ = self.slock.freeLockCommandQueue.Push(command)
 	self.slock.freeLockCommandCount++
@@ -474,6 +475,7 @@ func (self *MemWaiterServerProtocol) GetLockCommand() *protocol.LockCommand {
 }
 
 func (self *MemWaiterServerProtocol) FreeLockCommand(command *protocol.LockCommand) error {
+	command.Data = nil
 	if self.freeCommandIndex < FREE_COMMAND_MAX_SIZE {
 		self.freeCommands[self.freeCommandIndex] = command
 		self.freeCommandIndex++
@@ -483,6 +485,7 @@ func (self *MemWaiterServerProtocol) FreeLockCommand(command *protocol.LockComma
 }
 
 func (self *MemWaiterServerProtocol) FreeLockCommandLocked(command *protocol.LockCommand) error {
+	command.Data = nil
 	self.glock.Lock()
 	if self.closed {
 		self.glock.Unlock()

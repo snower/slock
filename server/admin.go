@@ -235,7 +235,7 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 				}
 
 				status := "sending"
-				if serverChannel.pulled == 1 {
+				if serverChannel.pulledState != 0 {
 					status = "pending"
 				}
 				var behindOffset uint64
@@ -403,13 +403,13 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 				dbInfos = append(dbInfos, fmt.Sprintf("key_count=%d", dbState.KeyCount))
 				if self.slock.state == STATE_LEADER {
 					ackDb := self.slock.replicationManager.GetAckDB(uint8(dbId))
-					if ackDb != nil && ackDb.locks != nil {
+					if ackDb != nil && ackDb.ackLocks != nil {
 						waitAckCount := 0
 						for i := uint16(0); i < ackDb.ackMaxGlocks; i++ {
-							if len(ackDb.locks[i]) >= len(ackDb.requests[i]) {
-								waitAckCount += len(ackDb.locks[i])
+							if len(ackDb.ackLocks[i]) >= len(ackDb.commandAofs[i]) {
+								waitAckCount += len(ackDb.ackLocks[i])
 							} else {
-								waitAckCount += len(ackDb.requests[i])
+								waitAckCount += len(ackDb.commandAofs[i])
 							}
 						}
 						dbInfos = append(dbInfos, fmt.Sprintf("wait_ack_count=%d", waitAckCount))

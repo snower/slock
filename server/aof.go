@@ -1003,9 +1003,14 @@ func (self *AofChannel) HandleReplay(aofLock *AofLock) {
 	lockCommand.LockId = aofLock.LockId
 	lockCommand.LockKey = aofLock.LockKey
 	if aofLock.AofFlag&AOF_FLAG_REQUIRE_ACKED != 0 {
-		if self.aof.slock.state != STATE_LEADER && aofLock.CommandType == protocol.COMMAND_LOCK {
+		if self.aof.slock.state != STATE_LEADER {
 			db := self.aof.slock.replicationManager.GetOrNewAckDB(aofLock.DbId)
-			_ = db.PushAckLock(self.lockDbGlockIndex, aofLock)
+			switch aofLock.CommandType {
+			case protocol.COMMAND_LOCK:
+				_ = db.ProcessFollowerPushAckLock(self.lockDbGlockIndex, aofLock)
+			case protocol.COMMAND_UNLOCK:
+				_ = db.ProcessFollowerPushAckUnLock(self.lockDbGlockIndex, aofLock)
+			}
 		}
 		lockCommand.TimeoutFlag = protocol.TIMEOUT_FLAG_REQUIRE_ACKED
 	} else {
@@ -1040,21 +1045,20 @@ func (self *AofChannel) HandleAofAcked(aofLock *AofLock) {
 	if self.aof.slock.state == STATE_LEADER {
 		db := self.aof.slock.replicationManager.GetAckDB(aofLock.DbId)
 		if db != nil {
-			_ = db.ProcessAofed(self.lockDbGlockIndex, aofLock)
+			_ = db.ProcessLeaderAofed(self.lockDbGlockIndex, aofLock)
 		}
 		return
 	}
-
 	db := self.aof.slock.replicationManager.GetOrNewAckDB(aofLock.DbId)
 	if db != nil {
-		_ = db.ProcessAckAofed(self.lockDbGlockIndex, aofLock)
+		_ = db.ProcessFollowerAckAofed(self.lockDbGlockIndex, aofLock)
 	}
 }
 
 func (self *AofChannel) HandleAcked(aofLock *AofLock) {
 	db := self.aof.slock.replicationManager.GetAckDB(aofLock.DbId)
 	if db != nil {
-		_ = db.ProcessAcked(self.lockDbGlockIndex, aofLock)
+		_ = db.ProcessLeaderAcked(self.lockDbGlockIndex, aofLock)
 	}
 }
 
@@ -1509,7 +1513,6 @@ func (self *Aof) LoadLock(lock *AofLock) error {
 	if db == nil {
 		db = self.slock.GetOrNewDB(lock.DbId)
 	}
-
 	fashHash := (uint32(lock.LockKey[0])<<24 | uint32(lock.LockKey[1])<<16 | uint32(lock.LockKey[2])<<8 | uint32(lock.LockKey[3])) ^ (uint32(lock.LockKey[4])<<24 | uint32(lock.LockKey[5])<<16 | uint32(lock.LockKey[6])<<8 | uint32(lock.LockKey[7])) ^ (uint32(lock.LockKey[8])<<24 | uint32(lock.LockKey[9])<<16 | uint32(lock.LockKey[10])<<8 | uint32(lock.LockKey[11])) ^ (uint32(lock.LockKey[12])<<24 | uint32(lock.LockKey[13])<<16 | uint32(lock.LockKey[14])<<8 | uint32(lock.LockKey[15]))
 	aofChannel := db.aofChannels[fashHash%uint32(db.managerMaxGlocks)]
 	return aofChannel.Load(lock)
@@ -1520,7 +1523,6 @@ func (self *Aof) ReplayLock(lock *AofLock) error {
 	if db == nil {
 		db = self.slock.GetOrNewDB(lock.DbId)
 	}
-
 	fashHash := (uint32(lock.LockKey[0])<<24 | uint32(lock.LockKey[1])<<16 | uint32(lock.LockKey[2])<<8 | uint32(lock.LockKey[3])) ^ (uint32(lock.LockKey[4])<<24 | uint32(lock.LockKey[5])<<16 | uint32(lock.LockKey[6])<<8 | uint32(lock.LockKey[7])) ^ (uint32(lock.LockKey[8])<<24 | uint32(lock.LockKey[9])<<16 | uint32(lock.LockKey[10])<<8 | uint32(lock.LockKey[11])) ^ (uint32(lock.LockKey[12])<<24 | uint32(lock.LockKey[13])<<16 | uint32(lock.LockKey[14])<<8 | uint32(lock.LockKey[15]))
 	aofChannel := db.aofChannels[fashHash%uint32(db.managerMaxGlocks)]
 	return aofChannel.Replay(lock)
@@ -1531,7 +1533,6 @@ func (self *Aof) loadLockAck(lockResult *protocol.LockResultCommand) error {
 	if db == nil {
 		db = self.slock.GetOrNewDB(lockResult.DbId)
 	}
-
 	fashHash := (uint32(lockResult.LockKey[0])<<24 | uint32(lockResult.LockKey[1])<<16 | uint32(lockResult.LockKey[2])<<8 | uint32(lockResult.LockKey[3])) ^ (uint32(lockResult.LockKey[4])<<24 | uint32(lockResult.LockKey[5])<<16 | uint32(lockResult.LockKey[6])<<8 | uint32(lockResult.LockKey[7])) ^ (uint32(lockResult.LockKey[8])<<24 | uint32(lockResult.LockKey[9])<<16 | uint32(lockResult.LockKey[10])<<8 | uint32(lockResult.LockKey[11])) ^ (uint32(lockResult.LockKey[12])<<24 | uint32(lockResult.LockKey[13])<<16 | uint32(lockResult.LockKey[14])<<8 | uint32(lockResult.LockKey[15]))
 	aofChannel := db.aofChannels[fashHash%uint32(db.managerMaxGlocks)]
 	return aofChannel.Acked(lockResult)
@@ -1565,22 +1566,6 @@ func (self *Aof) PushLock(glockIndex uint16, lock *AofLock) {
 		self.slock.Log().Errorf("Aof push ring buffer queue error %v", perr)
 	} else {
 		_ = self.slock.replicationManager.WakeupServerChannel()
-	}
-
-	if lock.CommandType == protocol.COMMAND_LOCK {
-		if werr != nil || perr != nil {
-			if lock.AofFlag&AOF_FLAG_REQUIRE_ACKED != 0 && lock.lock != nil {
-				lockManager := lock.lock.manager
-				lockManager.lockDb.DoAckLock(lock.lock, false)
-			}
-		}
-	} else {
-		if lock.AofFlag&AOF_FLAG_REQUIRE_ACKED != 0 && lock.lock != nil {
-			db := self.slock.replicationManager.GetAckDB(lock.DbId)
-			if db != nil {
-				_ = db.PushUnLock(glockIndex, lock)
-			}
-		}
 	}
 }
 
@@ -1616,7 +1601,6 @@ func (self *Aof) lockAcked(buf []byte, succed bool) error {
 	if db == nil {
 		db = self.slock.GetOrNewDB(buf[20])
 	}
-
 	fashHash := (uint32(buf[37])<<24 | uint32(buf[38])<<16 | uint32(buf[39])<<8 | uint32(buf[40])) ^ (uint32(buf[41])<<24 | uint32(buf[42])<<16 | uint32(buf[43])<<8 | uint32(buf[44])) ^ (uint32(buf[45])<<24 | uint32(buf[46])<<16 | uint32(buf[47])<<8 | uint32(buf[48])) ^ (uint32(buf[49])<<24 | uint32(buf[50])<<16 | uint32(buf[51])<<8 | uint32(buf[52]))
 	aofChannel := db.aofChannels[fashHash%uint32(db.managerMaxGlocks)]
 	return aofChannel.AofAcked(buf, succed)
@@ -1627,10 +1611,9 @@ func (self *Aof) lockLoaded(aofChannel *AofChannel, _ *MemWaiterServerProtocol, 
 		if command.TimeoutFlag&protocol.TIMEOUT_FLAG_REQUIRE_ACKED == 0 || command.CommandType != protocol.COMMAND_LOCK {
 			return nil
 		}
-
 		db := self.slock.replicationManager.GetOrNewAckDB(command.DbId)
 		if db != nil {
-			return db.ProcessAckLocked(aofChannel.lockDbGlockIndex, command, result, lcount, lrcount)
+			return db.ProcessFollowerAckLocked(aofChannel.lockDbGlockIndex, command, result, lcount, lrcount)
 		}
 		return nil
 	}

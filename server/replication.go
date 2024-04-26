@@ -302,8 +302,9 @@ type ReplicationClient struct {
 	currentRequestId [16]byte
 	rbufs            []*AofLock
 	rbufIndex        int
-	rbufChannel      chan *AofLock
-	wbuf             []byte
+	replayQueue      chan *AofLock
+	aofQueue         chan *AofLock
+	pushQueue        chan *AofLock
 	loadedCount      uint64
 	wakeupSignal     chan bool
 	closedWaiter     chan bool
@@ -314,9 +315,10 @@ type ReplicationClient struct {
 
 func NewReplicationClient(manager *ReplicationManager) *ReplicationClient {
 	channel := &ReplicationClient{manager, &sync.Mutex{}, nil, nil, manager.slock.GetAof(),
-		nil, [16]byte{}, make([]*AofLock, 16), 0, make(chan *AofLock, 8),
-		make([]byte, 64), 0, nil, make(chan bool, 1), false, true, false}
-	for i := 0; i < 16; i++ {
+		nil, [16]byte{}, make([]*AofLock, 64), 0, make(chan *AofLock, 64),
+		make(chan *AofLock, 64), make(chan *AofLock, 64), 0, nil, make(chan bool, 1),
+		false, true, false}
+	for i := 0; i < 64; i++ {
 		channel.rbufs[i] = NewAofLock()
 	}
 	return channel
@@ -640,39 +642,6 @@ func (self *ReplicationClient) recvFiles() error {
 	return io.EOF
 }
 
-func (self *ReplicationClient) Process() error {
-	go self.readProcess()
-	aof := self.aof
-	bufferQueue := self.manager.bufferQueue
-
-	for !self.closed {
-		err := self.getLock()
-		if err != nil {
-			return err
-		}
-		err = aof.ReplayLock(self.aofLock)
-		if err != nil {
-			return err
-		}
-		aof.AppendLock(self.aofLock)
-		if self.aofLock.AofFlag&AOF_FLAG_CONTAINS_DATA != 0 {
-			_ = bufferQueue.Push(self.aofLock.buf, self.aofLock.data)
-		} else {
-			_ = bufferQueue.Push(self.aofLock.buf, nil)
-		}
-		_ = self.manager.WakeupServerChannel()
-		self.loadedCount++
-
-		buf := self.aofLock.buf
-		if len(buf) >= 64 {
-			self.currentRequestId[0], self.currentRequestId[1], self.currentRequestId[2], self.currentRequestId[3], self.currentRequestId[4], self.currentRequestId[5], self.currentRequestId[6], self.currentRequestId[7],
-				self.currentRequestId[8], self.currentRequestId[9], self.currentRequestId[10], self.currentRequestId[11], self.currentRequestId[12], self.currentRequestId[13], self.currentRequestId[14], self.currentRequestId[15] = buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
-				buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18]
-		}
-	}
-	return io.EOF
-}
-
 func (self *ReplicationClient) readLock() error {
 	buf := self.aofLock.buf
 	n, err := self.stream.ReadBytes(buf)
@@ -697,24 +666,91 @@ func (self *ReplicationClient) readLock() error {
 	return nil
 }
 
-func (self *ReplicationClient) getLock() error {
-	for {
+func (self *ReplicationClient) Process() error {
+	go self.ProcessReplayLock()
+	go self.ProcessAofAppend()
+	go self.ProcessPushAofLock()
+
+	for !self.closed {
+		aofLock := self.rbufs[self.rbufIndex]
+		n, err := self.stream.ReadBytes(aofLock.buf)
+		if err != nil || n != 64 {
+			self.replayQueue <- nil
+			self.aofQueue <- nil
+			self.pushQueue <- nil
+			if err == nil {
+				return errors.New("read stream size error")
+			}
+			return err
+		}
+		err = aofLock.Decode()
+		if err != nil {
+			self.replayQueue <- nil
+			self.aofQueue <- nil
+			self.pushQueue <- nil
+			return err
+		}
+		if aofLock.AofFlag&AOF_FLAG_CONTAINS_DATA != 0 {
+			buf, derr := self.stream.ReadBytesFrame()
+			if derr != nil {
+				self.replayQueue <- nil
+				self.aofQueue <- nil
+				self.pushQueue <- nil
+				return derr
+			}
+			aofLock.data = buf
+		}
+
+		self.replayQueue <- aofLock
+		self.aofQueue <- aofLock
+		self.pushQueue <- aofLock
+		self.loadedCount++
+		self.rbufIndex++
+		if self.rbufIndex >= len(self.rbufs) {
+			self.rbufIndex = 0
+		}
+	}
+	self.replayQueue <- nil
+	self.aofQueue <- nil
+	self.pushQueue <- nil
+	return nil
+}
+
+func (self *ReplicationClient) ProcessReplayLock() {
+	aof := self.aof
+	for !self.closed {
+		aofLock := <-self.replayQueue
+		if aofLock == nil {
+			return
+		}
+		_ = aof.ReplayLock(aofLock)
+	}
+}
+
+func (self *ReplicationClient) ProcessAofAppend() {
+	aof := self.aof
+	for !self.closed {
 		select {
-		case aofLock := <-self.rbufChannel:
+		case aofLock := <-self.aofQueue:
 			if aofLock == nil {
 				self.aof.aofGlock.Lock()
 				self.aof.Flush()
 				self.aof.aofGlock.Unlock()
-				return io.EOF
+				return
 			}
-			self.aofLock = aofLock
-			return nil
+			aof.AppendLock(aofLock)
+			buf := aofLock.buf
+			if len(buf) >= 64 {
+				self.currentRequestId[0], self.currentRequestId[1], self.currentRequestId[2], self.currentRequestId[3], self.currentRequestId[4], self.currentRequestId[5], self.currentRequestId[6], self.currentRequestId[7],
+					self.currentRequestId[8], self.currentRequestId[9], self.currentRequestId[10], self.currentRequestId[11], self.currentRequestId[12], self.currentRequestId[13], self.currentRequestId[14], self.currentRequestId[15] = buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
+					buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18]
+			}
 		default:
 			if self.closed {
 				self.aof.aofGlock.Lock()
 				self.aof.Flush()
 				self.aof.aofGlock.Unlock()
-				return io.EOF
+				return
 			}
 			aofFile := self.aof.aofFile
 			if aofFile != nil && (aofFile.windex > 0 || aofFile.ackIndex > 0) {
@@ -727,76 +763,70 @@ func (self *ReplicationClient) getLock() error {
 			}
 
 			select {
-			case aofLock := <-self.rbufChannel:
+			case aofLock := <-self.aofQueue:
 				if aofLock == nil {
 					self.aof.aofGlock.Lock()
 					self.aof.Flush()
 					self.aof.aofGlock.Unlock()
-					return io.EOF
+					return
 				}
-				self.aofLock = aofLock
-				return nil
+				aof.AppendLock(aofLock)
+				buf := aofLock.buf
+				if len(buf) >= 64 {
+					self.currentRequestId[0], self.currentRequestId[1], self.currentRequestId[2], self.currentRequestId[3], self.currentRequestId[4], self.currentRequestId[5], self.currentRequestId[6], self.currentRequestId[7],
+						self.currentRequestId[8], self.currentRequestId[9], self.currentRequestId[10], self.currentRequestId[11], self.currentRequestId[12], self.currentRequestId[13], self.currentRequestId[14], self.currentRequestId[15] = buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
+						buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18]
+				}
 			case <-time.After(200 * time.Millisecond):
 				self.aof.aofGlock.Lock()
 				self.aof.Flush()
 				self.aof.aofGlock.Unlock()
-				aofLock := <-self.rbufChannel
+				aofLock := <-self.aofQueue
 				if aofLock == nil {
-					return io.EOF
+					return
 				}
-				self.aofLock = aofLock
-				return nil
+				aof.AppendLock(aofLock)
+				buf := aofLock.buf
+				if len(buf) >= 64 {
+					self.currentRequestId[0], self.currentRequestId[1], self.currentRequestId[2], self.currentRequestId[3], self.currentRequestId[4], self.currentRequestId[5], self.currentRequestId[6], self.currentRequestId[7],
+						self.currentRequestId[8], self.currentRequestId[9], self.currentRequestId[10], self.currentRequestId[11], self.currentRequestId[12], self.currentRequestId[13], self.currentRequestId[14], self.currentRequestId[15] = buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
+						buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18]
+				}
 			}
 		}
 	}
 }
 
-func (self *ReplicationClient) readProcess() {
+func (self *ReplicationClient) ProcessPushAofLock() {
+	bufferQueue := self.manager.bufferQueue
 	for !self.closed {
-		aofLock := self.rbufs[self.rbufIndex]
-		n, err := self.stream.ReadBytes(aofLock.buf)
-		if err != nil || n != 64 {
-			self.rbufChannel <- nil
-			return
-		}
-		err = aofLock.Decode()
-		if err != nil {
-			self.rbufChannel <- nil
+		aofLock := <-self.pushQueue
+		if aofLock == nil {
 			return
 		}
 		if aofLock.AofFlag&AOF_FLAG_CONTAINS_DATA != 0 {
-			buf, derr := self.stream.ReadBytesFrame()
-			if derr != nil {
-				self.rbufChannel <- nil
-				return
-			}
-			aofLock.data = buf
+			_ = bufferQueue.Push(aofLock.buf, aofLock.data)
+		} else {
+			_ = bufferQueue.Push(aofLock.buf, nil)
 		}
-
-		self.rbufChannel <- aofLock
-		self.rbufIndex++
-		if self.rbufIndex >= len(self.rbufs) {
-			self.rbufIndex = 0
-		}
+		_ = self.manager.WakeupServerChannel()
 	}
-	close(self.rbufChannel)
 }
 
 func (self *ReplicationClient) HandleAcked(ackLock *ReplicationAckLock) error {
 	if ackLock.aofResult != 0 && ackLock.lockResult.Result == 0 {
 		ackLock.lockResult.Result = protocol.RESULT_ERROR
 	}
-	err := ackLock.lockResult.Encode(self.wbuf)
+	err := ackLock.lockResult.Encode(ackLock.buf)
 	if err != nil {
 		return err
 	}
-
 	self.glock.Lock()
 	if self.stream == nil {
 		self.glock.Unlock()
 		return errors.New("stream closed")
 	}
-	err = self.stream.WriteBytes(self.wbuf)
+	err = self.stream.WriteBytes(ackLock.buf)
 	if err != nil {
 		self.glock.Unlock()
 		return err
@@ -846,7 +876,7 @@ type ReplicationServer struct {
 	raofLock       *AofLock
 	waofLock       *AofLock
 	bufferCursor   *ReplicationBufferQueueCursor
-	pulled         uint32
+	pulledState    uint32
 	pulledWaiter   chan bool
 	wakeupedBuffer bool
 	closed         bool
@@ -1043,6 +1073,7 @@ func (self *ReplicationServer) SendProcess() error {
 		}
 	}
 
+	bufferQueue := self.manager.bufferQueue
 	for !self.closed {
 		if !self.bufferCursor.writed {
 			err := self.stream.WriteBytes(self.bufferCursor.buf)
@@ -1061,26 +1092,39 @@ func (self *ReplicationServer) SendProcess() error {
 			atomic.AddUint32(&self.bufferCursor.currentItem.pollIndex, 1)
 		}
 
-		bufferQueue := self.manager.bufferQueue
 		err := bufferQueue.Pop(self.bufferCursor)
 		if err != nil {
-			if err == io.EOF {
-				atomic.AddUint32(&self.pulled, 1)
+			if err != io.EOF {
 				atomic.AddUint32(&self.manager.serverActiveCount, 0xffffffff)
-				if atomic.CompareAndSwapUint32(&self.manager.serverActiveCount, 0, 0) {
-					self.manager.glock.Lock()
-					if self.manager.serverFlushWaiter != nil {
-						close(self.manager.serverFlushWaiter)
-						self.manager.serverFlushWaiter = nil
-					}
-					self.manager.glock.Unlock()
+				return err
+			}
+
+			if !atomic.CompareAndSwapUint32(&self.pulledState, 0, 2) {
+				if atomic.CompareAndSwapUint32(&self.pulledState, 1, 0) {
+					<-self.pulledWaiter
+					continue
 				}
-				<-self.pulledWaiter
-				atomic.AddUint32(&self.manager.serverActiveCount, 1)
-				continue
 			}
 			atomic.AddUint32(&self.manager.serverActiveCount, 0xffffffff)
-			return err
+			if atomic.CompareAndSwapUint32(&self.manager.serverActiveCount, 0, 0) {
+				self.manager.glock.Lock()
+				if self.manager.serverFlushWaiter != nil {
+					close(self.manager.serverFlushWaiter)
+					self.manager.serverFlushWaiter = nil
+				}
+				self.manager.glock.Unlock()
+			}
+			err = bufferQueue.Pop(self.bufferCursor)
+			if err != nil {
+				if err != io.EOF {
+					atomic.AddUint32(&self.manager.serverActiveCount, 0xffffffff)
+					return err
+				}
+				<-self.pulledWaiter
+				atomic.CompareAndSwapUint32(&self.pulledState, 1, 0)
+			}
+			atomic.AddUint32(&self.manager.serverActiveCount, 1)
+			continue
 		}
 	}
 	atomic.AddUint32(&self.manager.serverActiveCount, 0xffffffff)
@@ -1088,14 +1132,13 @@ func (self *ReplicationServer) SendProcess() error {
 }
 
 func (self *ReplicationServer) RecvProcess() error {
-	buf := self.raofLock.buf
 	lockResult := &protocol.LockResultCommand{}
 	for !self.closed {
-		n, err := self.stream.ReadBytes(buf)
+		buf, err := self.stream.ReadBytesSize(64)
 		if err != nil {
 			return err
 		}
-		if n != 64 {
+		if buf == nil || len(buf) != 64 {
 			return errors.New("read size error")
 		}
 
@@ -1120,6 +1163,7 @@ func (self *ReplicationServer) RecvProcess() error {
 }
 
 type ReplicationAckLock struct {
+	buf        []byte
 	lockResult *protocol.LockResultCommand
 	aofResult  uint8
 	locked     bool
@@ -1130,16 +1174,15 @@ func NewReplicationAckLock() *ReplicationAckLock {
 	resultCommand := protocol.ResultCommand{Magic: protocol.MAGIC, Version: protocol.VERSION, CommandType: 0, RequestId: [16]byte{}, Result: 0}
 	lockResult := &protocol.LockResultCommand{ResultCommand: resultCommand, Flag: 0, DbId: 0, LockId: [16]byte{}, LockKey: [16]byte{},
 		Count: 0, Lcount: 0, Lrcount: 0, Rcount: 0, Blank: protocol.RESULT_LOCK_COMMAND_BLANK_BYTERS}
-	return &ReplicationAckLock{lockResult, 0, false, false}
+	return &ReplicationAckLock{make([]byte, 64), lockResult, 0, false, false}
 }
 
 type ReplicationAckDB struct {
 	manager           *ReplicationManager
 	glock             *sync.Mutex
-	requestKeys       [][32]byte
 	ackGlocks         []*sync.Mutex
-	locks             []map[[16]byte]*Lock
-	requests          []map[[32]byte][16]byte
+	commandAofs       []map[[16]byte][16]byte
+	aofLocks          []map[[16]byte]*Lock
 	ackLocks          []map[[16]byte]*ReplicationAckLock
 	freeAckLocks      []*ReplicationAckLock
 	freeAckLocksIndex uint32
@@ -1154,20 +1197,18 @@ func NewReplicationAckDB(manager *ReplicationManager) *ReplicationAckDB {
 	if ackMaxGlocks == 0 {
 		ackMaxGlocks = uint16(runtime.NumCPU()) * 2
 	}
-	requestKeys := make([][32]byte, ackMaxGlocks)
 	ackGlocks := make([]*sync.Mutex, ackMaxGlocks)
-	locks := make([]map[[16]byte]*Lock, ackMaxGlocks)
-	requests := make([]map[[32]byte][16]byte, ackMaxGlocks)
+	commandAofs := make([]map[[16]byte][16]byte, ackMaxGlocks)
+	aofLocks := make([]map[[16]byte]*Lock, ackMaxGlocks)
 	ackLocks := make([]map[[16]byte]*ReplicationAckLock, ackMaxGlocks)
 	for i := uint16(0); i < ackMaxGlocks; i++ {
-		requestKeys[i] = [32]byte{}
 		ackGlocks[i] = &sync.Mutex{}
-		locks[i] = make(map[[16]byte]*Lock, REPLICATION_ACK_DB_INIT_SIZE)
-		requests[i] = make(map[[32]byte][16]byte, REPLICATION_ACK_DB_INIT_SIZE)
+		commandAofs[i] = make(map[[16]byte][16]byte, REPLICATION_ACK_DB_INIT_SIZE)
+		aofLocks[i] = make(map[[16]byte]*Lock, REPLICATION_ACK_DB_INIT_SIZE)
 		ackLocks[i] = make(map[[16]byte]*ReplicationAckLock, REPLICATION_ACK_DB_INIT_SIZE)
 	}
-	return &ReplicationAckDB{manager, &sync.Mutex{}, requestKeys, ackGlocks,
-		locks, requests, ackLocks, make([]*ReplicationAckLock, REPLICATION_MAX_FREE_ACK_LOCK_QUEUE_SIZE*int(ackMaxGlocks)),
+	return &ReplicationAckDB{manager, &sync.Mutex{}, ackGlocks,
+		commandAofs, aofLocks, ackLocks, make([]*ReplicationAckLock, REPLICATION_MAX_FREE_ACK_LOCK_QUEUE_SIZE*int(ackMaxGlocks)),
 		0, uint32(REPLICATION_MAX_FREE_ACK_LOCK_QUEUE_SIZE * int(ackMaxGlocks)), ackMaxGlocks, 1, false}
 }
 
@@ -1176,69 +1217,61 @@ func (self *ReplicationAckDB) Close() error {
 	return nil
 }
 
-func (self *ReplicationAckDB) updateRequestKey(glockIndex uint16, lock *AofLock) [32]byte {
-	requestKey := self.requestKeys[glockIndex]
-	copy(requestKey[:], lock.LockKey[:])
-	copy(requestKey[:][16:], lock.LockId[:])
-	return requestKey
-}
-
-func (self *ReplicationAckDB) PushLock(glockIndex uint16, lock *AofLock) error {
+func (self *ReplicationAckDB) ProcessLeaderPushLock(glockIndex uint16, aofLock *AofLock) error {
+	lock := aofLock.lock
+	if lock == nil {
+		return nil
+	}
 	self.ackGlocks[glockIndex].Lock()
 	if self.manager.slock.state != STATE_LEADER {
-		if lock.lock == nil {
-			self.ackGlocks[glockIndex].Unlock()
-			return nil
-		}
-
 		self.ackGlocks[glockIndex].Unlock()
-		lockManager := lock.lock.manager
-		lockManager.lockDb.DoAckLock(lock.lock, false)
+		lockManager := lock.manager
+		lockManager.lockDb.DoAckLock(lock, false)
+		return nil
+	}
+	if _, ok := self.commandAofs[glockIndex][lock.command.RequestId]; ok {
+		self.ackGlocks[glockIndex].Unlock()
+		lockManager := lock.manager
+		lockManager.lockDb.DoAckLock(lock, false)
 		return nil
 	}
 
-	requestKey := self.updateRequestKey(glockIndex, lock)
-	if requestId, ok := self.requests[glockIndex][requestKey]; ok {
-		if _, ok = self.locks[glockIndex][requestId]; ok {
-			delete(self.locks[glockIndex], requestId)
-		}
-	}
-
-	requestId := lock.GetRequestId()
-	self.locks[glockIndex][requestId] = lock.lock
-	self.requests[glockIndex][requestKey] = requestId
-	lock.lock.ackCount = self.ackCount
+	requestId := aofLock.GetRequestId()
+	self.commandAofs[glockIndex][lock.command.RequestId] = requestId
+	self.aofLocks[glockIndex][requestId] = lock
+	lock.ackCount = self.ackCount
 	self.ackGlocks[glockIndex].Unlock()
 	return nil
 }
 
-func (self *ReplicationAckDB) PushUnLock(glockIndex uint16, lock *AofLock) error {
+func (self *ReplicationAckDB) ProcessLeaderPushUnLock(glockIndex uint16, aofLock *AofLock) error {
+	lock := aofLock.lock
+	if lock == nil {
+		return nil
+	}
 	self.ackGlocks[glockIndex].Lock()
-	requestKey := self.updateRequestKey(glockIndex, lock)
-	if requestId, ok := self.requests[glockIndex][requestKey]; ok {
-		delete(self.requests[glockIndex], requestKey)
-		if rlock, rok := self.locks[glockIndex][requestId]; rok {
-			delete(self.locks[glockIndex], requestId)
-			self.ackGlocks[glockIndex].Unlock()
-
-			lockManager := rlock.manager
-			lockManager.lockDb.DoAckLock(rlock, false)
-			return nil
+	if requestId, ok := self.commandAofs[glockIndex][lock.command.RequestId]; ok {
+		delete(self.commandAofs[glockIndex], lock.command.RequestId)
+		if _, ok = self.aofLocks[glockIndex][requestId]; ok {
+			delete(self.aofLocks[glockIndex], requestId)
 		}
+		self.ackGlocks[glockIndex].Unlock()
+		lockManager := lock.manager
+		lockManager.lockDb.DoAckLock(lock, false)
+		return nil
 	}
 	self.ackGlocks[glockIndex].Unlock()
 	return nil
 }
 
-func (self *ReplicationAckDB) ProcessAcked(glockIndex uint16, aofLock *AofLock) error {
+func (self *ReplicationAckDB) ProcessLeaderAcked(glockIndex uint16, aofLock *AofLock) error {
 	requestId := aofLock.GetRequestId()
 	self.ackGlocks[glockIndex].Lock()
-	if lock, ok := self.locks[glockIndex][requestId]; ok {
+	if lock, ok := self.aofLocks[glockIndex][requestId]; ok {
 		if aofLock.Result != 0 || lock.ackCount == 0xff {
-			delete(self.locks[glockIndex], requestId)
-			requestKey := self.updateRequestKey(glockIndex, aofLock)
-			if _, ok = self.requests[glockIndex][requestKey]; ok {
-				delete(self.requests[glockIndex], requestKey)
+			delete(self.aofLocks[glockIndex], requestId)
+			if _, ok = self.commandAofs[glockIndex][lock.command.RequestId]; ok {
+				delete(self.commandAofs[glockIndex], lock.command.RequestId)
 			}
 			self.ackGlocks[glockIndex].Unlock()
 
@@ -1252,11 +1285,9 @@ func (self *ReplicationAckDB) ProcessAcked(glockIndex uint16, aofLock *AofLock) 
 			self.ackGlocks[glockIndex].Unlock()
 			return nil
 		}
-
-		delete(self.locks[glockIndex], requestId)
-		requestKey := self.updateRequestKey(glockIndex, aofLock)
-		if _, ok = self.requests[glockIndex][requestKey]; ok {
-			delete(self.requests[glockIndex], requestKey)
+		delete(self.aofLocks[glockIndex], requestId)
+		if _, ok = self.commandAofs[glockIndex][lock.command.RequestId]; ok {
+			delete(self.commandAofs[glockIndex], lock.command.RequestId)
 		}
 		self.ackGlocks[glockIndex].Unlock()
 
@@ -1264,20 +1295,18 @@ func (self *ReplicationAckDB) ProcessAcked(glockIndex uint16, aofLock *AofLock) 
 		lockManager.lockDb.DoAckLock(lock, true)
 		return nil
 	}
-
 	self.ackGlocks[glockIndex].Unlock()
 	return nil
 }
 
-func (self *ReplicationAckDB) ProcessAofed(glockIndex uint16, aofLock *AofLock) error {
+func (self *ReplicationAckDB) ProcessLeaderAofed(glockIndex uint16, aofLock *AofLock) error {
 	requestId := aofLock.GetRequestId()
 	self.ackGlocks[glockIndex].Lock()
-	if lock, ok := self.locks[glockIndex][requestId]; ok {
+	if lock, ok := self.aofLocks[glockIndex][requestId]; ok {
 		if aofLock.Result != 0 || lock.ackCount == 0xff {
-			delete(self.locks[glockIndex], requestId)
-			requestKey := self.updateRequestKey(glockIndex, aofLock)
-			if _, ok = self.requests[glockIndex][requestKey]; ok {
-				delete(self.requests[glockIndex], requestKey)
+			delete(self.aofLocks[glockIndex], requestId)
+			if _, ok = self.commandAofs[glockIndex][lock.command.RequestId]; ok {
+				delete(self.aofLocks[glockIndex], lock.command.RequestId)
 			}
 			self.ackGlocks[glockIndex].Unlock()
 
@@ -1291,11 +1320,9 @@ func (self *ReplicationAckDB) ProcessAofed(glockIndex uint16, aofLock *AofLock) 
 			self.ackGlocks[glockIndex].Unlock()
 			return nil
 		}
-
-		delete(self.locks[glockIndex], requestId)
-		requestKey := self.updateRequestKey(glockIndex, aofLock)
-		if _, ok = self.requests[glockIndex][requestKey]; ok {
-			delete(self.requests[glockIndex], requestKey)
+		delete(self.aofLocks[glockIndex], requestId)
+		if _, ok = self.commandAofs[glockIndex][lock.command.RequestId]; ok {
+			delete(self.commandAofs[glockIndex], lock.command.RequestId)
 		}
 		self.ackGlocks[glockIndex].Unlock()
 
@@ -1303,12 +1330,11 @@ func (self *ReplicationAckDB) ProcessAofed(glockIndex uint16, aofLock *AofLock) 
 		lockManager.lockDb.DoAckLock(lock, true)
 		return nil
 	}
-
 	self.ackGlocks[glockIndex].Unlock()
 	return nil
 }
 
-func (self *ReplicationAckDB) PushAckLock(glockIndex uint16, aofLock *AofLock) error {
+func (self *ReplicationAckDB) ProcessFollowerPushAckLock(glockIndex uint16, aofLock *AofLock) error {
 	requestId := aofLock.GetRequestId()
 	self.ackGlocks[glockIndex].Lock()
 	if ackLock, ok := self.ackLocks[glockIndex][requestId]; !ok {
@@ -1333,7 +1359,27 @@ func (self *ReplicationAckDB) PushAckLock(glockIndex uint16, aofLock *AofLock) e
 	return nil
 }
 
-func (self *ReplicationAckDB) ProcessAckLocked(glockIndex uint16, command *protocol.LockCommand, result uint8, lcount uint16, lrcount uint8) error {
+func (self *ReplicationAckDB) ProcessFollowerPushAckUnLock(glockIndex uint16, aofLock *AofLock) error {
+	requestId := aofLock.GetRequestId()
+	self.ackGlocks[glockIndex].Lock()
+	if ackLock, ok := self.ackLocks[glockIndex][requestId]; ok {
+		delete(self.ackLocks[glockIndex], requestId)
+		self.ackGlocks[glockIndex].Unlock()
+		if self.freeAckLocksIndex < self.freeAckLocksMax {
+			self.glock.Lock()
+			if self.freeAckLocksIndex < self.freeAckLocksMax {
+				self.freeAckLocks[self.freeAckLocksIndex] = ackLock
+				self.freeAckLocksIndex++
+			}
+			self.glock.Unlock()
+		}
+		return nil
+	}
+	self.ackGlocks[glockIndex].Unlock()
+	return nil
+}
+
+func (self *ReplicationAckDB) ProcessFollowerAckLocked(glockIndex uint16, command *protocol.LockCommand, result uint8, lcount uint16, lrcount uint8) error {
 	self.ackGlocks[glockIndex].Lock()
 	ackLock, ok := self.ackLocks[glockIndex][command.RequestId]
 	if !ok {
@@ -1357,7 +1403,6 @@ func (self *ReplicationAckDB) ProcessAckLocked(glockIndex uint16, command *proto
 		self.ackGlocks[glockIndex].Unlock()
 		return nil
 	}
-
 	delete(self.ackLocks[glockIndex], command.RequestId)
 	self.ackGlocks[glockIndex].Unlock()
 	if self.manager.clientChannel != nil {
@@ -1374,7 +1419,7 @@ func (self *ReplicationAckDB) ProcessAckLocked(glockIndex uint16, command *proto
 	return nil
 }
 
-func (self *ReplicationAckDB) ProcessAckAofed(glockIndex uint16, aofLock *AofLock) error {
+func (self *ReplicationAckDB) ProcessFollowerAckAofed(glockIndex uint16, aofLock *AofLock) error {
 	requestId := aofLock.GetRequestId()
 	self.ackGlocks[glockIndex].Lock()
 	ackLock, ok := self.ackLocks[glockIndex][requestId]
@@ -1402,7 +1447,6 @@ func (self *ReplicationAckDB) ProcessAckAofed(glockIndex uint16, aofLock *AofLoc
 		self.ackGlocks[glockIndex].Unlock()
 		return nil
 	}
-
 	delete(self.ackLocks[glockIndex], requestId)
 	self.ackGlocks[glockIndex].Unlock()
 	if self.manager.clientChannel != nil {
@@ -1442,14 +1486,14 @@ func (self *ReplicationAckDB) SwitchToLeader() error {
 }
 
 func (self *ReplicationAckDB) SwitchToFollower() error {
-	for i, locks := range self.locks {
+	for i, locks := range self.aofLocks {
 		self.ackGlocks[i].Lock()
 		for _, lock := range locks {
 			lockManager := lock.manager
 			lockManager.lockDb.DoAckLock(lock, false)
 		}
-		self.locks[i] = make(map[[16]byte]*Lock, REPLICATION_ACK_DB_INIT_SIZE)
-		self.requests[i] = make(map[[32]byte][16]byte, REPLICATION_ACK_DB_INIT_SIZE)
+		self.commandAofs[i] = make(map[[16]byte][16]byte, REPLICATION_ACK_DB_INIT_SIZE)
+		self.aofLocks[i] = make(map[[16]byte]*Lock, REPLICATION_ACK_DB_INIT_SIZE)
 		self.ackGlocks[i].Unlock()
 	}
 	return nil
@@ -1458,7 +1502,7 @@ func (self *ReplicationAckDB) SwitchToFollower() error {
 func (self *ReplicationAckDB) FlushDB() error {
 	for i := uint16(0); i < self.ackMaxGlocks; i++ {
 		self.ackGlocks[i].Lock()
-		for _, lock := range self.locks[i] {
+		for _, lock := range self.aofLocks[i] {
 			lockManager := lock.manager
 			lockManager.lockDb.DoAckLock(lock, false)
 		}
@@ -1477,8 +1521,8 @@ func (self *ReplicationAckDB) FlushDB() error {
 			self.glock.Unlock()
 		}
 
-		self.locks[i] = make(map[[16]byte]*Lock, REPLICATION_ACK_DB_INIT_SIZE)
-		self.requests[i] = make(map[[32]byte][16]byte, REPLICATION_ACK_DB_INIT_SIZE)
+		self.commandAofs[i] = make(map[[16]byte][16]byte, REPLICATION_ACK_DB_INIT_SIZE)
+		self.aofLocks[i] = make(map[[16]byte]*Lock, REPLICATION_ACK_DB_INIT_SIZE)
 		self.ackLocks[i] = make(map[[16]byte]*ReplicationAckLock, REPLICATION_ACK_DB_INIT_SIZE)
 		self.ackGlocks[i].Unlock()
 	}
@@ -1726,26 +1770,44 @@ func (self *ReplicationManager) GetOrNewAckDB(dbId uint8) *ReplicationAckDB {
 	return self.ackDbs[dbId]
 }
 
-func (self *ReplicationManager) PushLock(glockIndex uint16, lock *AofLock) error {
-	if lock.CommandType == protocol.COMMAND_LOCK {
-		if lock.AofFlag&AOF_FLAG_REQUIRE_ACKED != 0 && lock.lock != nil {
-			db := self.GetOrNewAckDB(lock.DbId)
-			err := db.PushLock(glockIndex, lock)
+func (self *ReplicationManager) PushLock(glockIndex uint16, aofLock *AofLock) error {
+	if aofLock.AofFlag&AOF_FLAG_REQUIRE_ACKED != 0 && aofLock.lock != nil {
+		db := self.GetOrNewAckDB(aofLock.DbId)
+		switch aofLock.CommandType {
+		case protocol.COMMAND_LOCK:
+			err := db.ProcessLeaderPushLock(glockIndex, aofLock)
+			if err != nil {
+				return err
+			}
+		case protocol.COMMAND_UNLOCK:
+			err := db.ProcessLeaderPushUnLock(glockIndex, aofLock)
 			if err != nil {
 				return err
 			}
 		}
 	}
 
-	buf := lock.buf
-	if lock.AofFlag&AOF_FLAG_CONTAINS_DATA != 0 {
-		err := self.bufferQueue.Push(buf, lock.data)
+	buf := aofLock.buf
+	if aofLock.AofFlag&AOF_FLAG_CONTAINS_DATA != 0 {
+		err := self.bufferQueue.Push(buf, aofLock.data)
 		if err != nil {
+			if aofLock.CommandType == protocol.COMMAND_LOCK && aofLock.AofFlag&AOF_FLAG_REQUIRE_ACKED != 0 && aofLock.lock != nil {
+				db := self.slock.replicationManager.GetAckDB(aofLock.DbId)
+				if db != nil {
+					_ = db.ProcessLeaderPushUnLock(glockIndex, aofLock)
+				}
+			}
 			return err
 		}
 	} else {
 		err := self.bufferQueue.Push(buf, nil)
 		if err != nil {
+			if aofLock.CommandType == protocol.COMMAND_LOCK && aofLock.AofFlag&AOF_FLAG_REQUIRE_ACKED != 0 && aofLock.lock != nil {
+				db := self.slock.replicationManager.GetAckDB(aofLock.DbId)
+				if db != nil {
+					_ = db.ProcessLeaderPushUnLock(glockIndex, aofLock)
+				}
+			}
 			return err
 		}
 	}
@@ -1763,9 +1825,8 @@ func (self *ReplicationManager) WakeupServerChannel() error {
 		return nil
 	}
 	for _, channel := range self.serverChannels {
-		if atomic.LoadUint32(&channel.pulled) == 1 {
+		if atomic.CompareAndSwapUint32(&channel.pulledState, 2, 1) {
 			channel.pulledWaiter <- true
-			atomic.AddUint32(&channel.pulled, 0xffffffff)
 		}
 	}
 	return nil
