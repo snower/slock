@@ -1759,7 +1759,7 @@ func (self *ReplicationManager) addServerChannel(channel *ReplicationServer) err
 	self.serverCount = uint32(len(self.serverChannels))
 	ackCount := 0
 	if self.slock.arbiterManager != nil {
-		ackCount = len(self.slock.arbiterManager.GetMembers())/2 + 1
+		ackCount = self.slock.arbiterManager.GetMajorityMemberCount()
 	} else {
 		ackCount = len(self.serverChannels) + 1
 	}
@@ -1833,7 +1833,7 @@ func (self *ReplicationManager) GetOrNewAckDB(dbId uint8) *ReplicationAckDB {
 	if self.ackDbs[dbId] == nil {
 		ackCount := 0
 		if self.slock.arbiterManager != nil {
-			ackCount = len(self.slock.arbiterManager.GetMembers())/2 + 1
+			ackCount = self.slock.arbiterManager.GetMajorityMemberCount()
 		} else {
 			ackCount = len(self.serverChannels) + 1
 		}
@@ -1948,7 +1948,7 @@ func (self *ReplicationManager) SwitchToLeader() error {
 	self.leaderAddress = ""
 
 	if self.slock.arbiterManager != nil {
-		ackCount := len(self.slock.arbiterManager.GetMembers())/2 + 1
+		ackCount := self.slock.arbiterManager.GetMajorityMemberCount()
 		for _, db := range self.ackDbs {
 			if db != nil {
 				db.ackCount = uint8(ackCount)

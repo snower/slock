@@ -1494,6 +1494,19 @@ func (self *ArbiterManager) GetMembers() []*ArbiterMember {
 	return self.members
 }
 
+func (self *ArbiterManager) GetMajorityMemberCount() int {
+	if self.members == nil || len(self.members) == 0 {
+		return 0
+	}
+	workCount := 0
+	for _, member := range self.members {
+		if member.arbiter == 0 {
+			workCount++
+		}
+	}
+	return workCount/2 + 1
+}
+
 func (self *ArbiterManager) QuitLeader() error {
 	self.slock.Log().Infof("Arbiter quit leader start")
 	err := self.slock.replicationManager.transparencyManager.ChangeLeader("")
