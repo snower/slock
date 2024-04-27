@@ -2073,7 +2073,6 @@ func (self *ReplicationManager) SwitchToFollower(address string) error {
 		return nil
 	}
 
-	self.currentRequestId = self.slock.aof.GetCurrentAofID()
 	err := self.StartSync()
 	if err != nil {
 		return err
