@@ -105,7 +105,12 @@ func (self *SLock) initLeader() error {
 	if self.arbiterManager != nil && self.replicationManager != nil {
 		err = self.replicationManager.Init("", self.replicationManager.currentRequestId)
 	} else {
-		err = self.replicationManager.Init("", self.aof.GetCurrentAofID())
+		requestId, rerr := self.aof.LoadMaxId()
+		if rerr != nil {
+			self.logger.Errorf("Replication init error %v", err)
+			return err
+		}
+		err = self.replicationManager.Init("", requestId)
 	}
 	if err != nil {
 		self.logger.Errorf("Replication init error %v", err)
