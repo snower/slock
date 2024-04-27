@@ -256,7 +256,7 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 		} else {
 			infos = append(infos, "role:follower")
 			infos = append(infos, fmt.Sprintf("leader_host:%s", self.slock.replicationManager.leaderAddress))
-			if self.slock.replicationManager.clientChannel != nil && !self.slock.replicationManager.clientChannel.closed {
+			if self.slock.replicationManager.clientChannel != nil && self.slock.replicationManager.clientChannel.stream != nil {
 				infos = append(infos, "leader_link_status:up")
 			} else {
 				infos = append(infos, "leader_link_status:down")
