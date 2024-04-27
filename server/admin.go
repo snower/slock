@@ -258,7 +258,20 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 
 			if self.slock.replicationManager.clientChannel != nil {
 				infos = append(infos, fmt.Sprintf("current_aof_id:%x", self.slock.replicationManager.clientChannel.currentRequestId))
-				infos = append(infos, fmt.Sprintf("load_offset:%d", self.slock.replicationManager.clientChannel.loadedCount))
+				if self.slock.replicationManager.clientChannel.recvedFiles {
+					infos = append(infos, "aof_file_recv_finish:yes")
+				} else {
+					infos = append(infos, "aof_file_recv_finish:no")
+				}
+				state := self.slock.replicationManager.clientChannel.state
+				infos = append(infos, fmt.Sprintf("load_count:%d", state.loadedCount))
+				infos = append(infos, fmt.Sprintf("connect_count:%d", state.connectCount))
+				infos = append(infos, fmt.Sprintf("recv_count:%d", state.recvCount))
+				infos = append(infos, fmt.Sprintf("replay_count:%d", state.replayCount))
+				infos = append(infos, fmt.Sprintf("append_count:%d", state.appendCount))
+				infos = append(infos, fmt.Sprintf("push_count:%d", state.pushCount))
+				infos = append(infos, fmt.Sprintf("ack_count:%d", state.ackCount))
+				infos = append(infos, fmt.Sprintf("recv_data_size:%d", state.recvDataSize))
 			}
 		}
 		infos = append(infos, "")
@@ -341,17 +354,26 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 		infos = append(infos, fmt.Sprintf("free_lock_count:%d", freeLockCount))
 		infos = append(infos, fmt.Sprintf("total_commands_processed:%d", totalCommandCount))
 		highPriorityLockCount, lowPriorityLockCount := uint64(0), uint64(0)
+		highPriorityLockModeCount, lowPriorityLockModeCount := uint64(0), uint64(0)
 		for _, db := range self.slock.dbs {
 			if db == nil {
 				continue
 			}
 			for j := uint16(0); j < db.managerMaxGlocks; j++ {
-				highPriorityLockCount += db.managerGlocks[j].setHighPriorityCount
-				lowPriorityLockCount += db.managerGlocks[j].setLowPriorityCount
+				if db.managerGlocks[j].highPriority != 0 {
+					highPriorityLockCount++
+				}
+				if db.managerGlocks[j].lowPriority != 0 {
+					lowPriorityLockCount++
+				}
+				highPriorityLockModeCount += db.managerGlocks[j].setHighPriorityCount
+				lowPriorityLockModeCount += db.managerGlocks[j].setLowPriorityCount
 			}
 		}
 		infos = append(infos, fmt.Sprintf("high_priority_lock_count:%d", highPriorityLockCount))
 		infos = append(infos, fmt.Sprintf("low_priority_lock_count:%d", lowPriorityLockCount))
+		infos = append(infos, fmt.Sprintf("high_priority_lock_mode_count:%d", highPriorityLockModeCount))
+		infos = append(infos, fmt.Sprintf("low_priority_lock_mode_count:%d", lowPriorityLockModeCount))
 		infos = append(infos, "")
 	}
 
@@ -370,6 +392,12 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 		if aof.aofFile != nil {
 			infos = append(infos, fmt.Sprintf("aof_file_name:%s", aof.aofFile.filename))
 			infos = append(infos, fmt.Sprintf("aof_file_size:%d", aof.aofFile.size))
+			infos = append(infos, fmt.Sprintf("aof_file_data_size:%d", aof.aofFile.dataSize))
+		}
+		if aof.isRewriting {
+			infos = append(infos, "aof_rewriting:yes")
+		} else {
+			infos = append(infos, "aof_rewriting:no")
 		}
 		infos = append(infos, "")
 	}

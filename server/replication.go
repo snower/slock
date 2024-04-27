@@ -292,6 +292,17 @@ func (self *ReplicationBufferQueue) Search(requestId [16]byte, cursor *Replicati
 	return errors.New("search error")
 }
 
+type ReplicationClientState struct {
+	connectCount uint64
+	loadedCount  uint64
+	recvCount    uint64
+	recvDataSize uint64
+	replayCount  uint64
+	appendCount  uint64
+	pushCount    uint64
+	ackCount     uint64
+}
+
 type ReplicationClient struct {
 	manager          *ReplicationManager
 	glock            *sync.Mutex
@@ -305,7 +316,7 @@ type ReplicationClient struct {
 	replayQueue      chan *AofLock
 	aofQueue         chan *AofLock
 	pushQueue        chan *AofLock
-	loadedCount      uint64
+	state            *ReplicationClientState
 	appendWaiter     chan bool
 	wakeupSignal     chan bool
 	closedWaiter     chan bool
@@ -315,9 +326,10 @@ type ReplicationClient struct {
 }
 
 func NewReplicationClient(manager *ReplicationManager) *ReplicationClient {
+	state := &ReplicationClientState{0, 0, 0, 0, 0, 0, 0, 0}
 	channel := &ReplicationClient{manager, &sync.Mutex{}, nil, nil, manager.slock.GetAof(),
 		nil, [16]byte{}, make([]*AofLock, 256), 0, make(chan *AofLock, 64),
-		make(chan *AofLock, 64), make(chan *AofLock, 64), 0, nil, nil, make(chan bool, 1),
+		make(chan *AofLock, 64), make(chan *AofLock, 64), state, nil, nil, make(chan bool, 1),
 		false, true, false}
 	for i := 0; i < len(channel.rbufs); i++ {
 		channel.rbufs[i] = NewAofLock()
@@ -373,6 +385,7 @@ func (self *ReplicationClient) Run() {
 			_ = self.sleepWhenRetryConnect()
 			continue
 		}
+		self.state.connectCount++
 
 		err = self.InitSync()
 		if err != nil {
@@ -635,7 +648,7 @@ func (self *ReplicationClient) recvFiles() error {
 				return err
 			}
 		}
-		self.loadedCount++
+		self.state.loadedCount++
 
 		buf := self.aofLock.buf
 		self.currentRequestId[0], self.currentRequestId[1], self.currentRequestId[2], self.currentRequestId[3], self.currentRequestId[4], self.currentRequestId[5], self.currentRequestId[6], self.currentRequestId[7],
@@ -706,12 +719,14 @@ func (self *ReplicationClient) Process() error {
 				return derr
 			}
 			aofLock.data = buf
+			self.state.recvDataSize += uint64(len(buf))
 		}
 
+		self.state.recvCount++
 		self.replayQueue <- aofLock
 		self.aofQueue <- aofLock
 		self.pushQueue <- aofLock
-		self.loadedCount++
+		self.state.loadedCount++
 		self.rbufIndex++
 		if self.rbufIndex >= len(self.rbufs) {
 			self.rbufIndex = 0
@@ -731,6 +746,7 @@ func (self *ReplicationClient) ProcessReplayLock() {
 			return
 		}
 		_ = aof.ReplayLock(aofLock)
+		self.state.replayCount++
 	}
 }
 
@@ -766,6 +782,7 @@ func (self *ReplicationClient) ProcessAofAppend() {
 				return
 			}
 			aof.AppendLock(aofLock)
+			self.state.appendCount++
 			buf := aofLock.buf
 			if len(buf) >= 64 {
 				requestId[0], requestId[1], requestId[2], requestId[3], requestId[4], requestId[5], requestId[6], requestId[7],
@@ -807,6 +824,7 @@ func (self *ReplicationClient) ProcessAofAppend() {
 					return
 				}
 				aof.AppendLock(aofLock)
+				self.state.appendCount++
 				buf := aofLock.buf
 				if len(buf) >= 64 {
 					requestId[0], requestId[1], requestId[2], requestId[3], requestId[4], requestId[5], requestId[6], requestId[7],
@@ -825,6 +843,7 @@ func (self *ReplicationClient) ProcessAofAppend() {
 					return
 				}
 				aof.AppendLock(aofLock)
+				self.state.appendCount++
 				buf := aofLock.buf
 				if len(buf) >= 64 {
 					requestId[0], requestId[1], requestId[2], requestId[3], requestId[4], requestId[5], requestId[6], requestId[7],
@@ -848,6 +867,7 @@ func (self *ReplicationClient) ProcessPushAofLock() {
 		} else {
 			_ = bufferQueue.Push(aofLock.buf, nil)
 		}
+		self.state.pushCount++
 		_ = self.manager.WakeupServerChannel()
 	}
 }
@@ -877,6 +897,7 @@ func (self *ReplicationClient) HandleAcked(ackLock *ReplicationAckLock) error {
 			return err
 		}
 	}
+	self.state.ackCount++
 	self.glock.Unlock()
 	return nil
 }

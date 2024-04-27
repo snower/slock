@@ -164,6 +164,7 @@ type AofFile struct {
 	dlbuf       []byte
 	windex      int
 	size        int
+	dataSize    int
 	ackRequests [][]byte
 	dirtied     bool
 	ackIndex    int
@@ -174,7 +175,7 @@ func NewAofFile(aof *Aof, filename string, mode int, buf_size int) *AofFile {
 	ackRequests := make([][]byte, buf_size/64)
 	return &AofFile{aof.slock, aof, filename, nil, nil, mode, buf_size,
 		make([]byte, 64), nil, nil, make([]byte, 4), 0, 0,
-		ackRequests, false, 0}
+		0, ackRequests, false, 0}
 }
 
 func (self *AofFile) Open() error {
@@ -444,6 +445,7 @@ func (self *AofFile) WriteLockData(lock *AofLock) error {
 		}
 		n += nn
 	}
+	self.dataSize += n
 	return nil
 }
 
