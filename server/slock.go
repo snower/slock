@@ -71,7 +71,7 @@ func (self *SLock) Init(server *Server) error {
 			return err
 		}
 
-		if _, err := os.Stat(dataDir); os.IsNotExist(err) {
+		if _, err = os.Stat(dataDir); os.IsNotExist(err) {
 			self.logger.Errorf("Slock data dir config error %v", err)
 			return err
 		}
@@ -102,7 +102,11 @@ func (self *SLock) initLeader() error {
 	}
 
 	self.updateState(STATE_LEADER)
-	err = self.replicationManager.Init("")
+	if self.arbiterManager != nil && self.replicationManager != nil {
+		err = self.replicationManager.Init("", self.replicationManager.currentRequestId)
+	} else {
+		err = self.replicationManager.Init("", self.aof.GetCurrentAofID())
+	}
 	if err != nil {
 		self.logger.Errorf("Replication init error %v", err)
 		return err
@@ -118,14 +122,14 @@ func (self *SLock) initFollower(leaderAddress string) error {
 	}
 
 	self.updateState(STATE_INIT)
-	err = self.aof.Init()
-	if err != nil {
+	requestId, initErr := self.aof.Init()
+	if initErr != nil {
 		self.logger.Errorf("Aof init error %v", err)
-		return err
+		return initErr
 	}
 
 	self.updateState(STATE_SYNC)
-	err = self.replicationManager.Init(leaderAddress)
+	err = self.replicationManager.Init(leaderAddress, requestId)
 	if err != nil {
 		self.logger.Errorf("Replication init error %v", err)
 		return err

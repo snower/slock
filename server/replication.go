@@ -257,7 +257,7 @@ func (self *ReplicationBufferQueue) Search(requestId [16]byte, cursor *Replicati
 	currentItem := self.tailItem
 	if currentItem == nil {
 		self.glock.RUnlock()
-		return errors.New("search error")
+		return io.EOF
 	}
 
 	for currentItem != nil {
@@ -284,7 +284,7 @@ func (self *ReplicationBufferQueue) Search(requestId [16]byte, cursor *Replicati
 			cursor.currentRequestId[8], cursor.currentRequestId[9], cursor.currentRequestId[10], cursor.currentRequestId[11], cursor.currentRequestId[12], cursor.currentRequestId[13], cursor.currentRequestId[14], cursor.currentRequestId[15] = buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
 			buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18]
 		cursor.seq = currentItem.seq
-		cursor.writed = false
+		cursor.writed = true
 		self.glock.RUnlock()
 		return nil
 	}
@@ -489,6 +489,10 @@ func (self *ReplicationClient) InitSync() error {
 	}
 
 	if self.aofLock != nil {
+		err = self.aof.LoadFiles()
+		if err != nil {
+			return err
+		}
 		err = self.sendStarted()
 		if err != nil {
 			return err
@@ -1015,18 +1019,27 @@ func (self *ReplicationServer) handleInitSync(command *protocol.CallCommand) (*p
 	if buf[4] == 0 && buf[5] == 0 && buf[6] == 0 && buf[7] == 0 {
 		return protocol.NewCallResultCommand(command, 0, "ERR_NOT_FOUND", nil), nil
 	}
-	initedAofId := [16]byte{buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11], buf[12], buf[13], buf[14], buf[15]}
-	serr := self.manager.bufferQueue.Search(initedAofId, self.bufferCursor)
+	initedRequestId := [16]byte{buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11], buf[12], buf[13], buf[14], buf[15]}
+	var requestId string
+	serr := self.manager.bufferQueue.Search(initedRequestId, self.bufferCursor)
 	if serr != nil {
-		return protocol.NewCallResultCommand(command, 0, "ERR_NOT_FOUND", nil), nil
+		if initedRequestId != self.manager.currentRequestId {
+			return protocol.NewCallResultCommand(command, 0, "ERR_NOT_FOUND", nil), nil
+		}
+		self.bufferCursor.currentRequestId = self.manager.currentRequestId
+		self.bufferCursor.currentItem = nil
+		self.bufferCursor.seq = self.manager.bufferQueue.seq
+		self.bufferCursor.writed = true
+		requestId = fmt.Sprintf("%x", initedRequestId)
+	} else {
+		self.waofLock.buf = self.bufferCursor.buf
+		err = self.waofLock.Decode()
+		if err != nil {
+			return protocol.NewCallResultCommand(command, 0, "ERR_ENCODE", nil), nil
+		}
+		requestId = fmt.Sprintf("%x", self.waofLock.GetRequestId())
 	}
 
-	self.waofLock.buf = self.bufferCursor.buf
-	err = self.waofLock.Decode()
-	if err != nil {
-		return protocol.NewCallResultCommand(command, 0, "ERR_ENCODE", nil), nil
-	}
-	requestId := fmt.Sprintf("%x", self.waofLock.GetRequestId())
 	response := protobuf.SyncResponse{AofId: requestId}
 	data, err := proto.Marshal(&response)
 	if err != nil {
@@ -1660,14 +1673,13 @@ func (self *ReplicationManager) GetHandlers() map[string]TextServerProtocolComma
 	return handlers
 }
 
-func (self *ReplicationManager) Init(leaderAddress string) error {
+func (self *ReplicationManager) Init(leaderAddress string, requestId [16]byte) error {
 	self.leaderAddress = leaderAddress
+	self.currentRequestId = requestId
 	self.slock.Log().Infof("Replication aof ring buffer init size %d", int(Config.AofRingBufferSize))
 	if self.slock.state == STATE_LEADER {
-		self.currentRequestId = self.slock.aof.GetCurrentAofID()
 		self.slock.Log().Infof("Replication init leader %x", self.currentRequestId)
 	} else {
-		self.currentRequestId = [16]byte{}
 		_ = self.transparencyManager.ChangeLeader(leaderAddress)
 		self.slock.Log().Infof("Replication init follower %s %x", leaderAddress, self.currentRequestId)
 	}
@@ -2061,6 +2073,7 @@ func (self *ReplicationManager) SwitchToFollower(address string) error {
 		return nil
 	}
 
+	self.currentRequestId = self.slock.aof.GetCurrentAofID()
 	err := self.StartSync()
 	if err != nil {
 		return err
