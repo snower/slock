@@ -294,7 +294,7 @@ func (self *ReplicationBufferQueue) Search(requestId [16]byte, cursor *Replicati
 
 type ReplicationClientState struct {
 	connectCount uint64
-	loadedCount  uint64
+	loadCount    uint64
 	recvCount    uint64
 	recvDataSize uint64
 	replayCount  uint64
@@ -648,7 +648,7 @@ func (self *ReplicationClient) recvFiles() error {
 				return err
 			}
 		}
-		self.state.loadedCount++
+		self.state.loadCount++
 
 		buf := self.aofLock.buf
 		self.currentRequestId[0], self.currentRequestId[1], self.currentRequestId[2], self.currentRequestId[3], self.currentRequestId[4], self.currentRequestId[5], self.currentRequestId[6], self.currentRequestId[7],
@@ -726,7 +726,7 @@ func (self *ReplicationClient) Process() error {
 		self.replayQueue <- aofLock
 		self.aofQueue <- aofLock
 		self.pushQueue <- aofLock
-		self.state.loadedCount++
+		self.state.loadCount++
 		self.rbufIndex++
 		if self.rbufIndex >= len(self.rbufs) {
 			self.rbufIndex = 0
@@ -928,6 +928,13 @@ func (self *ReplicationClient) WakeupRetryConnect() error {
 	return nil
 }
 
+type ReplicationServerState struct {
+	pushCount    uint64
+	sendCount    uint64
+	sendDataSize uint64
+	ackCount     uint64
+}
+
 type ReplicationServer struct {
 	manager        *ReplicationManager
 	stream         *Stream
@@ -936,6 +943,7 @@ type ReplicationServer struct {
 	raofLock       *AofLock
 	waofLock       *AofLock
 	bufferCursor   *ReplicationBufferQueueCursor
+	state          *ReplicationServerState
 	pulledState    uint32
 	pulledWaiter   chan bool
 	wakeupedBuffer bool
@@ -946,9 +954,10 @@ type ReplicationServer struct {
 
 func NewReplicationServer(manager *ReplicationManager, serverProtocol *BinaryServerProtocol) *ReplicationServer {
 	waofLock := NewAofLock()
+	state := &ReplicationServerState{0, 0, 0, 0}
 	return &ReplicationServer{manager, serverProtocol.stream, serverProtocol,
 		manager.slock.GetAof(), NewAofLock(), waofLock, NewReplicationBufferQueueCursor(waofLock.buf),
-		0, make(chan bool, 1), false, false, make(chan bool, 1), false}
+		state, 0, make(chan bool, 1), false, false, make(chan bool, 1), false}
 }
 
 func (self *ReplicationServer) Close() error {
@@ -1064,6 +1073,7 @@ func (self *ReplicationServer) sendFiles() error {
 				return true, err
 			}
 		}
+		self.state.pushCount++
 		return true, nil
 	})
 	if err != nil {
@@ -1147,9 +1157,12 @@ func (self *ReplicationServer) SendProcess() error {
 					atomic.AddUint32(&self.manager.serverActiveCount, 0xffffffff)
 					return err
 				}
+				self.state.sendDataSize += uint64(len(self.bufferCursor.data))
 			}
 			self.bufferCursor.writed = true
 			atomic.AddUint32(&self.bufferCursor.currentItem.pollIndex, 1)
+			self.state.pushCount++
+			self.state.sendCount++
 		}
 
 		err := bufferQueue.Pop(self.bufferCursor)
@@ -1217,6 +1230,7 @@ func (self *ReplicationServer) RecvProcess() error {
 		if err != nil {
 			return err
 		}
+		self.state.ackCount++
 	}
 	return io.EOF
 }

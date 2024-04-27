@@ -234,18 +234,24 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 					continue
 				}
 
-				status := "sending"
-				if serverChannel.pulledState != 0 {
-					status = "pending"
-				}
 				var behindOffset uint64
 				if self.slock.replicationManager.bufferQueue.seq < self.slock.replicationManager.bufferQueue.seq {
 					behindOffset = 0xffffffffffffffff - serverChannel.bufferCursor.seq + self.slock.replicationManager.bufferQueue.seq
 				} else {
 					behindOffset = self.slock.replicationManager.bufferQueue.seq - serverChannel.bufferCursor.seq
 				}
-				infos = append(infos, fmt.Sprintf("follower%d:host=%s,aof_id=%x,behind_offset=%d,status=%s", i+1,
-					serverChannel.protocol.RemoteAddr().String(), serverChannel.bufferCursor.currentRequestId, behindOffset-1, status))
+				status := "sending"
+				if serverChannel.pulledState != 0 {
+					status = "pending"
+				}
+				aofFileSendFinish := "no"
+				if serverChannel.sendedFiles {
+					aofFileSendFinish = "yes"
+				}
+				state := serverChannel.state
+				infos = append(infos, fmt.Sprintf("follower%d:host=%s,aof_id=%x,behind_offset=%d,status=%s,push_count=%d,send_count=%d,ack_count=%d,send_data_size=%d,aof_file_send_finish=%s", i+1,
+					serverChannel.protocol.RemoteAddr().String(), serverChannel.bufferCursor.currentRequestId, behindOffset-1, status,
+					state.pushCount, state.sendCount, state.ackCount, state.sendDataSize, aofFileSendFinish))
 			}
 		} else {
 			infos = append(infos, "role:follower")
@@ -264,7 +270,7 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 					infos = append(infos, "aof_file_recv_finish:no")
 				}
 				state := self.slock.replicationManager.clientChannel.state
-				infos = append(infos, fmt.Sprintf("load_count:%d", state.loadedCount))
+				infos = append(infos, fmt.Sprintf("load_count:%d", state.loadCount))
 				infos = append(infos, fmt.Sprintf("connect_count:%d", state.connectCount))
 				infos = append(infos, fmt.Sprintf("recv_count:%d", state.recvCount))
 				infos = append(infos, fmt.Sprintf("replay_count:%d", state.replayCount))
