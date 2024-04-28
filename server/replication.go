@@ -247,7 +247,7 @@ func (self *ReplicationBufferQueue) Head(cursor *ReplicationBufferQueueCursor) e
 		cursor.currentRequestId[8], cursor.currentRequestId[9], cursor.currentRequestId[10], cursor.currentRequestId[11], cursor.currentRequestId[12], cursor.currentRequestId[13], cursor.currentRequestId[14], cursor.currentRequestId[15] = buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
 		buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18]
 	cursor.seq = currentItem.seq
-	cursor.writed = false
+	cursor.writed = true
 	self.glock.RUnlock()
 	return nil
 }
@@ -492,6 +492,16 @@ func (self *ReplicationClient) InitSync() error {
 	if self.aofLock != nil {
 		err = self.aof.Load()
 		if err != nil {
+			rerr := self.aof.Reset(1, 0)
+			if rerr != nil {
+				return err
+			}
+			rerr = self.manager.FlushDB()
+			if rerr != nil {
+				return err
+			}
+			self.currentRequestId = [16]byte{}
+			self.manager.currentRequestId = self.currentRequestId
 			return err
 		}
 		err = self.sendStarted()
@@ -508,10 +518,8 @@ func (self *ReplicationClient) InitSync() error {
 		return err
 	}
 	aofFileIndex := uint32(buf[4]) | uint32(buf[5])<<8 | uint32(buf[6])<<16 | uint32(buf[7])<<24
-	if aofFileIndex > 0 {
-		aofFileIndex = aofFileIndex - 1
-	}
-	err = self.aof.Reset(aofFileIndex)
+	aofFileId := uint32(buf[0]) | uint32(buf[1])<<8 | uint32(buf[2])<<16 | uint32(buf[3])<<24
+	err = self.aof.Reset(aofFileIndex, aofFileId)
 	if err != nil {
 		return err
 	}
@@ -577,23 +585,24 @@ func (self *ReplicationClient) recvFiles() error {
 	for !self.closed {
 		err := self.readLock()
 		if err != nil {
-			if aofFile != nil {
+			if aofFile != nil && aofFile != self.aof.aofFile {
 				_ = aofFile.Close()
 			}
 			return err
 		}
 
-		if self.aofLock.CommandType == protocol.COMMAND_INIT && self.aofLock.AofIndex == 0xffffffff &&
-			self.aofLock.AofId == 0xffffffff && self.aofLock.CommandTime == 0xffffffffffffffff {
+		if self.aofLock.CommandType == protocol.COMMAND_INIT && self.aofLock.AofIndex == 0xffffffff && self.aofLock.AofId == 0xffffffff && self.aofLock.CommandTime == 0xffffffffffffffff {
 			if aofFile != nil {
 				err = aofFile.Flush()
 				if err != nil {
 					self.manager.slock.logger.Errorf("Replication client flush aof file %s error %v", aofFile.filename, err)
 				}
-				err = aofFile.Close()
-				if err != nil {
-					self.manager.slock.logger.Errorf("Replication client close aof file %s error %v", aofFile.filename, err)
-					return err
+				if aofFile != self.aof.aofFile {
+					err = aofFile.Close()
+					if err != nil {
+						self.manager.slock.logger.Errorf("Replication client close aof file %s error %v", aofFile.filename, err)
+						return err
+					}
 				}
 			}
 			self.recvedFiles = true
@@ -602,25 +611,28 @@ func (self *ReplicationClient) recvFiles() error {
 		}
 
 		currentAofIndex := self.aofLock.AofIndex
-		if self.aofLock.AofFlag&AOF_FLAG_REWRITED != 0 {
-			currentAofIndex = 0
-		}
 		if currentAofIndex != aofIndex || aofFile == nil {
 			if aofFile != nil {
 				err = aofFile.Flush()
 				if err != nil {
 					self.manager.slock.logger.Errorf("Replication client flush aof file %s error %v", aofFile.filename, err)
 				}
-				err = aofFile.Close()
-				if err != nil {
-					self.manager.slock.logger.Errorf("Replication client close aof file %s error %v", aofFile.filename, err)
-					return err
+				if aofFile != self.aof.aofFile {
+					err = aofFile.Close()
+					if err != nil {
+						self.manager.slock.logger.Errorf("Replication client close aof file %s error %v", aofFile.filename, err)
+						return err
+					}
 				}
 			}
 
-			aofFile, err = self.aof.OpenAofFile(currentAofIndex)
-			if err != nil {
-				return err
+			if currentAofIndex == self.aof.aofFileIndex && self.aof.aofFile != nil {
+				aofFile = self.aof.aofFile
+			} else {
+				aofFile, err = self.aof.OpenAofFile(currentAofIndex)
+				if err != nil {
+					return err
+				}
 			}
 			aofIndex = currentAofIndex
 			if aofIndex == 0 {
@@ -632,14 +644,14 @@ func (self *ReplicationClient) recvFiles() error {
 
 		err = self.aof.LoadLock(self.aofLock)
 		if err != nil {
-			if aofFile != nil {
+			if aofFile != nil && aofFile != self.aof.aofFile {
 				_ = aofFile.Close()
 			}
 			return err
 		}
 		err = aofFile.AppendLock(self.aofLock)
 		if err != nil {
-			if aofFile != nil {
+			if aofFile != nil && aofFile != self.aof.aofFile {
 				_ = aofFile.Close()
 			}
 			return err
@@ -647,7 +659,7 @@ func (self *ReplicationClient) recvFiles() error {
 		if self.aofLock.AofFlag&AOF_FLAG_CONTAINS_DATA != 0 {
 			err = aofFile.WriteLockData(self.aofLock)
 			if err != nil {
-				if aofFile != nil {
+				if aofFile != nil && aofFile != self.aof.aofFile {
 					_ = aofFile.Close()
 				}
 				return err
@@ -661,7 +673,7 @@ func (self *ReplicationClient) recvFiles() error {
 			buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18]
 	}
 
-	if aofFile != nil {
+	if aofFile != nil && aofFile != self.aof.aofFile {
 		_ = aofFile.Close()
 	}
 	return io.EOF
@@ -752,7 +764,7 @@ func (self *ReplicationClient) ProcessReplayLock() {
 			return
 		}
 		err := aof.ReplayLock(aofLock)
-		if err == nil && aofLock.AofIndex > self.replayAofIndex {
+		if err == nil && aofLock.AofIndex != self.replayAofIndex {
 			self.glock.Lock()
 			if aof.isWaitRewite {
 				_ = aof.ExecuteConsistencyBarrierCommand(0)
@@ -798,7 +810,7 @@ func (self *ReplicationClient) ProcessAofAppend() {
 		}
 		if aof.AppendLock(aofLock) {
 			self.glock.Lock()
-			if self.replayAofIndex >= aof.aofFileIndex {
+			if self.replayAofIndex != aof.aofFileIndex {
 				aof.ExecuteConsistencyBarrierCommand(0)
 				aof.isWaitRewite = false
 				self.manager.slock.Log().Infof("Replication ready wait aof execute rewrite")
@@ -987,7 +999,7 @@ func (self *ReplicationServer) handleInitSync(command *protocol.CallCommand) (*p
 		err = self.manager.bufferQueue.Head(self.bufferCursor)
 		if err != nil {
 			self.waofLock.AofIndex = self.aof.aofFileIndex
-			self.waofLock.AofId = 0
+			self.waofLock.AofId = self.aof.aofFileId
 		} else {
 			self.waofLock.buf = self.bufferCursor.buf
 			err = self.waofLock.Decode()
@@ -1071,7 +1083,7 @@ func (self *ReplicationServer) sendFiles() error {
 	}
 	aofFilenames = append(aofFilenames, appendFiles...)
 	err = self.aof.LoadAofFiles(aofFilenames, time.Now().Unix(), func(filename string, aofFile *AofFile, lock *AofLock, firstLock bool) (bool, error) {
-		if lock.AofIndex >= self.waofLock.AofIndex && lock.AofId >= self.waofLock.AofId {
+		if lock.AofIndex > self.waofLock.AofIndex && lock.AofId > self.waofLock.AofId {
 			return false, nil
 		}
 
