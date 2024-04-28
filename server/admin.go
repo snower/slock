@@ -74,13 +74,13 @@ func (self *Admin) commandHandleBgRewritAaofCommand(serverProtocol *TextServerPr
 
 	go func() {
 		self.slock.Log().Infof("Admin command execute aof files rewrite")
-		_ = self.slock.GetAof().RewriteAofFile()
+		_ = self.slock.GetAof().RewriteAofFile(true)
 	}()
 	return nil
 }
 
 func (self *Admin) commandHandleRewriteAofCommand(serverProtocol *TextServerProtocol, _ []string) error {
-	_ = self.slock.GetAof().RewriteAofFile()
+	_ = self.slock.GetAof().RewriteAofFile(true)
 	return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(true, "OK", nil))
 }
 
