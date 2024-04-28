@@ -810,7 +810,7 @@ func (self *ReplicationClient) ProcessAofAppend() {
 		}
 		if aof.AppendLock(aofLock) {
 			self.glock.Lock()
-			if self.replayAofIndex != aof.aofFileIndex {
+			if self.replayAofIndex == aof.aofFileIndex {
 				aof.ExecuteConsistencyBarrierCommand(0)
 				aof.isWaitRewite = false
 				self.manager.slock.Log().Infof("Replication ready wait aof execute rewrite")
