@@ -2295,14 +2295,14 @@ func (self *LockDB) HasLock(command *protocol.LockCommand, aofLockData []byte) b
 		return false
 	}
 
-	lockManager.glock.Lock()
+	lockManager.glock.LowPriorityLock()
 	for lockManager.lockKey != command.LockKey {
 		lockManager.glock.Unlock()
 		lockManager = self.GetLockManager(command)
 		if lockManager == nil {
 			return false
 		}
-		lockManager.glock.Lock()
+		lockManager.glock.LowPriorityLock()
 	}
 
 	if lockManager.locked == 0 {
