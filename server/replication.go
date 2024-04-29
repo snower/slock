@@ -517,8 +517,8 @@ func (self *ReplicationClient) InitSync() error {
 		return err
 	}
 	aofFileIndex := uint32(aofId[4]) | uint32(aofId[5])<<8 | uint32(aofId[6])<<16 | uint32(aofId[7])<<24
-	aofFileId := uint32(aofId[0]) | uint32(aofId[1])<<8 | uint32(aofId[2])<<16 | uint32(aofId[3])<<24
-	err = self.aof.Reset(aofFileIndex, aofFileId)
+	aofFileOffset := uint32(aofId[0]) | uint32(aofId[1])<<8 | uint32(aofId[2])<<16 | uint32(aofId[3])<<24
+	err = self.aof.Reset(aofFileIndex, aofFileOffset)
 	if err != nil {
 		return err
 	}

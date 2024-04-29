@@ -1810,7 +1810,7 @@ func (self *Aof) OpenAofFile(aofIndex uint32) (*AofFile, error) {
 	return aofFile, nil
 }
 
-func (self *Aof) Reset(aofFileIndex uint32, aofFileId uint32) error {
+func (self *Aof) Reset(aofFileIndex uint32, aofFileOffset uint32) error {
 	defer self.aofGlock.Unlock()
 	self.aofGlock.Lock()
 	if self.isRewriting {
@@ -1854,7 +1854,7 @@ func (self *Aof) Reset(aofFileIndex uint32, aofFileId uint32) error {
 		return err
 	}
 	self.aofFileIndex = aofFileIndex
-	self.aofFileOffset = aofFileId
+	self.aofFileOffset = aofFileOffset
 	self.slock.Log().Infof("Aof create current file %s.%d", "append.aof", aofFileIndex)
 	return nil
 }

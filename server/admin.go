@@ -204,7 +204,7 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 		infos = append(infos, fmt.Sprintf("version:%d", self.slock.arbiterManager.version))
 		infos = append(infos, fmt.Sprintf("vertime:%d", self.slock.arbiterManager.vertime))
 
-		for i, member := range self.slock.arbiterManager.members {
+		for i, member := range self.slock.arbiterManager.GetMembers() {
 			arbiter, isself, status, aofId := "no", "no", "offline", member.aofId
 			if member.arbiter != 0 {
 				arbiter = "yes"
@@ -230,7 +230,8 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 			infos = append(infos, fmt.Sprintf("current_aof_id:%s", FormatAofId(self.slock.replicationManager.currentAofId)))
 			infos = append(infos, fmt.Sprintf("current_offset:%d", self.slock.replicationManager.bufferQueue.seq))
 			for i, serverChannel := range self.slock.replicationManager.serverChannels {
-				if serverChannel.protocol == nil {
+				serverChannelProtocol := serverChannel.protocol
+				if serverChannelProtocol == nil {
 					continue
 				}
 
@@ -250,26 +251,27 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 				}
 				state := serverChannel.state
 				infos = append(infos, fmt.Sprintf("follower%d:host=%s,aof_id=%s,behind_offset=%d,status=%s,push_count=%d,send_count=%d,ack_count=%d,send_data_size=%d,aof_file_send_finish=%s", i+1,
-					serverChannel.protocol.RemoteAddr().String(), FormatAofId(serverChannel.bufferCursor.currentAofId), behindOffset-1, status,
+					serverChannelProtocol.RemoteAddr().String(), FormatAofId(serverChannel.bufferCursor.currentAofId), behindOffset-1, status,
 					state.pushCount, state.sendCount, state.ackCount, state.sendDataSize, aofFileSendFinish))
 			}
 		} else {
 			infos = append(infos, "role:follower")
 			infos = append(infos, fmt.Sprintf("leader_host:%s", self.slock.replicationManager.leaderAddress))
-			if self.slock.replicationManager.clientChannel != nil && self.slock.replicationManager.clientChannel.stream != nil {
+			clientChannel := self.slock.replicationManager.clientChannel
+			if clientChannel != nil && clientChannel.stream != nil {
 				infos = append(infos, "leader_link_status:up")
 			} else {
 				infos = append(infos, "leader_link_status:down")
 			}
 
-			if self.slock.replicationManager.clientChannel != nil {
-				infos = append(infos, fmt.Sprintf("current_aof_id:%s", FormatAofId(self.slock.replicationManager.clientChannel.currentAofId)))
-				if self.slock.replicationManager.clientChannel.recvedFiles {
+			if clientChannel != nil {
+				infos = append(infos, fmt.Sprintf("current_aof_id:%s", FormatAofId(clientChannel.currentAofId)))
+				if clientChannel.recvedFiles {
 					infos = append(infos, "aof_file_recv_finish:yes")
 				} else {
 					infos = append(infos, "aof_file_recv_finish:no")
 				}
-				state := self.slock.replicationManager.clientChannel.state
+				state := clientChannel.state
 				infos = append(infos, fmt.Sprintf("load_count:%d", state.loadCount))
 				infos = append(infos, fmt.Sprintf("connect_count:%d", state.connectCount))
 				infos = append(infos, fmt.Sprintf("recv_count:%d", state.recvCount))
@@ -331,20 +333,21 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 		freeLockCommandCount += int(self.slock.freeLockCommandCount)
 		totalCommandCount += self.slock.statsTotalCommandCount
 		for _, stream := range self.server.GetStreams() {
-			if stream.protocol != nil {
-				switch stream.protocol.(type) {
+			streamProtocol := stream.protocol
+			if streamProtocol != nil {
+				switch streamProtocol.(type) {
 				case *MemWaiterServerProtocol:
-					memWaitProtocol := stream.protocol.(*MemWaiterServerProtocol)
+					memWaitProtocol := streamProtocol.(*MemWaiterServerProtocol)
 					cacheLockCommandCount += int(memWaitProtocol.freeCommandIndex)
 					cacheLockCommandCount += int(memWaitProtocol.lockedFreeCommands.Len())
 					totalCommandCount += memWaitProtocol.totalCommandCount
 				case *BinaryServerProtocol:
-					binaryProtocol := stream.protocol.(*BinaryServerProtocol)
+					binaryProtocol := streamProtocol.(*BinaryServerProtocol)
 					cacheLockCommandCount += int(binaryProtocol.freeCommandIndex)
 					cacheLockCommandCount += int(binaryProtocol.lockedFreeCommands.Len())
 					totalCommandCount += binaryProtocol.totalCommandCount
 				case *TextServerProtocol:
-					textProtocol := stream.protocol.(*TextServerProtocol)
+					textProtocol := streamProtocol.(*TextServerProtocol)
 					cacheLockCommandCount += int(textProtocol.freeCommandIndex)
 					cacheLockCommandCount += int(textProtocol.lockedFreeCommands.Len())
 					totalCommandCount += textProtocol.totalCommandCount
