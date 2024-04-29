@@ -216,8 +216,8 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 			if member.status == ARBITER_MEMBER_STATUS_ONLINE {
 				status = "online"
 			}
-			infos = append(infos, fmt.Sprintf("member%d:host=%s,weight=%d,arbiter=%s,role=%s,status=%s,self=%s,aof_id=%x,update=%d,delay=%.2f", i+1, member.host, member.weight,
-				arbiter, ROLE_NAMES[member.role], status, isself, aofId, member.lastUpdated/1e6, float64(member.lastDelay)/1e6))
+			infos = append(infos, fmt.Sprintf("member%d:host=%s,weight=%d,arbiter=%s,role=%s,status=%s,self=%s,aof_id=%s,update=%d,delay=%.2f", i+1, member.host, member.weight,
+				arbiter, ROLE_NAMES[member.role], status, isself, FormatAofId(aofId), member.lastUpdated/1e6, float64(member.lastDelay)/1e6))
 		}
 		infos = append(infos, "")
 	}
@@ -227,7 +227,7 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 		if self.slock.state == STATE_LEADER {
 			infos = append(infos, "role:leader")
 			infos = append(infos, fmt.Sprintf("connected_followers:%d", len(self.slock.replicationManager.serverChannels)))
-			infos = append(infos, fmt.Sprintf("current_aof_id:%x", self.slock.replicationManager.currentRequestId))
+			infos = append(infos, fmt.Sprintf("current_aof_id:%s", FormatAofId(self.slock.replicationManager.currentAofId)))
 			infos = append(infos, fmt.Sprintf("current_offset:%d", self.slock.replicationManager.bufferQueue.seq))
 			for i, serverChannel := range self.slock.replicationManager.serverChannels {
 				if serverChannel.protocol == nil {
@@ -249,8 +249,8 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 					aofFileSendFinish = "yes"
 				}
 				state := serverChannel.state
-				infos = append(infos, fmt.Sprintf("follower%d:host=%s,aof_id=%x,behind_offset=%d,status=%s,push_count=%d,send_count=%d,ack_count=%d,send_data_size=%d,aof_file_send_finish=%s", i+1,
-					serverChannel.protocol.RemoteAddr().String(), serverChannel.bufferCursor.currentRequestId, behindOffset-1, status,
+				infos = append(infos, fmt.Sprintf("follower%d:host=%s,aof_id=%s,behind_offset=%d,status=%s,push_count=%d,send_count=%d,ack_count=%d,send_data_size=%d,aof_file_send_finish=%s", i+1,
+					serverChannel.protocol.RemoteAddr().String(), FormatAofId(serverChannel.bufferCursor.currentAofId), behindOffset-1, status,
 					state.pushCount, state.sendCount, state.ackCount, state.sendDataSize, aofFileSendFinish))
 			}
 		} else {
@@ -263,7 +263,7 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 			}
 
 			if self.slock.replicationManager.clientChannel != nil {
-				infos = append(infos, fmt.Sprintf("current_aof_id:%x", self.slock.replicationManager.clientChannel.currentRequestId))
+				infos = append(infos, fmt.Sprintf("current_aof_id:%s", FormatAofId(self.slock.replicationManager.clientChannel.currentAofId)))
 				if self.slock.replicationManager.clientChannel.recvedFiles {
 					infos = append(infos, "aof_file_recv_finish:yes")
 				} else {

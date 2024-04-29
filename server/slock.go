@@ -103,14 +103,14 @@ func (self *SLock) initLeader() error {
 
 	self.updateState(STATE_LEADER)
 	if self.arbiterManager != nil && self.replicationManager != nil {
-		err = self.replicationManager.Init("", self.replicationManager.currentRequestId)
+		err = self.replicationManager.Init("", self.replicationManager.currentAofId)
 	} else {
-		requestId, rerr := self.aof.LoadMaxId()
+		aofId, rerr := self.aof.LoadMaxAofId()
 		if rerr != nil {
 			self.logger.Errorf("Replication init error %v", err)
 			return err
 		}
-		err = self.replicationManager.Init("", requestId)
+		err = self.replicationManager.Init("", aofId)
 	}
 	if err != nil {
 		self.logger.Errorf("Replication init error %v", err)
@@ -127,14 +127,14 @@ func (self *SLock) initFollower(leaderAddress string) error {
 	}
 
 	self.updateState(STATE_INIT)
-	requestId, initErr := self.aof.Init()
+	aofId, initErr := self.aof.Init()
 	if initErr != nil {
 		self.logger.Errorf("Aof init error %v", err)
 		return initErr
 	}
 
 	self.updateState(STATE_SYNC)
-	err = self.replicationManager.Init(leaderAddress, requestId)
+	err = self.replicationManager.Init(leaderAddress, aofId)
 	if err != nil {
 		self.logger.Errorf("Replication init error %v", err)
 		return err

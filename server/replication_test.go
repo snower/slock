@@ -106,11 +106,11 @@ func TestReplicationBufferQueue_Search(t *testing.T) {
 
 	aofLock := &AofLock{buf: make([]byte, 64)}
 	aofLock.AofIndex = 43
-	aofLock.AofId = 343294329
+	aofLock.AofOffset = 343294329
 	_ = aofLock.Encode()
 	_ = queue.Push(aofLock.buf, nil)
 
-	err := queue.Search(aofLock.GetRequestId(), cursor)
+	err := queue.Search(aofLock.GetAofId(), cursor)
 	if err != nil {
 		t.Errorf("ReplicationBufferQueue Pop Error Fail %v", err)
 	}
@@ -121,7 +121,7 @@ func TestReplicationBufferQueue_Search(t *testing.T) {
 
 	aofLock.buf = cursor.buf
 	_ = aofLock.Decode()
-	if aofLock.AofIndex != 43 || aofLock.AofId != 343294329 {
+	if aofLock.AofIndex != 43 || aofLock.AofOffset != 343294329 {
 		t.Errorf("ReplicationBufferQueue Pop Buf Error Fail %v", aofLock)
 	}
 }

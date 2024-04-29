@@ -2,6 +2,7 @@ package server
 
 import (
 	"bufio"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"github.com/snower/slock/protocol"
@@ -29,11 +30,26 @@ const AOF_FLAG_UPDATED = 0x0008
 const AOF_FLAG_REQUIRE_ACKED = 0x1000
 const AOF_FLAG_CONTAINS_DATA = 0x2000
 
+func FormatAofId(aofId [16]byte) string {
+	return fmt.Sprintf("%x", [16]byte{aofId[7], aofId[6], aofId[5], aofId[4], aofId[3], aofId[2], aofId[1], aofId[0], aofId[15], aofId[14], aofId[13], aofId[12], aofId[11], aofId[10], aofId[9], aofId[8]})
+}
+
+func ParseAofId(aofIdString string) ([16]byte, error) {
+	if len(aofIdString) != 32 {
+		return [16]byte{}, errors.New("len error")
+	}
+	buf, err := hex.DecodeString(aofIdString)
+	if err != nil {
+		return [16]byte{}, err
+	}
+	return [16]byte{buf[7], buf[6], buf[5], buf[4], buf[3], buf[2], buf[1], buf[0], buf[15], buf[14], buf[13], buf[12], buf[11], buf[10], buf[9], buf[8]}, nil
+}
+
 type AofLock struct {
 	HandleType  uint8
 	CommandType uint8
 	AofIndex    uint32
-	AofId       uint32
+	AofOffset   uint32
 	CommandTime uint64
 	Flag        uint8
 	DbId        uint8
@@ -72,7 +88,7 @@ func (self *AofLock) Decode() error {
 
 	self.CommandType = buf[2]
 
-	self.AofId, self.AofIndex = uint32(buf[3])|uint32(buf[4])<<8|uint32(buf[5])<<16|uint32(buf[6])<<24, uint32(buf[7])|uint32(buf[8])<<8|uint32(buf[9])<<16|uint32(buf[10])<<24
+	self.AofOffset, self.AofIndex = uint32(buf[3])|uint32(buf[4])<<8|uint32(buf[5])<<16|uint32(buf[6])<<24, uint32(buf[7])|uint32(buf[8])<<8|uint32(buf[9])<<16|uint32(buf[10])<<24
 	self.CommandTime = uint64(buf[11]) | uint64(buf[12])<<8 | uint64(buf[13])<<16 | uint64(buf[14])<<24 | uint64(buf[15])<<32 | uint64(buf[16])<<40 | uint64(buf[17])<<48 | uint64(buf[18])<<56
 
 	self.Flag, self.DbId = buf[19], buf[20]
@@ -103,7 +119,7 @@ func (self *AofLock) Encode() error {
 
 	buf[2] = self.CommandType
 
-	buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10] = byte(self.AofId), byte(self.AofId>>8), byte(self.AofId>>16), byte(self.AofId>>24), byte(self.AofIndex), byte(self.AofIndex>>8), byte(self.AofIndex>>16), byte(self.AofIndex>>24)
+	buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10] = byte(self.AofOffset), byte(self.AofOffset>>8), byte(self.AofOffset>>16), byte(self.AofOffset>>24), byte(self.AofIndex), byte(self.AofIndex>>8), byte(self.AofIndex>>16), byte(self.AofIndex>>24)
 	buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18] = byte(self.CommandTime), byte(self.CommandTime>>8), byte(self.CommandTime>>16), byte(self.CommandTime>>24), byte(self.CommandTime>>32), byte(self.CommandTime>>40), byte(self.CommandTime>>48), byte(self.CommandTime>>56)
 
 	buf[19], buf[20] = self.Flag, self.DbId
@@ -126,28 +142,26 @@ func (self *AofLock) Encode() error {
 	return nil
 }
 
-func (self *AofLock) UpdateAofIndexId(aof_index uint32, aof_id uint32) error {
-	self.AofIndex = aof_index
-	self.AofId = aof_id
+func (self *AofLock) UpdateAofId(aofIndex uint32, aofOffset uint32) error {
+	self.AofIndex = aofIndex
+	self.AofOffset = aofOffset
 
 	buf := self.buf
 	if len(buf) < 64 {
 		return errors.New("Buffer Len error")
 	}
 
-	buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10] = byte(aof_id), byte(aof_id>>8), byte(aof_id>>16), byte(aof_id>>24), byte(aof_index), byte(aof_index>>8), byte(aof_index>>16), byte(aof_index>>24)
+	buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10] = byte(aofOffset), byte(aofOffset>>8), byte(aofOffset>>16), byte(aofOffset>>24), byte(aofIndex), byte(aofIndex>>8), byte(aofIndex>>16), byte(aofIndex>>24)
 	return nil
 }
 
-func (self *AofLock) GetRequestId() [16]byte {
-	requestId := [16]byte{}
-	requestId[0], requestId[1], requestId[2], requestId[3], requestId[4], requestId[5], requestId[6], requestId[7] = byte(self.AofId), byte(self.AofId>>8), byte(self.AofId>>16), byte(self.AofId>>24), byte(self.AofIndex), byte(self.AofIndex>>8), byte(self.AofIndex>>16), byte(self.AofIndex>>24)
-	requestId[8], requestId[9], requestId[10], requestId[11], requestId[12], requestId[13], requestId[14], requestId[15] = byte(self.CommandTime), byte(self.CommandTime>>8), byte(self.CommandTime>>16), byte(self.CommandTime>>24), byte(self.CommandTime>>32), byte(self.CommandTime>>40), byte(self.CommandTime>>48), byte(self.CommandTime>>56)
-	return requestId
+func (self *AofLock) GetAofId() [16]byte {
+	return [16]byte{byte(self.AofOffset), byte(self.AofOffset >> 8), byte(self.AofOffset >> 16), byte(self.AofOffset >> 24), byte(self.AofIndex), byte(self.AofIndex >> 8), byte(self.AofIndex >> 16), byte(self.AofIndex >> 24),
+		byte(self.CommandTime), byte(self.CommandTime >> 8), byte(self.CommandTime >> 16), byte(self.CommandTime >> 24), byte(self.CommandTime >> 32), byte(self.CommandTime >> 40), byte(self.CommandTime >> 48), byte(self.CommandTime >> 56)}
 }
 
-func (self *AofLock) SetRequestId(buf [16]byte) {
-	self.AofId, self.AofIndex = uint32(buf[0])|uint32(buf[1])<<8|uint32(buf[2])<<16|uint32(buf[3])<<24, uint32(buf[4])|uint32(buf[5])<<8|uint32(buf[6])<<16|uint32(buf[7])<<24
+func (self *AofLock) SetAofId(buf [16]byte) {
+	self.AofOffset, self.AofIndex = uint32(buf[0])|uint32(buf[1])<<8|uint32(buf[2])<<16|uint32(buf[3])<<24, uint32(buf[4])|uint32(buf[5])<<8|uint32(buf[6])<<16|uint32(buf[7])<<24
 	self.CommandTime = uint64(buf[8]) | uint64(buf[9])<<8 | uint64(buf[10])<<16 | uint64(buf[11])<<24 | uint64(buf[12])<<32 | uint64(buf[13])<<40 | uint64(buf[14])<<48 | uint64(buf[15])<<56
 }
 
@@ -713,7 +727,7 @@ func (self *AofChannel) Push(dbId uint8, lock *Lock, commandType uint8, lockComm
 	aofLock := self.getAofLock()
 	aofLock.CommandType = commandType
 	aofLock.AofIndex = 0
-	aofLock.AofId = 0
+	aofLock.AofOffset = 0
 	if lock.expriedTime > self.lockDb.currentTime {
 		aofLock.CommandTime = uint64(self.lockDb.currentTime)
 	} else {
@@ -839,7 +853,7 @@ func (self *AofChannel) AofAcked(buf []byte, succed bool) error {
 func (self *AofChannel) Acked(commandResult *protocol.LockResultCommand) error {
 	aofLock := self.getAofLock()
 	aofLock.CommandType = commandResult.CommandType
-	aofLock.SetRequestId(commandResult.RequestId)
+	aofLock.SetAofId(commandResult.RequestId)
 	aofLock.Flag = commandResult.Flag
 	aofLock.DbId = commandResult.DbId
 	aofLock.LockId = commandResult.LockId
@@ -962,7 +976,7 @@ func (self *AofChannel) HandleLoad(aofLock *AofLock) {
 
 	lockCommand := self.serverProtocol.GetLockCommand()
 	lockCommand.CommandType = aofLock.CommandType
-	lockCommand.RequestId = aofLock.GetRequestId()
+	lockCommand.RequestId = aofLock.GetAofId()
 	lockCommand.Flag = aofLock.Flag | 0x04
 	lockCommand.DbId = aofLock.DbId
 	lockCommand.LockId = aofLock.LockId
@@ -1010,7 +1024,7 @@ func (self *AofChannel) HandleReplay(aofLock *AofLock) {
 
 	lockCommand := self.serverProtocol.GetLockCommand()
 	lockCommand.CommandType = aofLock.CommandType
-	lockCommand.RequestId = aofLock.GetRequestId()
+	lockCommand.RequestId = aofLock.GetAofId()
 	lockCommand.Flag = aofLock.Flag | 0x04
 	lockCommand.DbId = aofLock.DbId
 	lockCommand.LockId = aofLock.LockId
@@ -1092,6 +1106,7 @@ type Aof struct {
 	glock              *sync.Mutex
 	dataDir            string
 	aofFileIndex       uint32
+	aofFileOffset      uint32
 	aofFile            *AofFile
 	aofGlock           *sync.Mutex
 	replGlock          *sync.Mutex
@@ -1105,7 +1120,6 @@ type Aof struct {
 	rewritedWaiter     chan bool
 	rewriteSize        uint32
 	aofLockCount       uint64
-	aofFileId          uint32
 	isWaitRewite       bool
 	isRewriting        bool
 	inited             bool
@@ -1113,9 +1127,9 @@ type Aof struct {
 }
 
 func NewAof() *Aof {
-	return &Aof{nil, &sync.Mutex{}, "", 1, nil, &sync.Mutex{}, &sync.Mutex{},
+	return &Aof{nil, &sync.Mutex{}, "", 1, 0, nil, &sync.Mutex{}, &sync.Mutex{},
 		make([]*AofChannel, 0), 0, 0, nil, make([]*AofLockQueue, 256),
-		&sync.Mutex{}, 0, nil, 0, 0, 0, false, false, false, false}
+		&sync.Mutex{}, 0, nil, 0, 0, false, false, false, false}
 }
 
 func (self *Aof) Init() ([16]byte, error) {
@@ -1147,18 +1161,18 @@ func (self *Aof) Init() ([16]byte, error) {
 			if err != io.EOF {
 				return [16]byte{}, err
 			}
-			self.aofFileId = 0
+			self.aofFileOffset = 0
 		} else {
-			self.aofFileId = aofLock.AofId
+			self.aofFileOffset = aofLock.AofOffset
 		}
-		self.slock.Log().Infof("Aof init current file %s.%d by id %d", "append.aof", self.aofFileIndex, self.aofFileId)
+		self.slock.Log().Infof("Aof init current file %s.%d by id %d", "append.aof", self.aofFileIndex, self.aofFileOffset)
 	}
 
 	_ = self.WaitFlushAofChannel()
 	self.inited = true
 	self.slock.Log().Infof("Aof init finish")
 	if aofLock != nil {
-		return aofLock.GetRequestId(), nil
+		return aofLock.GetAofId(), nil
 	}
 	return [16]byte{}, nil
 }
@@ -1201,7 +1215,7 @@ func (self *Aof) LoadAndInit() error {
 			return true, lerr
 		}
 		if lock.AofIndex == self.aofFileIndex {
-			self.aofFileId = lock.AofId
+			self.aofFileOffset = lock.AofOffset
 		}
 		return true, nil
 	})
@@ -1268,7 +1282,7 @@ func (self *Aof) Load() error {
 	return nil
 }
 
-func (self *Aof) LoadMaxId() ([16]byte, error) {
+func (self *Aof) LoadMaxAofId() ([16]byte, error) {
 	dataDir, err := filepath.Abs(Config.DataDir)
 	if err != nil {
 		return [16]byte{}, err
@@ -1286,13 +1300,13 @@ func (self *Aof) LoadMaxId() ([16]byte, error) {
 
 	aofLock := NewAofLock()
 	aofLock.AofIndex = 1
-	fileAofId := aofLock.GetRequestId()
+	fileAofId := aofLock.GetAofId()
 	if len(appendFiles) > 0 {
 		aofFileIndex, perr := strconv.ParseUint(appendFiles[len(appendFiles)-1][11:], 10, 64)
 		if perr == nil {
 			aofLock.AofIndex = uint32(aofFileIndex)
-			aofLock.AofId = 0
-			fileAofId = aofLock.GetRequestId()
+			aofLock.AofOffset = 0
+			fileAofId = aofLock.GetAofId()
 		}
 	}
 
@@ -1322,7 +1336,7 @@ func (self *Aof) LoadMaxId() ([16]byte, error) {
 			return fileAofId, err
 		}
 		_ = aofFile.Close()
-		return aofLock.GetRequestId(), nil
+		return aofLock.GetAofId(), nil
 	}
 	return fileAofId, nil
 }
@@ -1355,8 +1369,8 @@ func (self *Aof) GetCurrentAofID() [16]byte {
 
 	aofLock := NewAofLock()
 	aofLock.AofIndex = self.aofFileIndex
-	aofLock.AofId = self.aofFileId
-	return aofLock.GetRequestId()
+	aofLock.AofOffset = self.aofFileOffset
+	return aofLock.GetAofId()
 }
 
 func (self *Aof) FindAofFiles() ([]string, string, error) {
@@ -1682,8 +1696,8 @@ func (self *Aof) PushLock(glockIndex uint16, aofLock *AofLock) {
 			return
 		}
 	}
-	self.aofFileId++
-	_ = aofLock.UpdateAofIndexId(self.aofFileIndex, self.aofFileId)
+	self.aofFileOffset++
+	_ = aofLock.UpdateAofId(self.aofFileIndex, self.aofFileOffset)
 
 	werr := self.aofFile.WriteLock(aofLock)
 	if werr == nil && aofLock.AofFlag&AOF_FLAG_CONTAINS_DATA != 0 {
@@ -1716,7 +1730,7 @@ func (self *Aof) AppendLock(aofLock *AofLock) bool {
 			self.aofGlock.Unlock()
 			return false
 		}
-		self.aofFileId = aofLock.AofId
+		self.aofFileOffset = aofLock.AofOffset
 	}
 
 	err := self.aofFile.WriteLock(aofLock)
@@ -1729,7 +1743,7 @@ func (self *Aof) AppendLock(aofLock *AofLock) bool {
 			self.slock.Log().Errorf("Aof append file write data error %v", err)
 		}
 	}
-	self.aofFileId = aofLock.AofId
+	self.aofFileOffset = aofLock.AofOffset
 	self.aofLockCount++
 	self.aofGlock.Unlock()
 	return self.isWaitRewite
@@ -1840,7 +1854,7 @@ func (self *Aof) Reset(aofFileIndex uint32, aofFileId uint32) error {
 		return err
 	}
 	self.aofFileIndex = aofFileIndex
-	self.aofFileId = aofFileId
+	self.aofFileOffset = aofFileId
 	self.slock.Log().Infof("Aof create current file %s.%d", "append.aof", aofFileIndex)
 	return nil
 }
@@ -1867,7 +1881,7 @@ func (self *Aof) RewriteAofFile(startRewite bool) error {
 	}
 	self.aofFile = aofFile
 	self.aofFileIndex = aofFileIndex
-	self.aofFileId = 0
+	self.aofFileOffset = 0
 	self.slock.Log().Infof("Aof create current file %s.%d", "append.aof", aofFileIndex)
 
 	if startRewite {

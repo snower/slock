@@ -2,7 +2,6 @@ package server
 
 import (
 	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"github.com/snower/slock/client"
@@ -1059,7 +1058,7 @@ func (self *ArbiterVoter) DoVote() error {
 
 	self.voteHost = selectVoteResponse.Host
 	self.voteAofId = self.manager.DecodeAofId(selectVoteResponse.AofId)
-	self.manager.slock.Log().Infof("Arbier voter do vote succed,  host %s aof_id %x proposal_id %d", self.voteHost, self.voteAofId, self.proposalId)
+	self.manager.slock.Log().Infof("Arbier voter do vote succed,  host %s aofId %s proposalId %d", self.voteHost, FormatAofId(self.voteAofId), self.proposalId)
 	return nil
 }
 
@@ -1081,7 +1080,7 @@ func (self *ArbiterVoter) DoProposal() error {
 		self.manager.slock.Log().Errorf("Arbier voter do proposal fail")
 		return errors.New("member accept proposal count too small")
 	}
-	self.manager.slock.Log().Infof("Arbier voter do proposal succed, host %s aof_id %x proposal_id %d", self.voteHost, self.voteAofId, self.proposalId)
+	self.manager.slock.Log().Infof("Arbier voter do proposal succed, host %s aofId %s proposalId %d", self.voteHost, FormatAofId(self.voteAofId), self.proposalId)
 	return nil
 }
 
@@ -1101,7 +1100,7 @@ func (self *ArbiterVoter) DoCommit() error {
 		return errors.New("member accept proposal count too small")
 	}
 
-	self.manager.slock.Log().Infof("Arbier voter do commit succed, host %s aof_id %x commit_id %d", self.voteHost, self.voteAofId, self.commitId)
+	self.manager.slock.Log().Infof("Arbier voter do commit succed, host %s aofId %s commitId %d", self.voteHost, FormatAofId(self.voteAofId), self.commitId)
 	return nil
 }
 
@@ -1271,13 +1270,13 @@ func (self *ArbiterManager) Load() error {
 		return err
 	}
 
-	aofId, err := self.slock.aof.LoadMaxId()
+	aofId, err := self.slock.aof.LoadMaxAofId()
 	if err != nil {
-		self.slock.Log().Errorf("Arbiter load aof file maxid error %v", err)
+		self.slock.Log().Errorf("Arbiter load aof file maxAofId error %v", err)
 		return err
 	}
-	self.slock.Log().Infof("Arbiter load aof file maxid %x", aofId)
-	self.slock.replicationManager.currentRequestId = aofId
+	self.slock.Log().Infof("Arbiter load aof file maxAofId %s", FormatAofId(aofId))
+	self.slock.replicationManager.currentAofId = aofId
 	self.voter.proposalId = self.voter.commitId
 	return nil
 }
@@ -1881,15 +1880,12 @@ func (self *ArbiterManager) GetCurrentAofID() [16]byte {
 }
 
 func (self *ArbiterManager) EncodeAofId(aofId [16]byte) string {
-	return fmt.Sprintf("%x", aofId)
+	return FormatAofId(aofId)
 }
 
-func (self *ArbiterManager) DecodeAofId(aofId string) [16]byte {
-	buf, err := hex.DecodeString(aofId)
-	if err != nil || len(buf) != 16 {
-		return [16]byte{}
-	}
-	return [16]byte{buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11], buf[12], buf[13], buf[14], buf[15]}
+func (self *ArbiterManager) DecodeAofId(aofIdString string) [16]byte {
+	aofId, _ := ParseAofId(aofIdString)
+	return aofId
 }
 
 func (self *ArbiterManager) CompareAofId(a [16]byte, b [16]byte) int {

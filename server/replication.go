@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"github.com/snower/slock/client"
@@ -38,12 +37,12 @@ func (self *ReplicationBufferQueueItem) Init(buf []byte) {
 }
 
 type ReplicationBufferQueueCursor struct {
-	currentItem      *ReplicationBufferQueueItem
-	currentRequestId [16]byte
-	buf              []byte
-	data             []byte
-	seq              uint64
-	writed           bool
+	currentItem  *ReplicationBufferQueueItem
+	currentAofId [16]byte
+	buf          []byte
+	data         []byte
+	seq          uint64
+	writed       bool
 }
 
 func NewReplicationBufferQueueCursor(buf []byte) *ReplicationBufferQueueCursor {
@@ -218,8 +217,8 @@ func (self *ReplicationBufferQueue) Pop(cursor *ReplicationBufferQueueCursor) er
 	}
 	copy(cursor.buf, buf)
 	cursor.data = currentItem.data
-	cursor.currentRequestId[0], cursor.currentRequestId[1], cursor.currentRequestId[2], cursor.currentRequestId[3], cursor.currentRequestId[4], cursor.currentRequestId[5], cursor.currentRequestId[6], cursor.currentRequestId[7],
-		cursor.currentRequestId[8], cursor.currentRequestId[9], cursor.currentRequestId[10], cursor.currentRequestId[11], cursor.currentRequestId[12], cursor.currentRequestId[13], cursor.currentRequestId[14], cursor.currentRequestId[15] = buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
+	cursor.currentAofId[0], cursor.currentAofId[1], cursor.currentAofId[2], cursor.currentAofId[3], cursor.currentAofId[4], cursor.currentAofId[5], cursor.currentAofId[6], cursor.currentAofId[7],
+		cursor.currentAofId[8], cursor.currentAofId[9], cursor.currentAofId[10], cursor.currentAofId[11], cursor.currentAofId[12], cursor.currentAofId[13], cursor.currentAofId[14], cursor.currentAofId[15] = buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
 		buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18]
 	cursor.seq = currentItem.seq
 	cursor.writed = false
@@ -243,8 +242,8 @@ func (self *ReplicationBufferQueue) Head(cursor *ReplicationBufferQueueCursor) e
 	copy(cursor.buf, buf)
 	cursor.data = currentItem.data
 	cursor.currentItem = currentItem
-	cursor.currentRequestId[0], cursor.currentRequestId[1], cursor.currentRequestId[2], cursor.currentRequestId[3], cursor.currentRequestId[4], cursor.currentRequestId[5], cursor.currentRequestId[6], cursor.currentRequestId[7],
-		cursor.currentRequestId[8], cursor.currentRequestId[9], cursor.currentRequestId[10], cursor.currentRequestId[11], cursor.currentRequestId[12], cursor.currentRequestId[13], cursor.currentRequestId[14], cursor.currentRequestId[15] = buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
+	cursor.currentAofId[0], cursor.currentAofId[1], cursor.currentAofId[2], cursor.currentAofId[3], cursor.currentAofId[4], cursor.currentAofId[5], cursor.currentAofId[6], cursor.currentAofId[7],
+		cursor.currentAofId[8], cursor.currentAofId[9], cursor.currentAofId[10], cursor.currentAofId[11], cursor.currentAofId[12], cursor.currentAofId[13], cursor.currentAofId[14], cursor.currentAofId[15] = buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
 		buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18]
 	cursor.seq = currentItem.seq
 	cursor.writed = true
@@ -252,7 +251,7 @@ func (self *ReplicationBufferQueue) Head(cursor *ReplicationBufferQueueCursor) e
 	return nil
 }
 
-func (self *ReplicationBufferQueue) Search(requestId [16]byte, cursor *ReplicationBufferQueueCursor) error {
+func (self *ReplicationBufferQueue) Search(aofId [16]byte, cursor *ReplicationBufferQueueCursor) error {
 	self.glock.RLock()
 	currentItem := self.tailItem
 	if currentItem == nil {
@@ -266,8 +265,8 @@ func (self *ReplicationBufferQueue) Search(requestId [16]byte, cursor *Replicati
 			currentItem = currentItem.nextItem
 			continue
 		}
-		if requestId[0] != qbuf[3] || requestId[1] != qbuf[4] || requestId[2] != qbuf[5] || requestId[3] != qbuf[6] || requestId[4] != qbuf[7] || requestId[5] != qbuf[8] || requestId[6] != qbuf[9] || requestId[7] != qbuf[10] ||
-			requestId[8] != qbuf[11] || requestId[9] != qbuf[12] || requestId[10] != qbuf[13] || requestId[11] != qbuf[14] || requestId[12] != qbuf[15] || requestId[13] != qbuf[16] || requestId[14] != qbuf[17] || requestId[15] != qbuf[18] {
+		if aofId[0] != qbuf[3] || aofId[1] != qbuf[4] || aofId[2] != qbuf[5] || aofId[3] != qbuf[6] || aofId[4] != qbuf[7] || aofId[5] != qbuf[8] || aofId[6] != qbuf[9] || aofId[7] != qbuf[10] ||
+			aofId[8] != qbuf[11] || aofId[9] != qbuf[12] || aofId[10] != qbuf[13] || aofId[11] != qbuf[14] || aofId[12] != qbuf[15] || aofId[13] != qbuf[16] || aofId[14] != qbuf[17] || aofId[15] != qbuf[18] {
 			currentItem = currentItem.nextItem
 			continue
 		}
@@ -280,8 +279,8 @@ func (self *ReplicationBufferQueue) Search(requestId [16]byte, cursor *Replicati
 		copy(cursor.buf, buf)
 		cursor.data = currentItem.data
 		cursor.currentItem = currentItem
-		cursor.currentRequestId[0], cursor.currentRequestId[1], cursor.currentRequestId[2], cursor.currentRequestId[3], cursor.currentRequestId[4], cursor.currentRequestId[5], cursor.currentRequestId[6], cursor.currentRequestId[7],
-			cursor.currentRequestId[8], cursor.currentRequestId[9], cursor.currentRequestId[10], cursor.currentRequestId[11], cursor.currentRequestId[12], cursor.currentRequestId[13], cursor.currentRequestId[14], cursor.currentRequestId[15] = buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
+		cursor.currentAofId[0], cursor.currentAofId[1], cursor.currentAofId[2], cursor.currentAofId[3], cursor.currentAofId[4], cursor.currentAofId[5], cursor.currentAofId[6], cursor.currentAofId[7],
+			cursor.currentAofId[8], cursor.currentAofId[9], cursor.currentAofId[10], cursor.currentAofId[11], cursor.currentAofId[12], cursor.currentAofId[13], cursor.currentAofId[14], cursor.currentAofId[15] = buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
 			buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18]
 		cursor.seq = currentItem.seq
 		cursor.writed = true
@@ -304,26 +303,26 @@ type ReplicationClientState struct {
 }
 
 type ReplicationClient struct {
-	manager          *ReplicationManager
-	glock            *sync.Mutex
-	stream           *client.Stream
-	protocol         *client.BinaryClientProtocol
-	aof              *Aof
-	aofLock          *AofLock
-	currentRequestId [16]byte
-	replayAofIndex   uint32
-	rbufs            []*AofLock
-	rbufIndex        int
-	replayQueue      chan *AofLock
-	aofQueue         chan *AofLock
-	pushQueue        chan *AofLock
-	state            *ReplicationClientState
-	appendWaiter     chan bool
-	wakeupSignal     chan bool
-	closedWaiter     chan bool
-	closed           bool
-	connectedLeader  bool
-	recvedFiles      bool
+	manager         *ReplicationManager
+	glock           *sync.Mutex
+	stream          *client.Stream
+	protocol        *client.BinaryClientProtocol
+	aof             *Aof
+	aofLock         *AofLock
+	currentAofId    [16]byte
+	replayAofIndex  uint32
+	rbufs           []*AofLock
+	rbufIndex       int
+	replayQueue     chan *AofLock
+	aofQueue        chan *AofLock
+	pushQueue       chan *AofLock
+	state           *ReplicationClientState
+	appendWaiter    chan bool
+	wakeupSignal    chan bool
+	closedWaiter    chan bool
+	closed          bool
+	connectedLeader bool
+	recvedFiles     bool
 }
 
 func NewReplicationClient(manager *ReplicationManager) *ReplicationClient {
@@ -366,7 +365,7 @@ func (self *ReplicationClient) Close() error {
 }
 
 func (self *ReplicationClient) Run() {
-	self.currentRequestId = self.manager.currentRequestId
+	self.currentAofId = self.manager.currentAofId
 	for !self.closed {
 		self.manager.slock.logger.Infof("Replication client connect leader %s", self.manager.leaderAddress)
 		err := self.Open(self.manager.leaderAddress)
@@ -426,23 +425,23 @@ func (self *ReplicationClient) Run() {
 
 	close(self.closedWaiter)
 	self.manager.clientChannel = nil
-	self.manager.currentRequestId = self.currentRequestId
+	self.manager.currentAofId = self.currentAofId
 	self.manager.slock.logger.Infof("Replication client connect leader %s closed", self.manager.leaderAddress)
 }
 
 func (self *ReplicationClient) sendSyncCommand() (*protobuf.SyncResponse, error) {
-	requestId := fmt.Sprintf("%x", self.currentRequestId)
-	if requestId != "00000000000000000000000000000000" {
+	aofId := FormatAofId(self.currentAofId)
+	if aofId != "00000000000000000000000000000000" {
 		if self.aofLock == nil {
 			self.aofLock = NewAofLock()
 		}
-		self.manager.slock.logger.Infof("Replication client send start sync %s", requestId)
+		self.manager.slock.logger.Infof("Replication client send start sync by aofId %s", aofId)
 	} else {
-		requestId = ""
+		aofId = ""
 		self.manager.slock.logger.Infof("Replication client send start sync")
 	}
 
-	request := protobuf.SyncRequest{AofId: requestId}
+	request := protobuf.SyncRequest{AofId: aofId}
 	data, err := proto.Marshal(&request)
 	if err != nil {
 		return nil, err
@@ -465,7 +464,7 @@ func (self *ReplicationClient) sendSyncCommand() (*protobuf.SyncResponse, error)
 
 	if callResultCommand.Result != 0 || callResultCommand.ErrType != "" {
 		if callResultCommand.Result == 0 && callResultCommand.ErrType == "ERR_NOT_FOUND" {
-			self.currentRequestId = [16]byte{}
+			self.currentAofId = [16]byte{}
 			self.manager.slock.logger.Infof("Replication client resend file sync all data")
 			self.aofLock = nil
 			self.recvedFiles = false
@@ -477,9 +476,9 @@ func (self *ReplicationClient) sendSyncCommand() (*protobuf.SyncResponse, error)
 	response := protobuf.SyncResponse{}
 	err = proto.Unmarshal(callResultCommand.Data, &response)
 	if err != nil {
-		return nil, errors.New("unknown lastest requestid")
+		return nil, errors.New("unknown lastest aofId")
 	}
-	self.manager.slock.logger.Infof("Replication client recv start sync aof_id %s", response.AofId)
+	self.manager.slock.logger.Infof("Replication client recv start sync from aofId %s", response.AofId)
 	return &response, nil
 }
 
@@ -500,8 +499,8 @@ func (self *ReplicationClient) InitSync() error {
 			if rerr != nil {
 				return err
 			}
-			self.currentRequestId = [16]byte{}
-			self.manager.currentRequestId = self.currentRequestId
+			self.currentAofId = [16]byte{}
+			self.manager.currentAofId = self.currentAofId
 			return err
 		}
 		err = self.sendStarted()
@@ -509,16 +508,16 @@ func (self *ReplicationClient) InitSync() error {
 			return err
 		}
 		self.recvedFiles = true
-		self.manager.slock.logger.Infof("Replication client start sync, waiting from aof_id %x", self.currentRequestId)
+		self.manager.slock.logger.Infof("Replication client start sync, waiting from aofId %s", FormatAofId(self.currentAofId))
 		return nil
 	}
 
-	buf, err := hex.DecodeString(syncResponse.AofId)
+	aofId, err := ParseAofId(syncResponse.AofId)
 	if err != nil {
 		return err
 	}
-	aofFileIndex := uint32(buf[4]) | uint32(buf[5])<<8 | uint32(buf[6])<<16 | uint32(buf[7])<<24
-	aofFileId := uint32(buf[0]) | uint32(buf[1])<<8 | uint32(buf[2])<<16 | uint32(buf[3])<<24
+	aofFileIndex := uint32(aofId[4]) | uint32(aofId[5])<<8 | uint32(aofId[6])<<16 | uint32(aofId[7])<<24
+	aofFileId := uint32(aofId[0]) | uint32(aofId[1])<<8 | uint32(aofId[2])<<16 | uint32(aofId[3])<<24
 	err = self.aof.Reset(aofFileIndex, aofFileId)
 	if err != nil {
 		return err
@@ -534,10 +533,10 @@ func (self *ReplicationClient) InitSync() error {
 		return err
 	}
 
-	self.currentRequestId[0], self.currentRequestId[1], self.currentRequestId[2], self.currentRequestId[3], self.currentRequestId[4], self.currentRequestId[5], self.currentRequestId[6], self.currentRequestId[7],
-		self.currentRequestId[8], self.currentRequestId[9], self.currentRequestId[10], self.currentRequestId[11], self.currentRequestId[12], self.currentRequestId[13], self.currentRequestId[14], self.currentRequestId[15] = buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7],
-		buf[8], buf[9], buf[10], buf[11], buf[12], buf[13], buf[14], buf[15]
-	self.manager.slock.logger.Infof("Replication client start recv files util aof_id %x", self.currentRequestId)
+	self.currentAofId[0], self.currentAofId[1], self.currentAofId[2], self.currentAofId[3], self.currentAofId[4], self.currentAofId[5], self.currentAofId[6], self.currentAofId[7],
+		self.currentAofId[8], self.currentAofId[9], self.currentAofId[10], self.currentAofId[11], self.currentAofId[12], self.currentAofId[13], self.currentAofId[14], self.currentAofId[15] = aofId[0], aofId[1], aofId[2], aofId[3], aofId[4], aofId[5], aofId[6], aofId[7],
+		aofId[8], aofId[9], aofId[10], aofId[11], aofId[12], aofId[13], aofId[14], aofId[15]
+	self.manager.slock.logger.Infof("Replication client start recv files util aofId %s", FormatAofId(self.currentAofId))
 	return self.recvFiles()
 }
 
@@ -545,7 +544,7 @@ func (self *ReplicationClient) sendStarted() error {
 	aofLock := NewAofLock()
 	aofLock.CommandType = protocol.COMMAND_INIT
 	aofLock.AofIndex = 0xffffffff
-	aofLock.AofId = 0xffffffff
+	aofLock.AofOffset = 0xffffffff
 	aofLock.CommandTime = 0xffffffffffffffff
 	err := aofLock.Encode()
 	if err != nil {
@@ -591,7 +590,7 @@ func (self *ReplicationClient) recvFiles() error {
 			return err
 		}
 
-		if self.aofLock.CommandType == protocol.COMMAND_INIT && self.aofLock.AofIndex == 0xffffffff && self.aofLock.AofId == 0xffffffff && self.aofLock.CommandTime == 0xffffffffffffffff {
+		if self.aofLock.CommandType == protocol.COMMAND_INIT && self.aofLock.AofIndex == 0xffffffff && self.aofLock.AofOffset == 0xffffffff && self.aofLock.CommandTime == 0xffffffffffffffff {
 			if aofFile != nil {
 				err = aofFile.Flush()
 				if err != nil {
@@ -606,7 +605,7 @@ func (self *ReplicationClient) recvFiles() error {
 				}
 			}
 			self.recvedFiles = true
-			self.manager.slock.logger.Infof("Replication client recv files finish, current aof_id %x", self.currentRequestId)
+			self.manager.slock.logger.Infof("Replication client recv files finish, current aofId %s", FormatAofId(self.currentAofId))
 			return nil
 		}
 
@@ -668,8 +667,8 @@ func (self *ReplicationClient) recvFiles() error {
 		self.state.loadCount++
 
 		buf := self.aofLock.buf
-		self.currentRequestId[0], self.currentRequestId[1], self.currentRequestId[2], self.currentRequestId[3], self.currentRequestId[4], self.currentRequestId[5], self.currentRequestId[6], self.currentRequestId[7],
-			self.currentRequestId[8], self.currentRequestId[9], self.currentRequestId[10], self.currentRequestId[11], self.currentRequestId[12], self.currentRequestId[13], self.currentRequestId[14], self.currentRequestId[15] = buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
+		self.currentAofId[0], self.currentAofId[1], self.currentAofId[2], self.currentAofId[3], self.currentAofId[4], self.currentAofId[5], self.currentAofId[6], self.currentAofId[7],
+			self.currentAofId[8], self.currentAofId[9], self.currentAofId[10], self.currentAofId[11], self.currentAofId[12], self.currentAofId[13], self.currentAofId[14], self.currentAofId[15] = buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
 			buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18]
 	}
 
@@ -795,17 +794,17 @@ func (self *ReplicationClient) ProcessAofAppend() {
 	}()
 
 	aof := self.aof
-	requestId := [16]byte{self.currentRequestId[0], self.currentRequestId[1], self.currentRequestId[2], self.currentRequestId[3], self.currentRequestId[4], self.currentRequestId[5], self.currentRequestId[6], self.currentRequestId[7],
-		self.currentRequestId[8], self.currentRequestId[9], self.currentRequestId[10], self.currentRequestId[11], self.currentRequestId[12], self.currentRequestId[13], self.currentRequestId[14], self.currentRequestId[15]}
+	aofId := [16]byte{self.currentAofId[0], self.currentAofId[1], self.currentAofId[2], self.currentAofId[3], self.currentAofId[4], self.currentAofId[5], self.currentAofId[6], self.currentAofId[7],
+		self.currentAofId[8], self.currentAofId[9], self.currentAofId[10], self.currentAofId[11], self.currentAofId[12], self.currentAofId[13], self.currentAofId[14], self.currentAofId[15]}
 	aofLock := <-self.aofQueue
 	for !self.closed {
 		if aofLock == nil {
 			aof.aofGlock.Lock()
 			aof.Flush()
 			aof.aofGlock.Unlock()
-			self.currentRequestId[0], self.currentRequestId[1], self.currentRequestId[2], self.currentRequestId[3], self.currentRequestId[4], self.currentRequestId[5], self.currentRequestId[6], self.currentRequestId[7],
-				self.currentRequestId[8], self.currentRequestId[9], self.currentRequestId[10], self.currentRequestId[11], self.currentRequestId[12], self.currentRequestId[13], self.currentRequestId[14], self.currentRequestId[15] = requestId[0], requestId[1], requestId[2], requestId[3], requestId[4], requestId[5], requestId[6], requestId[7],
-				requestId[8], requestId[9], requestId[10], requestId[11], requestId[12], requestId[13], requestId[14], requestId[15]
+			self.currentAofId[0], self.currentAofId[1], self.currentAofId[2], self.currentAofId[3], self.currentAofId[4], self.currentAofId[5], self.currentAofId[6], self.currentAofId[7],
+				self.currentAofId[8], self.currentAofId[9], self.currentAofId[10], self.currentAofId[11], self.currentAofId[12], self.currentAofId[13], self.currentAofId[14], self.currentAofId[15] = aofId[0], aofId[1], aofId[2], aofId[3], aofId[4], aofId[5], aofId[6], aofId[7],
+				aofId[8], aofId[9], aofId[10], aofId[11], aofId[12], aofId[13], aofId[14], aofId[15]
 			return
 		}
 		if aof.AppendLock(aofLock) {
@@ -820,8 +819,8 @@ func (self *ReplicationClient) ProcessAofAppend() {
 		self.state.appendCount++
 		buf := aofLock.buf
 		if len(buf) >= 64 {
-			requestId[0], requestId[1], requestId[2], requestId[3], requestId[4], requestId[5], requestId[6], requestId[7],
-				requestId[8], requestId[9], requestId[10], requestId[11], requestId[12], requestId[13], requestId[14], requestId[15] = buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
+			aofId[0], aofId[1], aofId[2], aofId[3], aofId[4], aofId[5], aofId[6], aofId[7],
+				aofId[8], aofId[9], aofId[10], aofId[11], aofId[12], aofId[13], aofId[14], aofId[15] = buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
 				buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18]
 		}
 
@@ -833,9 +832,9 @@ func (self *ReplicationClient) ProcessAofAppend() {
 				aof.aofGlock.Lock()
 				aof.Flush()
 				aof.aofGlock.Unlock()
-				self.currentRequestId[0], self.currentRequestId[1], self.currentRequestId[2], self.currentRequestId[3], self.currentRequestId[4], self.currentRequestId[5], self.currentRequestId[6], self.currentRequestId[7],
-					self.currentRequestId[8], self.currentRequestId[9], self.currentRequestId[10], self.currentRequestId[11], self.currentRequestId[12], self.currentRequestId[13], self.currentRequestId[14], self.currentRequestId[15] = requestId[0], requestId[1], requestId[2], requestId[3], requestId[4], requestId[5], requestId[6], requestId[7],
-					requestId[8], requestId[9], requestId[10], requestId[11], requestId[12], requestId[13], requestId[14], requestId[15]
+				self.currentAofId[0], self.currentAofId[1], self.currentAofId[2], self.currentAofId[3], self.currentAofId[4], self.currentAofId[5], self.currentAofId[6], self.currentAofId[7],
+					self.currentAofId[8], self.currentAofId[9], self.currentAofId[10], self.currentAofId[11], self.currentAofId[12], self.currentAofId[13], self.currentAofId[14], self.currentAofId[15] = aofId[0], aofId[1], aofId[2], aofId[3], aofId[4], aofId[5], aofId[6], aofId[7],
+					aofId[8], aofId[9], aofId[10], aofId[11], aofId[12], aofId[13], aofId[14], aofId[15]
 				return
 			}
 			aofFile := aof.aofFile
@@ -846,9 +845,9 @@ func (self *ReplicationClient) ProcessAofAppend() {
 					self.manager.slock.Log().Errorf("Replication flush file error %v", err)
 				}
 				aof.aofGlock.Unlock()
-				self.currentRequestId[0], self.currentRequestId[1], self.currentRequestId[2], self.currentRequestId[3], self.currentRequestId[4], self.currentRequestId[5], self.currentRequestId[6], self.currentRequestId[7],
-					self.currentRequestId[8], self.currentRequestId[9], self.currentRequestId[10], self.currentRequestId[11], self.currentRequestId[12], self.currentRequestId[13], self.currentRequestId[14], self.currentRequestId[15] = requestId[0], requestId[1], requestId[2], requestId[3], requestId[4], requestId[5], requestId[6], requestId[7],
-					requestId[8], requestId[9], requestId[10], requestId[11], requestId[12], requestId[13], requestId[14], requestId[15]
+				self.currentAofId[0], self.currentAofId[1], self.currentAofId[2], self.currentAofId[3], self.currentAofId[4], self.currentAofId[5], self.currentAofId[6], self.currentAofId[7],
+					self.currentAofId[8], self.currentAofId[9], self.currentAofId[10], self.currentAofId[11], self.currentAofId[12], self.currentAofId[13], self.currentAofId[14], self.currentAofId[15] = aofId[0], aofId[1], aofId[2], aofId[3], aofId[4], aofId[5], aofId[6], aofId[7],
+					aofId[8], aofId[9], aofId[10], aofId[11], aofId[12], aofId[13], aofId[14], aofId[15]
 			}
 
 			select {
@@ -858,9 +857,9 @@ func (self *ReplicationClient) ProcessAofAppend() {
 				aof.aofGlock.Lock()
 				aof.Flush()
 				aof.aofGlock.Unlock()
-				self.currentRequestId[0], self.currentRequestId[1], self.currentRequestId[2], self.currentRequestId[3], self.currentRequestId[4], self.currentRequestId[5], self.currentRequestId[6], self.currentRequestId[7],
-					self.currentRequestId[8], self.currentRequestId[9], self.currentRequestId[10], self.currentRequestId[11], self.currentRequestId[12], self.currentRequestId[13], self.currentRequestId[14], self.currentRequestId[15] = requestId[0], requestId[1], requestId[2], requestId[3], requestId[4], requestId[5], requestId[6], requestId[7],
-					requestId[8], requestId[9], requestId[10], requestId[11], requestId[12], requestId[13], requestId[14], requestId[15]
+				self.currentAofId[0], self.currentAofId[1], self.currentAofId[2], self.currentAofId[3], self.currentAofId[4], self.currentAofId[5], self.currentAofId[6], self.currentAofId[7],
+					self.currentAofId[8], self.currentAofId[9], self.currentAofId[10], self.currentAofId[11], self.currentAofId[12], self.currentAofId[13], self.currentAofId[14], self.currentAofId[15] = aofId[0], aofId[1], aofId[2], aofId[3], aofId[4], aofId[5], aofId[6], aofId[7],
+					aofId[8], aofId[9], aofId[10], aofId[11], aofId[12], aofId[13], aofId[14], aofId[15]
 				aofLock = <-self.aofQueue
 				if aofLock == nil {
 					return
@@ -999,7 +998,7 @@ func (self *ReplicationServer) handleInitSync(command *protocol.CallCommand) (*p
 		err = self.manager.bufferQueue.Head(self.bufferCursor)
 		if err != nil {
 			self.waofLock.AofIndex = self.aof.aofFileIndex
-			self.waofLock.AofId = self.aof.aofFileId
+			self.waofLock.AofOffset = self.aof.aofFileOffset
 		} else {
 			self.waofLock.buf = self.bufferCursor.buf
 			err = self.waofLock.Decode()
@@ -1007,8 +1006,8 @@ func (self *ReplicationServer) handleInitSync(command *protocol.CallCommand) (*p
 				return protocol.NewCallResultCommand(command, 0, "ERR_DECODE", nil), nil
 			}
 		}
-		requestId := fmt.Sprintf("%x", self.waofLock.GetRequestId())
-		response := protobuf.SyncResponse{AofId: requestId}
+		aofId := FormatAofId(self.waofLock.GetAofId())
+		response := protobuf.SyncResponse{AofId: aofId}
 		data, derr := proto.Marshal(&response)
 		if derr != nil {
 			return protocol.NewCallResultCommand(command, 0, "ERR_ENCODE", nil), nil
@@ -1017,41 +1016,40 @@ func (self *ReplicationServer) handleInitSync(command *protocol.CallCommand) (*p
 		if err != nil {
 			return nil, err
 		}
-		self.manager.slock.logger.Infof("Replication server recv client %s send files start by aof_id %s", self.protocol.RemoteAddr().String(), requestId)
+		self.manager.slock.logger.Infof("Replication server recv client %s send files start by aofId %s", self.protocol.RemoteAddr().String(), aofId)
 		err = self.waitStarted()
 		return nil, err
 	}
 
-	self.manager.slock.logger.Infof("Replication server recv client %s sync require start by aof_id %s", self.protocol.RemoteAddr().String(), request.AofId)
-	buf, err := hex.DecodeString(request.AofId)
+	self.manager.slock.logger.Infof("Replication server recv client %s sync require start by aofId %s", self.protocol.RemoteAddr().String(), request.AofId)
+	initedAofId, err := ParseAofId(request.AofId)
 	if err != nil {
 		return protocol.NewCallResultCommand(command, 0, "ERR_AOF_ID", nil), nil
 	}
-	if buf[4] == 0 && buf[5] == 0 && buf[6] == 0 && buf[7] == 0 {
+	if initedAofId[4] == 0 && initedAofId[5] == 0 && initedAofId[6] == 0 && initedAofId[7] == 0 {
 		return protocol.NewCallResultCommand(command, 0, "ERR_NOT_FOUND", nil), nil
 	}
-	initedRequestId := [16]byte{buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11], buf[12], buf[13], buf[14], buf[15]}
-	var requestId string
-	serr := self.manager.bufferQueue.Search(initedRequestId, self.bufferCursor)
+	var aofId string
+	serr := self.manager.bufferQueue.Search(initedAofId, self.bufferCursor)
 	if serr != nil {
-		if initedRequestId != self.manager.currentRequestId {
+		if initedAofId != self.manager.currentAofId {
 			return protocol.NewCallResultCommand(command, 0, "ERR_NOT_FOUND", nil), nil
 		}
-		self.bufferCursor.currentRequestId = self.manager.currentRequestId
+		self.bufferCursor.currentAofId = self.manager.currentAofId
 		self.bufferCursor.currentItem = nil
 		self.bufferCursor.seq = self.manager.bufferQueue.seq
 		self.bufferCursor.writed = true
-		requestId = fmt.Sprintf("%x", initedRequestId)
+		aofId = FormatAofId(initedAofId)
 	} else {
 		self.waofLock.buf = self.bufferCursor.buf
 		err = self.waofLock.Decode()
 		if err != nil {
 			return protocol.NewCallResultCommand(command, 0, "ERR_ENCODE", nil), nil
 		}
-		requestId = fmt.Sprintf("%x", self.waofLock.GetRequestId())
+		aofId = FormatAofId(self.waofLock.GetAofId())
 	}
 
-	response := protobuf.SyncResponse{AofId: requestId}
+	response := protobuf.SyncResponse{AofId: aofId}
 	data, err := proto.Marshal(&response)
 	if err != nil {
 		return protocol.NewCallResultCommand(command, 0, "ERR_ENCODE", nil), nil
@@ -1060,7 +1058,7 @@ func (self *ReplicationServer) handleInitSync(command *protocol.CallCommand) (*p
 	if err != nil {
 		return nil, err
 	}
-	self.manager.slock.logger.Infof("Replication server handle client %s send start by aof_id %s", self.protocol.RemoteAddr().String(), requestId)
+	self.manager.slock.logger.Infof("Replication server handle client %s send start by aofId %s", self.protocol.RemoteAddr().String(), aofId)
 	err = self.waitStarted()
 	self.sendedFiles = true
 	return nil, err
@@ -1083,7 +1081,7 @@ func (self *ReplicationServer) sendFiles() error {
 	}
 	aofFilenames = append(aofFilenames, appendFiles...)
 	err = self.aof.LoadAofFiles(aofFilenames, time.Now().Unix(), func(filename string, aofFile *AofFile, lock *AofLock, firstLock bool) (bool, error) {
-		if lock.AofIndex > self.waofLock.AofIndex && lock.AofId > self.waofLock.AofId {
+		if lock.AofIndex > self.waofLock.AofIndex && lock.AofOffset > self.waofLock.AofOffset {
 			return false, nil
 		}
 
@@ -1108,8 +1106,8 @@ func (self *ReplicationServer) sendFiles() error {
 	if err != nil {
 		return err
 	}
-	self.manager.slock.logger.Infof("Replication server handle client %s send file finish, send queue by aof_id %x",
-		self.protocol.RemoteAddr().String(), self.waofLock.GetRequestId())
+	self.manager.slock.logger.Infof("Replication server handle client %s send file finish, send queue by aofId %s",
+		self.protocol.RemoteAddr().String(), FormatAofId(self.waofLock.GetAofId()))
 	return self.manager.WakeupServerChannel()
 }
 
@@ -1130,7 +1128,7 @@ func (self *ReplicationServer) waitStarted() error {
 		}
 
 		if self.raofLock.CommandType == protocol.COMMAND_INIT && self.raofLock.AofIndex == 0xffffffff &&
-			self.raofLock.AofId == 0xffffffff && self.raofLock.CommandTime == 0xffffffffffffffff {
+			self.raofLock.AofOffset == 0xffffffff && self.raofLock.CommandTime == 0xffffffffffffffff {
 			return nil
 		}
 	}
@@ -1141,7 +1139,7 @@ func (self *ReplicationServer) sendFilesFinished() error {
 	aofLock := NewAofLock()
 	aofLock.CommandType = protocol.COMMAND_INIT
 	aofLock.AofIndex = 0xffffffff
-	aofLock.AofId = 0xffffffff
+	aofLock.AofOffset = 0xffffffff
 	aofLock.CommandTime = 0xffffffffffffffff
 	err := aofLock.Encode()
 	if err != nil {
@@ -1360,9 +1358,9 @@ func (self *ReplicationAckDB) ProcessLeaderPushLock(glockIndex uint16, aofLock *
 		return nil
 	}
 
-	requestId := aofLock.GetRequestId()
-	self.commandAofs[glockIndex][lock.command.RequestId] = requestId
-	self.aofLocks[glockIndex][requestId] = lock
+	aofId := aofLock.GetAofId()
+	self.commandAofs[glockIndex][lock.command.RequestId] = aofId
+	self.aofLocks[glockIndex][aofId] = lock
 	lock.ackCount = self.ackCount
 	self.ackGlocks[glockIndex].Unlock()
 	return nil
@@ -1378,10 +1376,10 @@ func (self *ReplicationAckDB) ProcessLeaderPushUnLock(glockIndex uint16, aofLock
 		return nil
 	}
 	self.ackGlocks[glockIndex].Lock()
-	if requestId, ok := self.commandAofs[glockIndex][lockCommand.RequestId]; ok {
+	if aofId, ok := self.commandAofs[glockIndex][lockCommand.RequestId]; ok {
 		delete(self.commandAofs[glockIndex], lockCommand.RequestId)
-		if _, ok = self.aofLocks[glockIndex][requestId]; ok {
-			delete(self.aofLocks[glockIndex], requestId)
+		if _, ok = self.aofLocks[glockIndex][aofId]; ok {
+			delete(self.aofLocks[glockIndex], aofId)
 		}
 		self.ackGlocks[glockIndex].Unlock()
 		lockManager := lock.manager
@@ -1393,11 +1391,11 @@ func (self *ReplicationAckDB) ProcessLeaderPushUnLock(glockIndex uint16, aofLock
 }
 
 func (self *ReplicationAckDB) ProcessLeaderAcked(glockIndex uint16, aofLock *AofLock) error {
-	requestId := aofLock.GetRequestId()
+	aofId := aofLock.GetAofId()
 	self.ackGlocks[glockIndex].Lock()
-	if lock, ok := self.aofLocks[glockIndex][requestId]; ok {
+	if lock, ok := self.aofLocks[glockIndex][aofId]; ok {
 		if aofLock.Result != 0 || lock.ackCount == 0xff {
-			delete(self.aofLocks[glockIndex], requestId)
+			delete(self.aofLocks[glockIndex], aofId)
 			if _, ok = self.commandAofs[glockIndex][lock.command.RequestId]; ok {
 				delete(self.commandAofs[glockIndex], lock.command.RequestId)
 			}
@@ -1413,7 +1411,7 @@ func (self *ReplicationAckDB) ProcessLeaderAcked(glockIndex uint16, aofLock *Aof
 			self.ackGlocks[glockIndex].Unlock()
 			return nil
 		}
-		delete(self.aofLocks[glockIndex], requestId)
+		delete(self.aofLocks[glockIndex], aofId)
 		if _, ok = self.commandAofs[glockIndex][lock.command.RequestId]; ok {
 			delete(self.commandAofs[glockIndex], lock.command.RequestId)
 		}
@@ -1428,11 +1426,11 @@ func (self *ReplicationAckDB) ProcessLeaderAcked(glockIndex uint16, aofLock *Aof
 }
 
 func (self *ReplicationAckDB) ProcessLeaderAofed(glockIndex uint16, aofLock *AofLock) error {
-	requestId := aofLock.GetRequestId()
+	aofId := aofLock.GetAofId()
 	self.ackGlocks[glockIndex].Lock()
-	if lock, ok := self.aofLocks[glockIndex][requestId]; ok {
+	if lock, ok := self.aofLocks[glockIndex][aofId]; ok {
 		if aofLock.Result != 0 || lock.ackCount == 0xff {
-			delete(self.aofLocks[glockIndex], requestId)
+			delete(self.aofLocks[glockIndex], aofId)
 			if _, ok = self.commandAofs[glockIndex][lock.command.RequestId]; ok {
 				delete(self.aofLocks[glockIndex], lock.command.RequestId)
 			}
@@ -1448,7 +1446,7 @@ func (self *ReplicationAckDB) ProcessLeaderAofed(glockIndex uint16, aofLock *Aof
 			self.ackGlocks[glockIndex].Unlock()
 			return nil
 		}
-		delete(self.aofLocks[glockIndex], requestId)
+		delete(self.aofLocks[glockIndex], aofId)
 		if _, ok = self.commandAofs[glockIndex][lock.command.RequestId]; ok {
 			delete(self.commandAofs[glockIndex], lock.command.RequestId)
 		}
@@ -1463,21 +1461,21 @@ func (self *ReplicationAckDB) ProcessLeaderAofed(glockIndex uint16, aofLock *Aof
 }
 
 func (self *ReplicationAckDB) ProcessFollowerPushAckLock(glockIndex uint16, aofLock *AofLock) error {
-	requestId := aofLock.GetRequestId()
+	aofId := aofLock.GetAofId()
 	self.ackGlocks[glockIndex].Lock()
-	if ackLock, ok := self.ackLocks[glockIndex][requestId]; !ok {
+	if ackLock, ok := self.ackLocks[glockIndex][aofId]; !ok {
 		ackLock = self.getAckLock()
-		self.ackLocks[glockIndex][requestId] = ackLock
+		self.ackLocks[glockIndex][aofId] = ackLock
 	}
 	self.ackGlocks[glockIndex].Unlock()
 	return nil
 }
 
 func (self *ReplicationAckDB) ProcessFollowerPushAckUnLock(glockIndex uint16, aofLock *AofLock) error {
-	requestId := aofLock.GetRequestId()
+	aofId := aofLock.GetAofId()
 	self.ackGlocks[glockIndex].Lock()
-	if ackLock, ok := self.ackLocks[glockIndex][requestId]; ok {
-		delete(self.ackLocks[glockIndex], requestId)
+	if ackLock, ok := self.ackLocks[glockIndex][aofId]; ok {
+		delete(self.ackLocks[glockIndex], aofId)
 		self.ackGlocks[glockIndex].Unlock()
 		self.freeAckLock(ackLock)
 		return nil
@@ -1525,12 +1523,12 @@ func (self *ReplicationAckDB) ProcessFollowerAckLocked(glockIndex uint16, comman
 }
 
 func (self *ReplicationAckDB) ProcessFollowerAckAofed(glockIndex uint16, aofLock *AofLock) error {
-	requestId := aofLock.GetRequestId()
+	aofId := aofLock.GetAofId()
 	self.ackGlocks[glockIndex].Lock()
-	ackLock, ok := self.ackLocks[glockIndex][requestId]
+	ackLock, ok := self.ackLocks[glockIndex][aofId]
 	if !ok {
 		ackLock = self.getAckLock()
-		self.ackLocks[glockIndex][requestId] = ackLock
+		self.ackLocks[glockIndex][aofId] = ackLock
 	}
 
 	ackLock.aofResult = aofLock.Result
@@ -1539,7 +1537,7 @@ func (self *ReplicationAckDB) ProcessFollowerAckAofed(glockIndex uint16, aofLock
 		self.ackGlocks[glockIndex].Unlock()
 		return nil
 	}
-	delete(self.ackLocks[glockIndex], requestId)
+	delete(self.ackLocks[glockIndex], aofId)
 	self.ackGlocks[glockIndex].Unlock()
 	if self.manager.clientChannel != nil {
 		err := self.manager.clientChannel.HandleAcked(ackLock)
@@ -1621,7 +1619,7 @@ type ReplicationManager struct {
 	clientChannel       *ReplicationClient
 	serverChannels      []*ReplicationServer
 	transparencyManager *TransparencyManager
-	currentRequestId    [16]byte
+	currentAofId        [16]byte
 	leaderAddress       string
 	serverCount         uint32
 	serverActiveCount   uint32
@@ -1651,15 +1649,15 @@ func (self *ReplicationManager) GetHandlers() map[string]TextServerProtocolComma
 	return handlers
 }
 
-func (self *ReplicationManager) Init(leaderAddress string, requestId [16]byte) error {
+func (self *ReplicationManager) Init(leaderAddress string, aofId [16]byte) error {
 	self.leaderAddress = leaderAddress
-	self.currentRequestId = requestId
+	self.currentAofId = aofId
 	self.slock.Log().Infof("Replication aof ring buffer init size %d", int(Config.AofRingBufferSize))
 	if self.slock.state == STATE_LEADER {
-		self.slock.Log().Infof("Replication init leader %x", self.currentRequestId)
+		self.slock.Log().Infof("Replication init leader by aofId %s", FormatAofId(self.currentAofId))
 	} else {
 		_ = self.transparencyManager.ChangeLeader(leaderAddress)
-		self.slock.Log().Infof("Replication init follower %s %x", leaderAddress, self.currentRequestId)
+		self.slock.Log().Infof("Replication init follower %s by aofId %s", leaderAddress, FormatAofId(self.currentAofId))
 	}
 	return nil
 }
@@ -1912,8 +1910,8 @@ func (self *ReplicationManager) PushLock(glockIndex uint16, aofLock *AofLock) er
 	}
 
 	if len(buf) >= 64 {
-		self.currentRequestId[0], self.currentRequestId[1], self.currentRequestId[2], self.currentRequestId[3], self.currentRequestId[4], self.currentRequestId[5], self.currentRequestId[6], self.currentRequestId[7],
-			self.currentRequestId[8], self.currentRequestId[9], self.currentRequestId[10], self.currentRequestId[11], self.currentRequestId[12], self.currentRequestId[13], self.currentRequestId[14], self.currentRequestId[15] = buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
+		self.currentAofId[0], self.currentAofId[1], self.currentAofId[2], self.currentAofId[3], self.currentAofId[4], self.currentAofId[5], self.currentAofId[6], self.currentAofId[7],
+			self.currentAofId[8], self.currentAofId[9], self.currentAofId[10], self.currentAofId[11], self.currentAofId[12], self.currentAofId[13], self.currentAofId[14], self.currentAofId[15] = buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
 			buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18]
 	}
 	return nil
@@ -1986,7 +1984,7 @@ func (self *ReplicationManager) SwitchToLeader() error {
 		clientChannel := self.clientChannel
 		_ = clientChannel.Close()
 		<-clientChannel.closedWaiter
-		self.currentRequestId = clientChannel.currentRequestId
+		self.currentAofId = clientChannel.currentAofId
 		self.clientChannel = nil
 	}
 	self.isLeader = true
@@ -2041,7 +2039,7 @@ func (self *ReplicationManager) SwitchToFollower(address string) error {
 		clientChannel := self.clientChannel
 		_ = clientChannel.Close()
 		<-clientChannel.closedWaiter
-		self.currentRequestId = clientChannel.currentRequestId
+		self.currentAofId = clientChannel.currentAofId
 		self.clientChannel = nil
 	}
 
@@ -2084,7 +2082,7 @@ func (self *ReplicationManager) ChangeLeader(address string) error {
 		clientChannel := self.clientChannel
 		_ = clientChannel.Close()
 		<-clientChannel.closedWaiter
-		self.currentRequestId = clientChannel.currentRequestId
+		self.currentAofId = clientChannel.currentAofId
 		self.clientChannel = nil
 	}
 
@@ -2123,7 +2121,7 @@ func (self *ReplicationManager) FlushDB() error {
 
 func (self *ReplicationManager) GetCurrentAofID() [16]byte {
 	if !self.isLeader && self.clientChannel != nil {
-		return self.clientChannel.currentRequestId
+		return self.clientChannel.currentAofId
 	}
-	return self.currentRequestId
+	return self.currentAofId
 }
