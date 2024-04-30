@@ -732,3 +732,14 @@ func (self *PriorityMutex) LowPriorityLock() {
 func (self *PriorityMutex) LowPriorityUnlock() {
 	self.Unlock()
 }
+
+func (self *PriorityMutex) PriorityLockWait() {
+	if self.highPriority == 1 {
+		self.highPriorityMutex.Lock()
+		self.highPriorityMutex.Unlock()
+	}
+	if self.lowPriority == 1 {
+		self.lowPriorityMutex.Lock()
+		self.lowPriorityMutex.Unlock()
+	}
+}

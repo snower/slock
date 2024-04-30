@@ -893,10 +893,7 @@ func (self *LockDB) flushExpriedCheckLock(lockQueue *LockQueue, lock *Lock, doEx
 
 func (self *LockDB) initNewLockManager(dbId uint8) {
 	for i := uint16(0); i < self.managerMaxGlocks; i++ {
-		if self.managerGlocks[i].highPriority == 1 || self.managerGlocks[i].lowPriority == 1 {
-			self.managerGlocks[i].LowPriorityLock()
-			self.managerGlocks[i].LowPriorityUnlock()
-		}
+		self.managerGlocks[i].PriorityLockWait()
 	}
 
 	self.glock.Lock()
@@ -943,49 +940,43 @@ func (self *LockDB) GetOrNewLockManager(command *protocol.LockCommand) *LockMana
 	fashHash := (uint32(command.LockKey[0])<<24 | uint32(command.LockKey[1])<<16 | uint32(command.LockKey[2])<<8 | uint32(command.LockKey[3])) ^ (uint32(command.LockKey[4])<<24 | uint32(command.LockKey[5])<<16 | uint32(command.LockKey[6])<<8 | uint32(command.LockKey[7])) ^ (uint32(command.LockKey[8])<<24 | uint32(command.LockKey[9])<<16 | uint32(command.LockKey[10])<<8 | uint32(command.LockKey[11])) ^ (uint32(command.LockKey[12])<<24 | uint32(command.LockKey[13])<<16 | uint32(command.LockKey[14])<<8 | uint32(command.LockKey[15]))
 	fastValue := &self.fastLocks[fashHash%self.fastKeyCount]
 
-	if atomic.CompareAndSwapUint32(&fastValue.count, 0, 0) {
-		for {
-			if atomic.CompareAndSwapUint32(&fastValue.lock, 0, 1) {
-				freeLockManagerTail := atomic.AddUint32(&self.freeLockManagerTail, 1) % self.maxFreeLockManagerCount
-				lockManager := self.freeLockManagers[freeLockManagerTail]
-				for lockManager == nil {
-					self.initNewLockManager(command.DbId)
-					lockManager = self.freeLockManagers[freeLockManagerTail]
-				}
-				self.freeLockManagers[freeLockManagerTail] = nil
-
-				lockManager.lockKey = command.LockKey
-				lockManager.fastKeyValue = fastValue
-				fastValue.manager = lockManager
-				atomic.AddUint32(&fastValue.count, 1)
-				atomic.AddUint32(&lockManager.state.KeyCount, 1)
-				return lockManager
+	if atomic.AddUint32(&fastValue.count, 1) == 1 {
+		if atomic.CompareAndSwapUint32(&fastValue.lock, 0, 1) {
+			freeLockManagerTail := atomic.AddUint32(&self.freeLockManagerTail, 1) % self.maxFreeLockManagerCount
+			lockManager := self.freeLockManagers[freeLockManagerTail]
+			for lockManager == nil {
+				self.initNewLockManager(command.DbId)
+				lockManager = self.freeLockManagers[freeLockManagerTail]
 			}
+			self.freeLockManagers[freeLockManagerTail] = nil
 
-			if atomic.CompareAndSwapUint32(&fastValue.count, 0, 0) {
-				for i := uint16(0); i < self.managerMaxGlocks; i++ {
-					if self.managerGlocks[i].highPriority == 1 || self.managerGlocks[i].lowPriority == 1 {
-						self.managerGlocks[i].LowPriorityLock()
-						self.managerGlocks[i].LowPriorityUnlock()
-					}
-				}
-				time.Sleep(time.Nanosecond)
-				continue
-			}
-			break
+			lockManager.lockKey = command.LockKey
+			lockManager.fastKeyValue = fastValue
+			fastValue.manager = lockManager
+			atomic.AddUint32(&fastValue.lock, 1)
+			atomic.AddUint32(&lockManager.state.KeyCount, 1)
+			return lockManager
 		}
 	}
-
 	fastLockManager := fastValue.manager
+	for atomic.LoadUint32(&fastValue.lock) == 1 {
+		for i := uint16(0); i < self.managerMaxGlocks; i++ {
+			self.managerGlocks[i].PriorityLockWait()
+		}
+		time.Sleep(time.Microsecond)
+		fastLockManager = fastValue.manager
+	}
 	if fastLockManager != nil && fastLockManager.lockKey == command.LockKey {
+		atomic.AddUint32(&fastValue.count, 0xffffffff)
 		return fastLockManager
 	}
+
 	self.mGlock.Lock()
 	if lockManager, ok := self.locks[command.LockKey]; ok {
 		self.mGlock.Unlock()
+		atomic.AddUint32(&fastValue.count, 0xffffffff)
 		return lockManager
 	}
-
 	freeLockManagerTail := atomic.AddUint32(&self.freeLockManagerTail, 1) % self.maxFreeLockManagerCount
 	lockManager := self.freeLockManagers[freeLockManagerTail]
 	for lockManager == nil {
@@ -994,11 +985,9 @@ func (self *LockDB) GetOrNewLockManager(command *protocol.LockCommand) *LockMana
 	}
 	self.freeLockManagers[freeLockManagerTail] = nil
 	self.locks[command.LockKey] = lockManager
-	self.mGlock.Unlock()
-
 	lockManager.lockKey = command.LockKey
 	lockManager.fastKeyValue = fastValue
-	atomic.AddUint32(&fastValue.count, 1)
+	self.mGlock.Unlock()
 	atomic.AddUint32(&lockManager.state.KeyCount, 1)
 	return lockManager
 }
@@ -1031,16 +1020,16 @@ func (self *LockDB) RemoveLockManager(lockManager *LockManager) {
 	}
 
 	if fastValue.manager == lockManager {
-		if !atomic.CompareAndSwapUint32(&fastValue.lock, 1, 0) {
+		if !atomic.CompareAndSwapUint32(&fastValue.lock, 2, 1) {
 			return
 		}
-
 		lockManager.lockKey[0], lockManager.lockKey[1], lockManager.lockKey[2], lockManager.lockKey[3], lockManager.lockKey[4], lockManager.lockKey[5], lockManager.lockKey[6], lockManager.lockKey[7],
 			lockManager.lockKey[8], lockManager.lockKey[9], lockManager.lockKey[10], lockManager.lockKey[11], lockManager.lockKey[12], lockManager.lockKey[13], lockManager.lockKey[14], lockManager.lockKey[15] =
 			0, 0, 0, 0, 0, 0, 0, 0,
 			0, 0, 0, 0, 0, 0, 0, 0
 		lockManager.fastKeyValue = nil
 		fastValue.manager = nil
+		atomic.AddUint32(&fastValue.lock, 0xffffffff)
 		atomic.AddUint32(&fastValue.count, 0xffffffff)
 
 		if self.freeLockManagers[(self.freeLockManagerHead+1)%self.maxFreeLockManagerCount] == nil {
