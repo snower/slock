@@ -242,7 +242,7 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 					behindOffset = self.slock.replicationManager.bufferQueue.seq - serverChannel.bufferCursor.seq
 				}
 				status := "sending"
-				if serverChannel.pulledState != 0 {
+				if serverChannel.pulledState == 2 {
 					status = "pending"
 				}
 				aofFileSendFinish := "no"
