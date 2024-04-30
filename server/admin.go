@@ -531,7 +531,7 @@ func (self *Admin) commandHandleShowLockCommand(serverProtocol *TextServerProtoc
 	}
 
 	lockInfos := make([]string, 0)
-	lockManager.glock.Lock()
+	lockManager.glock.LowPriorityLock()
 	if lockManager.currentLock != nil {
 		lock := lockManager.currentLock
 
@@ -598,7 +598,7 @@ func (self *Admin) commandHandleShowLockCommand(serverProtocol *TextServerProtoc
 			}
 		}
 	}
-	lockManager.glock.Unlock()
+	lockManager.glock.LowPriorityUnlock()
 	return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(true, "", lockInfos))
 }
 
@@ -612,7 +612,7 @@ func (self *Admin) commandHandleShowLockWaitCommand(serverProtocol *TextServerPr
 	}
 
 	lockInfos := make([]string, 0)
-	lockManager.glock.Lock()
+	lockManager.glock.LowPriorityLock()
 	if lockManager.waitLocks != nil {
 		for i := range lockManager.waitLocks.IterNodes() {
 			nodeQueues := lockManager.waitLocks.IterNodeQueues(int32(i))
@@ -649,7 +649,7 @@ func (self *Admin) commandHandleShowLockWaitCommand(serverProtocol *TextServerPr
 			}
 		}
 	}
-	lockManager.glock.Unlock()
+	lockManager.glock.LowPriorityUnlock()
 	return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(true, "", lockInfos))
 }
 

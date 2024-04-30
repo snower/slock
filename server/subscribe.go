@@ -738,10 +738,10 @@ type SubscribeChannel struct {
 }
 
 func NewSubscribeChannel(manager *SubscribeManager, lockDb *LockDB, lockDbGlockIndex uint16, lockDbGlock *PriorityMutex) *SubscribeChannel {
-	freeLockMax := int(Config.AofQueueSize) / 128
+	freeLockMax := int(Config.AofQueueSize) / 64
 	return &SubscribeChannel{manager, &sync.Mutex{}, lockDb, lockDbGlockIndex, lockDbGlock, nil, nil,
 		0, make(chan bool, 1), &sync.Mutex{}, make([]*PublishLock, freeLockMax),
-		0, freeLockMax, freeLockMax * 4, false, false,
+		0, freeLockMax, freeLockMax * 2, false, false,
 		false, make(chan bool, 1)}
 }
 
@@ -1178,8 +1178,8 @@ func (self *SubscribeManager) getLockQueue() *SubscribePublishLockQueue {
 		return queue
 	}
 
-	bufSize := int(Config.AofQueueSize) / 64
-	queue := &SubscribePublishLockQueue{make([]*PublishLock, bufSize), 0, 0, bufSize, nil}
+	size := int(Config.AofQueueSize) / 64
+	queue := &SubscribePublishLockQueue{make([]*PublishLock, size), 0, 0, size, nil}
 	self.freeLockQueueGlock.Unlock()
 	return queue
 }

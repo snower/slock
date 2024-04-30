@@ -1590,7 +1590,7 @@ func (self *BinaryServerProtocol) commandHandleListLockedCommand(_ *BinaryServer
 	}
 
 	locks := make([]*protobuf.LockDBLockLocked, 0)
-	lockManager.glock.Lock()
+	lockManager.glock.LowPriorityLock()
 	if lockManager.currentLock != nil {
 		lock := lockManager.currentLock
 
@@ -1628,7 +1628,7 @@ func (self *BinaryServerProtocol) commandHandleListLockedCommand(_ *BinaryServer
 	if lockData != nil {
 		lockDBLockData = &protobuf.LockDBLockData{Data: lockData[6:], CommandType: uint32(lockData[4]), DataFlag: uint32(lockData[5])}
 	}
-	lockManager.glock.Unlock()
+	lockManager.glock.LowPriorityUnlock()
 
 	response := protobuf.LockDBListLockedResponse{LockKey: lockManager.lockKey[:], LockedCount: lockManager.locked, Locks: locks, LockData: lockDBLockData}
 	data, err := proto.Marshal(&response)
@@ -1663,7 +1663,7 @@ func (self *BinaryServerProtocol) commandHandleListWaitCommand(_ *BinaryServerPr
 	}
 
 	locks := make([]*protobuf.LockDBLockWait, 0)
-	lockManager.glock.Lock()
+	lockManager.glock.LowPriorityLock()
 	if lockManager.waitLocks != nil {
 		for i := range lockManager.waitLocks.IterNodes() {
 			nodeQueues := lockManager.waitLocks.IterNodeQueues(int32(i))
@@ -1687,7 +1687,7 @@ func (self *BinaryServerProtocol) commandHandleListWaitCommand(_ *BinaryServerPr
 	if lockData != nil {
 		lockDBLockData = &protobuf.LockDBLockData{Data: lockData[6:], CommandType: uint32(lockData[4]), DataFlag: uint32(lockData[5])}
 	}
-	lockManager.glock.Unlock()
+	lockManager.glock.LowPriorityUnlock()
 
 	response := protobuf.LockDBListWaitResponse{LockKey: lockManager.lockKey[:], LockedCount: lockManager.locked, Locks: locks, LockData: lockDBLockData}
 	data, err := proto.Marshal(&response)

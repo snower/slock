@@ -799,9 +799,7 @@ func (self *ReplicationClient) ProcessAofAppend() {
 	aofLock := <-self.aofQueue
 	for !self.closed {
 		if aofLock == nil {
-			aof.aofGlock.Lock()
-			aof.Flush()
-			aof.aofGlock.Unlock()
+			aof.FlushWithLocked()
 			self.currentAofId[0], self.currentAofId[1], self.currentAofId[2], self.currentAofId[3], self.currentAofId[4], self.currentAofId[5], self.currentAofId[6], self.currentAofId[7],
 				self.currentAofId[8], self.currentAofId[9], self.currentAofId[10], self.currentAofId[11], self.currentAofId[12], self.currentAofId[13], self.currentAofId[14], self.currentAofId[15] = aofId[0], aofId[1], aofId[2], aofId[3], aofId[4], aofId[5], aofId[6], aofId[7],
 				aofId[8], aofId[9], aofId[10], aofId[11], aofId[12], aofId[13], aofId[14], aofId[15]
@@ -829,9 +827,7 @@ func (self *ReplicationClient) ProcessAofAppend() {
 			continue
 		default:
 			if self.closed {
-				aof.aofGlock.Lock()
-				aof.Flush()
-				aof.aofGlock.Unlock()
+				aof.FlushWithLocked()
 				self.currentAofId[0], self.currentAofId[1], self.currentAofId[2], self.currentAofId[3], self.currentAofId[4], self.currentAofId[5], self.currentAofId[6], self.currentAofId[7],
 					self.currentAofId[8], self.currentAofId[9], self.currentAofId[10], self.currentAofId[11], self.currentAofId[12], self.currentAofId[13], self.currentAofId[14], self.currentAofId[15] = aofId[0], aofId[1], aofId[2], aofId[3], aofId[4], aofId[5], aofId[6], aofId[7],
 					aofId[8], aofId[9], aofId[10], aofId[11], aofId[12], aofId[13], aofId[14], aofId[15]
@@ -854,9 +850,7 @@ func (self *ReplicationClient) ProcessAofAppend() {
 			case aofLock = <-self.aofQueue:
 				continue
 			case <-time.After(200 * time.Millisecond):
-				aof.aofGlock.Lock()
-				aof.Flush()
-				aof.aofGlock.Unlock()
+				aof.FlushWithLocked()
 				self.currentAofId[0], self.currentAofId[1], self.currentAofId[2], self.currentAofId[3], self.currentAofId[4], self.currentAofId[5], self.currentAofId[6], self.currentAofId[7],
 					self.currentAofId[8], self.currentAofId[9], self.currentAofId[10], self.currentAofId[11], self.currentAofId[12], self.currentAofId[13], self.currentAofId[14], self.currentAofId[15] = aofId[0], aofId[1], aofId[2], aofId[3], aofId[4], aofId[5], aofId[6], aofId[7],
 					aofId[8], aofId[9], aofId[10], aofId[11], aofId[12], aofId[13], aofId[14], aofId[15]
@@ -1066,9 +1060,7 @@ func (self *ReplicationServer) handleInitSync(command *protocol.CallCommand) (*p
 
 func (self *ReplicationServer) sendFiles() error {
 	_ = self.aof.WaitRewriteAofFiles()
-	self.aof.aofGlock.Lock()
-	self.aof.Flush()
-	self.aof.aofGlock.Unlock()
+	self.aof.FlushWithLocked()
 
 	appendFiles, rewriteFile, err := self.aof.FindAofFiles()
 	if err != nil {

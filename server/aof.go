@@ -634,10 +634,10 @@ type AofChannel struct {
 }
 
 func NewAofChannel(aof *Aof, lockDb *LockDB, lockDbGlockIndex uint16, lockDbGlock *PriorityMutex) *AofChannel {
-	freeLockMax := int(Config.AofQueueSize) / 128
+	freeLockMax := int(Config.AofQueueSize) / 64
 	return &AofChannel{aof, &sync.Mutex{}, lockDb, lockDbGlockIndex, lockDbGlock, nil, nil,
 		0, make(chan bool, 1), &sync.Mutex{}, nil, make([]*AofLock, freeLockMax),
-		0, freeLockMax, freeLockMax * 4, false, false,
+		0, freeLockMax, freeLockMax * 2, false, false,
 		false, make(chan bool, 1)}
 }
 
@@ -952,7 +952,13 @@ func (self *AofChannel) HandleLock(aofLock *AofLock) {
 		}
 		return
 	}
-	self.aof.PushLock(self.lockDbGlockIndex, aofLock)
+	err = self.aof.PushLock(self.lockDbGlockIndex, aofLock)
+	if err != nil {
+		if aofLock.AofFlag&AOF_FLAG_REQUIRE_ACKED != 0 && aofLock.CommandType == protocol.COMMAND_LOCK && aofLock.lock != nil {
+			lockManager := aofLock.lock.manager
+			lockManager.lockDb.DoAckLock(aofLock.lock, false)
+		}
+	}
 }
 
 func (self *AofChannel) HandleLoad(aofLock *AofLock) {
@@ -977,7 +983,7 @@ func (self *AofChannel) HandleLoad(aofLock *AofLock) {
 	lockCommand := self.serverProtocol.GetLockCommand()
 	lockCommand.CommandType = aofLock.CommandType
 	lockCommand.RequestId = aofLock.GetAofId()
-	lockCommand.Flag = aofLock.Flag | 0x04
+	lockCommand.Flag = aofLock.Flag | protocol.LOCK_FLAG_FROM_AOF
 	lockCommand.DbId = aofLock.DbId
 	lockCommand.LockId = aofLock.LockId
 	lockCommand.LockKey = aofLock.LockKey
@@ -1025,7 +1031,7 @@ func (self *AofChannel) HandleReplay(aofLock *AofLock) {
 	lockCommand := self.serverProtocol.GetLockCommand()
 	lockCommand.CommandType = aofLock.CommandType
 	lockCommand.RequestId = aofLock.GetAofId()
-	lockCommand.Flag = aofLock.Flag | 0x04
+	lockCommand.Flag = aofLock.Flag | protocol.LOCK_FLAG_FROM_AOF
 	lockCommand.DbId = aofLock.DbId
 	lockCommand.LockId = aofLock.LockId
 	lockCommand.LockKey = aofLock.LockKey
@@ -1687,13 +1693,13 @@ func (self *Aof) loadLockAck(lockResult *protocol.LockResultCommand) error {
 	return aofChannel.Acked(lockResult)
 }
 
-func (self *Aof) PushLock(glockIndex uint16, aofLock *AofLock) {
+func (self *Aof) PushLock(glockIndex uint16, aofLock *AofLock) error {
 	self.aofGlock.Lock()
 	if self.aofFile == nil {
 		err := self.RewriteAofFile(true)
 		if err != nil || self.aofFile == nil {
 			self.aofGlock.Unlock()
-			return
+			return errors.New("file not open")
 		}
 	}
 	self.aofFileOffset++
@@ -1713,12 +1719,19 @@ func (self *Aof) PushLock(glockIndex uint16, aofLock *AofLock) {
 	self.replGlock.Unlock()
 	if werr != nil {
 		self.slock.Log().Errorf("Aof append file write error %v", werr)
+		if perr != nil {
+			self.slock.Log().Errorf("Aof push ring buffer queue error %v", perr)
+		} else {
+			_ = self.slock.replicationManager.WakeupServerChannel()
+		}
+		return werr
 	}
 	if perr != nil {
 		self.slock.Log().Errorf("Aof push ring buffer queue error %v", perr)
 	} else {
 		_ = self.slock.replicationManager.WakeupServerChannel()
 	}
+	return perr
 }
 
 func (self *Aof) AppendLock(aofLock *AofLock) bool {
@@ -1790,6 +1803,12 @@ func (self *Aof) Flush() {
 			self.slock.Log().Errorf("Aof Sync file error %v", err)
 		}
 	}
+}
+
+func (self *Aof) FlushWithLocked() {
+	self.aofGlock.Lock()
+	self.Flush()
+	self.aofGlock.Unlock()
 }
 
 func (self *Aof) OpenAofFile(aofIndex uint32) (*AofFile, error) {
@@ -2100,8 +2119,8 @@ func (self *Aof) getLockQueue() *AofLockQueue {
 		return queue
 	}
 
-	bufSize := int(Config.AofQueueSize) / 64
-	queue := &AofLockQueue{make([]*AofLock, bufSize), 0, 0, bufSize, nil}
+	size := int(Config.AofQueueSize) / 64
+	queue := &AofLockQueue{make([]*AofLock, size), 0, 0, size, nil}
 	self.freeLockQueueGlock.Unlock()
 	return queue
 }

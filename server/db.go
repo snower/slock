@@ -2297,7 +2297,7 @@ func (self *LockDB) HasLock(command *protocol.LockCommand, aofLockData []byte) b
 
 	lockManager.glock.LowPriorityLock()
 	for lockManager.lockKey != command.LockKey {
-		lockManager.glock.Unlock()
+		lockManager.glock.LowPriorityUnlock()
 		lockManager = self.GetLockManager(command)
 		if lockManager == nil {
 			return false
@@ -2306,23 +2306,23 @@ func (self *LockDB) HasLock(command *protocol.LockCommand, aofLockData []byte) b
 	}
 
 	if lockManager.locked == 0 {
-		lockManager.glock.Unlock()
+		lockManager.glock.LowPriorityUnlock()
 		return false
 	}
 	if command.CommandType == protocol.COMMAND_LOCK && command.ExpriedFlag&0x4440 == 0 && command.Expried == 0 {
 		if aofLockData == nil || lockManager.currentData == nil || lockManager.currentData.data == nil || !lockManager.currentData.Equal(aofLockData) {
-			lockManager.glock.Unlock()
+			lockManager.glock.LowPriorityUnlock()
 			return false
 		}
-		lockManager.glock.Unlock()
+		lockManager.glock.LowPriorityUnlock()
 		return true
 	}
 	currentLock := lockManager.GetLockedLock(command)
 	if currentLock == nil {
-		lockManager.glock.Unlock()
+		lockManager.glock.LowPriorityUnlock()
 		return false
 	}
-	lockManager.glock.Unlock()
+	lockManager.glock.LowPriorityUnlock()
 	return true
 }
 
