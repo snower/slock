@@ -1015,7 +1015,7 @@ func (self *LockDB) flushExpriedCheckLock(lockQueue *LockQueue, lock *Lock, doEx
 
 func (self *LockDB) initNewLockManager(dbId uint8) {
 	for i := uint16(0); i < self.managerMaxGlocks; i++ {
-		self.managerGlocks[i].PriorityLockWait()
+		self.managerGlocks[i].HighPriorityMutexWait()
 	}
 
 	self.glock.Lock()
@@ -1083,7 +1083,7 @@ func (self *LockDB) GetOrNewLockManager(command *protocol.LockCommand) *LockMana
 	fastLockManager := fastValue.manager
 	for atomic.LoadUint32(&fastValue.lock) == 1 {
 		for i := uint16(0); i < self.managerMaxGlocks; i++ {
-			self.managerGlocks[i].PriorityLockWait()
+			self.managerGlocks[i].HighPriorityMutexWait()
 		}
 		time.Sleep(time.Nanosecond)
 		fastLockManager = fastValue.manager
