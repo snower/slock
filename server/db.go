@@ -58,12 +58,15 @@ type LockDBExecutor struct {
 
 func (self *LockDBExecutor) Run() {
 	self.glock.Lock()
-	for self.db.status != STATE_CLOSE {
+	for {
 		executorTask := self.queueTail
 		if executorTask == nil {
 			self.queueWaited = true
 			self.glock.Unlock()
 			<-self.queueWaiter
+			if self.db.status == STATE_CLOSE {
+				break
+			}
 			self.glock.Lock()
 			continue
 		}
@@ -80,6 +83,9 @@ func (self *LockDBExecutor) Run() {
 		if self.db.slock.state != STATE_LEADER {
 			self.glock.Lock()
 			continue
+		}
+		if self.db.status == STATE_CLOSE {
+			break
 		}
 
 		switch executorTask.command.CommandType {
@@ -306,14 +312,14 @@ func (self *LockDB) Close() {
 
 	for i := uint16(0); i < self.managerMaxGlocks; i++ {
 		self.managerGlocks[i].Lock()
-		self.flushTimeOut(i, true)
-		self.flushExpried(i, false)
-		self.slock.GetAof().CloseAofChannel(self.aofChannels[i])
-		self.slock.GetSubscribeManager().CloseSubscribeChannel(self.subscribeChannels[i])
 		if self.exectors[i] != nil {
 			close(self.exectors[i].queueWaiter)
 			self.exectors[i] = nil
 		}
+		self.flushTimeOut(i, true)
+		self.flushExpried(i, false)
+		self.slock.GetAof().CloseAofChannel(self.aofChannels[i])
+		self.slock.GetSubscribeManager().CloseSubscribeChannel(self.subscribeChannels[i])
 		self.managerGlocks[i].Unlock()
 	}
 }
