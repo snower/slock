@@ -364,7 +364,7 @@ func (self *TextClientProtocol) ArgsToLockComandResult(args []string) (*protocol
 			}
 			lockCommandResult.Rcount = uint8(rcount)
 		case "DATA":
-			lockCommandResult.Data = protocol.NewLockResultCommandDataFromString(args[i+1], protocol.LOCK_DATA_COMMAND_TYPE_SET, 0)
+			lockCommandResult.Data = protocol.NewLockResultCommandDataFromString(args[i+1], 0, protocol.LOCK_DATA_COMMAND_TYPE_SET, 0)
 			lockCommandResult.Flag |= protocol.LOCK_FLAG_CONTAINS_DATA
 		}
 	}

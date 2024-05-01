@@ -248,11 +248,11 @@ func (self *SLock) GetDB(dbId uint8) *LockDB {
 }
 
 func (self *SLock) doLockComamnd(db *LockDB, serverProtocol ServerProtocol, command *protocol.LockCommand) error {
-	return db.Lock(serverProtocol, command)
+	return db.Lock(serverProtocol, command, command.Flag&protocol.LOCK_FLAG_FROM_AOF)
 }
 
 func (self *SLock) doUnLockComamnd(db *LockDB, serverProtocol ServerProtocol, command *protocol.LockCommand) error {
-	return db.UnLock(serverProtocol, command)
+	return db.UnLock(serverProtocol, command, command.Flag&protocol.UNLOCK_FLAG_FROM_AOF)
 }
 
 func (self *SLock) GetState(serverProtocol ServerProtocol, command *protocol.StateCommand) error {

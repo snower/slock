@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"github.com/snower/slock/protocol"
 	"runtime"
 	"sync"
@@ -33,6 +34,104 @@ type MillisecondWaitLockFreeQueue struct {
 	maxFreeCount int
 }
 
+type LockDBExecutorTask struct {
+	next           *LockDBExecutorTask
+	serverProtocol ServerProtocol
+	command        *protocol.LockCommand
+}
+
+type LockDBExecutor struct {
+	db                *LockDB
+	glock             *PriorityMutex
+	queueHead         *LockDBExecutorTask
+	queueTail         *LockDBExecutorTask
+	freeTasks         []*LockDBExecutorTask
+	freeTaskIndex     int
+	freeTaskMax       int
+	runCount          uint32
+	queueCount        int
+	queueWaiter       chan bool
+	queueWaited       bool
+	glockAcquiredSize int
+	glockAcquired     bool
+}
+
+func (self *LockDBExecutor) Run() {
+	self.glock.Lock()
+	for self.db.status != STATE_CLOSE {
+		executorTask := self.queueTail
+		if executorTask == nil {
+			self.queueWaited = true
+			self.glock.Unlock()
+			<-self.queueWaiter
+			self.glock.Lock()
+			continue
+		}
+		self.queueTail = executorTask.next
+		if self.queueTail == nil {
+			self.queueHead = nil
+		}
+		self.queueCount--
+		if self.glockAcquired && self.queueCount < self.glockAcquiredSize {
+			self.glock.LowUnSetPriority()
+			self.glockAcquired = false
+		}
+		self.glock.Unlock()
+		if self.db.slock.state != STATE_LEADER {
+			self.glock.Lock()
+			continue
+		}
+
+		switch executorTask.command.CommandType {
+		case protocol.COMMAND_LOCK:
+			_ = self.db.Lock(executorTask.serverProtocol, executorTask.command, 1)
+		case protocol.COMMAND_UNLOCK:
+			_ = self.db.UnLock(executorTask.serverProtocol, executorTask.command, 1)
+		}
+		executorTask.next = nil
+		executorTask.serverProtocol = nil
+		executorTask.command = nil
+		self.glock.Lock()
+		if self.freeTaskIndex < self.freeTaskMax {
+			self.freeTasks[self.freeTaskIndex] = executorTask
+			self.freeTaskIndex++
+		}
+	}
+	self.glock.Unlock()
+	atomic.AddUint32(&self.runCount, 0xffffffff)
+}
+
+func (self *LockDBExecutor) Push(serverProtocol ServerProtocol, lockCommand *protocol.LockCommand) {
+	var executorTask *LockDBExecutorTask
+	if self.freeTaskIndex > 0 {
+		self.freeTaskIndex--
+		executorTask = self.freeTasks[self.freeTaskIndex]
+		executorTask.serverProtocol = serverProtocol
+		executorTask.command = lockCommand
+		executorTask.next = nil
+	} else {
+		executorTask = &LockDBExecutorTask{nil, serverProtocol, lockCommand}
+	}
+	if self.queueHead != nil {
+		self.queueHead.next = executorTask
+	} else {
+		self.queueTail = executorTask
+	}
+	self.queueHead = executorTask
+	self.queueCount++
+	if !self.glockAcquired && self.queueCount > self.glockAcquiredSize {
+		self.glockAcquired = self.glock.LowSetPriority()
+	}
+	if self.queueWaited {
+		self.queueWaiter <- true
+		self.queueWaited = false
+	}
+	if self.runCount == 0 {
+		go self.Run()
+		atomic.AddUint32(&self.runCount, 1)
+	}
+}
+
 type LockDB struct {
 	slock                     *SLock
 	fastLocks                 []FastKeyValue
@@ -55,6 +154,7 @@ type LockDB struct {
 	freeMillisecondWaitQueues []*MillisecondWaitLockFreeQueue
 	aofChannels               []*AofChannel
 	subscribeChannels         []*SubscribeChannel
+	exectors                  []*LockDBExecutor
 	fastKeyCount              uint32
 	freeLockManagerHead       uint32
 	freeLockManagerTail       uint32
@@ -82,6 +182,7 @@ func NewLockDB(slock *SLock, dbId uint8) *LockDB {
 	freeMillisecondWaitQueues := make([]*MillisecondWaitLockFreeQueue, managerMaxGlocks)
 	aofChannels := make([]*AofChannel, managerMaxGlocks)
 	subscribeChannels := make([]*SubscribeChannel, managerMaxGlocks)
+	exectors := make([]*LockDBExecutor, managerMaxGlocks)
 	states := make([]*protocol.LockDBState, managerMaxGlocks+1)
 	for i := uint16(0); i < managerMaxGlocks; i++ {
 		managerGlocks[i] = NewPriorityMutex()
@@ -116,6 +217,7 @@ func NewLockDB(slock *SLock, dbId uint8) *LockDB {
 		freeMillisecondWaitQueues: freeMillisecondWaitQueues,
 		aofChannels:               aofChannels,
 		subscribeChannels:         subscribeChannels,
+		exectors:                  exectors,
 		fastKeyCount:              uint32(Config.DBFastKeyCount),
 		freeLockManagerHead:       0,
 		freeLockManagerTail:       0,
@@ -176,6 +278,22 @@ func (self *LockDB) resizeExpried() {
 	}
 }
 
+func (self *LockDB) PushExecutorLockCommand(lockManager *LockManager, serverProtocol ServerProtocol, lockCommand *protocol.LockCommand) error {
+	if self.exectors == nil || len(self.exectors) <= int(lockManager.glockIndex) {
+		return errors.New("No exectors")
+	}
+	executor := self.exectors[lockManager.glockIndex]
+	if executor == nil {
+		freeTaskMax := int(Config.AofQueueSize) / 64
+		executor = &LockDBExecutor{self, self.managerGlocks[lockManager.glockIndex], nil, nil,
+			make([]*LockDBExecutorTask, freeTaskMax), 0, freeTaskMax, 0, 0,
+			make(chan bool, 4), false, freeTaskMax * 2, false}
+		self.exectors[lockManager.glockIndex] = executor
+	}
+	executor.Push(serverProtocol, lockCommand)
+	return nil
+}
+
 func (self *LockDB) Close() {
 	self.glock.Lock()
 	if self.status != STATE_CLOSE {
@@ -192,6 +310,10 @@ func (self *LockDB) Close() {
 		self.flushExpried(i, false)
 		self.slock.GetAof().CloseAofChannel(self.aofChannels[i])
 		self.slock.GetSubscribeManager().CloseSubscribeChannel(self.subscribeChannels[i])
+		if self.exectors[i] != nil {
+			close(self.exectors[i].queueWaiter)
+			self.exectors[i] = nil
+		}
 		self.managerGlocks[i].Unlock()
 	}
 }
@@ -1192,10 +1314,14 @@ func (self *LockDB) doTimeOut(lock *Lock, forcedExpried bool) {
 	if lockLocked > 0 {
 		lockManager.locked -= uint32(lockLocked)
 		lockManager.RemoveLock(lock)
-		if lockCommand.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 && lock.ackCount != 0xff {
-			lockManager.ProcessRecoverLockData(lock)
-			lockManager.state.LockCount--
-			lockManager.state.LockedCount--
+		if lockCommand.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
+			if lock.ackCount != 0xff {
+				lockManager.ProcessRecoverLockData(lock)
+				lockManager.state.LockCount--
+				lockManager.state.LockedCount--
+			} else {
+				lockManager.ProcessExecuteLockCommand(lock, protocol.LOCK_DATA_STAGE_TIMEOUT)
+			}
 		}
 		if lock.isAof {
 			_ = lockManager.PushUnLockAof(lockManager.dbId, lock, lockCommand, nil, false, AOF_FLAG_TIMEOUTED)
@@ -1241,7 +1367,7 @@ func (self *LockDB) doTimeOut(lock *Lock, forcedExpried bool) {
 				lockKey[15], lockKey[14], lockKey[13], lockKey[12], lockKey[11], lockKey[10], lockKey[9], lockKey[8],
 				lockKey[7], lockKey[6], lockKey[5], lockKey[4], lockKey[3], lockKey[2], lockKey[1], lockKey[0]
 
-			_ = self.Lock(lockProtocol.serverProtocol, lockCommand)
+			_ = self.Lock(lockProtocol, lockCommand, 1)
 		} else {
 			_ = lockProtocol.FreeLockCommandLocked(lockCommand)
 		}
@@ -1378,6 +1504,9 @@ func (self *LockDB) doExpried(lock *Lock, forcedExpried bool) {
 	if lockCommand.ExpriedFlag&protocol.EXPRIED_FLAG_PUSH_SUBSCRIBE != 0 {
 		_ = self.subscribeChannels[lockManager.glockIndex].Push(lockCommand, protocol.RESULT_EXPRIED, uint16(lockManager.locked), lock.locked, lockManager.GetLockData())
 	}
+	if lockCommand.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
+		lockManager.ProcessExecuteLockCommand(lock, protocol.LOCK_DATA_STAGE_EXPRIED)
+	}
 
 	lock.refCount--
 	if lock.refCount == 0 {
@@ -1405,7 +1534,6 @@ func (self *LockDB) doExpried(lock *Lock, forcedExpried bool) {
 	}
 
 	self.wakeUpWaitLocks(lockManager, nil)
-
 	if expriedFlag&protocol.EXPRIED_FLAG_REVERSE_KEY_LOCK_WHEN_EXPRIED != 0 {
 		lockCommand.ExpriedFlag = 0
 		lockCommand.Expried = lockCommand.Timeout
@@ -1415,7 +1543,7 @@ func (self *LockDB) doExpried(lock *Lock, forcedExpried bool) {
 			lockKey[15], lockKey[14], lockKey[13], lockKey[12], lockKey[11], lockKey[10], lockKey[9], lockKey[8],
 			lockKey[7], lockKey[6], lockKey[5], lockKey[4], lockKey[3], lockKey[2], lockKey[1], lockKey[0]
 
-		_ = self.Lock(lockProtocol.serverProtocol, lockCommand)
+		_ = self.Lock(lockProtocol, lockCommand, 1)
 	}
 }
 
@@ -1443,7 +1571,7 @@ func (self *LockDB) AddMillisecondExpried(lock *Lock) {
 	}
 }
 
-func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCommand) error {
+func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCommand, lockPriorityLevel uint8) error {
 	/*
 	   protocol.LockCommand.Flag
 	   |7              |       5	 |       4      |        3       |    2   |           1           |         0           |
@@ -1462,14 +1590,14 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 		}
 	}
 
-	if command.Flag&protocol.LOCK_FLAG_FROM_AOF == 0 {
+	if lockPriorityLevel == 0 {
 		lockManager.glock.LowPriorityLock()
 	} else {
 		lockManager.glock.Lock()
 	}
 	if lockManager.lockKey != command.LockKey {
 		lockManager.glock.Unlock()
-		return self.Lock(serverProtocol, command)
+		return self.Lock(serverProtocol, command, lockPriorityLevel)
 	}
 
 	if self.status != STATE_LEADER {
@@ -1726,7 +1854,7 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 	return nil
 }
 
-func (self *LockDB) UnLock(serverProtocol ServerProtocol, command *protocol.LockCommand) error {
+func (self *LockDB) UnLock(serverProtocol ServerProtocol, command *protocol.LockCommand, lockPriorityLevel uint8) error {
 	/*
 	   protocol.LockCommand.Flag
 	   |7                  |      5      |        4       |         3         |    2   |           1             |               0               |
@@ -1742,14 +1870,14 @@ func (self *LockDB) UnLock(serverProtocol ServerProtocol, command *protocol.Lock
 		return nil
 	}
 
-	if command.Flag&protocol.UNLOCK_FLAG_FROM_AOF == 0 {
+	if lockPriorityLevel == 0 {
 		lockManager.glock.LowPriorityLock()
 	} else {
 		lockManager.glock.Lock()
 	}
 	if lockManager.lockKey != command.LockKey {
 		lockManager.glock.Unlock()
-		return self.UnLock(serverProtocol, command)
+		return self.UnLock(serverProtocol, command, lockPriorityLevel)
 	}
 
 	if self.status != STATE_LEADER {
@@ -1871,6 +1999,9 @@ func (self *LockDB) UnLock(serverProtocol ServerProtocol, command *protocol.Lock
 					_ = lockManager.PushUnLockAof(lockManager.dbId, currentLock, currentLockCommand, command, false, 0)
 				}
 			}
+			if currentLockCommand.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
+				lockManager.ProcessExecuteLockCommand(currentLock, protocol.LOCK_DATA_STAGE_UNLOCK)
+			}
 			lockManager.state.UnLockCount += uint64(lockLocked)
 			lockManager.state.LockedCount -= uint32(lockLocked)
 
@@ -1910,6 +2041,9 @@ func (self *LockDB) UnLock(serverProtocol ServerProtocol, command *protocol.Lock
 				_ = lockManager.PushUnLockAof(lockManager.dbId, currentLock, currentLockCommand, command, false, 0)
 			}
 			lockManager.locked--
+		}
+		if currentLockCommand.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
+			lockManager.ProcessExecuteLockCommand(currentLock, protocol.LOCK_DATA_STAGE_UNLOCK)
 		}
 		lockManager.state.UnLockCount++
 		lockManager.state.LockedCount--
@@ -2166,7 +2300,7 @@ func (self *LockDB) unlockTreeLock(serverProtocol ServerProtocol, command *proto
 		_ = serverProtocol.FreeLockCommand(currentLockCommand)
 
 		command.RequestId = protocol.GenRequestId()
-		_ = self.UnLock(serverProtocol, command)
+		_ = self.UnLock(serverProtocol, command, 1)
 		return true
 	}
 
@@ -2178,7 +2312,7 @@ func (self *LockDB) unlockTreeLock(serverProtocol ServerProtocol, command *proto
 
 	command.Flag |= protocol.UNLOCK_FLAG_UNLOCK_TREE_LOCK
 	command.RequestId = protocol.GenRequestId()
-	_ = self.UnLock(serverProtocol, command)
+	_ = self.UnLock(serverProtocol, command, 1)
 	return true
 }
 

@@ -466,7 +466,7 @@ func (self *TransparencyBinaryServerProtocol) ProcessParse(buf []byte) error {
 			if db == nil {
 				db = self.slock.GetOrNewDB(lockCommand.DbId)
 			}
-			return db.Lock(self, lockCommand)
+			return db.Lock(self, lockCommand, lockCommand.Flag&protocol.LOCK_FLAG_FROM_AOF)
 		} else {
 			db := self.slock.dbs[lockCommand.DbId]
 			if db != nil && db.CheckProbableLock(self, lockCommand) {
@@ -540,7 +540,7 @@ func (self *TransparencyBinaryServerProtocol) ProcessParse(buf []byte) error {
 				_ = self.serverProtocol.FreeLockCommand(lockCommand)
 				return err
 			}
-			return db.UnLock(self, lockCommand)
+			return db.UnLock(self, lockCommand, lockCommand.Flag&protocol.UNLOCK_FLAG_FROM_AOF)
 		}
 
 		clientProtocol, err := self.CheckClient()
@@ -753,11 +753,11 @@ func (self *TransparencyBinaryServerProtocol) GetStream() *Stream {
 	return self.stream
 }
 
-func (self *TransparencyBinaryServerProtocol) GetProxy() *ServerProtocolProxy {
+func (self *TransparencyBinaryServerProtocol) GetProxy() *ProxyServerProtocol {
 	return self.serverProtocol.GetProxy()
 }
 
-func (self *TransparencyBinaryServerProtocol) AddProxy(proxy *ServerProtocolProxy) error {
+func (self *TransparencyBinaryServerProtocol) AddProxy(proxy *ProxyServerProtocol) error {
 	return self.serverProtocol.AddProxy(proxy)
 }
 
@@ -1086,11 +1086,11 @@ func (self *TransparencyTextServerProtocol) GetStream() *Stream {
 	return self.stream
 }
 
-func (self *TransparencyTextServerProtocol) GetProxy() *ServerProtocolProxy {
+func (self *TransparencyTextServerProtocol) GetProxy() *ProxyServerProtocol {
 	return self.serverProtocol.GetProxy()
 }
 
-func (self *TransparencyTextServerProtocol) AddProxy(proxy *ServerProtocolProxy) error {
+func (self *TransparencyTextServerProtocol) AddProxy(proxy *ProxyServerProtocol) error {
 	return self.serverProtocol.AddProxy(proxy)
 }
 
@@ -1111,6 +1111,10 @@ func (self *TransparencyTextServerProtocol) UnInitLockCommand() {
 
 func (self *TransparencyTextServerProtocol) GetLockCommand() *protocol.LockCommand {
 	return self.serverProtocol.GetLockCommand()
+}
+
+func (self *TransparencyTextServerProtocol) GetLockCommandLocked() *protocol.LockCommand {
+	return self.serverProtocol.GetLockCommandLocked()
 }
 
 func (self *TransparencyTextServerProtocol) FreeLockCommand(command *protocol.LockCommand) error {

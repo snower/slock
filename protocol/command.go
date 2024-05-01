@@ -95,11 +95,20 @@ const (
 )
 
 const (
-	LOCK_DATA_COMMAND_TYPE_SET    = 0
-	LOCK_DATA_COMMAND_TYPE_UNSET  = 1
-	LOCK_DATA_COMMAND_TYPE_INCR   = 2
-	LOCK_DATA_COMMAND_TYPE_APPEND = 3
-	LOCK_DATA_COMMAND_TYPE_SHIFT  = 4
+	LOCK_DATA_STAGE_LOCK    = 0
+	LOCK_DATA_STAGE_UNLOCK  = 1
+	LOCK_DATA_STAGE_TIMEOUT = 2
+	LOCK_DATA_STAGE_EXPRIED = 3
+)
+
+const (
+	LOCK_DATA_COMMAND_TYPE_SET      = 0
+	LOCK_DATA_COMMAND_TYPE_UNSET    = 1
+	LOCK_DATA_COMMAND_TYPE_INCR     = 2
+	LOCK_DATA_COMMAND_TYPE_APPEND   = 3
+	LOCK_DATA_COMMAND_TYPE_SHIFT    = 4
+	LOCK_DATA_COMMAND_TYPE_EXECUTE  = 5
+	LOCK_DATA_COMMAND_TYPE_PIPELINE = 6
 )
 
 var ERROR_MSG []string = []string{
@@ -338,62 +347,99 @@ func (self *InitResultCommand) Encode(buf []byte) error {
 }
 
 type LockCommandData struct {
-	Data        []byte
-	CommandType uint8
-	DataFlag    uint8
+	Data         []byte
+	CommandStage uint8
+	CommandType  uint8
+	DataFlag     uint8
 }
 
 func NewLockCommandDataFromOriginBytes(data []byte) *LockCommandData {
-	return &LockCommandData{data, data[4], data[5]}
+	return &LockCommandData{data, data[4] >> 6, data[4] & 0x3f, data[5]}
 }
 
-func NewLockCommandDataFromBytes(data []byte, commandType uint8, dataFlag uint8) *LockCommandData {
+func NewLockCommandDataFromBytes(data []byte, commandStage uint8, commandType uint8, dataFlag uint8) *LockCommandData {
 	dataLen := len(data) + 2
 	buf := make([]byte, dataLen+4)
 	buf[0], buf[1], buf[2], buf[3] = byte(dataLen), byte(dataLen>>8), byte(dataLen>>16), byte(dataLen>>24)
-	buf[4], buf[5] = commandType, dataFlag
+	buf[4], buf[5] = (commandStage<<6)|(commandType&0x3f), dataFlag
 	copy(buf[6:], data)
-	return &LockCommandData{buf, commandType, dataFlag}
+	return &LockCommandData{buf, commandStage, commandType, dataFlag}
 }
 
-func NewLockCommandDataFromString(data string, commandType uint8, dataFlag uint8) *LockCommandData {
+func NewLockCommandDataFromString(data string, commandStage uint8, commandType uint8, dataFlag uint8) *LockCommandData {
 	dataLen := len(data) + 2
 	buf := make([]byte, dataLen+4)
 	buf[0], buf[1], buf[2], buf[3] = byte(dataLen), byte(dataLen>>8), byte(dataLen>>16), byte(dataLen>>24)
-	buf[4], buf[5] = commandType, dataFlag
+	buf[4], buf[5] = (commandStage<<6)|(commandType&0x3f), dataFlag
 	copy(buf[6:], data)
-	return &LockCommandData{buf, commandType, dataFlag}
+	return &LockCommandData{buf, commandStage, commandType, dataFlag}
 }
 
 func NewLockCommandDataSetData(data []byte) *LockCommandData {
-	return NewLockCommandDataFromBytes(data, LOCK_DATA_COMMAND_TYPE_SET, 0)
+	return NewLockCommandDataFromBytes(data, LOCK_DATA_STAGE_LOCK, LOCK_DATA_COMMAND_TYPE_SET, 0)
 }
 
 func NewLockCommandDataSetString(data string) *LockCommandData {
-	return NewLockCommandDataFromString(data, LOCK_DATA_COMMAND_TYPE_SET, 0)
+	return NewLockCommandDataFromString(data, LOCK_DATA_STAGE_LOCK, LOCK_DATA_COMMAND_TYPE_SET, 0)
 }
 
 func NewLockCommandDataUnsetData() *LockCommandData {
-	return &LockCommandData{[]byte{2, 0, 0, 0, LOCK_DATA_COMMAND_TYPE_UNSET, 0}, LOCK_DATA_COMMAND_TYPE_UNSET, 0}
+	return &LockCommandData{[]byte{2, 0, 0, 0, LOCK_DATA_COMMAND_TYPE_UNSET, 0}, LOCK_DATA_STAGE_LOCK, LOCK_DATA_COMMAND_TYPE_UNSET, 0}
 }
 
 func NewLockCommandDataIncrData(incrValue int64) *LockCommandData {
 	return &LockCommandData{[]byte{10, 0, 0, 0, LOCK_DATA_COMMAND_TYPE_INCR, 0,
 		byte(incrValue), byte(incrValue >> 8), byte(incrValue >> 16), byte(incrValue >> 24), byte(incrValue >> 32), byte(incrValue >> 40), byte(incrValue >> 48), byte(incrValue >> 56)},
-		LOCK_DATA_COMMAND_TYPE_INCR, 0}
+		LOCK_DATA_STAGE_LOCK, LOCK_DATA_COMMAND_TYPE_INCR, 0}
 }
 
 func NewLockCommandDataAppendData(data []byte) *LockCommandData {
-	return NewLockCommandDataFromBytes(data, LOCK_DATA_COMMAND_TYPE_APPEND, 0)
+	return NewLockCommandDataFromBytes(data, LOCK_DATA_STAGE_LOCK, LOCK_DATA_COMMAND_TYPE_APPEND, 0)
 }
 
 func NewLockCommandDataAppendString(data string) *LockCommandData {
-	return NewLockCommandDataFromString(data, LOCK_DATA_COMMAND_TYPE_APPEND, 0)
+	return NewLockCommandDataFromString(data, LOCK_DATA_STAGE_LOCK, LOCK_DATA_COMMAND_TYPE_APPEND, 0)
 }
 
 func NewLockCommandDataShiftData(lengthValue uint32) *LockCommandData {
 	return &LockCommandData{[]byte{6, 0, 0, 0, LOCK_DATA_COMMAND_TYPE_SHIFT, 0,
-		byte(lengthValue), byte(lengthValue >> 8), byte(lengthValue >> 16), byte(lengthValue >> 24)}, LOCK_DATA_COMMAND_TYPE_SHIFT, 0}
+		byte(lengthValue), byte(lengthValue >> 8), byte(lengthValue >> 16), byte(lengthValue >> 24)},
+		LOCK_DATA_STAGE_LOCK, LOCK_DATA_COMMAND_TYPE_SHIFT, 0}
+}
+
+func NewLockCommandDataLockCommandData(lockCommand *LockCommand, commandStage uint8) *LockCommandData {
+	dataLen := 66
+	if lockCommand.Data != nil {
+		lockCommand.Flag |= LOCK_FLAG_CONTAINS_DATA
+		dataLen += len(lockCommand.Data.Data)
+	}
+	buf := make([]byte, dataLen+4)
+	buf[0], buf[1], buf[2], buf[3] = byte(dataLen), byte(dataLen>>8), byte(dataLen>>16), byte(dataLen>>24)
+	buf[4], buf[5] = (commandStage<<6)|LOCK_DATA_COMMAND_TYPE_EXECUTE, 0
+	err := lockCommand.Encode(buf[6:70])
+	if err != nil {
+		return nil
+	}
+	if lockCommand.Data != nil {
+		copy(buf[70:], lockCommand.Data.Data)
+	}
+	return &LockCommandData{buf, commandStage, LOCK_DATA_COMMAND_TYPE_EXECUTE, 0}
+}
+
+func NewLockCommandDataPipelineData(lockCommandDatas []*LockCommandData) *LockCommandData {
+	dataLen := 2
+	for _, lockCommandData := range lockCommandDatas {
+		dataLen += len(lockCommandData.Data)
+	}
+	buf := make([]byte, dataLen+4)
+	buf[0], buf[1], buf[2], buf[3] = byte(dataLen), byte(dataLen>>8), byte(dataLen>>16), byte(dataLen>>24)
+	buf[4], buf[5] = LOCK_DATA_COMMAND_TYPE_PIPELINE, 0
+	index := 6
+	for _, lockCommandData := range lockCommandDatas {
+		copy(buf[index:], lockCommandData.Data)
+		index += len(lockCommandData.Data)
+	}
+	return &LockCommandData{buf, 0, LOCK_DATA_COMMAND_TYPE_PIPELINE, 0}
 }
 
 func (self *LockCommandData) GetBytesData() []byte {
@@ -444,6 +490,33 @@ func (self *LockCommandData) GetShiftLengthValue() uint32 {
 		}
 	}
 	return value
+}
+
+func (self *LockCommandData) DecodeLockCommand(lockCommand *LockCommand) error {
+	if len(self.Data) < 70 {
+		return errors.New("data size error")
+	}
+	err := lockCommand.Decode(self.Data[6:70])
+	if err != nil {
+		return err
+	}
+	if lockCommand.Flag&LOCK_FLAG_CONTAINS_DATA != 0 {
+		if len(self.Data) < 74 {
+			return errors.New("data size error")
+		}
+		dataLen := int(uint32(self.Data[70]) | uint32(self.Data[71])<<8 | uint32(self.Data[72])<<16 | uint32(self.Data[73])<<24)
+		buf := make([]byte, dataLen+4)
+		buf[0], buf[1], buf[2], buf[3] = byte(dataLen), byte(dataLen>>8), byte(dataLen>>16), byte(dataLen>>24)
+		if dataLen <= 0 {
+			return nil
+		}
+		if len(self.Data) < 74+dataLen {
+			return errors.New("data size error")
+		}
+		copy(buf[4:], self.Data[74:dataLen+74])
+		lockCommand.Data = NewLockCommandDataFromOriginBytes(buf)
+	}
+	return nil
 }
 
 type LockCommand struct {
@@ -545,31 +618,32 @@ func (self *LockCommand) GetLockData() *LockCommandData {
 var RESULT_LOCK_COMMAND_BLANK_BYTERS = [4]byte{}
 
 type LockResultCommandData struct {
-	Data        []byte
-	CommandType uint8
-	DataFlag    uint8
+	Data         []byte
+	CommandStage uint8
+	CommandType  uint8
+	DataFlag     uint8
 }
 
 func NewLockResultCommandDataFromOriginBytes(data []byte) *LockResultCommandData {
-	return &LockResultCommandData{data, data[4], data[5]}
+	return &LockResultCommandData{data, data[4] >> 6, data[4] & 0x3f, data[5]}
 }
 
-func NewLockResultCommandDataFromBytes(data []byte, commandType uint8, dataFlag uint8) *LockResultCommandData {
+func NewLockResultCommandDataFromBytes(data []byte, commandStage uint8, commandType uint8, dataFlag uint8) *LockResultCommandData {
 	dataLen := len(data) + 2
 	buf := make([]byte, dataLen+4)
 	buf[0], buf[1], buf[2], buf[3] = byte(dataLen), byte(dataLen>>8), byte(dataLen>>16), byte(dataLen>>24)
-	buf[4], buf[5] = commandType, dataFlag
+	buf[4], buf[5] = (commandStage<<6)|(commandType&0x3f), dataFlag
 	copy(buf[6:], data)
-	return &LockResultCommandData{buf, commandType, dataFlag}
+	return &LockResultCommandData{buf, commandStage, commandType, dataFlag}
 }
 
-func NewLockResultCommandDataFromString(data string, commandType uint8, dataFlag uint8) *LockResultCommandData {
+func NewLockResultCommandDataFromString(data string, commandStage uint8, commandType uint8, dataFlag uint8) *LockResultCommandData {
 	dataLen := len(data) + 2
 	buf := make([]byte, dataLen+4)
 	buf[0], buf[1], buf[2], buf[3] = byte(dataLen), byte(dataLen>>8), byte(dataLen>>16), byte(dataLen>>24)
-	buf[4], buf[5] = commandType, dataFlag
+	buf[4], buf[5] = (commandStage<<6)|(commandType&0x3f), dataFlag
 	copy(buf[6:], data)
-	return &LockResultCommandData{buf, commandType, dataFlag}
+	return &LockResultCommandData{buf, commandStage, commandType, dataFlag}
 }
 
 func (self *LockResultCommandData) GetBytesData() []byte {

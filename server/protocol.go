@@ -32,10 +32,11 @@ type ServerProtocol interface {
 	ProcessLockResultCommandLocked(command *protocol.LockCommand, result uint8, lcount uint16, lrcount uint8, data []byte) error
 	Close() error
 	GetStream() *Stream
-	GetProxy() *ServerProtocolProxy
-	AddProxy(proxy *ServerProtocolProxy) error
+	GetProxy() *ProxyServerProtocol
+	AddProxy(proxy *ProxyServerProtocol) error
 	RemoteAddr() net.Addr
 	GetLockCommand() *protocol.LockCommand
+	GetLockCommandLocked() *protocol.LockCommand
 	FreeLockCommand(command *protocol.LockCommand) error
 	FreeLockCommandLocked(command *protocol.LockCommand) error
 }
@@ -49,12 +50,64 @@ type ServerProtocolSession struct {
 	totalCommandCount uint64
 }
 
-type ServerProtocolProxy struct {
+type ProxyServerProtocol struct {
 	clientId       [16]byte
 	serverProtocol ServerProtocol
 }
 
-func (self *ServerProtocolProxy) ProcessLockResultCommandLocked(command *protocol.LockCommand, result uint8, lcount uint16, lrcount uint8, data []byte) error {
+func (self *ProxyServerProtocol) Init(clientId [16]byte) error {
+	return self.serverProtocol.Init(clientId)
+}
+
+func (self *ProxyServerProtocol) Lock() {
+	self.serverProtocol.Lock()
+}
+
+func (self *ProxyServerProtocol) Unlock() {
+	self.serverProtocol.Unlock()
+}
+
+func (self *ProxyServerProtocol) Read() (protocol.CommandDecode, error) {
+	return self.serverProtocol.Read()
+}
+
+func (self *ProxyServerProtocol) Write(command protocol.CommandEncode) error {
+	return self.serverProtocol.Write(command)
+}
+
+func (self *ProxyServerProtocol) ReadCommand() (protocol.CommandDecode, error) {
+	return self.serverProtocol.ReadCommand()
+}
+
+func (self *ProxyServerProtocol) WriteCommand(command protocol.CommandEncode) error {
+	return self.serverProtocol.WriteCommand(command)
+}
+
+func (self *ProxyServerProtocol) Process() error {
+	return self.serverProtocol.Process()
+}
+
+func (self *ProxyServerProtocol) ProcessParse(buf []byte) error {
+	return self.serverProtocol.ProcessParse(buf)
+}
+
+func (self *ProxyServerProtocol) ProcessBuild(command protocol.ICommand) error {
+	return self.serverProtocol.ProcessBuild(command)
+}
+
+func (self *ProxyServerProtocol) ProcessCommad(command protocol.ICommand) error {
+	return self.serverProtocol.ProcessCommad(command)
+}
+
+func (self *ProxyServerProtocol) ProcessLockCommand(command *protocol.LockCommand) error {
+	return self.serverProtocol.ProcessLockCommand(command)
+}
+
+func (self *ProxyServerProtocol) ProcessLockResultCommand(command *protocol.LockCommand, result uint8, lcount uint16, lrcount uint8, data []byte) error {
+	return self.ProcessLockResultCommandLocked(command, result, lcount, lrcount, data)
+}
+
+func (self *ProxyServerProtocol) ProcessLockResultCommandLocked(command *protocol.LockCommand, result uint8, lcount uint16, lrcount uint8, data []byte) error {
 	if self.serverProtocol == defaultServerProtocol {
 		defaultServerProtocol.slock.clientsGlock.Lock()
 		if self.serverProtocol == defaultServerProtocol {
@@ -74,31 +127,58 @@ func (self *ServerProtocolProxy) ProcessLockResultCommandLocked(command *protoco
 	return self.serverProtocol.ProcessLockResultCommandLocked(command, result, lcount, lrcount, data)
 }
 
-func (self *ServerProtocolProxy) FreeLockCommandLocked(command *protocol.LockCommand) error {
-	return self.serverProtocol.FreeLockCommandLocked(command)
+func (self *ProxyServerProtocol) Close() error {
+	return nil
 }
 
-func (self *ServerProtocolProxy) GetStream() *Stream {
+func (self *ProxyServerProtocol) GetStream() *Stream {
 	if self.serverProtocol != nil {
 		return self.serverProtocol.GetStream()
 	}
 	return nil
 }
 
-func (self *ServerProtocolProxy) RemoteAddr() net.Addr {
+func (self *ProxyServerProtocol) GetProxy() *ProxyServerProtocol {
+	return self
+}
+
+func (self *ProxyServerProtocol) AddProxy(proxyServerProtocol *ProxyServerProtocol) error {
+	if self == proxyServerProtocol {
+		return nil
+	}
+	return self.serverProtocol.AddProxy(proxyServerProtocol)
+}
+
+func (self *ProxyServerProtocol) RemoteAddr() net.Addr {
 	if self.serverProtocol != nil {
 		return self.serverProtocol.RemoteAddr()
 	}
 	return &net.TCPAddr{IP: []byte("0.0.0.0"), Port: 0, Zone: ""}
 }
 
+func (self *ProxyServerProtocol) GetLockCommand() *protocol.LockCommand {
+	return self.serverProtocol.GetLockCommandLocked()
+}
+
+func (self *ProxyServerProtocol) GetLockCommandLocked() *protocol.LockCommand {
+	return self.serverProtocol.GetLockCommandLocked()
+}
+
+func (self *ProxyServerProtocol) FreeLockCommand(command *protocol.LockCommand) error {
+	return self.serverProtocol.FreeLockCommandLocked(command)
+}
+
+func (self *ProxyServerProtocol) FreeLockCommandLocked(command *protocol.LockCommand) error {
+	return self.serverProtocol.FreeLockCommandLocked(command)
+}
+
 type DefaultServerProtocol struct {
 	slock         *SLock
-	protocolProxy *ServerProtocolProxy
+	protocolProxy *ProxyServerProtocol
 }
 
 func NewDefaultServerProtocol(slock *SLock) *DefaultServerProtocol {
-	proxy := &ServerProtocolProxy{[16]byte{}, nil}
+	proxy := &ProxyServerProtocol{[16]byte{}, nil}
 	serverProtocol := &DefaultServerProtocol{slock, proxy}
 	proxy.serverProtocol = serverProtocol
 	return serverProtocol
@@ -159,7 +239,7 @@ func (self *DefaultServerProtocol) ProcessCommad(command protocol.ICommand) erro
 		if db == nil {
 			db = self.slock.GetOrNewDB(lockCommand.DbId)
 		}
-		return db.Lock(self, lockCommand)
+		return db.Lock(self, lockCommand, lockCommand.Flag&protocol.LOCK_FLAG_FROM_AOF)
 
 	case protocol.COMMAND_UNLOCK:
 		lockCommand := command.(*protocol.LockCommand)
@@ -176,7 +256,7 @@ func (self *DefaultServerProtocol) ProcessCommad(command protocol.ICommand) erro
 			_ = self.FreeLockCommand(lockCommand)
 			return err
 		}
-		return db.UnLock(self, lockCommand)
+		return db.UnLock(self, lockCommand, lockCommand.Flag&protocol.UNLOCK_FLAG_FROM_AOF)
 
 	default:
 		return self.Write(protocol.NewResultCommand(command, protocol.RESULT_UNKNOWN_COMMAND))
@@ -195,7 +275,7 @@ func (self *DefaultServerProtocol) ProcessLockCommand(lockCommand *protocol.Lock
 		if db == nil {
 			db = self.slock.GetOrNewDB(lockCommand.DbId)
 		}
-		return db.Lock(self, lockCommand)
+		return db.Lock(self, lockCommand, lockCommand.Flag&protocol.LOCK_FLAG_FROM_AOF)
 	}
 
 	if db == nil {
@@ -203,7 +283,7 @@ func (self *DefaultServerProtocol) ProcessLockCommand(lockCommand *protocol.Lock
 		_ = self.FreeLockCommand(lockCommand)
 		return err
 	}
-	return db.UnLock(self, lockCommand)
+	return db.UnLock(self, lockCommand, lockCommand.Flag&protocol.UNLOCK_FLAG_FROM_AOF)
 }
 
 func (self *DefaultServerProtocol) ProcessLockResultCommand(_ *protocol.LockCommand, _ uint8, _ uint16, _ uint8, _ []byte) error {
@@ -222,11 +302,11 @@ func (self *DefaultServerProtocol) GetStream() *Stream {
 	return nil
 }
 
-func (self *DefaultServerProtocol) GetProxy() *ServerProtocolProxy {
+func (self *DefaultServerProtocol) GetProxy() *ProxyServerProtocol {
 	return self.protocolProxy
 }
 
-func (self *DefaultServerProtocol) AddProxy(_ *ServerProtocolProxy) error {
+func (self *DefaultServerProtocol) AddProxy(_ *ProxyServerProtocol) error {
 	return nil
 }
 
@@ -235,6 +315,10 @@ func (self *DefaultServerProtocol) RemoteAddr() net.Addr {
 }
 
 func (self *DefaultServerProtocol) GetLockCommand() *protocol.LockCommand {
+	return self.GetLockCommandLocked()
+}
+
+func (self *DefaultServerProtocol) GetLockCommandLocked() *protocol.LockCommand {
 	self.slock.freeLockCommandLock.Lock()
 	lockCommand := self.slock.freeLockCommandQueue.PopRight()
 	if lockCommand != nil {
@@ -267,7 +351,7 @@ type MemWaiterServerProtocol struct {
 	slock              *SLock
 	glock              *sync.Mutex
 	session            *ServerProtocolSession
-	proxys             []*ServerProtocolProxy
+	proxys             []*ProxyServerProtocol
 	freeCommands       []*protocol.LockCommand
 	freeCommandIndex   int
 	lockedFreeCommands *LockCommandQueue
@@ -278,8 +362,8 @@ type MemWaiterServerProtocol struct {
 }
 
 func NewMemWaiterServerProtocol(slock *SLock) *MemWaiterServerProtocol {
-	proxy := &ServerProtocolProxy{[16]byte{}, nil}
-	memWaiterServerProtocol := &MemWaiterServerProtocol{slock, &sync.Mutex{}, nil, make([]*ServerProtocolProxy, 0), make([]*protocol.LockCommand, FREE_COMMAND_MAX_SIZE),
+	proxy := &ProxyServerProtocol{[16]byte{}, nil}
+	memWaiterServerProtocol := &MemWaiterServerProtocol{slock, &sync.Mutex{}, nil, make([]*ProxyServerProtocol, 0), make([]*protocol.LockCommand, FREE_COMMAND_MAX_SIZE),
 		0, NewLockCommandQueue(4, 64, FREE_COMMAND_QUEUE_INIT_SIZE),
 		make(map[[16]byte]chan *protocol.LockResultCommand, 4096), nil, 0, false}
 	proxy.serverProtocol = memWaiterServerProtocol
@@ -341,14 +425,14 @@ func (self *MemWaiterServerProtocol) ProcessLockCommand(lockCommand *protocol.Lo
 		if db == nil {
 			db = self.slock.GetOrNewDB(lockCommand.DbId)
 		}
-		return db.Lock(self, lockCommand)
+		return db.Lock(self, lockCommand, lockCommand.Flag&protocol.LOCK_FLAG_FROM_AOF)
 	case protocol.COMMAND_UNLOCK:
 		if db == nil {
 			err := self.ProcessLockResultCommand(lockCommand, protocol.RESULT_UNKNOWN_DB, 0, 0, nil)
 			_ = self.FreeLockCommand(lockCommand)
 			return err
 		}
-		return db.UnLock(self, lockCommand)
+		return db.UnLock(self, lockCommand, lockCommand.Flag&protocol.UNLOCK_FLAG_FROM_AOF)
 	}
 	return self.ProcessLockResultCommand(lockCommand, protocol.RESULT_UNKNOWN_COMMAND, 0, 0, nil)
 }
@@ -401,11 +485,11 @@ func (self *MemWaiterServerProtocol) GetStream() *Stream {
 	return nil
 }
 
-func (self *MemWaiterServerProtocol) GetProxy() *ServerProtocolProxy {
+func (self *MemWaiterServerProtocol) GetProxy() *ProxyServerProtocol {
 	return self.proxys[0]
 }
 
-func (self *MemWaiterServerProtocol) AddProxy(proxy *ServerProtocolProxy) error {
+func (self *MemWaiterServerProtocol) AddProxy(proxy *ProxyServerProtocol) error {
 	self.glock.Lock()
 	if self.closed {
 		self.glock.Unlock()
@@ -471,7 +555,18 @@ func (self *MemWaiterServerProtocol) GetLockCommand() *protocol.LockCommand {
 	}
 	self.slock.freeLockCommandLock.Unlock()
 	return &protocol.LockCommand{Command: protocol.Command{Magic: protocol.MAGIC, Version: protocol.VERSION}}
+}
 
+func (self *MemWaiterServerProtocol) GetLockCommandLocked() *protocol.LockCommand {
+	self.slock.freeLockCommandLock.Lock()
+	lockCommand := self.slock.freeLockCommandQueue.PopRight()
+	if lockCommand != nil {
+		self.slock.freeLockCommandCount--
+		self.slock.freeLockCommandLock.Unlock()
+		return lockCommand
+	}
+	self.slock.freeLockCommandLock.Unlock()
+	return &protocol.LockCommand{Command: protocol.Command{Magic: protocol.MAGIC, Version: protocol.VERSION}}
 }
 
 func (self *MemWaiterServerProtocol) FreeLockCommand(command *protocol.LockCommand) error {
@@ -532,7 +627,7 @@ type BinaryServerProtocol struct {
 	glock              *sync.Mutex
 	stream             *Stream
 	session            *ServerProtocolSession
-	proxys             []*ServerProtocolProxy
+	proxys             []*ProxyServerProtocol
 	freeCommands       []*protocol.LockCommand
 	freeCommandIndex   int
 	lockedFreeCommands *LockCommandQueue
@@ -546,8 +641,8 @@ type BinaryServerProtocol struct {
 }
 
 func NewBinaryServerProtocol(slock *SLock, stream *Stream) *BinaryServerProtocol {
-	proxy := &ServerProtocolProxy{[16]byte{}, nil}
-	serverProtocol := &BinaryServerProtocol{slock, &sync.Mutex{}, stream, nil, make([]*ServerProtocolProxy, 0), make([]*protocol.LockCommand, FREE_COMMAND_MAX_SIZE),
+	proxy := &ProxyServerProtocol{[16]byte{}, nil}
+	serverProtocol := &BinaryServerProtocol{slock, &sync.Mutex{}, stream, nil, make([]*ProxyServerProtocol, 0), make([]*protocol.LockCommand, FREE_COMMAND_MAX_SIZE),
 		0, NewLockCommandQueue(4, 64, FREE_COMMAND_QUEUE_INIT_SIZE), nil, make([]byte, 64),
 		nil, nil, 0, false, false}
 	proxy.serverProtocol = serverProtocol
@@ -998,7 +1093,7 @@ func (self *BinaryServerProtocol) ProcessParse(buf []byte) error {
 		if db == nil {
 			db = self.slock.GetOrNewDB(lockCommand.DbId)
 		}
-		err := db.Lock(self, lockCommand)
+		err := db.Lock(self, lockCommand, lockCommand.Flag&protocol.LOCK_FLAG_FROM_AOF)
 		if err != nil {
 			return err
 		}
@@ -1053,7 +1148,7 @@ func (self *BinaryServerProtocol) ProcessParse(buf []byte) error {
 			_ = self.FreeLockCommand(lockCommand)
 			return err
 		}
-		err := db.UnLock(self, lockCommand)
+		err := db.UnLock(self, lockCommand, lockCommand.Flag&protocol.UNLOCK_FLAG_FROM_AOF)
 		if err != nil {
 			return err
 		}
@@ -1171,7 +1266,7 @@ func (self *BinaryServerProtocol) ProcessCommad(command protocol.ICommand) error
 		if db == nil {
 			db = self.slock.GetOrNewDB(lockCommand.DbId)
 		}
-		return db.Lock(self, lockCommand)
+		return db.Lock(self, lockCommand, lockCommand.Flag&protocol.LOCK_FLAG_FROM_AOF)
 
 	case protocol.COMMAND_UNLOCK:
 		lockCommand := command.(*protocol.LockCommand)
@@ -1188,7 +1283,7 @@ func (self *BinaryServerProtocol) ProcessCommad(command protocol.ICommand) error
 			_ = self.FreeLockCommand(lockCommand)
 			return err
 		}
-		return db.UnLock(self, lockCommand)
+		return db.UnLock(self, lockCommand, lockCommand.Flag&protocol.UNLOCK_FLAG_FROM_AOF)
 
 	default:
 		switch command.GetCommandType() {
@@ -1313,7 +1408,7 @@ func (self *BinaryServerProtocol) ProcessLockCommand(lockCommand *protocol.LockC
 		if db == nil {
 			db = self.slock.GetOrNewDB(lockCommand.DbId)
 		}
-		return db.Lock(self, lockCommand)
+		return db.Lock(self, lockCommand, lockCommand.Flag&protocol.LOCK_FLAG_FROM_AOF)
 	}
 
 	if db == nil {
@@ -1321,7 +1416,7 @@ func (self *BinaryServerProtocol) ProcessLockCommand(lockCommand *protocol.LockC
 		_ = self.FreeLockCommand(lockCommand)
 		return err
 	}
-	return db.UnLock(self, lockCommand)
+	return db.UnLock(self, lockCommand, lockCommand.Flag&protocol.UNLOCK_FLAG_FROM_AOF)
 }
 
 func (self *BinaryServerProtocol) ProcessLockResultCommand(command *protocol.LockCommand, result uint8, lcount uint16, lrcount uint8, data []byte) error {
@@ -1404,11 +1499,11 @@ func (self *BinaryServerProtocol) GetStream() *Stream {
 	return self.stream
 }
 
-func (self *BinaryServerProtocol) GetProxy() *ServerProtocolProxy {
+func (self *BinaryServerProtocol) GetProxy() *ProxyServerProtocol {
 	return self.proxys[0]
 }
 
-func (self *BinaryServerProtocol) AddProxy(proxy *ServerProtocolProxy) error {
+func (self *BinaryServerProtocol) AddProxy(proxy *ProxyServerProtocol) error {
 	self.glock.Lock()
 	if self.closed {
 		self.glock.Unlock()
@@ -1704,7 +1799,7 @@ type TextServerProtocol struct {
 	glock              *sync.Mutex
 	stream             *Stream
 	session            *ServerProtocolSession
-	proxys             []*ServerProtocolProxy
+	proxys             []*ProxyServerProtocol
 	freeCommands       []*protocol.LockCommand
 	freeCommandIndex   int
 	lockedFreeCommands *LockCommandQueue
@@ -1721,9 +1816,9 @@ type TextServerProtocol struct {
 }
 
 func NewTextServerProtocol(slock *SLock, stream *Stream) *TextServerProtocol {
-	proxy := &ServerProtocolProxy{[16]byte{}, nil}
+	proxy := &ProxyServerProtocol{[16]byte{}, nil}
 	parser := protocol.NewTextParser(make([]byte, 1024), make([]byte, 1024))
-	serverProtocol := &TextServerProtocol{slock, &sync.Mutex{}, stream, nil, make([]*ServerProtocolProxy, 0), make([]*protocol.LockCommand, FREE_COMMAND_MAX_SIZE),
+	serverProtocol := &TextServerProtocol{slock, &sync.Mutex{}, stream, nil, make([]*ProxyServerProtocol, 0), make([]*protocol.LockCommand, FREE_COMMAND_MAX_SIZE),
 		0, NewLockCommandQueue(4, 64, FREE_COMMAND_QUEUE_INIT_SIZE), nil, parser,
 		nil, make(chan *protocol.LockResultCommand, 4), [16]byte{}, [16]byte{}, nil, 0, 0, false}
 	proxy.serverProtocol = serverProtocol
@@ -2049,7 +2144,7 @@ func (self *TextServerProtocol) ProcessCommad(command protocol.ICommand) error {
 		if db == nil {
 			db = self.slock.GetOrNewDB(lockCommand.DbId)
 		}
-		return db.Lock(self, lockCommand)
+		return db.Lock(self, lockCommand, lockCommand.Flag&protocol.LOCK_FLAG_FROM_AOF)
 
 	case protocol.COMMAND_UNLOCK:
 		lockCommand := command.(*protocol.LockCommand)
@@ -2066,7 +2161,7 @@ func (self *TextServerProtocol) ProcessCommad(command protocol.ICommand) error {
 			_ = self.FreeLockCommand(lockCommand)
 			return err
 		}
-		return db.UnLock(self, lockCommand)
+		return db.UnLock(self, lockCommand, lockCommand.Flag&protocol.UNLOCK_FLAG_FROM_AOF)
 
 	default:
 		switch command.GetCommandType() {
@@ -2166,7 +2261,7 @@ func (self *TextServerProtocol) ProcessLockCommand(lockCommand *protocol.LockCom
 		if db == nil {
 			db = self.slock.GetOrNewDB(lockCommand.DbId)
 		}
-		return db.Lock(self, lockCommand)
+		return db.Lock(self, lockCommand, lockCommand.Flag&protocol.LOCK_FLAG_FROM_AOF)
 	}
 
 	if db == nil {
@@ -2174,7 +2269,7 @@ func (self *TextServerProtocol) ProcessLockCommand(lockCommand *protocol.LockCom
 		_ = self.FreeLockCommand(lockCommand)
 		return err
 	}
-	return db.UnLock(self, lockCommand)
+	return db.UnLock(self, lockCommand, lockCommand.Flag&protocol.UNLOCK_FLAG_FROM_AOF)
 }
 
 func (self *TextServerProtocol) ProcessLockResultCommand(lockCommand *protocol.LockCommand, result uint8, lcount uint16, lrcount uint8, data []byte) error {
@@ -2231,11 +2326,11 @@ func (self *TextServerProtocol) GetStream() *Stream {
 	return self.stream
 }
 
-func (self *TextServerProtocol) GetProxy() *ServerProtocolProxy {
+func (self *TextServerProtocol) GetProxy() *ProxyServerProtocol {
 	return self.proxys[0]
 }
 
-func (self *TextServerProtocol) AddProxy(proxy *ServerProtocolProxy) error {
+func (self *TextServerProtocol) AddProxy(proxy *ProxyServerProtocol) error {
 	self.glock.Lock()
 	if self.closed {
 		self.glock.Unlock()
@@ -2541,7 +2636,7 @@ func (self *TextServerProtocol) commandHandlerLock(_ *TextServerProtocol, args [
 		db = self.slock.GetOrNewDB(lockCommand.DbId)
 	}
 	self.lockRequestId = lockCommand.RequestId
-	err = db.Lock(self, lockCommand)
+	err = db.Lock(self, lockCommand, lockCommand.Flag&protocol.LOCK_FLAG_FROM_AOF)
 	if err != nil {
 		self.lockRequestId[0], self.lockRequestId[1], self.lockRequestId[2], self.lockRequestId[3], self.lockRequestId[4], self.lockRequestId[5], self.lockRequestId[6], self.lockRequestId[7],
 			self.lockRequestId[8], self.lockRequestId[9], self.lockRequestId[10], self.lockRequestId[11], self.lockRequestId[12], self.lockRequestId[13], self.lockRequestId[14], self.lockRequestId[15] =
@@ -2645,7 +2740,7 @@ func (self *TextServerProtocol) commandHandlerUnlock(_ *TextServerProtocol, args
 	}
 
 	self.lockRequestId = lockCommand.RequestId
-	err = db.UnLock(self, lockCommand)
+	err = db.UnLock(self, lockCommand, lockCommand.Flag&protocol.UNLOCK_FLAG_FROM_AOF)
 	if err != nil {
 		self.lockRequestId[0], self.lockRequestId[1], self.lockRequestId[2], self.lockRequestId[3], self.lockRequestId[4], self.lockRequestId[5], self.lockRequestId[6], self.lockRequestId[7],
 			self.lockRequestId[8], self.lockRequestId[9], self.lockRequestId[10], self.lockRequestId[11], self.lockRequestId[12], self.lockRequestId[13], self.lockRequestId[14], self.lockRequestId[15] =
@@ -2737,7 +2832,7 @@ func (self *TextServerProtocol) commandHandlerPush(_ *TextServerProtocol, args [
 	if db == nil {
 		db = self.slock.GetOrNewDB(lockCommand.DbId)
 	}
-	err = db.Lock(self, lockCommand)
+	err = db.Lock(self, lockCommand, lockCommand.Flag&protocol.LOCK_FLAG_FROM_AOF)
 	if err != nil {
 		return self.stream.WriteBytes(self.parser.BuildResponse(false, "ERR Lock Error", nil))
 	}

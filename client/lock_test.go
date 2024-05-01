@@ -598,6 +598,104 @@ func TestLock_WithData(t *testing.T) {
 			t.Errorf("Lock Unlock1 Append Result LockData Fail %v", result.GetLockData())
 			return
 		}
+
+		lockKey, lockId := protocol.GenLockId(), protocol.GenLockId()
+		lock = client.Lock(testString2Key("TestData5"), 50, 10)
+		lockCommand := protocol.NewLockCommand(0, lockKey, lockId, 0, 10, 0)
+		lockCommand.Data = protocol.NewLockCommandDataSetString("aaa")
+		result, err = lock.LockWithData(protocol.NewLockCommandDataLockCommandData(lockCommand, protocol.LOCK_DATA_STAGE_UNLOCK))
+		if err != nil {
+			t.Errorf("Lock LockWithData Execute Fail %v", err)
+			return
+		}
+		if result.GetLockData() != nil {
+			t.Errorf("Lock LockWithData Execute Result LockData Fail %v", result.GetLockData())
+			return
+		}
+		result, err = lock.Unlock()
+		if err != nil {
+			t.Errorf("Lock Unlock Execute Fail %v", err)
+			return
+		}
+		if result.GetLockData() != nil {
+			t.Errorf("Lock Unlock Execute Result LockData Fail %v", result.GetLockData())
+			return
+		}
+		time.Sleep(200 * time.Millisecond)
+		lock = client.Lock(lockKey, 0, 10)
+		result, err = lock.Lock()
+		if err == nil || result.Result != protocol.RESULT_TIMEOUT {
+			t.Errorf("Lock LockWithData Execute Check Fail %v %v", err, result)
+			return
+		}
+		result, err = lock.UnlockHead()
+		if err != nil {
+			t.Errorf("Lock Unlock Execute Release Fail %v", err)
+			return
+		}
+		if result.GetLockData() == nil || result.GetLockData().GetStringData() != "aaa" {
+			t.Errorf("Lock Unlock Execute Release LockData Fail %v", result.GetLockData())
+			return
+		}
+
+		lockKey1, lockId1, lockKey2, lockId2 := protocol.GenLockId(), protocol.GenLockId(), protocol.GenLockId(), protocol.GenLockId()
+		lock = client.Lock(testString2Key("TestData6"), 50, 10)
+		lockCommand1 := protocol.NewLockCommand(0, lockKey1, lockId1, 0, 10, 0)
+		lockCommand2 := protocol.NewLockCommand(0, lockKey2, lockId2, 0, 10, 0)
+		lockCommand2.Data = protocol.NewLockCommandDataSetString("aaa")
+		result, err = lock.LockWithData(protocol.NewLockCommandDataPipelineData([]*protocol.LockCommandData{
+			protocol.NewLockCommandDataLockCommandData(lockCommand1, protocol.LOCK_DATA_STAGE_UNLOCK),
+			protocol.NewLockCommandDataSetString("aaa"),
+			protocol.NewLockCommandDataLockCommandData(lockCommand2, protocol.LOCK_DATA_STAGE_UNLOCK),
+		}))
+		if err != nil {
+			t.Errorf("Lock LockWithData Pipeline Fail %v", err)
+			return
+		}
+		if result.GetLockData() != nil {
+			t.Errorf("Lock LockWithData Pipeline Result LockData Fail %v", result.GetLockData())
+			return
+		}
+		result, err = lock.Unlock()
+		if err != nil {
+			t.Errorf("Lock Unlock Pipeline Fail %v", err)
+			return
+		}
+		if result.GetLockData() == nil || result.GetLockData().GetStringData() != "aaa" {
+			t.Errorf("Lock Unlock Pipeline Result LockData Fail %v", result.GetLockData())
+			return
+		}
+		time.Sleep(200 * time.Millisecond)
+		lock = client.Lock(lockKey1, 0, 10)
+		result, err = lock.Lock()
+		if err == nil || result.Result != protocol.RESULT_TIMEOUT {
+			t.Errorf("Lock LockWithData Pipeline Check Fail %v %v", err, result)
+			return
+		}
+		result, err = lock.UnlockHead()
+		if err != nil {
+			t.Errorf("Lock Unlock Pipeline Release Fail %v", err)
+			return
+		}
+		if result.GetLockData() != nil {
+			t.Errorf("Lock Unlock Pipeline Release LockData Fail %v", result.GetLockData())
+			return
+		}
+		lock = client.Lock(lockKey2, 0, 10)
+		result, err = lock.Lock()
+		if err == nil || result.Result != protocol.RESULT_TIMEOUT {
+			t.Errorf("Lock LockWithData Pipeline Check Fail %v %v", err, result)
+			return
+		}
+		result, err = lock.UnlockHead()
+		if err != nil {
+			t.Errorf("Lock Unlock Pipeline Release Fail %v", err)
+			return
+		}
+		if result.GetLockData() == nil || result.GetLockData().GetStringData() != "aaa" {
+			t.Errorf("Lock Unlock Pipeline Release LockData Fail %v", result.GetLockData())
+			return
+		}
 	})
 }
 
