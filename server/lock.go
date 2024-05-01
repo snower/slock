@@ -243,7 +243,7 @@ func (self *LockManager) PushLockAof(lock *Lock, aofFlag uint16) error {
 	}
 
 	fashHash := (uint32(self.lockKey[0])<<24 | uint32(self.lockKey[1])<<16 | uint32(self.lockKey[2])<<8 | uint32(self.lockKey[3])) ^ (uint32(self.lockKey[4])<<24 | uint32(self.lockKey[5])<<16 | uint32(self.lockKey[6])<<8 | uint32(self.lockKey[7])) ^ (uint32(self.lockKey[8])<<24 | uint32(self.lockKey[9])<<16 | uint32(self.lockKey[10])<<8 | uint32(self.lockKey[11])) ^ (uint32(self.lockKey[12])<<24 | uint32(self.lockKey[13])<<16 | uint32(self.lockKey[14])<<8 | uint32(self.lockKey[15]))
-	err := self.lockDb.aofChannels[fashHash%uint32(self.lockDb.managerMaxGlocks)].Push(lock.manager.dbId, lock, protocol.COMMAND_LOCK, lock.command, nil, aofFlag, lock.manager.AofLockData(protocol.COMMAND_LOCK))
+	err := self.lockDb.aofChannels[fashHash%uint32(self.lockDb.managerMaxGlocks)].Push(lock.manager.dbId, lock, protocol.COMMAND_LOCK, lock.command, nil, aofFlag, lock.manager.AofLockData(protocol.COMMAND_LOCK, lock))
 	if err != nil {
 		self.lockDb.slock.Log().Errorf("Database lock push aof error DbId:%d LockKey:%x LockId:%x",
 			lock.command.DbId, lock.command.LockKey, lock.command.LockId)
@@ -267,7 +267,7 @@ func (self *LockManager) PushUnLockAof(dbId uint8, lock *Lock, lockCommand *prot
 	}
 
 	fashHash := (uint32(self.lockKey[0])<<24 | uint32(self.lockKey[1])<<16 | uint32(self.lockKey[2])<<8 | uint32(self.lockKey[3])) ^ (uint32(self.lockKey[4])<<24 | uint32(self.lockKey[5])<<16 | uint32(self.lockKey[6])<<8 | uint32(self.lockKey[7])) ^ (uint32(self.lockKey[8])<<24 | uint32(self.lockKey[9])<<16 | uint32(self.lockKey[10])<<8 | uint32(self.lockKey[11])) ^ (uint32(self.lockKey[12])<<24 | uint32(self.lockKey[13])<<16 | uint32(self.lockKey[14])<<8 | uint32(self.lockKey[15]))
-	err := self.lockDb.aofChannels[fashHash%uint32(self.lockDb.managerMaxGlocks)].Push(dbId, lock, protocol.COMMAND_UNLOCK, lockCommand, unLockCommand, aofFlag, lock.manager.AofLockData(protocol.COMMAND_UNLOCK))
+	err := self.lockDb.aofChannels[fashHash%uint32(self.lockDb.managerMaxGlocks)].Push(dbId, lock, protocol.COMMAND_UNLOCK, lockCommand, unLockCommand, aofFlag, lock.manager.AofLockData(protocol.COMMAND_UNLOCK, lock))
 	if err != nil {
 		self.lockDb.slock.Log().Errorf("Database lock push aof error DbId:%d LockKey:%x LockId:%x",
 			lock.command.DbId, lock.command.LockKey, lock.command.LockId)
@@ -340,14 +340,17 @@ func (self *LockManager) GetLockData() []byte {
 	return nil
 }
 
-func (self *LockManager) AofLockData(commandType uint8) []byte {
+func (self *LockManager) AofLockData(commandType uint8, lock *Lock) []byte {
+	if lock.data != nil && lock.data.aofData != nil {
+		aofData := lock.data.aofData
+		lock.data.aofData = nil
+		if lock.data.IsCleared() {
+			lock.data = nil
+		}
+		return aofData
+	}
 	if self.currentData != nil && (commandType == protocol.COMMAND_LOCK || !self.currentData.isAof) {
 		self.currentData.isAof = true
-		if self.currentData.aofData != nil {
-			aofData := self.currentData.aofData
-			self.currentData.aofData = nil
-			return aofData
-		}
 		return self.currentData.data
 	}
 	return nil
@@ -452,10 +455,10 @@ func (self *LockManager) ProcessLockData(command *protocol.LockCommand, lock *Lo
 		} else {
 			lock.AddLockCommandData(lockCommandData)
 		}
-		if currentLockData != nil {
-			self.currentData = NewLockManagerAofData(currentLockData.data, lockCommandData.Data, protocol.LOCK_DATA_COMMAND_TYPE_EXECUTE)
+		if lock.data == nil {
+			lock.data = &LockData{aofData: lockCommandData.Data}
 		} else {
-			self.currentData = NewLockManagerAofData(nil, lockCommandData.Data, protocol.LOCK_DATA_COMMAND_TYPE_EXECUTE)
+			lock.data.aofData = lockCommandData.Data
 		}
 		if requireRecover {
 			lock.SaveRecoverData(currentLockData, nil)
@@ -471,10 +474,10 @@ func (self *LockManager) ProcessLockData(command *protocol.LockCommand, lock *Lo
 			self.ProcessLockData(command, lock, requireRecover)
 			index += dataLen + 4
 		}
-		if self.currentData != nil {
-			self.currentData = NewLockManagerAofData(self.currentData.data, lockCommandData.Data, protocol.LOCK_DATA_COMMAND_TYPE_PIPELINE)
+		if lock.data == nil {
+			lock.data = &LockData{aofData: lockCommandData.Data}
 		} else {
-			self.currentData = NewLockManagerAofData(nil, lockCommandData.Data, protocol.LOCK_DATA_COMMAND_TYPE_PIPELINE)
+			lock.data.aofData = lockCommandData.Data
 		}
 		if requireRecover {
 			lock.SaveRecoverData(currentLockData, nil)
@@ -524,7 +527,6 @@ func (self *LockManager) ProcessRecoverLockData(lock *Lock) {
 			self.currentData = NewLockManagerDataUnsetData()
 		} else {
 			self.currentData = recoverData
-			self.currentData.aofData = nil
 			self.currentData.isAof = false
 		}
 	case protocol.LOCK_DATA_COMMAND_TYPE_UNSET:
@@ -532,7 +534,6 @@ func (self *LockManager) ProcessRecoverLockData(lock *Lock) {
 			self.currentData = NewLockManagerDataUnsetData()
 		} else {
 			self.currentData = recoverData
-			self.currentData.aofData = nil
 			self.currentData.isAof = false
 		}
 	case protocol.LOCK_DATA_COMMAND_TYPE_INCR:
@@ -569,7 +570,6 @@ func (self *LockManager) ProcessRecoverLockData(lock *Lock) {
 			self.currentData = NewLockManagerDataUnsetData()
 		} else {
 			self.currentData = recoverData
-			self.currentData.aofData = nil
 			self.currentData.isAof = false
 		}
 	case protocol.LOCK_DATA_COMMAND_TYPE_PIPELINE:
@@ -577,7 +577,6 @@ func (self *LockManager) ProcessRecoverLockData(lock *Lock) {
 			self.currentData = NewLockManagerDataUnsetData()
 		} else {
 			self.currentData = recoverData
-			self.currentData.aofData = nil
 			self.currentData.isAof = false
 		}
 	}
@@ -691,21 +690,16 @@ func (self *Lock) AddLockCommandData(lockCommandData *protocol.LockCommandData) 
 
 type LockManagerData struct {
 	data        []byte
-	aofData     []byte
 	commandType uint8
 	isAof       bool
 }
 
 func NewLockManagerData(data []byte, commandType uint8) *LockManagerData {
-	return &LockManagerData{data, nil, commandType, false}
-}
-
-func NewLockManagerAofData(data []byte, aofData []byte, commandType uint8) *LockManagerData {
-	return &LockManagerData{data, aofData, commandType, false}
+	return &LockManagerData{data, commandType, false}
 }
 
 func NewLockManagerDataUnsetData() *LockManagerData {
-	return &LockManagerData{[]byte{2, 0, 0, 0, protocol.LOCK_DATA_COMMAND_TYPE_UNSET, 0}, nil, protocol.LOCK_DATA_COMMAND_TYPE_UNSET, false}
+	return &LockManagerData{[]byte{2, 0, 0, 0, protocol.LOCK_DATA_COMMAND_TYPE_UNSET, 0}, protocol.LOCK_DATA_COMMAND_TYPE_UNSET, false}
 }
 
 func (self *LockManagerData) GetData() []byte {
@@ -744,6 +738,7 @@ func (self *LockManagerData) Equal(lockData []byte) bool {
 }
 
 type LockData struct {
+	aofData             []byte
 	currentData         *LockManagerData
 	recoverData         *LockManagerData
 	recoverValue        interface{}
@@ -757,7 +752,7 @@ func (self *LockData) ProcessAckClear() bool {
 	self.currentData = nil
 	self.recoverData = nil
 	self.recoverValue = nil
-	return self.lockCommandDatas == nil && self.unlockCommandDatas == nil && self.timeoutCommandDatas == nil && self.expriedCommandDatas == nil
+	return self.aofData == nil && self.lockCommandDatas == nil && self.unlockCommandDatas == nil && self.timeoutCommandDatas == nil && self.expriedCommandDatas == nil
 }
 
 func (self *LockData) GetAndClearCommandDatas(commandStage uint8) []*protocol.LockCommandData {
@@ -783,7 +778,7 @@ func (self *LockData) GetAndClearCommandDatas(commandStage uint8) []*protocol.Lo
 }
 
 func (self *LockData) IsCleared() bool {
-	return self.currentData == nil && self.lockCommandDatas == nil && self.unlockCommandDatas == nil && self.timeoutCommandDatas == nil && self.expriedCommandDatas == nil
+	return self.aofData == nil && self.currentData == nil && self.lockCommandDatas == nil && self.unlockCommandDatas == nil && self.timeoutCommandDatas == nil && self.expriedCommandDatas == nil
 }
 
 type PriorityMutex struct {
