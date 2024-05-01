@@ -471,8 +471,8 @@ func (self *LockManager) ProcessLockData(command *protocol.LockCommand, lock *Lo
 			self.ProcessLockData(command, lock, requireRecover)
 			index += dataLen + 4
 		}
-		if currentLockData != nil {
-			self.currentData = NewLockManagerAofData(currentLockData.data, lockCommandData.Data, protocol.LOCK_DATA_COMMAND_TYPE_PIPELINE)
+		if self.currentData != nil {
+			self.currentData = NewLockManagerAofData(self.currentData.data, lockCommandData.Data, protocol.LOCK_DATA_COMMAND_TYPE_PIPELINE)
 		} else {
 			self.currentData = NewLockManagerAofData(nil, lockCommandData.Data, protocol.LOCK_DATA_COMMAND_TYPE_PIPELINE)
 		}
@@ -524,6 +524,7 @@ func (self *LockManager) ProcessRecoverLockData(lock *Lock) {
 			self.currentData = NewLockManagerDataUnsetData()
 		} else {
 			self.currentData = recoverData
+			self.currentData.aofData = nil
 			self.currentData.isAof = false
 		}
 	case protocol.LOCK_DATA_COMMAND_TYPE_UNSET:
@@ -531,6 +532,7 @@ func (self *LockManager) ProcessRecoverLockData(lock *Lock) {
 			self.currentData = NewLockManagerDataUnsetData()
 		} else {
 			self.currentData = recoverData
+			self.currentData.aofData = nil
 			self.currentData.isAof = false
 		}
 	case protocol.LOCK_DATA_COMMAND_TYPE_INCR:
@@ -567,6 +569,7 @@ func (self *LockManager) ProcessRecoverLockData(lock *Lock) {
 			self.currentData = NewLockManagerDataUnsetData()
 		} else {
 			self.currentData = recoverData
+			self.currentData.aofData = nil
 			self.currentData.isAof = false
 		}
 	case protocol.LOCK_DATA_COMMAND_TYPE_PIPELINE:
@@ -574,6 +577,7 @@ func (self *LockManager) ProcessRecoverLockData(lock *Lock) {
 			self.currentData = NewLockManagerDataUnsetData()
 		} else {
 			self.currentData = recoverData
+			self.currentData.aofData = nil
 			self.currentData.isAof = false
 		}
 	}
