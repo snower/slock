@@ -472,9 +472,9 @@ func (self *LockManager) ProcessAckLockData(lock *Lock) []byte {
 		lock.data = nil
 	}
 	if recoverData == nil {
-		return self.GetLockData()
+		return nil
 	}
-	return lock.data.recoverData.GetData()
+	return recoverData.GetData()
 }
 
 func (self *LockManager) ProcessRecoverLockData(lock *Lock) {

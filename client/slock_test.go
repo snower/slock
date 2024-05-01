@@ -105,7 +105,7 @@ func TestReplsetClient_Open(t *testing.T) {
 
 func TestClient_ListLocks(t *testing.T) {
 	testWithClient(t, func(client *Client) {
-		lock := client.Lock(testString2Key("testList"), 5, 300)
+		lock := client.Lock(testString2Key("testList"), 5, 10)
 		_, err := lock.LockWithData(protocol.NewLockCommandDataSetString("aaa"))
 		if err != nil {
 			t.Errorf("TestClient_ListLocks Lock Fail %v", err)
@@ -155,6 +155,12 @@ func TestClient_ListLocks(t *testing.T) {
 		}
 		if waitResponse.LockData == nil || string(waitResponse.LockData.Data) != "aaa" {
 			t.Errorf("TestClient_ListLocks ListLockWaits Data Empty %v", response.Locks)
+			return
+		}
+
+		_, err = lock.Unlock()
+		if err != nil {
+			t.Errorf("TestClient_ListLocks Lock Fail %v", err)
 			return
 		}
 	})
