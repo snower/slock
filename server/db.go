@@ -1296,8 +1296,11 @@ func (self *LockDB) AddTimeOut(lock *Lock, lockTimeoutTime int64) {
 				doTimeoutTime = self.checkTimeoutTime
 			}
 		}
-
 		_ = self.timeoutLocks[doTimeoutTime&TIMEOUT_QUEUE_LENGTH_MASK][lock.manager.glockIndex].Push(lock)
+		if lock.longWaitIndex > 0 {
+			self.slock.Log().Errorf("Database long timeout wait index error %d %d", lock.longWaitIndex, lock.timeoutTime)
+			lock.longWaitIndex = 0
+		}
 	}
 }
 
@@ -1312,7 +1315,7 @@ func (self *LockDB) RemoveLongTimeOut(lock *Lock) {
 		longLocks.locks.queues[int32(lock.longWaitIndex>>32)][int32(lock.longWaitIndex&0xffffffff)-1] = nil
 		longLocks.freeCount++
 	} else {
-		self.slock.Log().Errorf("Database remove long timeout not found %d %d", lock.longWaitIndex, lock.expriedTime)
+		self.slock.Log().Errorf("Database remove long timeout not found %d %d", lock.longWaitIndex, lock.timeoutTime)
 	}
 	lock.longWaitIndex = 0
 	lock.refCount--
@@ -1434,6 +1437,10 @@ func (self *LockDB) AddMillisecondTimeOut(lock *Lock) {
 		go self.checkMillisecondTimeOut(ms, lock.manager.glockIndex)
 	}
 	_ = lockQueue.Push(lock)
+	if lock.longWaitIndex > 0 {
+		self.slock.Log().Errorf("Database long timeout wait index error %d %d", lock.longWaitIndex, lock.timeoutTime)
+		lock.longWaitIndex = 0
+	}
 }
 
 func (self *LockDB) AddExpried(lock *Lock, lockExpriedTime int64) {
@@ -1472,8 +1479,11 @@ func (self *LockDB) AddExpried(lock *Lock, lockExpriedTime int64) {
 				doExpriedTime = self.checkExpriedTime
 			}
 		}
-
 		_ = self.expriedLocks[doExpriedTime&EXPRIED_QUEUE_LENGTH_MASK][lock.manager.glockIndex].Push(lock)
+		if lock.longWaitIndex > 0 {
+			self.slock.Log().Errorf("Database long expried wait index error %d %d", lock.longWaitIndex, lock.expriedTime)
+			lock.longWaitIndex = 0
+		}
 		if !lock.isAof && lock.aofTime != 0xff {
 			if self.currentTime-lock.startTime >= int64(lock.aofTime) {
 				for i := uint8(0); i < lock.locked; i++ {
@@ -1610,7 +1620,10 @@ func (self *LockDB) AddMillisecondExpried(lock *Lock) {
 		go self.checkMillisecondExpried(ms, lock.manager.glockIndex)
 	}
 	_ = lockQueue.Push(lock)
-
+	if lock.longWaitIndex > 0 {
+		self.slock.Log().Errorf("Database long expried wait index error %d %d", lock.longWaitIndex, lock.expriedTime)
+		lock.longWaitIndex = 0
+	}
 	if !lock.isAof && lock.aofTime == 0 {
 		_ = lock.manager.PushLockAof(lock, 0)
 	}
