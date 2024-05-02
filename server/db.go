@@ -50,6 +50,7 @@ type LockDBExecutor struct {
 	freeTaskMax       int
 	runCount          uint32
 	queueCount        int
+	executeCount      uint64
 	queueWaiter       chan bool
 	queueWaited       bool
 	glockAcquiredSize int
@@ -98,6 +99,7 @@ func (self *LockDBExecutor) Run() {
 		executorTask.serverProtocol = nil
 		executorTask.command = nil
 		self.glock.Lock()
+		self.executeCount++
 		if self.freeTaskIndex < self.freeTaskMax {
 			self.freeTasks[self.freeTaskIndex] = executorTask
 			self.freeTaskIndex++
@@ -285,6 +287,9 @@ func (self *LockDB) resizeExpried() {
 }
 
 func (self *LockDB) PushExecutorLockCommand(lockManager *LockManager, serverProtocol ServerProtocol, lockCommand *protocol.LockCommand) error {
+	if self.slock.state != STATE_LEADER {
+		return nil
+	}
 	if self.exectors == nil || len(self.exectors) <= int(lockManager.glockIndex) {
 		return errors.New("No exectors")
 	}
@@ -293,7 +298,7 @@ func (self *LockDB) PushExecutorLockCommand(lockManager *LockManager, serverProt
 		freeTaskMax := int(Config.AofQueueSize) / 64
 		executor = &LockDBExecutor{self, self.managerGlocks[lockManager.glockIndex], nil, nil,
 			make([]*LockDBExecutorTask, freeTaskMax), 0, freeTaskMax, 0, 0,
-			make(chan bool, 4), false, freeTaskMax * 2, false}
+			0, make(chan bool, 4), false, freeTaskMax * 2, false}
 		self.exectors[lockManager.glockIndex] = executor
 	}
 	executor.Push(serverProtocol, lockCommand)

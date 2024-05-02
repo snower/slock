@@ -313,6 +313,7 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 		freeLockCount := 0
 		freeLockCommandCount, cacheLockCommandCount := 0, 0
 		totalCommandCount := uint64(0)
+		exectorCount, exectorRunningCount, exectorQueueCount, exectorExecuteCount := 0, 0, 0, uint64(0)
 		for _, db := range self.slock.dbs {
 			if db != nil {
 				dbCount++
@@ -326,6 +327,15 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 				}
 				for i := uint16(0); i < db.managerMaxGlocks; i++ {
 					freeLockCount += int(db.freeLocks[i].Len())
+					exector := db.exectors[i]
+					if exector != nil {
+						exectorCount++
+						if !exector.queueWaited {
+							exectorRunningCount++
+						}
+						exectorQueueCount += exector.queueCount
+						exectorExecuteCount += exector.executeCount
+					}
 				}
 			}
 		}
@@ -383,6 +393,10 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 		infos = append(infos, fmt.Sprintf("low_priority_lock_count:%d", lowPriorityLockCount))
 		infos = append(infos, fmt.Sprintf("high_priority_lock_mode_count:%d", highPriorityLockModeCount))
 		infos = append(infos, fmt.Sprintf("low_priority_lock_mode_count:%d", lowPriorityLockModeCount))
+		infos = append(infos, fmt.Sprintf("exector_count:%d", exectorCount))
+		infos = append(infos, fmt.Sprintf("exector_running_count:%d", exectorRunningCount))
+		infos = append(infos, fmt.Sprintf("exector_queue_count:%d", exectorQueueCount))
+		infos = append(infos, fmt.Sprintf("exector_execute_count:%d", exectorExecuteCount))
 		infos = append(infos, "")
 	}
 
