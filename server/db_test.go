@@ -30,11 +30,11 @@ func TestLockTimeoutLongWait(t *testing.T) {
 	db.restructuringLongTimeOutQueue()
 	if longLocks, ok := db.longTimeoutLocks[0][lockTimeoutTime]; ok {
 		if longLocks.locks.Len() != 10000 {
-			t.Errorf("longExpriedLocks Size Error %v", longLocks.locks.Len())
+			t.Errorf("longTimeoutLocks Size Error %v", longLocks.locks.Len())
 			return
 		}
 	} else {
-		t.Errorf("longExpriedLocks Is Not Exist")
+		t.Errorf("longTimeoutLocks Is Not Exist")
 		return
 	}
 	db.managerGlocks[0].Lock()
@@ -44,7 +44,34 @@ func TestLockTimeoutLongWait(t *testing.T) {
 	db.managerGlocks[0].Unlock()
 	db.restructuringLongTimeOutQueue()
 	if longLocks, ok := db.longTimeoutLocks[0][lockTimeoutTime]; ok {
-		t.Errorf("longExpriedLocks Is Exist %v", longLocks.locks.Len())
+		t.Errorf("longTimeoutLocks Is Exist %v", longLocks.locks.Len())
+		return
+	}
+
+	for i := 0; i < 100000; i++ {
+		command := &protocol.LockCommand{DbId: 0}
+		lock := NewLock(NewLockManager(db, command, db.managerGlocks[1], 1, db.freeLocks[1], db.states[1]), defaultServerProtocol, command)
+		if i%10 == 0 {
+			lock.timeoutCheckedCount = EXPRIED_QUEUE_MAX_WAIT + 1
+			lock.timeoutTime = lockTimeoutTime
+			db.AddTimeOut(lock, lock.timeoutTime)
+		} else {
+			lock.timeoutTime = lockTimeoutTime
+			db.AddTimeOut(lock, lock.timeoutTime)
+		}
+	}
+	if longLocks, ok := db.longTimeoutLocks[1][lockTimeoutTime]; ok {
+		if longLocks.locks.Len() != 10000 {
+			t.Errorf("longTimeoutLocks Size Error %v", longLocks.locks.Len())
+			return
+		}
+	} else {
+		t.Errorf("longTimeoutLocks Is Not Exist")
+		return
+	}
+	db.flushTimeOut(1, false)
+	if longLocks, ok := db.longTimeoutLocks[1][lockTimeoutTime]; ok {
+		t.Errorf("longTimeoutLocks Is Exist %v", longLocks.locks.Len())
 		return
 	}
 }
@@ -87,6 +114,33 @@ func TestLockExpriedLongWait(t *testing.T) {
 	db.managerGlocks[0].Unlock()
 	db.restructuringLongExpriedQueue()
 	if longLocks, ok := db.longExpriedLocks[0][lockExpriedTime]; ok {
+		t.Errorf("longExpriedLocks Is Exist %v", longLocks.locks.Len())
+		return
+	}
+
+	for i := 0; i < 100000; i++ {
+		command := &protocol.LockCommand{DbId: 0}
+		lock := NewLock(NewLockManager(db, command, db.managerGlocks[1], 1, db.freeLocks[1], db.states[1]), defaultServerProtocol, command)
+		if i%10 == 0 {
+			lock.expriedCheckedCount = EXPRIED_QUEUE_MAX_WAIT + 1
+			lock.expriedTime = lockExpriedTime
+			db.AddExpried(lock, lock.expriedTime)
+		} else {
+			lock.expriedTime = lockExpriedTime
+			db.AddExpried(lock, lock.expriedTime)
+		}
+	}
+	if longLocks, ok := db.longExpriedLocks[1][lockExpriedTime]; ok {
+		if longLocks.locks.Len() != 10000 {
+			t.Errorf("longExpriedLocks Size Error %v", longLocks.locks.Len())
+			return
+		}
+	} else {
+		t.Errorf("longExpriedLocks Is Not Exist")
+		return
+	}
+	db.flushExpried(1, false)
+	if longLocks, ok := db.longExpriedLocks[1][lockExpriedTime]; ok {
 		t.Errorf("longExpriedLocks Is Exist %v", longLocks.locks.Len())
 		return
 	}

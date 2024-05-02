@@ -1029,12 +1029,6 @@ func (self *LockDB) flushExpried(glockIndex uint16, doExpried bool) {
 			self.doExpried(lock, true)
 		}
 		self.managerGlocks[glockIndex].Lock()
-	} else {
-		for _, lock := range doExpriedLocks {
-			if !lock.isAof && lock.aofTime != 0xff {
-				_ = lock.manager.PushLockAof(lock, 0)
-			}
-		}
 	}
 }
 
@@ -1318,7 +1312,7 @@ func (self *LockDB) RemoveLongTimeOut(lock *Lock) {
 		longLocks.locks.queues[int32(lock.longWaitIndex>>32)][int32(lock.longWaitIndex&0xffffffff)-1] = nil
 		longLocks.freeCount++
 	} else {
-		self.slock.Log().Errorf("Database remove long expried not found %d %d", lock.longWaitIndex, lock.expriedTime)
+		self.slock.Log().Errorf("Database remove long timeout not found %d %d", lock.longWaitIndex, lock.expriedTime)
 	}
 	lock.longWaitIndex = 0
 	lock.refCount--
