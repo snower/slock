@@ -132,7 +132,9 @@ func StartStreamBenchmark(clientCount int, concurrentc int, maxCount int, keys [
 	waiters := make([]chan bool, concurrentc)
 	defer func() {
 		for _, c := range clients {
-			_ = c.Close()
+			if c != nil {
+				_ = c.Close()
+			}
 		}
 	}()
 

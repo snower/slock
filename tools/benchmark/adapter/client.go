@@ -81,10 +81,9 @@ func StartClientBenchmark(clientCount int, concurrentc int, maxCount int, keys [
 	waiters := make([]chan bool, concurrentc)
 	defer func() {
 		for _, c := range clients {
-			if c == nil {
-				continue
+			if c != nil {
+				_ = c.Close()
 			}
-			_ = c.Close()
 		}
 	}()
 
