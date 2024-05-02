@@ -603,7 +603,7 @@ func TestLock_WithData(t *testing.T) {
 		lock = client.Lock(testString2Key("TestData5"), 50, 10)
 		lockCommand := protocol.NewLockCommand(0, lockKey, lockId, 0, 10, 0)
 		lockCommand.Data = protocol.NewLockCommandDataSetString("aaa")
-		result, err = lock.LockWithData(protocol.NewLockCommandDataLockCommandData(lockCommand, protocol.LOCK_DATA_STAGE_UNLOCK))
+		result, err = lock.LockWithData(protocol.NewLockCommandDataExecuteData(lockCommand, protocol.LOCK_DATA_STAGE_UNLOCK))
 		if err != nil {
 			t.Errorf("Lock LockWithData Execute Fail %v", err)
 			return
@@ -644,9 +644,9 @@ func TestLock_WithData(t *testing.T) {
 		lockCommand2 := protocol.NewLockCommand(0, lockKey2, lockId2, 0, 10, 0)
 		lockCommand2.Data = protocol.NewLockCommandDataSetString("aaa")
 		result, err = lock.LockWithData(protocol.NewLockCommandDataPipelineData([]*protocol.LockCommandData{
-			protocol.NewLockCommandDataLockCommandData(lockCommand1, protocol.LOCK_DATA_STAGE_UNLOCK),
+			protocol.NewLockCommandDataExecuteData(lockCommand1, protocol.LOCK_DATA_STAGE_UNLOCK),
 			protocol.NewLockCommandDataSetString("aaa"),
-			protocol.NewLockCommandDataLockCommandData(lockCommand2, protocol.LOCK_DATA_STAGE_UNLOCK),
+			protocol.NewLockCommandDataExecuteData(lockCommand2, protocol.LOCK_DATA_STAGE_UNLOCK),
 		}))
 		if err != nil {
 			t.Errorf("Lock LockWithData Pipeline Fail %v", err)

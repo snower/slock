@@ -407,7 +407,7 @@ func NewLockCommandDataShiftData(lengthValue uint32) *LockCommandData {
 		LOCK_DATA_STAGE_LOCK, LOCK_DATA_COMMAND_TYPE_SHIFT, 0}
 }
 
-func NewLockCommandDataLockCommandData(lockCommand *LockCommand, commandStage uint8) *LockCommandData {
+func NewLockCommandDataExecuteData(lockCommand *LockCommand, commandStage uint8) *LockCommandData {
 	dataLen := 66
 	if lockCommand.Data != nil {
 		lockCommand.Flag |= LOCK_FLAG_CONTAINS_DATA

@@ -2577,7 +2577,22 @@ func (self *TextServerProtocol) ArgsToLockComand(args []string) (*protocol.LockC
 			}
 			command.Data = protocol.NewLockCommandDataShiftData(uint32(lengthValue))
 			command.Flag |= protocol.LOCK_FLAG_CONTAINS_DATA
-
+		case "EXECUTE":
+			commandStage := uint8(protocol.LOCK_DATA_STAGE_LOCK)
+			switch strings.ToUpper(args[i+1]) {
+			case "UNLOCK":
+				commandStage = protocol.LOCK_DATA_STAGE_UNLOCK
+			case "TIMEOUT":
+				commandStage = protocol.LOCK_DATA_STAGE_TIMEOUT
+			case "EXPRIED":
+				commandStage = protocol.LOCK_DATA_STAGE_EXPRIED
+			}
+			executeCommand, cerr := self.ArgsToLockComand(args[i+2:])
+			if cerr != nil {
+				return nil, cerr
+			}
+			command.Data = protocol.NewLockCommandDataExecuteData(executeCommand, commandStage)
+			command.Flag |= protocol.LOCK_FLAG_CONTAINS_DATA
 		}
 	}
 
