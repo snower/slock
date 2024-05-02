@@ -1324,7 +1324,6 @@ func (self *LockDB) doTimeOut(lock *Lock, forcedExpried bool) {
 
 	if lockLocked > 0 {
 		lockManager.locked -= uint32(lockLocked)
-		lockManager.RemoveLock(lock)
 		if lockCommand.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
 			if lock.ackCount != 0xff {
 				lockManager.ProcessRecoverLockData(lock)
@@ -1337,14 +1336,18 @@ func (self *LockDB) doTimeOut(lock *Lock, forcedExpried bool) {
 		if lock.isAof {
 			_ = lockManager.PushUnLockAof(lockManager.dbId, lock, lockCommand, nil, false, AOF_FLAG_TIMEOUTED)
 		}
+		if lock.command.TimeoutFlag&protocol.TIMEOUT_FLAG_PUSH_SUBSCRIBE != 0 {
+			_ = self.subscribeChannels[lockManager.glockIndex].Push(lockCommand, protocol.RESULT_TIMEOUT, uint16(lockManager.locked), lock.locked, lockManager.GetLockData())
+		}
+		lockManager.RemoveLock(lock)
 	} else {
 		if lockManager.GetWaitLock() == nil {
 			lockManager.waited = false
 		}
 		lockManager.state.WaitCount--
-	}
-	if lock.command.TimeoutFlag&protocol.TIMEOUT_FLAG_PUSH_SUBSCRIBE != 0 {
-		_ = self.subscribeChannels[lockManager.glockIndex].Push(lockCommand, protocol.RESULT_TIMEOUT, uint16(lockManager.locked), lock.locked, lockManager.GetLockData())
+		if lock.command.TimeoutFlag&protocol.TIMEOUT_FLAG_PUSH_SUBSCRIBE != 0 {
+			_ = self.subscribeChannels[lockManager.glockIndex].Push(lockCommand, protocol.RESULT_TIMEOUT, uint16(lockManager.locked), lock.locked, lockManager.GetLockData())
+		}
 	}
 
 	lock.refCount--
@@ -1508,16 +1511,16 @@ func (self *LockDB) doExpried(lock *Lock, forcedExpried bool) {
 	lock.expried = true
 	lockManager.locked -= uint32(lockLocked)
 	lockProtocol, lockCommand := lock.protocol, lock.command
-	lockManager.RemoveLock(lock)
+	if lockCommand.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
+		lockManager.ProcessExecuteLockCommand(lock, protocol.LOCK_DATA_STAGE_EXPRIED)
+	}
 	if lock.isAof {
 		_ = lockManager.PushUnLockAof(lockManager.dbId, lock, lockCommand, nil, false, AOF_FLAG_EXPRIED)
 	}
 	if lockCommand.ExpriedFlag&protocol.EXPRIED_FLAG_PUSH_SUBSCRIBE != 0 {
 		_ = self.subscribeChannels[lockManager.glockIndex].Push(lockCommand, protocol.RESULT_EXPRIED, uint16(lockManager.locked), lock.locked, lockManager.GetLockData())
 	}
-	if lockCommand.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
-		lockManager.ProcessExecuteLockCommand(lock, protocol.LOCK_DATA_STAGE_EXPRIED)
-	}
+	lockManager.RemoveLock(lock)
 
 	lock.refCount--
 	if lock.refCount == 0 {
@@ -1985,18 +1988,21 @@ func (self *LockDB) UnLock(serverProtocol ServerProtocol, command *protocol.Lock
 
 		if unlocked {
 			//self.RemoveExpried(current_lock)
+			currentLockCommand := currentLock.command
+			currentLock.expried = true
 			lockData := lockManager.GetLockData()
 			if command.Flag&protocol.UNLOCK_FLAG_CONTAINS_DATA != 0 {
 				lockManager.ProcessLockData(command, currentLock, false)
 			}
-			currentLockCommand := currentLock.command
-			currentLock.expried = true
+			if currentLockCommand.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
+				lockManager.ProcessExecuteLockCommand(currentLock, protocol.LOCK_DATA_STAGE_UNLOCK)
+			}
 			if currentLock.longWaitIndex > 0 {
 				self.RemoveLongExpried(currentLock)
-				lockManager.RemoveLock(currentLock)
 				if currentLock.isAof {
 					_ = lockManager.PushUnLockAof(lockManager.dbId, currentLock, currentLockCommand, command, false, 0)
 				}
+				lockManager.RemoveLock(currentLock)
 
 				if currentLock.refCount == 0 {
 					lockManager.FreeLock(currentLock)
@@ -2005,13 +2011,10 @@ func (self *LockDB) UnLock(serverProtocol ServerProtocol, command *protocol.Lock
 					}
 				}
 			} else {
-				lockManager.RemoveLock(currentLock)
 				if currentLock.isAof {
 					_ = lockManager.PushUnLockAof(lockManager.dbId, currentLock, currentLockCommand, command, false, 0)
 				}
-			}
-			if currentLockCommand.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
-				lockManager.ProcessExecuteLockCommand(currentLock, protocol.LOCK_DATA_STAGE_UNLOCK)
+				lockManager.RemoveLock(currentLock)
 			}
 			lockManager.state.UnLockCount += uint64(lockLocked)
 			lockManager.state.LockedCount -= uint32(lockLocked)
@@ -2032,13 +2035,16 @@ func (self *LockDB) UnLock(serverProtocol ServerProtocol, command *protocol.Lock
 		if command.Flag&protocol.UNLOCK_FLAG_CONTAINS_DATA != 0 {
 			lockManager.ProcessLockData(command, currentLock, false)
 		}
+		if currentLockCommand.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
+			lockManager.ProcessExecuteLockCommand(currentLock, protocol.LOCK_DATA_STAGE_UNLOCK)
+		}
 		if currentLock.longWaitIndex > 0 {
+			lockManager.locked--
 			self.RemoveLongExpried(currentLock)
-			lockManager.RemoveLock(currentLock)
 			if currentLock.isAof {
 				_ = lockManager.PushUnLockAof(lockManager.dbId, currentLock, currentLockCommand, command, false, 0)
 			}
-			lockManager.locked--
+			lockManager.RemoveLock(currentLock)
 
 			if currentLock.refCount == 0 {
 				lockManager.FreeLock(currentLock)
@@ -2047,14 +2053,11 @@ func (self *LockDB) UnLock(serverProtocol ServerProtocol, command *protocol.Lock
 				}
 			}
 		} else {
-			lockManager.RemoveLock(currentLock)
+			lockManager.locked--
 			if currentLock.isAof {
 				_ = lockManager.PushUnLockAof(lockManager.dbId, currentLock, currentLockCommand, command, false, 0)
 			}
-			lockManager.locked--
-		}
-		if currentLockCommand.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
-			lockManager.ProcessExecuteLockCommand(currentLock, protocol.LOCK_DATA_STAGE_UNLOCK)
+			lockManager.RemoveLock(currentLock)
 		}
 		lockManager.state.UnLockCount++
 		lockManager.state.LockedCount--
@@ -2243,10 +2246,10 @@ func (self *LockDB) cancelWaitLock(lockManager *LockManager, command *protocol.L
 
 	if lockLocked > 0 {
 		lockManager.locked -= uint32(lockLocked)
-		lockManager.RemoveLock(waitLock)
 		if waitLock.isAof {
 			_ = lockManager.PushUnLockAof(lockManager.dbId, waitLock, lockCommand, nil, false, 0)
 		}
+		lockManager.RemoveLock(waitLock)
 	} else {
 		if lockManager.GetWaitLock() == nil {
 			lockManager.waited = false
@@ -2384,13 +2387,13 @@ func (self *LockDB) DoAckLock(lock *Lock, succed bool) {
 	lockLocked := lock.locked
 	lockManager.locked -= uint32(lockLocked)
 	lockProtocol, lockCommand := lock.protocol, lock.command
-	lockManager.RemoveLock(lock)
 	if lockCommand.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
 		lockManager.ProcessRecoverLockData(lock)
 	}
 	if lock.isAof {
 		_ = lockManager.PushUnLockAof(lockManager.dbId, lock, lockCommand, nil, false, 0)
 	}
+	lockManager.RemoveLock(lock)
 
 	lock.refCount--
 	if lock.refCount == 0 {
