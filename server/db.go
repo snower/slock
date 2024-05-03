@@ -25,8 +25,10 @@ type LongWaitLockQueue struct {
 
 func (self *LongWaitLockQueue) Push(lock *Lock) error {
 	lock.longWaitIndex = uint64(self.locks.tailNodeIndex)<<32 | uint64(self.locks.tailQueueIndex+1)
-	if self.locks.Push(lock) != nil {
+	err := self.locks.Push(lock)
+	if err != nil {
 		lock.longWaitIndex = 0
+		return err
 	}
 	self.lockCount++
 	return nil
