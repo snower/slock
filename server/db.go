@@ -2085,6 +2085,7 @@ func (self *LockDB) wakeUpWaitLock(lockManager *LockManager, waitLock *Lock, ser
 		err := lockManager.PushLockAof(waitLock, 0)
 		lockManager.state.LockCount++
 		lockManager.state.LockedCount++
+		lockManager.state.WaitCount--
 		if err == nil {
 			lockManager.glock.Unlock()
 		} else {
