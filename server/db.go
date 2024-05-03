@@ -669,20 +669,19 @@ func (self *LockDB) flushTimeOut(glockIndex uint16, doTimeout bool) {
 	for i := int64(0); i < TIMEOUT_QUEUE_LENGTH; i++ {
 		lock := self.timeoutLocks[i][glockIndex].Pop()
 		for lock != nil {
-			lock, doTimeoutLocks = self.flushTimeoutCheckLock(self.timeoutLocks[i][glockIndex], lock, doTimeoutLocks)
+			doTimeoutLocks = self.flushTimeoutCheckLock(lock, doTimeoutLocks)
+			lock = self.timeoutLocks[i][glockIndex].Pop()
 		}
 		_ = self.timeoutLocks[i][glockIndex].Reset()
 	}
 
 	for checkTimeoutTime, longLocks := range self.longTimeoutLocks[glockIndex] {
 		longLockCount := longLocks.Len()
-		lock := longLocks.Pop()
 		for longLockCount > 0 {
+			lock := longLocks.Pop()
 			if lock != nil {
 				lock.longWaitIndex = 0
-				lock, doTimeoutLocks = self.flushTimeoutCheckLock(longLocks.locks, lock, doTimeoutLocks)
-			} else {
-				lock = longLocks.Pop()
+				doTimeoutLocks = self.flushTimeoutCheckLock(lock, doTimeoutLocks)
 			}
 			longLockCount--
 		}
@@ -694,9 +693,9 @@ func (self *LockDB) flushTimeOut(glockIndex uint16, doTimeout bool) {
 		if lockQueue != nil {
 			lock := lockQueue.Pop()
 			for lock != nil {
-				lock, doTimeoutLocks = self.flushTimeoutCheckLock(lockQueue, lock, doTimeoutLocks)
+				doTimeoutLocks = self.flushTimeoutCheckLock(lock, doTimeoutLocks)
+				lock = lockQueue.Pop()
 			}
-
 			self.freeMillisecondWaitQueues[glockIndex].FreeLockQueue(lockQueue)
 			self.millisecondTimeoutLocks[glockIndex][i] = nil
 		}
@@ -711,12 +710,10 @@ func (self *LockDB) flushTimeOut(glockIndex uint16, doTimeout bool) {
 	}
 }
 
-func (self *LockDB) flushTimeoutCheckLock(lockQueue *LockQueue, lock *Lock, doTimeoutLocks []*Lock) (*Lock, []*Lock) {
+func (self *LockDB) flushTimeoutCheckLock(lock *Lock, doTimeoutLocks []*Lock) []*Lock {
 	if !lock.timeouted {
-		doTimeoutLocks = append(doTimeoutLocks, lock)
-		return lockQueue.Pop(), doTimeoutLocks
+		return append(doTimeoutLocks, lock)
 	}
-
 	lockManager := lock.manager
 	lock.refCount--
 	if lock.refCount == 0 {
@@ -725,7 +722,7 @@ func (self *LockDB) flushTimeoutCheckLock(lockQueue *LockQueue, lock *Lock, doTi
 			self.RemoveLockManager(lockManager)
 		}
 	}
-	return lockQueue.Pop(), doTimeoutLocks
+	return doTimeoutLocks
 }
 
 func (self *LockDB) checkExpried(waiter chan bool) {
@@ -936,20 +933,19 @@ func (self *LockDB) flushExpried(glockIndex uint16, doExpried bool) {
 	for i := int64(0); i < EXPRIED_QUEUE_LENGTH; i++ {
 		lock := self.expriedLocks[i][glockIndex].Pop()
 		for lock != nil {
-			lock, doExpriedLocks = self.flushExpriedCheckLock(self.expriedLocks[i][glockIndex], lock, doExpriedLocks)
+			doExpriedLocks = self.flushExpriedCheckLock(lock, doExpriedLocks)
+			lock = self.expriedLocks[i][glockIndex].Pop()
 		}
 		_ = self.expriedLocks[i][glockIndex].Reset()
 	}
 
 	for checkExpriedTime, longLocks := range self.longExpriedLocks[glockIndex] {
 		longLockCount := longLocks.Len()
-		lock := longLocks.Pop()
 		for longLockCount > 0 {
+			lock := longLocks.Pop()
 			if lock != nil {
 				lock.longWaitIndex = 0
-				lock, doExpriedLocks = self.flushExpriedCheckLock(longLocks.locks, lock, doExpriedLocks)
-			} else {
-				lock = longLocks.Pop()
+				doExpriedLocks = self.flushExpriedCheckLock(lock, doExpriedLocks)
 			}
 			longLockCount--
 		}
@@ -961,7 +957,8 @@ func (self *LockDB) flushExpried(glockIndex uint16, doExpried bool) {
 		if lockQueue != nil {
 			lock := lockQueue.Pop()
 			for lock != nil {
-				lock, doExpriedLocks = self.flushExpriedCheckLock(lockQueue, lock, doExpriedLocks)
+				doExpriedLocks = self.flushExpriedCheckLock(lock, doExpriedLocks)
+				lock = lockQueue.Pop()
 			}
 			self.freeMillisecondWaitQueues[glockIndex].FreeLockQueue(lockQueue)
 			self.millisecondExpriedLocks[glockIndex][i] = nil
@@ -977,10 +974,9 @@ func (self *LockDB) flushExpried(glockIndex uint16, doExpried bool) {
 	}
 }
 
-func (self *LockDB) flushExpriedCheckLock(lockQueue *LockQueue, lock *Lock, doExpriedLocks []*Lock) (*Lock, []*Lock) {
+func (self *LockDB) flushExpriedCheckLock(lock *Lock, doExpriedLocks []*Lock) []*Lock {
 	if !lock.expried {
-		doExpriedLocks = append(doExpriedLocks, lock)
-		return lockQueue.Pop(), doExpriedLocks
+		return append(doExpriedLocks, lock)
 	}
 
 	lockManager := lock.manager
@@ -991,7 +987,7 @@ func (self *LockDB) flushExpriedCheckLock(lockQueue *LockQueue, lock *Lock, doEx
 			self.RemoveLockManager(lockManager)
 		}
 	}
-	return lockQueue.Pop(), doExpriedLocks
+	return doExpriedLocks
 }
 
 func (self *LockDB) initNewLockManager(dbId uint8) {
@@ -1243,7 +1239,7 @@ func (self *LockDB) RemoveTimeOut(lock *Lock) {
 func (self *LockDB) RemoveLongTimeOut(lock *Lock) {
 	if longLocks, ok := self.longTimeoutLocks[lock.manager.glockIndex][lock.timeoutTime]; ok {
 		longLocks.Remove(lock)
-		if longLocks.freeCount*3 >= longLocks.lockCount && (longLocks.freeCount >= longLocks.lockCount || longLocks.freeCount >= 256) {
+		if longLocks.freeCount*3 >= longLocks.lockCount && (longLocks.freeCount >= longLocks.lockCount || longLocks.freeCount >= LONG_LOCKS_QUEUE_INIT_SIZE) {
 			self.restructuringLongTimeOutQueue(longLocks)
 		}
 	} else {
@@ -1413,7 +1409,7 @@ func (self *LockDB) RemoveExpried(lock *Lock) {
 func (self *LockDB) RemoveLongExpried(lock *Lock) {
 	if longLocks, ok := self.longExpriedLocks[lock.manager.glockIndex][lock.expriedTime]; ok {
 		longLocks.Remove(lock)
-		if longLocks.freeCount*3 >= longLocks.lockCount && (longLocks.freeCount >= longLocks.lockCount || longLocks.freeCount >= 256) {
+		if longLocks.freeCount*3 >= longLocks.lockCount && (longLocks.freeCount >= longLocks.lockCount || longLocks.freeCount >= LONG_LOCKS_QUEUE_INIT_SIZE) {
 			self.restructuringLongExpriedQueue(longLocks)
 		}
 	} else {
