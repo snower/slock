@@ -19,7 +19,7 @@ func TestLockTimeoutLongWait(t *testing.T) {
 		lock := NewLock(NewLockManager(db, command, db.managerGlocks[0], 0, db.freeLocks[0], db.states[0]), defaultServerProtocol, command)
 		lock.timeoutCheckedCount = EXPRIED_QUEUE_MAX_WAIT + 1
 		lock.timeoutTime = lockTimeoutTime
-		db.AddTimeOut(lock, lock.timeoutTime)
+		db.AddTimeOut(lock)
 		if i%10 != 0 {
 			db.RemoveLongTimeOut(lock)
 		} else {
@@ -53,10 +53,10 @@ func TestLockTimeoutLongWait(t *testing.T) {
 		if i%10 == 0 {
 			lock.timeoutCheckedCount = EXPRIED_QUEUE_MAX_WAIT + 1
 			lock.timeoutTime = lockTimeoutTime
-			db.AddTimeOut(lock, lock.timeoutTime)
+			db.AddTimeOut(lock)
 		} else {
 			lock.timeoutTime = lockTimeoutTime
-			db.AddTimeOut(lock, lock.timeoutTime)
+			db.AddTimeOut(lock)
 		}
 	}
 	if longLocks, ok := db.longTimeoutLocks[1][lockTimeoutTime]; ok {
@@ -88,7 +88,7 @@ func TestLockExpriedLongWait(t *testing.T) {
 		lock := NewLock(NewLockManager(db, command, db.managerGlocks[0], 0, db.freeLocks[0], db.states[0]), defaultServerProtocol, command)
 		lock.expriedCheckedCount = EXPRIED_QUEUE_MAX_WAIT + 1
 		lock.expriedTime = lockExpriedTime
-		db.AddExpried(lock, lock.expriedTime)
+		db.AddExpried(lock)
 		if i%10 != 0 {
 			db.RemoveLongExpried(lock)
 		} else {
@@ -122,10 +122,10 @@ func TestLockExpriedLongWait(t *testing.T) {
 		if i%10 == 0 {
 			lock.expriedCheckedCount = EXPRIED_QUEUE_MAX_WAIT + 1
 			lock.expriedTime = lockExpriedTime
-			db.AddExpried(lock, lock.expriedTime)
+			db.AddExpried(lock)
 		} else {
 			lock.expriedTime = lockExpriedTime
-			db.AddExpried(lock, lock.expriedTime)
+			db.AddExpried(lock)
 		}
 	}
 	if longLocks, ok := db.longExpriedLocks[1][lockExpriedTime]; ok {

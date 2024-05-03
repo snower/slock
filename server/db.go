@@ -39,6 +39,7 @@ func (self *LongWaitLockQueue) Pop() *Lock {
 	if lock == nil {
 		return nil
 	}
+	lock.longWaitIndex = 0
 	self.lockCount--
 	return lock
 }
@@ -503,7 +504,7 @@ func (self *LockDB) checkTimeTimeOut(checkTimeoutTime int64, now int64, glockInd
 		if !lock.timeouted {
 			if lock.timeoutTime > now {
 				lock.timeoutCheckedCount++
-				self.AddTimeOut(lock, lock.timeoutTime)
+				self.AddTimeOut(lock)
 				lock = timeoutLocks[glockIndex].Pop()
 				continue
 			}
@@ -531,7 +532,6 @@ func (self *LockDB) checkTimeTimeOut(checkTimeoutTime int64, now int64, glockInd
 		for longLockCount > 0 {
 			lock = longLocks.Pop()
 			if lock != nil {
-				lock.longWaitIndex = 0
 				if !lock.timeouted {
 					_ = doTimeoutLocks.Push(lock)
 				} else {
@@ -581,7 +581,7 @@ func (self *LockDB) checkMillisecondTimeOut(ms int64, glockIndex uint16) {
 			if !lock.timeouted {
 				lock.timeoutTime = lock.startTime + int64(lock.command.Timeout/1000) + 1
 				if lock.command.Timeout >= MILLISECOND_QUEUE_LENGTH {
-					self.AddTimeOut(lock, lock.timeoutTime)
+					self.AddTimeOut(lock)
 					nodeQueues[j] = nil
 					continue
 				}
@@ -680,7 +680,6 @@ func (self *LockDB) flushTimeOut(glockIndex uint16, doTimeout bool) {
 		for longLockCount > 0 {
 			lock := longLocks.Pop()
 			if lock != nil {
-				lock.longWaitIndex = 0
 				doTimeoutLocks = self.flushTimeoutCheckLock(lock, doTimeoutLocks)
 			}
 			longLockCount--
@@ -766,7 +765,7 @@ func (self *LockDB) checkTimeExpried(checkExpriedTime int64, now int64, glockInd
 		if !lock.expried {
 			if lock.expriedTime > now {
 				lock.expriedCheckedCount++
-				self.AddExpried(lock, lock.expriedTime)
+				self.AddExpried(lock)
 
 				lock = expriedLocks[glockIndex].Pop()
 				continue
@@ -794,7 +793,6 @@ func (self *LockDB) checkTimeExpried(checkExpriedTime int64, now int64, glockInd
 		for longLockCount > 0 {
 			lock = longLocks.Pop()
 			if lock != nil {
-				lock.longWaitIndex = 0
 				if !lock.expried {
 					_ = doExpriedLocks.Push(lock)
 				} else {
@@ -844,7 +842,7 @@ func (self *LockDB) checkMillisecondExpried(ms int64, glockIndex uint16) {
 			if !lock.expried {
 				lock.expriedTime = lock.startTime + int64(lock.command.Expried/1000) + 1
 				if lock.command.Expried >= MILLISECOND_QUEUE_LENGTH {
-					self.AddExpried(lock, lock.expriedTime)
+					self.AddExpried(lock)
 					nodeQueues[j] = nil
 					continue
 				}
@@ -944,7 +942,6 @@ func (self *LockDB) flushExpried(glockIndex uint16, doExpried bool) {
 		for longLockCount > 0 {
 			lock := longLocks.Pop()
 			if lock != nil {
-				lock.longWaitIndex = 0
 				doExpriedLocks = self.flushExpriedCheckLock(lock, doExpriedLocks)
 			}
 			longLockCount--
@@ -1201,24 +1198,23 @@ func (self *LockDB) RemoveLockManager(lockManager *LockManager) {
 	atomic.AddUint32(&lockManager.state.KeyCount, 0xffffffff)
 }
 
-func (self *LockDB) AddTimeOut(lock *Lock, lockTimeoutTime int64) {
+func (self *LockDB) AddTimeOut(lock *Lock) {
 	lock.timeouted = false
-
 	if lock.timeoutCheckedCount > TIMEOUT_QUEUE_MAX_WAIT {
-		if lockTimeoutTime < self.checkTimeoutTime {
-			lockTimeoutTime = self.checkTimeoutTime
+		if lock.timeoutTime < self.checkTimeoutTime {
+			lock.timeoutTime = self.checkTimeoutTime
 		}
-		if longLocks, ok := self.longTimeoutLocks[lock.manager.glockIndex][lockTimeoutTime]; !ok {
-			longLocks = self.freeLongWaitQueues[lock.manager.glockIndex].GetLongWaitLockQueue(lock.manager.glockIndex, lockTimeoutTime)
-			self.longTimeoutLocks[lock.manager.glockIndex][lockTimeoutTime] = longLocks
+		if longLocks, ok := self.longTimeoutLocks[lock.manager.glockIndex][lock.timeoutTime]; !ok {
+			longLocks = self.freeLongWaitQueues[lock.manager.glockIndex].GetLongWaitLockQueue(lock.manager.glockIndex, lock.timeoutTime)
+			self.longTimeoutLocks[lock.manager.glockIndex][lock.timeoutTime] = longLocks
 			_ = longLocks.Push(lock)
 		} else {
 			_ = longLocks.Push(lock)
 		}
 	} else {
 		doTimeoutTime := self.checkTimeoutTime + int64(lock.timeoutCheckedCount)
-		if lockTimeoutTime < doTimeoutTime {
-			doTimeoutTime = lockTimeoutTime
+		if lock.timeoutTime < doTimeoutTime {
+			doTimeoutTime = lock.timeoutTime
 			if doTimeoutTime < self.checkTimeoutTime {
 				doTimeoutTime = self.checkTimeoutTime
 			}
@@ -1242,11 +1238,11 @@ func (self *LockDB) RemoveLongTimeOut(lock *Lock) {
 		if longLocks.freeCount*3 >= longLocks.lockCount && (longLocks.freeCount >= longLocks.lockCount || longLocks.freeCount >= LONG_LOCKS_QUEUE_INIT_SIZE) {
 			self.restructuringLongTimeOutQueue(longLocks)
 		}
+		lock.refCount--
 	} else {
 		self.slock.Log().Errorf("Database remove long timeout not found %d %d", lock.longWaitIndex, lock.timeoutTime)
 		lock.longWaitIndex = 0
 	}
-	lock.refCount--
 }
 
 func (self *LockDB) doTimeOut(lock *Lock, forcedExpried bool) {
@@ -1270,7 +1266,7 @@ func (self *LockDB) doTimeOut(lock *Lock, forcedExpried bool) {
 			stream := lock.protocol.GetStream()
 			if stream != nil && !stream.closed {
 				lock.timeoutTime = self.currentTime + int64(lock.command.Timeout)
-				self.AddTimeOut(lock, lock.timeoutTime)
+				self.AddTimeOut(lock)
 				lockManager.glock.Unlock()
 				return
 			}
@@ -1364,24 +1360,23 @@ func (self *LockDB) AddMillisecondTimeOut(lock *Lock) {
 	}
 }
 
-func (self *LockDB) AddExpried(lock *Lock, lockExpriedTime int64) {
+func (self *LockDB) AddExpried(lock *Lock) {
 	lock.expried = false
-
 	if lock.expriedCheckedCount > EXPRIED_QUEUE_MAX_WAIT {
-		if lockExpriedTime < self.checkExpriedTime {
-			lockExpriedTime = self.checkExpriedTime
+		if lock.expriedTime < self.checkExpriedTime {
+			lock.expriedTime = self.checkExpriedTime
 		}
-		if longLocks, ok := self.longExpriedLocks[lock.manager.glockIndex][lockExpriedTime]; !ok {
-			longLocks = self.freeLongWaitQueues[lock.manager.glockIndex].GetLongWaitLockQueue(lock.manager.glockIndex, lockExpriedTime)
-			self.longExpriedLocks[lock.manager.glockIndex][lockExpriedTime] = longLocks
+		if longLocks, ok := self.longExpriedLocks[lock.manager.glockIndex][lock.expriedTime]; !ok {
+			longLocks = self.freeLongWaitQueues[lock.manager.glockIndex].GetLongWaitLockQueue(lock.manager.glockIndex, lock.expriedTime)
+			self.longExpriedLocks[lock.manager.glockIndex][lock.expriedTime] = longLocks
 			_ = longLocks.Push(lock)
 		} else {
 			_ = longLocks.Push(lock)
 		}
 	} else {
 		doExpriedTime := self.checkExpriedTime + int64(lock.expriedCheckedCount)
-		if lockExpriedTime < doExpriedTime {
-			doExpriedTime = lockExpriedTime
+		if lock.expriedTime < doExpriedTime {
+			doExpriedTime = lock.expriedTime
 			if doExpriedTime < self.checkExpriedTime {
 				doExpriedTime = self.checkExpriedTime
 			}
@@ -1412,11 +1407,11 @@ func (self *LockDB) RemoveLongExpried(lock *Lock) {
 		if longLocks.freeCount*3 >= longLocks.lockCount && (longLocks.freeCount >= longLocks.lockCount || longLocks.freeCount >= LONG_LOCKS_QUEUE_INIT_SIZE) {
 			self.restructuringLongExpriedQueue(longLocks)
 		}
+		lock.refCount--
 	} else {
 		self.slock.Log().Errorf("Database remove long expried not found %d %d", lock.longWaitIndex, lock.expriedTime)
 		lock.longWaitIndex = 0
 	}
-	lock.refCount--
 }
 
 func (self *LockDB) doExpried(lock *Lock, forcedExpried bool) {
@@ -1440,7 +1435,7 @@ func (self *LockDB) doExpried(lock *Lock, forcedExpried bool) {
 		if self.status != STATE_LEADER {
 			if lock.expriedTime <= 0 || self.currentTime-lock.expriedTime < EXPRIED_WAIT_LEADER_MAX_TIME {
 				lock.expriedTime = self.currentTime + 30
-				self.AddExpried(lock, lock.expriedTime)
+				self.AddExpried(lock)
 				lockManager.glock.Unlock()
 				return
 			}
@@ -1450,7 +1445,7 @@ func (self *LockDB) doExpried(lock *Lock, forcedExpried bool) {
 			stream := lock.protocol.GetStream()
 			if stream != nil && !stream.closed {
 				lock.expriedTime = self.currentTime + int64(lock.command.Expried)
-				self.AddExpried(lock, lock.expriedTime)
+				self.AddExpried(lock)
 				lockManager.glock.Unlock()
 				return
 			}
@@ -1607,7 +1602,7 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 					self.RemoveLongExpried(currentLock)
 					lockManager.UpdateLockedLock(currentLock, command.Timeout, command.TimeoutFlag, command.Expried, command.ExpriedFlag, command.Count, command.Rcount)
 					if command.ExpriedFlag&protocol.EXPRIED_FLAG_MILLISECOND_TIME == 0 {
-						self.AddExpried(currentLock, currentLock.expriedTime)
+						self.AddExpried(currentLock)
 					} else {
 						self.AddMillisecondExpried(currentLock)
 					}
@@ -1648,7 +1643,7 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 					self.RemoveLongExpried(currentLock)
 					lockManager.UpdateLockedLock(currentLock, command.Timeout, command.TimeoutFlag, command.Expried, command.ExpriedFlag, command.Count, command.Rcount)
 					if command.ExpriedFlag&protocol.EXPRIED_FLAG_MILLISECOND_TIME == 0 {
-						self.AddExpried(currentLock, currentLock.expriedTime)
+						self.AddExpried(currentLock)
 					} else {
 						self.AddMillisecondExpried(currentLock)
 					}
@@ -1703,7 +1698,7 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 					lockManager.ProcessLockData(command, lock, true)
 				}
 				if command.TimeoutFlag&protocol.TIMEOUT_FLAG_MILLISECOND_TIME == 0 {
-					self.AddTimeOut(lock, lock.timeoutTime)
+					self.AddTimeOut(lock)
 				} else {
 					self.AddMillisecondTimeOut(lock)
 				}
@@ -1725,7 +1720,7 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 				lockManager.ProcessLockData(command, lock, false)
 			}
 			if command.ExpriedFlag&protocol.EXPRIED_FLAG_MILLISECOND_TIME == 0 {
-				self.AddExpried(lock, lock.expriedTime)
+				self.AddExpried(lock)
 			} else {
 				self.AddMillisecondExpried(lock)
 			}
@@ -1790,7 +1785,7 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 	if command.Timeout > 0 {
 		lockManager.AddWaitLock(lock)
 		if command.TimeoutFlag&protocol.TIMEOUT_FLAG_MILLISECOND_TIME == 0 {
-			self.AddTimeOut(lock, lock.timeoutTime)
+			self.AddTimeOut(lock)
 		} else {
 			self.AddMillisecondTimeOut(lock)
 		}
@@ -2113,7 +2108,7 @@ func (self *LockDB) wakeUpWaitLock(lockManager *LockManager, waitLock *Lock, ser
 			lockManager.ProcessLockData(waitLock.command, waitLock, false)
 		}
 		if waitLock.command.ExpriedFlag&protocol.EXPRIED_FLAG_MILLISECOND_TIME == 0 {
-			self.AddExpried(waitLock, waitLock.expriedTime)
+			self.AddExpried(waitLock)
 		} else {
 			self.AddMillisecondExpried(waitLock)
 		}
@@ -2229,7 +2224,7 @@ func (self *LockDB) addUnlockLockCommandToWaitLock(lockManager *LockManager, com
 		lock := lockManager.GetOrNewLock(serverProtocol, command)
 		lockManager.AddWaitLock(lock)
 		if command.TimeoutFlag&protocol.TIMEOUT_FLAG_MILLISECOND_TIME == 0 {
-			self.AddTimeOut(lock, lock.timeoutTime)
+			self.AddTimeOut(lock)
 		} else {
 			self.AddMillisecondTimeOut(lock)
 		}
@@ -2319,7 +2314,7 @@ func (self *LockDB) DoAckLock(lock *Lock, succed bool) {
 			lockData = lockManager.GetLockData()
 		}
 		if lock.command.ExpriedFlag&protocol.EXPRIED_FLAG_MILLISECOND_TIME == 0 {
-			self.AddExpried(lock, lock.expriedTime)
+			self.AddExpried(lock)
 		} else {
 			self.AddMillisecondExpried(lock)
 		}
