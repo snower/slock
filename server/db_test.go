@@ -27,10 +27,10 @@ func TestLockTimeoutLongWait(t *testing.T) {
 		}
 	}
 
-	db.restructuringLongTimeOutQueue()
+	db.restructuringLongTimeOutQueue(db.longTimeoutLocks[0][lockTimeoutTime])
 	if longLocks, ok := db.longTimeoutLocks[0][lockTimeoutTime]; ok {
-		if longLocks.locks.Len() != 10000 {
-			t.Errorf("longTimeoutLocks Size Error %v", longLocks.locks.Len())
+		if longLocks.Len() != 10000 {
+			t.Errorf("longTimeoutLocks Size Error %v", longLocks.Len())
 			return
 		}
 	} else {
@@ -42,9 +42,8 @@ func TestLockTimeoutLongWait(t *testing.T) {
 		db.RemoveLongTimeOut(lock)
 	}
 	db.managerGlocks[0].Unlock()
-	db.restructuringLongTimeOutQueue()
 	if longLocks, ok := db.longTimeoutLocks[0][lockTimeoutTime]; ok {
-		t.Errorf("longTimeoutLocks Is Exist %v", longLocks.locks.Len())
+		t.Errorf("longTimeoutLocks Is Exist %v", longLocks.Len())
 		return
 	}
 
@@ -61,8 +60,8 @@ func TestLockTimeoutLongWait(t *testing.T) {
 		}
 	}
 	if longLocks, ok := db.longTimeoutLocks[1][lockTimeoutTime]; ok {
-		if longLocks.locks.Len() != 10000 {
-			t.Errorf("longTimeoutLocks Size Error %v", longLocks.locks.Len())
+		if longLocks.Len() != 10000 {
+			t.Errorf("longTimeoutLocks Size Error %v", longLocks.Len())
 			return
 		}
 	} else {
@@ -71,7 +70,7 @@ func TestLockTimeoutLongWait(t *testing.T) {
 	}
 	db.flushTimeOut(1, false)
 	if longLocks, ok := db.longTimeoutLocks[1][lockTimeoutTime]; ok {
-		t.Errorf("longTimeoutLocks Is Exist %v", longLocks.locks.Len())
+		t.Errorf("longTimeoutLocks Is Exist %v", longLocks.Len())
 		return
 	}
 }
@@ -97,10 +96,10 @@ func TestLockExpriedLongWait(t *testing.T) {
 		}
 	}
 
-	db.restructuringLongExpriedQueue()
+	db.restructuringLongExpriedQueue(db.longExpriedLocks[0][lockExpriedTime])
 	if longLocks, ok := db.longExpriedLocks[0][lockExpriedTime]; ok {
-		if longLocks.locks.Len() != 10000 {
-			t.Errorf("longExpriedLocks Size Error %v", longLocks.locks.Len())
+		if longLocks.Len() != 10000 {
+			t.Errorf("longExpriedLocks Size Error %v", longLocks.Len())
 			return
 		}
 	} else {
@@ -112,9 +111,8 @@ func TestLockExpriedLongWait(t *testing.T) {
 		db.RemoveLongExpried(lock)
 	}
 	db.managerGlocks[0].Unlock()
-	db.restructuringLongExpriedQueue()
 	if longLocks, ok := db.longExpriedLocks[0][lockExpriedTime]; ok {
-		t.Errorf("longExpriedLocks Is Exist %v", longLocks.locks.Len())
+		t.Errorf("longExpriedLocks Is Exist %v", longLocks.Len())
 		return
 	}
 
@@ -131,8 +129,8 @@ func TestLockExpriedLongWait(t *testing.T) {
 		}
 	}
 	if longLocks, ok := db.longExpriedLocks[1][lockExpriedTime]; ok {
-		if longLocks.locks.Len() != 10000 {
-			t.Errorf("longExpriedLocks Size Error %v", longLocks.locks.Len())
+		if longLocks.Len() != 10000 {
+			t.Errorf("longExpriedLocks Size Error %v", longLocks.Len())
 			return
 		}
 	} else {
@@ -141,7 +139,7 @@ func TestLockExpriedLongWait(t *testing.T) {
 	}
 	db.flushExpried(1, false)
 	if longLocks, ok := db.longExpriedLocks[1][lockExpriedTime]; ok {
-		t.Errorf("longExpriedLocks Is Exist %v", longLocks.locks.Len())
+		t.Errorf("longExpriedLocks Is Exist %v", longLocks.Len())
 		return
 	}
 }
