@@ -1282,8 +1282,6 @@ func (self *LockDB) doTimeOut(lock *Lock, forcedExpried bool) {
 		if lockCommand.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
 			if lock.ackCount != 0xff {
 				lockManager.ProcessRecoverLockData(lock)
-				lockManager.state.LockCount--
-				lockManager.state.LockedCount--
 			} else {
 				lockManager.ProcessExecuteLockCommand(lock, protocol.LOCK_DATA_STAGE_TIMEOUT)
 			}
@@ -1295,6 +1293,8 @@ func (self *LockDB) doTimeOut(lock *Lock, forcedExpried bool) {
 			_ = self.subscribeChannels[lockManager.glockIndex].Push(lockCommand, protocol.RESULT_TIMEOUT, uint16(lockManager.locked), lock.locked, lockManager.GetLockData())
 		}
 		lockManager.RemoveLock(lock)
+		lockManager.state.LockCount--
+		lockManager.state.LockedCount--
 	} else {
 		if lockManager.GetWaitLock() == nil {
 			lockManager.waited = false
