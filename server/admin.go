@@ -313,6 +313,7 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 		freeLockCount := 0
 		freeLockCommandCount, cacheLockCommandCount := 0, 0
 		totalCommandCount := uint64(0)
+		longTimeoutQueueCount, longTimeoutLockCount, longExpriedQueueCount, longExpriedLockCount := 0, 0, 0, 0
 		exectorCount, exectorRunningCount, exectorQueueCount, exectorExecuteCount := 0, 0, 0, uint64(0)
 		for _, db := range self.slock.dbs {
 			if db != nil {
@@ -326,7 +327,16 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 					}
 				}
 				for i := uint16(0); i < db.managerMaxGlocks; i++ {
+					db.managerGlocks[i].LowPriorityLock()
 					freeLockCount += int(db.freeLocks[i].Len())
+					longTimeoutQueueCount += len(db.longTimeoutLocks[i])
+					for _, longLocks := range db.longTimeoutLocks[i] {
+						longTimeoutLockCount += int(longLocks.lockCount - longLocks.freeCount)
+					}
+					longExpriedQueueCount += len(db.longExpriedLocks[i])
+					for _, longLocks := range db.longExpriedLocks[i] {
+						longExpriedLockCount += int(longLocks.lockCount - longLocks.freeCount)
+					}
 					exector := db.exectors[i]
 					if exector != nil {
 						exectorCount++
@@ -336,6 +346,7 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 						exectorQueueCount += exector.queueCount
 						exectorExecuteCount += exector.executeCount
 					}
+					db.managerGlocks[i].LowPriorityUnlock()
 				}
 			}
 		}
@@ -393,6 +404,10 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 		infos = append(infos, fmt.Sprintf("low_priority_lock_count:%d", lowPriorityLockCount))
 		infos = append(infos, fmt.Sprintf("high_priority_lock_mode_count:%d", highPriorityLockModeCount))
 		infos = append(infos, fmt.Sprintf("low_priority_lock_mode_count:%d", lowPriorityLockModeCount))
+		infos = append(infos, fmt.Sprintf("long_timeout_queue_count:%d", longTimeoutQueueCount))
+		infos = append(infos, fmt.Sprintf("long_timeout_lock_count:%d", longTimeoutLockCount))
+		infos = append(infos, fmt.Sprintf("long_expried_queue_count:%d", longExpriedQueueCount))
+		infos = append(infos, fmt.Sprintf("long_expried_lock_count:%d", longExpriedLockCount))
 		infos = append(infos, fmt.Sprintf("exector_count:%d", exectorCount))
 		infos = append(infos, fmt.Sprintf("exector_running_count:%d", exectorRunningCount))
 		infos = append(infos, fmt.Sprintf("exector_queue_count:%d", exectorQueueCount))
