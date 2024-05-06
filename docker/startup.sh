@@ -88,6 +88,6 @@ if [ -n "$ARG_REPLSET" ]; then
   CMD_ARG="$CMD_ARG --replset=\"$ARG_REPLSET\""
 fi
 
-CMD="/go/bin/slock $CMD_ARG"
+CMD="slock $CMD_ARG"
 echo "$CMD"
 exec $CMD
