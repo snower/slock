@@ -5,7 +5,7 @@ go 1.18
 require (
 	github.com/hhkbp2/go-logging v0.3.7
 	github.com/jessevdk/go-flags v1.5.0
-	google.golang.org/protobuf v1.33.0
+	google.golang.org/protobuf v1.34.0
 )
 
 require (
@@ -15,5 +15,5 @@ require (
 
 require (
 	github.com/hhkbp2/go-strftime v0.0.0-20150709091403-d82166ec6782 // indirect
-	golang.org/x/sys v0.19.0 // indirect
+	golang.org/x/sys v0.20.0 // indirect
 )
