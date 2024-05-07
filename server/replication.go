@@ -1031,7 +1031,7 @@ func (self *ReplicationServer) handleInitSync(command *protocol.CallCommand) (*p
 		}
 		self.bufferCursor.currentAofId = self.manager.currentAofId
 		self.bufferCursor.currentItem = nil
-		self.bufferCursor.seq = self.manager.bufferQueue.seq
+		self.bufferCursor.seq = self.manager.bufferQueue.seq - 1
 		self.bufferCursor.writed = true
 		aofId = FormatAofId(initedAofId)
 	} else {

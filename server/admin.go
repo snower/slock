@@ -236,10 +236,10 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 				}
 
 				var behindOffset uint64
-				if self.slock.replicationManager.bufferQueue.seq < self.slock.replicationManager.bufferQueue.seq {
+				if self.slock.replicationManager.bufferQueue.seq < serverChannel.bufferCursor.seq {
 					behindOffset = 0xffffffffffffffff - serverChannel.bufferCursor.seq + self.slock.replicationManager.bufferQueue.seq
 				} else {
-					behindOffset = self.slock.replicationManager.bufferQueue.seq - serverChannel.bufferCursor.seq
+					behindOffset = self.slock.replicationManager.bufferQueue.seq - serverChannel.bufferCursor.seq - 1
 				}
 				status := "sending"
 				if serverChannel.pulledState == 2 {
@@ -251,7 +251,7 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 				}
 				state := serverChannel.state
 				infos = append(infos, fmt.Sprintf("follower%d:host=%s,aof_id=%s,behind_offset=%d,status=%s,push_count=%d,send_count=%d,ack_count=%d,send_data_size=%d,aof_file_send_finish=%s", i+1,
-					serverChannelProtocol.RemoteAddr().String(), FormatAofId(serverChannel.bufferCursor.currentAofId), behindOffset-1, status,
+					serverChannelProtocol.RemoteAddr().String(), FormatAofId(serverChannel.bufferCursor.currentAofId), behindOffset, status,
 					state.pushCount, state.sendCount, state.ackCount, state.sendDataSize, aofFileSendFinish))
 			}
 		} else {
