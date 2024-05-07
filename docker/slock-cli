@@ -1,0 +1,8 @@
+#!/bin/bash
+
+case ${@} in
+  *" -h "*) redis-cli ${@};;
+  *" --help "*) redis-cli ${@};;
+  *" -p "*) redis-cli ${@};;
+  *) redis-cli -p 5658 ${@};;
+esac

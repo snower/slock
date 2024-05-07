@@ -14,8 +14,9 @@ WORKDIR /slock
 
 COPY --from=build /opt/slock/slock /usr/local/bin/
 COPY --from=redis:latest /usr/local/bin/redis-cli /usr/local/bin/
+COPY docker/slock-cli /usr/local/bin/
 COPY docker/startup.sh /opt
 
-RUN apt update && apt install -y openssl && chmod +x /opt/startup.sh
+RUN apt update && apt install -y openssl && chmod +x /usr/local/bin/slock-cli && chmod +x /opt/startup.sh
 
 CMD /opt/startup.sh
