@@ -1,6 +1,7 @@
 # slock
 
-[![Build Status](https://travis-ci.com/snower/slock.svg?branch=master)](https://travis-ci.com/snower/slock)
+[![Tests](https://img.shields.io/github/actions/workflow/status/snower/slock/build-test.yml?label=tests)](https://github.com/snower/slock/actions/workflows/build-test.yml)
+[![GitHub Repo stars](https://img.shields.io/github/stars/snower/slock?style=social)](https://github.com/snower/slock/stargazers)
 
 高性能分布式状态同步与原子操作数据库。
 

@@ -1147,7 +1147,10 @@ func (self *Aof) Init() ([16]byte, error) {
 
 	self.dataDir = dataDir
 	if _, serr := os.Stat(self.dataDir); os.IsNotExist(serr) {
-		return [16]byte{}, serr
+		err = os.Mkdir(self.dataDir, 0755)
+		if err != nil {
+			return [16]byte{}, serr
+		}
 	}
 	self.slock.Log().Infof("Aof config data dir %s", self.dataDir)
 
@@ -1192,7 +1195,10 @@ func (self *Aof) LoadAndInit() error {
 
 	self.dataDir = dataDir
 	if _, serr := os.Stat(self.dataDir); os.IsNotExist(serr) {
-		return serr
+		err = os.Mkdir(self.dataDir, 0755)
+		if err != nil {
+			return serr
+		}
 	}
 	self.slock.Log().Infof("Aof config data dir %s", self.dataDir)
 
