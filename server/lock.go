@@ -382,8 +382,12 @@ func (self *LockManager) ProcessLockData(command *protocol.LockCommand, lock *Lo
 			lock.SaveRecoverData(currentLockData, nil)
 		}
 	case protocol.LOCK_DATA_COMMAND_TYPE_UNSET:
+		if self.currentData == nil {
+			command.Data = nil
+			return
+		}
 		if command.CommandType == protocol.COMMAND_LOCK && command.ExpriedFlag&0x4440 == 0 && command.Expried == 0 {
-			if self.currentData != nil && self.currentData.commandType == protocol.LOCK_DATA_COMMAND_TYPE_UNSET {
+			if self.currentData.commandType == protocol.LOCK_DATA_COMMAND_TYPE_UNSET {
 				command.Data = nil
 				return
 			}

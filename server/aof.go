@@ -2019,6 +2019,7 @@ func (self *Aof) loadRewriteAofFiles(aofFilenames []string) (*AofFile, []*AofFil
 		}
 
 		lockCommand.CommandType = aofLock.CommandType
+		lockCommand.Flag = aofLock.Flag
 		lockCommand.DbId = aofLock.DbId
 		lockCommand.LockId = aofLock.LockId
 		lockCommand.LockKey = aofLock.LockKey
