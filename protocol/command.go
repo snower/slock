@@ -390,6 +390,47 @@ func NewLockCommandDataSetString(data string) *LockCommandData {
 	return NewLockCommandDataFromString(data, LOCK_DATA_STAGE_LOCK, LOCK_DATA_COMMAND_TYPE_SET, 0)
 }
 
+func NewLockCommandDataSetArray(data [][]byte) *LockCommandData {
+	size := 0
+	for _, value := range data {
+		size += len(value) + 4
+	}
+	dataLen := size + 2
+	i, buf := 6, make([]byte, dataLen+4)
+	buf[0], buf[1], buf[2], buf[3] = byte(dataLen), byte(dataLen>>8), byte(dataLen>>16), byte(dataLen>>24)
+	buf[4], buf[5] = (LOCK_DATA_STAGE_LOCK<<6)|LOCK_DATA_COMMAND_TYPE_SET, LOCK_DATA_FLAG_VALUE_TYPE_ARRAY
+	for _, value := range data {
+		valueLen := len(value)
+		buf[i], buf[i+1], buf[i+2], buf[i+3] = byte(valueLen), byte(valueLen>>8), byte(valueLen>>16), byte(valueLen>>24)
+		i += 4
+		i += copy(buf[i:], value)
+	}
+	return &LockCommandData{buf, LOCK_DATA_STAGE_LOCK, LOCK_DATA_COMMAND_TYPE_SET, LOCK_DATA_FLAG_VALUE_TYPE_ARRAY}
+}
+
+func NewLockCommandDataSetKV(data map[string][]byte) *LockCommandData {
+	size := 0
+	for key, value := range data {
+		size += len(key) + 4
+		size += len(value) + 4
+	}
+	dataLen := size + 2
+	i, buf := 6, make([]byte, dataLen+4)
+	buf[0], buf[1], buf[2], buf[3] = byte(dataLen), byte(dataLen>>8), byte(dataLen>>16), byte(dataLen>>24)
+	buf[4], buf[5] = (LOCK_DATA_STAGE_LOCK<<6)|LOCK_DATA_COMMAND_TYPE_SET, LOCK_DATA_FLAG_VALUE_TYPE_KV
+	for key, value := range data {
+		keyLen := len(value)
+		buf[i], buf[i+1], buf[i+2], buf[i+3] = byte(keyLen), byte(keyLen>>8), byte(keyLen>>16), byte(keyLen>>24)
+		i += 4
+		i += copy(buf[i:], key)
+		valueLen := len(value)
+		buf[i], buf[i+1], buf[i+2], buf[i+3] = byte(valueLen), byte(valueLen>>8), byte(valueLen>>16), byte(valueLen>>24)
+		i += 4
+		i += copy(buf[i:], value)
+	}
+	return &LockCommandData{buf, LOCK_DATA_STAGE_LOCK, LOCK_DATA_COMMAND_TYPE_SET, LOCK_DATA_FLAG_VALUE_TYPE_KV}
+}
+
 func NewLockCommandDataUnsetData() *LockCommandData {
 	return &LockCommandData{[]byte{2, 0, 0, 0, LOCK_DATA_COMMAND_TYPE_UNSET, 0}, LOCK_DATA_STAGE_LOCK, LOCK_DATA_COMMAND_TYPE_UNSET, 0}
 }
@@ -698,6 +739,50 @@ func (self *LockResultCommandData) GetIncrValue() int64 {
 		}
 	}
 	return value
+}
+
+func (self *LockResultCommandData) GetArrayValue() [][]byte {
+	if self.Data == nil || self.CommandType == LOCK_DATA_COMMAND_TYPE_UNSET || self.DataFlag&LOCK_DATA_FLAG_VALUE_TYPE_ARRAY == 0 {
+		return nil
+	}
+	values := make([][]byte, 0)
+	index := self.GetValueOffset()
+	for index+4 < len(self.Data) {
+		valueLen := int(uint32(self.Data[index]) | uint32(self.Data[index+1])<<8 | uint32(self.Data[index+2])<<16 | uint32(self.Data[index+3])<<24)
+		if valueLen == 0 {
+			index += 4
+			continue
+		}
+		values = append(values, self.Data[index+4:index+4+valueLen])
+		index += valueLen + 4
+	}
+	return values
+}
+
+func (self *LockResultCommandData) GetKVValue() map[string][]byte {
+	if self.Data == nil || self.CommandType == LOCK_DATA_COMMAND_TYPE_UNSET || self.DataFlag&LOCK_DATA_FLAG_VALUE_TYPE_KV == 0 {
+		return nil
+	}
+	values := make(map[string][]byte)
+	index := self.GetValueOffset()
+	for index+4 < len(self.Data) {
+		keyLen := int(uint32(self.Data[index]) | uint32(self.Data[index+1])<<8 | uint32(self.Data[index+2])<<16 | uint32(self.Data[index+3])<<24)
+		if keyLen == 0 {
+			index += 4
+			continue
+		}
+		key := string(self.Data[index+4 : index+4+keyLen])
+		index += keyLen + 4
+
+		valueLen := int(uint32(self.Data[index]) | uint32(self.Data[index+1])<<8 | uint32(self.Data[index+2])<<16 | uint32(self.Data[index+3])<<24)
+		if valueLen == 0 {
+			index += 4
+			continue
+		}
+		values[key] = self.Data[index+4 : index+4+valueLen]
+		index += valueLen + 4
+	}
+	return values
 }
 
 type LockResultCommand struct {

@@ -1835,12 +1835,16 @@ func (self *TextServerProtocol) FindHandler(name string) (TextServerProtocolComm
 		self.handlers["LOCK"] = self.commandHandlerLock
 		self.handlers["UNLOCK"] = self.commandHandlerUnlock
 		self.handlers["PUSH"] = self.commandHandlerPush
-		for hname, handler := range self.slock.GetAdmin().GetHandlers() {
-			self.handlers[hname] = handler
-		}
+		self.handlers["DEL"] = self.commandHandlerKeyOperateValueCommand
+		self.handlers["SET"] = self.commandHandlerKeyOperateValueCommand
+		self.handlers["GET"] = self.commandHandlerKeyOperateValueCommand
+		self.handlers["INCR"] = self.commandHandlerKeyOperateValueCommand
+		self.handlers["INCRBY"] = self.commandHandlerKeyOperateValueCommand
 	}
-
 	if handler, ok := self.handlers[name]; ok {
+		return handler, nil
+	}
+	if handler, ok := self.slock.GetAdmin().GetHandlers()[name]; ok {
 		return handler, nil
 	}
 	return nil, errors.New("unknown command")
@@ -2577,4 +2581,40 @@ func (self *TextServerProtocol) commandHandlerPush(_ *TextServerProtocol, args [
 		return self.stream.WriteBytes(self.parser.BuildResponse(false, "ERR Lock Error", nil))
 	}
 	return self.stream.WriteBytes(self.parser.BuildResponse(true, "OK", nil))
+}
+
+func (self *TextServerProtocol) commandHandlerKeyOperateValueCommand(_ *TextServerProtocol, args []string) error {
+	lockCommand, writeTextCommandResultFunc, err := self.commandConverter.ConvertTextKeyOperateValueCommand(self, args)
+	if err != nil {
+		return self.stream.WriteBytes(self.parser.BuildResponse(false, "ERR "+err.Error(), nil))
+	}
+
+	if lockCommand.DbId == 0xff {
+		_ = self.FreeLockCommand(lockCommand)
+		return self.stream.WriteBytes(self.parser.BuildResponse(false, "ERR Uknown DB Error", nil))
+	}
+	db := self.slock.dbs[lockCommand.DbId]
+	if db == nil {
+		db = self.slock.GetOrNewDB(lockCommand.DbId)
+	}
+	self.lockRequestId = lockCommand.RequestId
+	switch lockCommand.CommandType {
+	case protocol.COMMAND_LOCK:
+		err = db.Lock(self, lockCommand, lockCommand.Flag&protocol.LOCK_FLAG_FROM_AOF)
+	case protocol.COMMAND_UNLOCK:
+		err = db.UnLock(self, lockCommand, lockCommand.Flag&protocol.LOCK_FLAG_FROM_AOF)
+	default:
+		err = errors.New("unknown command")
+	}
+	if err != nil {
+		self.lockRequestId[0], self.lockRequestId[1], self.lockRequestId[2], self.lockRequestId[3], self.lockRequestId[4], self.lockRequestId[5], self.lockRequestId[6], self.lockRequestId[7],
+			self.lockRequestId[8], self.lockRequestId[9], self.lockRequestId[10], self.lockRequestId[11], self.lockRequestId[12], self.lockRequestId[13], self.lockRequestId[14], self.lockRequestId[15] =
+			0, 0, 0, 0, 0, 0, 0, 0,
+			0, 0, 0, 0, 0, 0, 0, 0
+		return self.stream.WriteBytes(self.parser.BuildResponse(false, "ERR Lock Error", nil))
+	}
+	lockCommandResult := <-self.lockWaiter
+	err = writeTextCommandResultFunc(self, self.stream, lockCommandResult)
+	self.freeCommandResult = lockCommandResult
+	return err
 }

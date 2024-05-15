@@ -849,46 +849,37 @@ type TransparencyTextServerProtocol struct {
 	stream         *Stream
 	serverProtocol *TextServerProtocol
 	clientProtocol *TransparencyBinaryClientProtocol
+	handlers       map[string]TextServerProtocolCommandHandler
 	lockWaiter     chan *protocol.LockResultCommand
 	closed         bool
 }
 
 func NewTransparencyTextServerProtocol(slock *SLock, stream *Stream, serverProtocol *TextServerProtocol) *TransparencyTextServerProtocol {
 	transparencyProtocol := &TransparencyTextServerProtocol{slock, slock.replicationManager.transparencyManager, &sync.Mutex{},
-		stream, serverProtocol, nil, make(chan *protocol.LockResultCommand, 4), false}
-	if serverProtocol.handlers == nil {
-		_, _ = serverProtocol.FindHandler("LOCK")
-	}
-	if serverProtocol.handlers != nil {
-		serverProtocol.handlers["LOCK"] = transparencyProtocol.commandHandlerLock
-		serverProtocol.handlers["UNLOCK"] = transparencyProtocol.commandHandlerUnlock
-		serverProtocol.handlers["PUSH"] = transparencyProtocol.commandHandlerPush
-	}
+		stream, serverProtocol, nil, nil, make(chan *protocol.LockResultCommand, 4), false}
 	return transparencyProtocol
 }
 
 func (self *TransparencyTextServerProtocol) FindHandler(name string) (TextServerProtocolCommandHandler, error) {
-	if self.serverProtocol.handlers == nil {
-		handler, err := self.serverProtocol.FindHandler(name)
-		self.serverProtocol.handlers["LOCK"] = self.commandHandlerLock
-		self.serverProtocol.handlers["UNLOCK"] = self.commandHandlerUnlock
-		self.serverProtocol.handlers["PUSH"] = self.commandHandlerPush
-
-		if name != "LOCK" && name != "UNLOCK" && name != "PUSH" {
-			return handler, err
-		}
+	if self.handlers == nil {
+		self.handlers = make(map[string]TextServerProtocolCommandHandler, 16)
+		self.handlers["SELECT"] = self.serverProtocol.commandHandlerSelectDB
+		self.handlers["LOCK"] = self.commandHandlerLock
+		self.handlers["UNLOCK"] = self.commandHandlerUnlock
+		self.handlers["PUSH"] = self.commandHandlerPush
+		self.handlers["DEL"] = self.commandHandlerKeyOperateValueCommand
+		self.handlers["SET"] = self.commandHandlerKeyOperateValueCommand
+		self.handlers["GET"] = self.commandHandlerKeyOperateValueCommand
+		self.handlers["INCR"] = self.commandHandlerKeyOperateValueCommand
+		self.handlers["INCRBY"] = self.commandHandlerKeyOperateValueCommand
 	}
-
-	if name == "LOCK" {
-		return self.commandHandlerLock, nil
+	if handler, ok := self.handlers[name]; ok {
+		return handler, nil
 	}
-	if name == "UNLOCK" {
-		return self.commandHandlerUnlock, nil
+	if handler, ok := self.slock.GetAdmin().GetHandlers()[name]; ok {
+		return handler, nil
 	}
-	if name == "PUSH" {
-		return self.commandHandlerPush, nil
-	}
-	return self.serverProtocol.FindHandler(name)
+	return nil, errors.New("unknown command")
 }
 
 func (self *TransparencyTextServerProtocol) Init(_ [16]byte) error {
@@ -1304,6 +1295,50 @@ func (self *TransparencyTextServerProtocol) commandHandlerPush(serverProtocol *T
 	}
 	_ = self.serverProtocol.FreeLockCommand(lockCommand)
 	return self.stream.WriteBytes(self.serverProtocol.parser.BuildResponse(true, "OK", nil))
+}
+
+func (self *TransparencyTextServerProtocol) commandHandlerKeyOperateValueCommand(serverProtocol *TextServerProtocol, args []string) error {
+	if self.slock.state == STATE_LEADER {
+		return self.serverProtocol.commandHandlerKeyOperateValueCommand(serverProtocol, args)
+	}
+
+	lockCommand, writeTextCommandResultFunc, err := self.serverProtocol.GetCommandConverter().ConvertTextKeyOperateValueCommand(self, args)
+	if err != nil {
+		return self.stream.WriteBytes(self.serverProtocol.parser.BuildResponse(false, "ERR "+err.Error(), nil))
+	}
+	if lockCommand.DbId == 0xff {
+		_ = self.serverProtocol.FreeLockCommand(lockCommand)
+		return self.stream.WriteBytes(self.serverProtocol.parser.BuildResponse(false, "ERR Uknown DB Error", nil))
+	}
+
+	clientProtocol, cerr := self.CheckClient()
+	if cerr != nil || clientProtocol == nil {
+		_ = self.serverProtocol.FreeLockCommand(lockCommand)
+		return self.stream.WriteBytes(self.serverProtocol.parser.BuildResponse(false, "ERR Leader Server Error", nil))
+	}
+
+	self.serverProtocol.lockRequestId = lockCommand.RequestId
+	err = clientProtocol.Write(lockCommand)
+	if err != nil {
+		self.serverProtocol.lockRequestId[0], self.serverProtocol.lockRequestId[1], self.serverProtocol.lockRequestId[2], self.serverProtocol.lockRequestId[3], self.serverProtocol.lockRequestId[4], self.serverProtocol.lockRequestId[5], self.serverProtocol.lockRequestId[6], self.serverProtocol.lockRequestId[7],
+			self.serverProtocol.lockRequestId[8], self.serverProtocol.lockRequestId[9], self.serverProtocol.lockRequestId[10], self.serverProtocol.lockRequestId[11], self.serverProtocol.lockRequestId[12], self.serverProtocol.lockRequestId[13], self.serverProtocol.lockRequestId[14], self.serverProtocol.lockRequestId[15] =
+			0, 0, 0, 0, 0, 0, 0, 0,
+			0, 0, 0, 0, 0, 0, 0, 0
+		if self.clientProtocol != nil {
+			_ = self.manager.ReleaseClient(self.clientProtocol)
+		}
+		_ = self.serverProtocol.FreeLockCommand(lockCommand)
+		return self.stream.WriteBytes(self.serverProtocol.parser.BuildResponse(false, "ERR Lock Error", nil))
+	}
+
+	lockCommandResult := <-self.lockWaiter
+	if self.clientProtocol != nil {
+		_ = self.manager.ReleaseClient(self.clientProtocol)
+	}
+	err = writeTextCommandResultFunc(self, self.stream, lockCommandResult)
+	_ = self.serverProtocol.FreeLockCommand(lockCommand)
+	self.serverProtocol.freeCommandResult = lockCommandResult
+	return err
 }
 
 type TransparencyManager struct {
