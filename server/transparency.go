@@ -2,7 +2,6 @@ package server
 
 import (
 	"errors"
-	"fmt"
 	"github.com/snower/slock/client"
 	"github.com/snower/slock/protocol"
 	"io"
@@ -939,8 +938,20 @@ func (self *TransparencyTextServerProtocol) Close() error {
 	return err
 }
 
+func (self *TransparencyTextServerProtocol) GetDBId() uint8 {
+	return self.serverProtocol.GetDBId()
+}
+
+func (self *TransparencyTextServerProtocol) GetLockId() [16]byte {
+	return self.serverProtocol.GetLockId()
+}
+
 func (self *TransparencyTextServerProtocol) GetParser() *protocol.TextParser {
 	return self.serverProtocol.GetParser()
+}
+
+func (self *TransparencyTextServerProtocol) GetCommandConverter() *protocol.TextCommandConverter {
+	return self.serverProtocol.GetCommandConverter()
 }
 
 func (self *TransparencyTextServerProtocol) Read() (protocol.CommandDecode, error) {
@@ -1134,7 +1145,7 @@ func (self *TransparencyTextServerProtocol) commandHandlerLock(serverProtocol *T
 		return self.serverProtocol.commandHandlerLock(serverProtocol, args)
 	}
 
-	lockCommand, err := self.serverProtocol.ArgsToLockComand(args)
+	lockCommand, writeTextCommandResultFunc, err := self.serverProtocol.GetCommandConverter().ConvertTextLockAndUnLockCommand(self, args)
 	if err != nil {
 		return self.stream.WriteBytes(self.serverProtocol.parser.BuildResponse(false, "ERR "+err.Error(), nil))
 	}
@@ -1179,70 +1190,13 @@ func (self *TransparencyTextServerProtocol) commandHandlerLock(serverProtocol *T
 
 	lockCommandResult := <-self.lockWaiter
 	if lockCommandResult.Result == 0 {
-		self.serverProtocol.lockId = lockCommand.LockId
+		self.serverProtocol.lockId = lockCommandResult.LockId
 	}
 	if self.clientProtocol != nil {
 		_ = self.manager.ReleaseClient(self.clientProtocol)
 	}
 
-	bufIndex := 0
-	tr := ""
-
-	wbuf := self.serverProtocol.parser.GetWriteBuf()
-	if lockCommandResult.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
-		bufIndex += copy(wbuf[bufIndex:], []byte("*14\r\n"))
-	} else {
-		bufIndex += copy(wbuf[bufIndex:], []byte("*12\r\n"))
-	}
-
-	tr = fmt.Sprintf("%d", lockCommandResult.Result)
-	bufIndex += copy(wbuf[bufIndex:], []byte(fmt.Sprintf("$%d\r\n", len(tr))))
-	bufIndex += copy(wbuf[bufIndex:], []byte(tr))
-
-	tr = protocol.ERROR_MSG[lockCommandResult.Result]
-	bufIndex += copy(wbuf[bufIndex:], []byte(fmt.Sprintf("\r\n$%d\r\n", len(tr))))
-	bufIndex += copy(wbuf[bufIndex:], []byte(tr))
-
-	bufIndex += copy(wbuf[bufIndex:], []byte("\r\n$7\r\nLOCK_ID\r\n$32\r\n"))
-	bufIndex += copy(wbuf[bufIndex:], []byte(fmt.Sprintf("%x", lockCommand.LockId)))
-	bufIndex += copy(wbuf[bufIndex:], []byte("\r\n$6\r\nLCOUNT"))
-
-	tr = fmt.Sprintf("%d", lockCommandResult.Lcount)
-	bufIndex += copy(wbuf[bufIndex:], []byte(fmt.Sprintf("\r\n$%d\r\n", len(tr))))
-	bufIndex += copy(wbuf[bufIndex:], []byte(tr))
-
-	bufIndex += copy(wbuf[bufIndex:], []byte("\r\n$5\r\nCOUNT"))
-
-	tr = fmt.Sprintf("%d", lockCommandResult.Count+1)
-	bufIndex += copy(wbuf[bufIndex:], []byte(fmt.Sprintf("\r\n$%d\r\n", len(tr))))
-	bufIndex += copy(wbuf[bufIndex:], []byte(tr))
-
-	bufIndex += copy(wbuf[bufIndex:], []byte("\r\n$7\r\nLRCOUNT"))
-
-	tr = fmt.Sprintf("%d", lockCommandResult.Lrcount)
-	bufIndex += copy(wbuf[bufIndex:], []byte(fmt.Sprintf("\r\n$%d\r\n", len(tr))))
-	bufIndex += copy(wbuf[bufIndex:], []byte(tr))
-
-	bufIndex += copy(wbuf[bufIndex:], []byte("\r\n$6\r\nRCOUNT"))
-
-	tr = fmt.Sprintf("%d", lockCommandResult.Rcount+1)
-	bufIndex += copy(wbuf[bufIndex:], []byte(fmt.Sprintf("\r\n$%d\r\n", len(tr))))
-	bufIndex += copy(wbuf[bufIndex:], []byte(tr))
-
-	bufIndex += copy(wbuf[bufIndex:], []byte("\r\n"))
-
-	err = self.stream.WriteBytes(wbuf[:bufIndex])
-	if err != nil {
-		lockCommandResult.Data = nil
-		_ = self.serverProtocol.FreeLockCommand(lockCommand)
-		self.serverProtocol.freeCommandResult = lockCommandResult
-		return err
-	}
-	if lockCommandResult.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
-		data := lockCommandResult.Data.GetStringValue()
-		err = self.stream.WriteBytes([]byte(fmt.Sprintf("$4\r\nDATA\r\n$%d\r\n%s\r\n", len(data), data)))
-	}
-	lockCommandResult.Data = nil
+	err = writeTextCommandResultFunc(self, self.stream, lockCommandResult)
 	_ = self.serverProtocol.FreeLockCommand(lockCommand)
 	self.serverProtocol.freeCommandResult = lockCommandResult
 	return err
@@ -1253,7 +1207,7 @@ func (self *TransparencyTextServerProtocol) commandHandlerUnlock(serverProtocol 
 		return self.serverProtocol.commandHandlerUnlock(serverProtocol, args)
 	}
 
-	lockCommand, err := self.serverProtocol.ArgsToLockComand(args)
+	lockCommand, writeTextCommandResultFunc, err := self.serverProtocol.GetCommandConverter().ConvertTextLockAndUnLockCommand(self, args)
 	if err != nil {
 		return self.stream.WriteBytes(self.serverProtocol.parser.BuildResponse(false, "ERR "+err.Error(), nil))
 	}
@@ -1309,64 +1263,7 @@ func (self *TransparencyTextServerProtocol) commandHandlerUnlock(serverProtocol 
 		_ = self.manager.ReleaseClient(self.clientProtocol)
 	}
 
-	bufIndex := 0
-	tr := ""
-
-	wbuf := self.serverProtocol.parser.GetWriteBuf()
-	if lockCommandResult.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
-		bufIndex += copy(wbuf[bufIndex:], []byte("*14\r\n"))
-	} else {
-		bufIndex += copy(wbuf[bufIndex:], []byte("*12\r\n"))
-	}
-
-	tr = fmt.Sprintf("%d", lockCommandResult.Result)
-	bufIndex += copy(wbuf[bufIndex:], []byte(fmt.Sprintf("$%d\r\n", len(tr))))
-	bufIndex += copy(wbuf[bufIndex:], []byte(tr))
-
-	tr = protocol.ERROR_MSG[lockCommandResult.Result]
-	bufIndex += copy(wbuf[bufIndex:], []byte(fmt.Sprintf("\r\n$%d\r\n", len(tr))))
-	bufIndex += copy(wbuf[bufIndex:], []byte(tr))
-
-	bufIndex += copy(wbuf[bufIndex:], []byte("\r\n$7\r\nLOCK_ID\r\n$32\r\n"))
-	bufIndex += copy(wbuf[bufIndex:], []byte(fmt.Sprintf("%x", lockCommand.LockId)))
-	bufIndex += copy(wbuf[bufIndex:], []byte("\r\n$6\r\nLCOUNT"))
-
-	tr = fmt.Sprintf("%d", lockCommandResult.Lcount)
-	bufIndex += copy(wbuf[bufIndex:], []byte(fmt.Sprintf("\r\n$%d\r\n", len(tr))))
-	bufIndex += copy(wbuf[bufIndex:], []byte(tr))
-
-	bufIndex += copy(wbuf[bufIndex:], []byte("\r\n$5\r\nCOUNT"))
-
-	tr = fmt.Sprintf("%d", lockCommandResult.Count+1)
-	bufIndex += copy(wbuf[bufIndex:], []byte(fmt.Sprintf("\r\n$%d\r\n", len(tr))))
-	bufIndex += copy(wbuf[bufIndex:], []byte(tr))
-
-	bufIndex += copy(wbuf[bufIndex:], []byte("\r\n$7\r\nLRCOUNT"))
-
-	tr = fmt.Sprintf("%d", lockCommandResult.Lrcount)
-	bufIndex += copy(wbuf[bufIndex:], []byte(fmt.Sprintf("\r\n$%d\r\n", len(tr))))
-	bufIndex += copy(wbuf[bufIndex:], []byte(tr))
-
-	bufIndex += copy(wbuf[bufIndex:], []byte("\r\n$6\r\nRCOUNT"))
-
-	tr = fmt.Sprintf("%d", lockCommandResult.Rcount+1)
-	bufIndex += copy(wbuf[bufIndex:], []byte(fmt.Sprintf("\r\n$%d\r\n", len(tr))))
-	bufIndex += copy(wbuf[bufIndex:], []byte(tr))
-
-	bufIndex += copy(wbuf[bufIndex:], []byte("\r\n"))
-
-	err = self.stream.WriteBytes(wbuf[:bufIndex])
-	if err != nil {
-		lockCommandResult.Data = nil
-		_ = self.serverProtocol.FreeLockCommand(lockCommand)
-		self.serverProtocol.freeCommandResult = lockCommandResult
-		return err
-	}
-	if lockCommandResult.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
-		data := lockCommandResult.Data.GetStringValue()
-		err = self.stream.WriteBytes([]byte(fmt.Sprintf("$4\r\nDATA\r\n$%d\r\n%s\r\n", len(data), data)))
-	}
-	lockCommandResult.Data = nil
+	err = writeTextCommandResultFunc(self, self.stream, lockCommandResult)
 	_ = self.serverProtocol.FreeLockCommand(lockCommand)
 	self.serverProtocol.freeCommandResult = lockCommandResult
 	return err
@@ -1377,7 +1274,7 @@ func (self *TransparencyTextServerProtocol) commandHandlerPush(serverProtocol *T
 		return self.serverProtocol.commandHandlerPush(serverProtocol, args)
 	}
 
-	lockCommand, err := self.serverProtocol.ArgsToLockComand(args)
+	lockCommand, _, err := self.serverProtocol.GetCommandConverter().ConvertTextLockAndUnLockCommand(self, args)
 	if err != nil {
 		return self.stream.WriteBytes(self.serverProtocol.parser.BuildResponse(false, "ERR "+err.Error(), nil))
 	}

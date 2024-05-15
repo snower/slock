@@ -552,7 +552,7 @@ func (self *Admin) commandHandleShowDBCommand(serverProtocol *TextServerProtocol
 
 func (self *Admin) commandHandleShowLockCommand(serverProtocol *TextServerProtocol, args []string, db *LockDB) error {
 	command := protocol.LockCommand{}
-	serverProtocol.ArgsToLockComandParseId(args[1], &command.LockKey)
+	serverProtocol.GetCommandConverter().ConvertArgId2LockId(args[1], &command.LockKey)
 
 	lockManager := db.GetLockManager(&command)
 	if lockManager == nil || lockManager.locked <= 0 {
@@ -633,7 +633,7 @@ func (self *Admin) commandHandleShowLockCommand(serverProtocol *TextServerProtoc
 
 func (self *Admin) commandHandleShowLockWaitCommand(serverProtocol *TextServerProtocol, args []string, db *LockDB) error {
 	command := protocol.LockCommand{}
-	serverProtocol.ArgsToLockComandParseId(args[1], &command.LockKey)
+	serverProtocol.GetCommandConverter().ConvertArgId2LockId(args[1], &command.LockKey)
 
 	lockManager := db.GetLockManager(&command)
 	if lockManager == nil {

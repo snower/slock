@@ -1,8 +1,6 @@
 package server
 
 import (
-	"crypto/md5"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"github.com/snower/slock/protocol"
@@ -1805,6 +1803,7 @@ type TextServerProtocol struct {
 	lockedFreeCommands *LockCommandQueue
 	freeCommandResult  *protocol.LockResultCommand
 	parser             *protocol.TextParser
+	commandConverter   *protocol.TextCommandConverter
 	handlers           map[string]TextServerProtocolCommandHandler
 	lockWaiter         chan *protocol.LockResultCommand
 	lockRequestId      [16]byte
@@ -1819,7 +1818,7 @@ func NewTextServerProtocol(slock *SLock, stream *Stream) *TextServerProtocol {
 	proxy := &ProxyServerProtocol{[16]byte{}, nil}
 	parser := protocol.NewTextParser(make([]byte, 1024), make([]byte, 1024))
 	serverProtocol := &TextServerProtocol{slock, &sync.Mutex{}, stream, nil, make([]*ProxyServerProtocol, 0), make([]*protocol.LockCommand, FREE_COMMAND_MAX_SIZE),
-		0, NewLockCommandQueue(4, 64, FREE_COMMAND_QUEUE_INIT_SIZE), nil, parser,
+		0, NewLockCommandQueue(4, 64, FREE_COMMAND_QUEUE_INIT_SIZE), nil, parser, protocol.NewTextCommandConverter(),
 		nil, make(chan *protocol.LockResultCommand, 4), [16]byte{}, [16]byte{}, nil, 0, 0, false}
 	proxy.serverProtocol = serverProtocol
 	serverProtocol.InitLockCommand()
@@ -1907,8 +1906,20 @@ func (self *TextServerProtocol) Close() error {
 	return nil
 }
 
+func (self *TextServerProtocol) GetDBId() uint8 {
+	return self.dbId
+}
+
+func (self *TextServerProtocol) GetLockId() [16]byte {
+	return self.lockId
+}
+
 func (self *TextServerProtocol) GetParser() *protocol.TextParser {
 	return self.parser
+}
+
+func (self *TextServerProtocol) GetCommandConverter() *protocol.TextCommandConverter {
+	return self.commandConverter
 }
 
 func (self *TextServerProtocol) Read() (protocol.CommandDecode, error) {
@@ -1960,7 +1971,7 @@ func (self *TextServerProtocol) ReadCommand() (protocol.CommandDecode, error) {
 			return nil, errors.New("Command Parse Error")
 		}
 
-		command, err = self.ArgsToLockComand(textServerCommand.Args)
+		command, _, err = self.commandConverter.ConvertTextLockAndUnLockCommand(self, textServerCommand.Args)
 		return command, err
 	}
 	return nil, errors.New("unknown command")
@@ -2434,178 +2445,6 @@ func (self *TextServerProtocol) FreeLockCommandLocked(command *protocol.LockComm
 	return nil
 }
 
-func (self *TextServerProtocol) ArgsToLockComandParseId(argId string, lockId *[16]byte) {
-	arg_len := len(argId)
-	if arg_len == 16 {
-		lockId[0], lockId[1], lockId[2], lockId[3], lockId[4], lockId[5], lockId[6], lockId[7],
-			lockId[8], lockId[9], lockId[10], lockId[11], lockId[12], lockId[13], lockId[14], lockId[15] =
-			byte(argId[0]), byte(argId[1]), byte(argId[2]), byte(argId[3]), byte(argId[4]), byte(argId[5]), byte(argId[6]),
-			byte(argId[7]), byte(argId[8]), byte(argId[9]), byte(argId[10]), byte(argId[11]), byte(argId[12]), byte(argId[13]), byte(argId[14]), byte(argId[15])
-	} else if arg_len > 16 {
-		if arg_len == 32 {
-			v, err := hex.DecodeString(argId)
-			if err == nil {
-				lockId[0], lockId[1], lockId[2], lockId[3], lockId[4], lockId[5], lockId[6], lockId[7],
-					lockId[8], lockId[9], lockId[10], lockId[11], lockId[12], lockId[13], lockId[14], lockId[15] =
-					v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7],
-					v[8], v[9], v[10], v[11], v[12], v[13], v[14], v[15]
-			} else {
-				v := md5.Sum([]byte(argId))
-				lockId[0], lockId[1], lockId[2], lockId[3], lockId[4], lockId[5], lockId[6], lockId[7],
-					lockId[8], lockId[9], lockId[10], lockId[11], lockId[12], lockId[13], lockId[14], lockId[15] =
-					v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7],
-					v[8], v[9], v[10], v[11], v[12], v[13], v[14], v[15]
-			}
-		} else {
-			v := md5.Sum([]byte(argId))
-			lockId[0], lockId[1], lockId[2], lockId[3], lockId[4], lockId[5], lockId[6], lockId[7],
-				lockId[8], lockId[9], lockId[10], lockId[11], lockId[12], lockId[13], lockId[14], lockId[15] =
-				v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7],
-				v[8], v[9], v[10], v[11], v[12], v[13], v[14], v[15]
-		}
-	} else {
-		argIndex := 16 - arg_len
-		for i := 0; i < 16; i++ {
-			if i < argIndex {
-				lockId[i] = 0
-			} else {
-				lockId[i] = argId[i-argIndex]
-			}
-		}
-	}
-}
-
-func (self *TextServerProtocol) ArgsToLockComand(args []string) (*protocol.LockCommand, error) {
-	if len(args) < 2 || len(args)%2 != 0 {
-		return nil, errors.New("Command Parse Len Error")
-	}
-
-	commandName := strings.ToUpper(args[0])
-	command := self.GetLockCommand()
-	command.Magic = protocol.MAGIC
-	command.Version = protocol.VERSION
-	if commandName == "UNLOCK" {
-		command.CommandType = protocol.COMMAND_UNLOCK
-	} else {
-		command.CommandType = protocol.COMMAND_LOCK
-	}
-	command.RequestId = self.GetRequestId()
-	command.DbId = self.dbId
-	command.Flag = 0
-	command.Timeout = 3
-	command.TimeoutFlag = 0
-	command.Expried = 60
-	command.ExpriedFlag = 0
-	command.Count = 0
-	command.Rcount = 0
-	self.ArgsToLockComandParseId(args[1], &command.LockKey)
-
-	hasLockId := false
-	for i := 2; i < len(args); i += 2 {
-		switch strings.ToUpper(args[i]) {
-		case "LOCK_ID":
-			self.ArgsToLockComandParseId(args[i+1], &command.LockId)
-			hasLockId = true
-		case "FLAG":
-			flag, err := strconv.Atoi(args[i+1])
-			if err != nil {
-				return nil, errors.New("Command Parse FLAG Error")
-			}
-			command.Flag = uint8(flag)
-		case "TIMEOUT":
-			timeout, err := strconv.ParseInt(args[i+1], 10, 64)
-			if err != nil {
-				return nil, errors.New("Command Parse TIMEOUT Error")
-			}
-			command.Timeout = uint16(timeout & 0xffff)
-			command.TimeoutFlag = uint16(timeout >> 16 & 0xffff)
-		case "EXPRIED":
-			expried, err := strconv.ParseInt(args[i+1], 10, 64)
-			if err != nil {
-				return nil, errors.New("Command Parse EXPRIED Error")
-			}
-			command.Expried = uint16(expried & 0xffff)
-			command.ExpriedFlag = uint16(expried >> 16 & 0xffff)
-		case "COUNT":
-			count, err := strconv.Atoi(args[i+1])
-			if err != nil {
-				return nil, errors.New("Command Parse COUNT Error")
-			}
-			if count > 0 {
-				command.Count = uint16(count) - 1
-			} else {
-				command.Count = uint16(count)
-			}
-		case "RCOUNT":
-			rcount, err := strconv.Atoi(args[i+1])
-			if err != nil {
-				return nil, errors.New("Command Parse RCOUNT Error")
-			}
-			if rcount > 0 {
-				command.Rcount = uint8(rcount) - 1
-			} else {
-				command.Rcount = uint8(rcount)
-			}
-		case "WILL":
-			willType, err := strconv.Atoi(args[i+1])
-			if err != nil {
-				return nil, errors.New("Command Parse WILL Error")
-			}
-			if willType > 0 && commandName != "PUSH" {
-				command.CommandType += 7
-			}
-		case "SET":
-			command.Data = protocol.NewLockCommandDataSetString(args[i+1])
-			command.Flag |= protocol.LOCK_FLAG_CONTAINS_DATA
-		case "UNSET":
-			command.Data = protocol.NewLockCommandDataUnsetData()
-			command.Flag |= protocol.LOCK_FLAG_CONTAINS_DATA
-		case "INCR":
-			incrValue, err := strconv.Atoi(args[i+1])
-			if err != nil {
-				return nil, errors.New("Command Parse INCR Error")
-			}
-			command.Data = protocol.NewLockCommandDataIncrData(int64(incrValue))
-			command.Flag |= protocol.LOCK_FLAG_CONTAINS_DATA
-		case "APPEND":
-			command.Data = protocol.NewLockCommandDataAppendString(args[i+1])
-			command.Flag |= protocol.LOCK_FLAG_CONTAINS_DATA
-		case "SHIFT":
-			lengthValue, err := strconv.Atoi(args[i+1])
-			if err != nil {
-				return nil, errors.New("Command Parse SHIFT Error")
-			}
-			command.Data = protocol.NewLockCommandDataShiftData(uint32(lengthValue))
-			command.Flag |= protocol.LOCK_FLAG_CONTAINS_DATA
-		case "EXECUTE":
-			commandStage := uint8(protocol.LOCK_DATA_STAGE_LOCK)
-			switch strings.ToUpper(args[i+1]) {
-			case "UNLOCK":
-				commandStage = protocol.LOCK_DATA_STAGE_UNLOCK
-			case "TIMEOUT":
-				commandStage = protocol.LOCK_DATA_STAGE_TIMEOUT
-			case "EXPRIED":
-				commandStage = protocol.LOCK_DATA_STAGE_EXPRIED
-			}
-			executeCommand, cerr := self.ArgsToLockComand(args[i+2:])
-			if cerr != nil {
-				return nil, cerr
-			}
-			command.Data = protocol.NewLockCommandDataExecuteData(executeCommand, commandStage)
-			command.Flag |= protocol.LOCK_FLAG_CONTAINS_DATA
-		}
-	}
-
-	if !hasLockId {
-		if commandName == "LOCK" {
-			command.LockId = command.RequestId
-		} else {
-			command.LockId = self.lockId
-		}
-	}
-	return command, nil
-}
-
 func (self *TextServerProtocol) commandHandlerUnknownCommand(_ *TextServerProtocol, _ []string) error {
 	return self.stream.WriteBytes(self.parser.BuildResponse(false, "ERR Unknown Command", nil))
 }
@@ -2624,7 +2463,7 @@ func (self *TextServerProtocol) commandHandlerSelectDB(_ *TextServerProtocol, ar
 }
 
 func (self *TextServerProtocol) commandHandlerLock(_ *TextServerProtocol, args []string) error {
-	lockCommand, err := self.ArgsToLockComand(args)
+	lockCommand, writeTextCommandResultFunc, err := self.commandConverter.ConvertTextLockAndUnLockCommand(self, args)
 	if err != nil {
 		return self.stream.WriteBytes(self.parser.BuildResponse(false, "ERR "+err.Error(), nil))
 	}
@@ -2661,72 +2500,15 @@ func (self *TextServerProtocol) commandHandlerLock(_ *TextServerProtocol, args [
 	}
 	lockCommandResult := <-self.lockWaiter
 	if lockCommandResult.Result == 0 {
-		self.lockId = lockCommand.LockId
+		self.lockId = lockCommandResult.LockId
 	}
-
-	bufIndex := 0
-	tr := ""
-
-	wbuf := self.parser.GetWriteBuf()
-	if lockCommandResult.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
-		bufIndex += copy(wbuf[bufIndex:], []byte("*14\r\n"))
-	} else {
-		bufIndex += copy(wbuf[bufIndex:], []byte("*12\r\n"))
-	}
-
-	tr = fmt.Sprintf("%d", lockCommandResult.Result)
-	bufIndex += copy(wbuf[bufIndex:], []byte(fmt.Sprintf("$%d\r\n", len(tr))))
-	bufIndex += copy(wbuf[bufIndex:], []byte(tr))
-
-	tr = protocol.ERROR_MSG[lockCommandResult.Result]
-	bufIndex += copy(wbuf[bufIndex:], []byte(fmt.Sprintf("\r\n$%d\r\n", len(tr))))
-	bufIndex += copy(wbuf[bufIndex:], []byte(tr))
-
-	bufIndex += copy(wbuf[bufIndex:], []byte("\r\n$7\r\nLOCK_ID\r\n$32\r\n"))
-	bufIndex += copy(wbuf[bufIndex:], []byte(fmt.Sprintf("%x", lockCommandResult.LockId)))
-	bufIndex += copy(wbuf[bufIndex:], []byte("\r\n$6\r\nLCOUNT"))
-
-	tr = fmt.Sprintf("%d", lockCommandResult.Lcount)
-	bufIndex += copy(wbuf[bufIndex:], []byte(fmt.Sprintf("\r\n$%d\r\n", len(tr))))
-	bufIndex += copy(wbuf[bufIndex:], []byte(tr))
-
-	bufIndex += copy(wbuf[bufIndex:], []byte("\r\n$5\r\nCOUNT"))
-
-	tr = fmt.Sprintf("%d", lockCommandResult.Count+1)
-	bufIndex += copy(wbuf[bufIndex:], []byte(fmt.Sprintf("\r\n$%d\r\n", len(tr))))
-	bufIndex += copy(wbuf[bufIndex:], []byte(tr))
-
-	bufIndex += copy(wbuf[bufIndex:], []byte("\r\n$7\r\nLRCOUNT"))
-
-	tr = fmt.Sprintf("%d", lockCommandResult.Lrcount)
-	bufIndex += copy(wbuf[bufIndex:], []byte(fmt.Sprintf("\r\n$%d\r\n", len(tr))))
-	bufIndex += copy(wbuf[bufIndex:], []byte(tr))
-
-	bufIndex += copy(wbuf[bufIndex:], []byte("\r\n$6\r\nRCOUNT"))
-
-	tr = fmt.Sprintf("%d", lockCommandResult.Rcount+1)
-	bufIndex += copy(wbuf[bufIndex:], []byte(fmt.Sprintf("\r\n$%d\r\n", len(tr))))
-	bufIndex += copy(wbuf[bufIndex:], []byte(tr))
-
-	bufIndex += copy(wbuf[bufIndex:], []byte("\r\n"))
-
-	err = self.stream.WriteBytes(wbuf[:bufIndex])
-	if err != nil {
-		lockCommandResult.Data = nil
-		self.freeCommandResult = lockCommandResult
-		return err
-	}
-	if lockCommandResult.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
-		data := lockCommandResult.Data.GetStringValue()
-		err = self.stream.WriteBytes([]byte(fmt.Sprintf("$4\r\nDATA\r\n$%d\r\n%s\r\n", len(data), data)))
-	}
-	lockCommandResult.Data = nil
+	err = writeTextCommandResultFunc(self, self.stream, lockCommandResult)
 	self.freeCommandResult = lockCommandResult
 	return err
 }
 
 func (self *TextServerProtocol) commandHandlerUnlock(_ *TextServerProtocol, args []string) error {
-	lockCommand, err := self.ArgsToLockComand(args)
+	lockCommand, writeTextCommandResultFunc, err := self.commandConverter.ConvertTextLockAndUnLockCommand(self, args)
 	if err != nil {
 		return self.stream.WriteBytes(self.parser.BuildResponse(false, "ERR "+err.Error(), nil))
 	}
@@ -2770,70 +2552,13 @@ func (self *TextServerProtocol) commandHandlerUnlock(_ *TextServerProtocol, args
 			0, 0, 0, 0, 0, 0, 0, 0,
 			0, 0, 0, 0, 0, 0, 0, 0
 	}
-
-	bufIndex := 0
-	tr := ""
-
-	wbuf := self.parser.GetWriteBuf()
-	if lockCommandResult.Flag&protocol.UNLOCK_FLAG_CONTAINS_DATA != 0 {
-		bufIndex += copy(wbuf[bufIndex:], []byte("*14\r\n"))
-	} else {
-		bufIndex += copy(wbuf[bufIndex:], []byte("*12\r\n"))
-	}
-
-	tr = fmt.Sprintf("%d", lockCommandResult.Result)
-	bufIndex += copy(wbuf[bufIndex:], []byte(fmt.Sprintf("$%d\r\n", len(tr))))
-	bufIndex += copy(wbuf[bufIndex:], []byte(tr))
-
-	tr = protocol.ERROR_MSG[lockCommandResult.Result]
-	bufIndex += copy(wbuf[bufIndex:], []byte(fmt.Sprintf("\r\n$%d\r\n", len(tr))))
-	bufIndex += copy(wbuf[bufIndex:], []byte(tr))
-
-	bufIndex += copy(wbuf[bufIndex:], []byte("\r\n$7\r\nLOCK_ID\r\n$32\r\n"))
-	bufIndex += copy(wbuf[bufIndex:], []byte(fmt.Sprintf("%x", lockCommandResult.LockId)))
-	bufIndex += copy(wbuf[bufIndex:], []byte("\r\n$6\r\nLCOUNT"))
-
-	tr = fmt.Sprintf("%d", lockCommandResult.Lcount)
-	bufIndex += copy(wbuf[bufIndex:], []byte(fmt.Sprintf("\r\n$%d\r\n", len(tr))))
-	bufIndex += copy(wbuf[bufIndex:], []byte(tr))
-
-	bufIndex += copy(wbuf[bufIndex:], []byte("\r\n$5\r\nCOUNT"))
-
-	tr = fmt.Sprintf("%d", lockCommandResult.Count+1)
-	bufIndex += copy(wbuf[bufIndex:], []byte(fmt.Sprintf("\r\n$%d\r\n", len(tr))))
-	bufIndex += copy(wbuf[bufIndex:], []byte(tr))
-
-	bufIndex += copy(wbuf[bufIndex:], []byte("\r\n$7\r\nLRCOUNT"))
-
-	tr = fmt.Sprintf("%d", lockCommandResult.Lrcount)
-	bufIndex += copy(wbuf[bufIndex:], []byte(fmt.Sprintf("\r\n$%d\r\n", len(tr))))
-	bufIndex += copy(wbuf[bufIndex:], []byte(tr))
-
-	bufIndex += copy(wbuf[bufIndex:], []byte("\r\n$6\r\nRCOUNT"))
-
-	tr = fmt.Sprintf("%d", lockCommandResult.Rcount+1)
-	bufIndex += copy(wbuf[bufIndex:], []byte(fmt.Sprintf("\r\n$%d\r\n", len(tr))))
-	bufIndex += copy(wbuf[bufIndex:], []byte(tr))
-
-	bufIndex += copy(wbuf[bufIndex:], []byte("\r\n"))
-
-	err = self.stream.WriteBytes(wbuf[:bufIndex])
-	if err != nil {
-		lockCommandResult.Data = nil
-		self.freeCommandResult = lockCommandResult
-		return err
-	}
-	if lockCommandResult.Flag&protocol.UNLOCK_FLAG_CONTAINS_DATA != 0 {
-		data := lockCommandResult.Data.GetStringValue()
-		err = self.stream.WriteBytes([]byte(fmt.Sprintf("$4\r\nDATA\r\n$%d\r\n%s\r\n", len(data), data)))
-	}
-	lockCommandResult.Data = nil
+	err = writeTextCommandResultFunc(self, self.stream, lockCommandResult)
 	self.freeCommandResult = lockCommandResult
 	return err
 }
 
 func (self *TextServerProtocol) commandHandlerPush(_ *TextServerProtocol, args []string) error {
-	lockCommand, err := self.ArgsToLockComand(args)
+	lockCommand, _, err := self.commandConverter.ConvertTextLockAndUnLockCommand(self, args)
 	if err != nil {
 		return self.stream.WriteBytes(self.parser.BuildResponse(false, "ERR "+err.Error(), nil))
 	}
@@ -2852,8 +2577,4 @@ func (self *TextServerProtocol) commandHandlerPush(_ *TextServerProtocol, args [
 		return self.stream.WriteBytes(self.parser.BuildResponse(false, "ERR Lock Error", nil))
 	}
 	return self.stream.WriteBytes(self.parser.BuildResponse(true, "OK", nil))
-}
-
-func (self *TextServerProtocol) GetRequestId() [16]byte {
-	return protocol.GenRequestId()
 }
