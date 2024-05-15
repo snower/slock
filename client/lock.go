@@ -18,16 +18,16 @@ func (self *LockError) GetLockData() *protocol.LockResultCommandData {
 	return self.CommandResult.Data
 }
 
-func (self *LockError) GetBytesData() []byte {
+func (self *LockError) GetBytesValue() []byte {
 	if self.CommandResult != nil && self.CommandResult.Data != nil {
-		return self.CommandResult.GetLockData().GetBytesData()
+		return self.CommandResult.GetLockData().GetBytesValue()
 	}
 	return nil
 }
 
-func (self *LockError) GetStringData() string {
+func (self *LockError) GetStringValue() string {
 	if self.CommandResult != nil && self.CommandResult.Data != nil {
-		return self.CommandResult.GetLockData().GetStringData()
+		return self.CommandResult.GetLockData().GetStringValue()
 	}
 	return ""
 }

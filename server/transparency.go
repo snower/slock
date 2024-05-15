@@ -1239,7 +1239,7 @@ func (self *TransparencyTextServerProtocol) commandHandlerLock(serverProtocol *T
 		return err
 	}
 	if lockCommandResult.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
-		data := lockCommandResult.Data.GetStringData()
+		data := lockCommandResult.Data.GetStringValue()
 		err = self.stream.WriteBytes([]byte(fmt.Sprintf("$4\r\nDATA\r\n$%d\r\n%s\r\n", len(data), data)))
 	}
 	lockCommandResult.Data = nil
@@ -1363,7 +1363,7 @@ func (self *TransparencyTextServerProtocol) commandHandlerUnlock(serverProtocol 
 		return err
 	}
 	if lockCommandResult.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
-		data := lockCommandResult.Data.GetStringData()
+		data := lockCommandResult.Data.GetStringValue()
 		err = self.stream.WriteBytes([]byte(fmt.Sprintf("$4\r\nDATA\r\n$%d\r\n%s\r\n", len(data), data)))
 	}
 	lockCommandResult.Data = nil

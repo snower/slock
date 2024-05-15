@@ -427,7 +427,7 @@ func TestLock_WithData(t *testing.T) {
 			t.Errorf("Lock Unlock Fail %v", err)
 			return
 		}
-		if result.GetLockData() == nil || result.GetLockData().GetStringData() != "aaa" {
+		if result.GetLockData() == nil || result.GetLockData().GetStringValue() != "aaa" {
 			t.Errorf("Lock Unlock Result LockData Fail %v", result.GetLockData())
 			return
 		}
@@ -450,7 +450,7 @@ func TestLock_WithData(t *testing.T) {
 			t.Errorf("Lock LockWithData1 Expried Fail %v", err)
 			return
 		}
-		if result.GetLockData() == nil || result.GetLockData().GetStringData() != "aaa" {
+		if result.GetLockData() == nil || result.GetLockData().GetStringValue() != "aaa" {
 			t.Errorf("Lock LockWithData1 Expried Result LockData Fail %v", result.GetLockData())
 			return
 		}
@@ -461,7 +461,7 @@ func TestLock_WithData(t *testing.T) {
 			t.Errorf("Lock LockWithData2 Expried Fail %v", err)
 			return
 		}
-		if result.GetLockData() == nil || result.GetLockData().GetStringData() != "bbb" {
+		if result.GetLockData() == nil || result.GetLockData().GetStringValue() != "bbb" {
 			t.Errorf("Lock LockWithData2 Expried Result LockData Fail %v", result.GetLockData())
 			return
 		}
@@ -471,7 +471,7 @@ func TestLock_WithData(t *testing.T) {
 			t.Errorf("Lock Unlock Fail %v", err)
 			return
 		}
-		if result.GetLockData() == nil || result.GetLockData().GetStringData() != "ccc" {
+		if result.GetLockData() == nil || result.GetLockData().GetStringValue() != "ccc" {
 			t.Errorf("Lock Unlock Result LockData Fail %v", result.GetLockData())
 			return
 		}
@@ -480,7 +480,7 @@ func TestLock_WithData(t *testing.T) {
 			t.Errorf("Lock Unlock1 Fail %v", err)
 			return
 		}
-		if result.GetLockData() == nil || result.GetLockData().GetStringData() != "ccc" {
+		if result.GetLockData() == nil || result.GetLockData().GetStringValue() != "ccc" {
 			t.Errorf("Lock Unlock1 Result LockData Fail %v", result.GetLockData())
 			return
 		}
@@ -512,7 +512,7 @@ func TestLock_WithData(t *testing.T) {
 			t.Errorf("Lock LockWithData1 Expried Fail %v", err)
 			return
 		}
-		if result.GetLockData() == nil || result.GetLockData().GetStringData() != "aaa" {
+		if result.GetLockData() == nil || result.GetLockData().GetStringValue() != "aaa" {
 			t.Errorf("Lock LockWithData1 Expried Result LockData Fail %v", result.GetLockData())
 			return
 		}
@@ -521,7 +521,7 @@ func TestLock_WithData(t *testing.T) {
 			t.Errorf("Lock Unlock Fail %v", err)
 			return
 		}
-		if result.GetLockData() == nil || result.GetLockData().GetStringData() != "bbb" {
+		if result.GetLockData() == nil || result.GetLockData().GetStringValue() != "bbb" {
 			t.Errorf("Lock Unlock Result LockData Fail %v", result.GetLockData())
 			return
 		}
@@ -576,7 +576,7 @@ func TestLock_WithData(t *testing.T) {
 			t.Errorf("Lock LockWithData1 Append Expried Fail %v", err)
 			return
 		}
-		if result.GetLockData() == nil || result.GetLockData().GetStringData() != "aaa" {
+		if result.GetLockData() == nil || result.GetLockData().GetStringValue() != "aaa" {
 			t.Errorf("Lock LockWithData1 Append Expried Result LockData Fail %v", result.GetLockData())
 			return
 		}
@@ -585,7 +585,7 @@ func TestLock_WithData(t *testing.T) {
 			t.Errorf("Lock Unlock Append Fail %v", err)
 			return
 		}
-		if result.GetLockData() == nil || result.GetLockData().GetStringData() != "aaabbb" {
+		if result.GetLockData() == nil || result.GetLockData().GetStringValue() != "aaabbb" {
 			t.Errorf("Lock Unlock Append Result LockData Fail %v", result.GetLockData())
 			return
 		}
@@ -594,7 +594,7 @@ func TestLock_WithData(t *testing.T) {
 			t.Errorf("Lock Unlock1 Append Fail %v", err)
 			return
 		}
-		if result.GetLockData() == nil || result.GetLockData().GetStringData() != "abbb" {
+		if result.GetLockData() == nil || result.GetLockData().GetStringValue() != "abbb" {
 			t.Errorf("Lock Unlock1 Append Result LockData Fail %v", result.GetLockData())
 			return
 		}
@@ -633,7 +633,7 @@ func TestLock_WithData(t *testing.T) {
 			t.Errorf("Lock Unlock Execute Release Fail %v", err)
 			return
 		}
-		if result.GetLockData() == nil || result.GetLockData().GetStringData() != "aaa" {
+		if result.GetLockData() == nil || result.GetLockData().GetStringValue() != "aaa" {
 			t.Errorf("Lock Unlock Execute Release LockData Fail %v", result.GetLockData())
 			return
 		}
@@ -661,7 +661,7 @@ func TestLock_WithData(t *testing.T) {
 			t.Errorf("Lock Unlock Pipeline Fail %v", err)
 			return
 		}
-		if result.GetLockData() == nil || result.GetLockData().GetStringData() != "aaa" {
+		if result.GetLockData() == nil || result.GetLockData().GetStringValue() != "aaa" {
 			t.Errorf("Lock Unlock Pipeline Result LockData Fail %v", result.GetLockData())
 			return
 		}
@@ -692,7 +692,7 @@ func TestLock_WithData(t *testing.T) {
 			t.Errorf("Lock Unlock Pipeline Release Fail %v", err)
 			return
 		}
-		if result.GetLockData() == nil || result.GetLockData().GetStringData() != "aaa" {
+		if result.GetLockData() == nil || result.GetLockData().GetStringValue() != "aaa" {
 			t.Errorf("Lock Unlock Pipeline Release LockData Fail %v", result.GetLockData())
 			return
 		}
@@ -742,7 +742,7 @@ func TestLock_RequireAck(t *testing.T) {
 			t.Errorf("Lock LockWithData1 Expried Fail %v", err)
 			return
 		}
-		if result.GetLockData() == nil || result.GetLockData().GetStringData() != "aaa" {
+		if result.GetLockData() == nil || result.GetLockData().GetStringValue() != "aaa" {
 			t.Errorf("Lock LockWithData1 Expried Result LockData Fail %v", result.GetLockData())
 			return
 		}
@@ -754,7 +754,7 @@ func TestLock_RequireAck(t *testing.T) {
 			t.Errorf("Lock LockWithData2 Expried Fail %v", err)
 			return
 		}
-		if result.GetLockData() == nil || result.GetLockData().GetStringData() != "bbb" {
+		if result.GetLockData() == nil || result.GetLockData().GetStringValue() != "bbb" {
 			t.Errorf("Lock LockWithData2 Expried Result LockData Fail %v", result.GetLockData())
 			return
 		}
@@ -764,7 +764,7 @@ func TestLock_RequireAck(t *testing.T) {
 			t.Errorf("Lock Unlock Fail %v", err)
 			return
 		}
-		if result.GetLockData() == nil || result.GetLockData().GetStringData() != "ccc" {
+		if result.GetLockData() == nil || result.GetLockData().GetStringValue() != "ccc" {
 			t.Errorf("Lock Unlock Result LockData Fail %v", result.GetLockData())
 			return
 		}
@@ -773,7 +773,7 @@ func TestLock_RequireAck(t *testing.T) {
 			t.Errorf("Lock Unlock1 Fail %v", err)
 			return
 		}
-		if result.GetLockData() == nil || result.GetLockData().GetStringData() != "ccc" {
+		if result.GetLockData() == nil || result.GetLockData().GetStringValue() != "ccc" {
 			t.Errorf("Lock Unlock1 Result LockData Fail %v", result.GetLockData())
 			return
 		}

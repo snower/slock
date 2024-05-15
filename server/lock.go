@@ -404,11 +404,11 @@ func (self *LockManager) ProcessLockData(command *protocol.LockCommand, lock *Lo
 		}
 		if len(command.Data.Data) == 14 {
 			data := command.Data.Data
-			data[4], data[5] = protocol.LOCK_DATA_COMMAND_TYPE_SET, 0
+			data[4], data[5] = protocol.LOCK_DATA_COMMAND_TYPE_SET, protocol.LOCK_DATA_FLAG_VALUE_TYPE_NUMBER
 			data[6], data[7], data[8], data[9], data[10], data[11], data[12], data[13] = byte(incrValue), byte(incrValue>>8), byte(incrValue>>16), byte(incrValue>>24), byte(incrValue>>32), byte(incrValue>>40), byte(incrValue>>48), byte(incrValue>>56)
 			self.currentData = NewLockManagerData(data, protocol.LOCK_DATA_COMMAND_TYPE_INCR)
 		} else {
-			self.currentData = NewLockManagerData([]byte{10, 0, 0, 0, protocol.LOCK_DATA_COMMAND_TYPE_SET, 0,
+			self.currentData = NewLockManagerData([]byte{10, 0, 0, 0, protocol.LOCK_DATA_COMMAND_TYPE_SET, protocol.LOCK_DATA_FLAG_VALUE_TYPE_NUMBER,
 				byte(incrValue), byte(incrValue >> 8), byte(incrValue >> 16), byte(incrValue >> 24), byte(incrValue >> 32), byte(incrValue >> 40), byte(incrValue >> 48), byte(incrValue >> 56)},
 				protocol.LOCK_DATA_COMMAND_TYPE_INCR)
 		}
@@ -569,7 +569,7 @@ func (self *LockManager) ProcessRecoverLockData(lock *Lock) {
 			if currentData.GetData() != nil {
 				incrValue = currentData.GetIncrValue() - incrValue
 			}
-			self.currentData = NewLockManagerData([]byte{10, 0, 0, 0, protocol.LOCK_DATA_COMMAND_TYPE_SET, 0,
+			self.currentData = NewLockManagerData([]byte{10, 0, 0, 0, protocol.LOCK_DATA_COMMAND_TYPE_SET, protocol.LOCK_DATA_FLAG_VALUE_TYPE_NUMBER,
 				byte(incrValue), byte(incrValue >> 8), byte(incrValue >> 16), byte(incrValue >> 24), byte(incrValue >> 32), byte(incrValue >> 40), byte(incrValue >> 48), byte(incrValue >> 56)},
 				protocol.LOCK_DATA_COMMAND_TYPE_INCR)
 		}

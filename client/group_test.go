@@ -218,7 +218,7 @@ func TestGroupEvent_DefaultWithData(t *testing.T) {
 			t.Errorf("Event Wait Fail %v", err)
 			return
 		}
-		if result.GetLockData() == nil || result.GetLockData().GetStringData() != "bbb" {
+		if result.GetLockData() == nil || result.GetLockData().GetStringValue() != "bbb" {
 			t.Errorf("Event Wait Data Fail %v", result.GetLockData())
 			return
 		}
@@ -259,7 +259,7 @@ func TestGroupEvent_WakeupWithData(t *testing.T) {
 					t.Errorf("Event Wait Fail %v", err)
 					return
 				}
-				if result.GetLockData() == nil || result.GetLockData().GetStringData() != "aaa" {
+				if result.GetLockData() == nil || result.GetLockData().GetStringValue() != "aaa" {
 					t.Errorf("Event Wait Data Fail %v", result.GetLockData())
 					return
 				}

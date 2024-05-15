@@ -1989,7 +1989,7 @@ func (self *TextServerProtocol) WriteCommand(result protocol.CommandEncode) erro
 			fmt.Sprintf("%d", lockResultCommand.Rcount),
 		}
 		if lockResultCommand.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
-			lockResults = append(lockResults, "DATA", lockResultCommand.Data.GetStringData())
+			lockResults = append(lockResults, "DATA", lockResultCommand.Data.GetStringValue())
 		}
 		return self.stream.WriteBytes(self.parser.BuildResponse(true, "", lockResults))
 	}
@@ -2102,7 +2102,7 @@ func (self *TextServerProtocol) ProcessBuild(command protocol.ICommand) error {
 			fmt.Sprintf("%d", lockResultCommand.Rcount),
 		}
 		if lockResultCommand.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
-			lockResults = append(lockResults, "DATA", lockResultCommand.Data.GetStringData())
+			lockResults = append(lockResults, "DATA", lockResultCommand.Data.GetStringValue())
 		}
 		return self.stream.WriteBytes(self.parser.BuildResponse(true, "", lockResults))
 	case protocol.COMMAND_UNLOCK:
@@ -2122,7 +2122,7 @@ func (self *TextServerProtocol) ProcessBuild(command protocol.ICommand) error {
 			fmt.Sprintf("%d", lockResultCommand.Rcount),
 		}
 		if lockResultCommand.Flag&protocol.UNLOCK_FLAG_CONTAINS_DATA != 0 {
-			lockResults = append(lockResults, "DATA", lockResultCommand.Data.GetStringData())
+			lockResults = append(lockResults, "DATA", lockResultCommand.Data.GetStringValue())
 		}
 		return self.stream.WriteBytes(self.parser.BuildResponse(true, "", lockResults))
 	}
@@ -2717,7 +2717,7 @@ func (self *TextServerProtocol) commandHandlerLock(_ *TextServerProtocol, args [
 		return err
 	}
 	if lockCommandResult.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
-		data := lockCommandResult.Data.GetStringData()
+		data := lockCommandResult.Data.GetStringValue()
 		err = self.stream.WriteBytes([]byte(fmt.Sprintf("$4\r\nDATA\r\n$%d\r\n%s\r\n", len(data), data)))
 	}
 	lockCommandResult.Data = nil
@@ -2824,7 +2824,7 @@ func (self *TextServerProtocol) commandHandlerUnlock(_ *TextServerProtocol, args
 		return err
 	}
 	if lockCommandResult.Flag&protocol.UNLOCK_FLAG_CONTAINS_DATA != 0 {
-		data := lockCommandResult.Data.GetStringData()
+		data := lockCommandResult.Data.GetStringValue()
 		err = self.stream.WriteBytes([]byte(fmt.Sprintf("$4\r\nDATA\r\n$%d\r\n%s\r\n", len(data), data)))
 	}
 	lockCommandResult.Data = nil

@@ -77,8 +77,8 @@ func subscribe(subscriber *client.Subscriber, finishWaiter chan bool) {
 			resultType = "expried"
 		}
 		lockDataLength := -1
-		if command.GetLockData() != nil && command.GetLockData().GetBytesData() != nil {
-			lockDataLength = len(command.GetLockData().GetBytesData())
+		if command.GetLockData() != nil && command.GetLockData().GetBytesValue() != nil {
+			lockDataLength = len(command.GetLockData().GetBytesValue())
 		}
 		fmt.Printf("%s SubscribeId:%d,PublishId:%d,versionId:%d,DBId:%d,LockKey:%x,LockId:%x,type:%s,Count:%d,LCount:%d,RCount:%d,LRCount:%d,DataLength:%d\n", now, subscribeId,
 			publishId, versionId, command.DbId, command.LockKey, command.LockId, resultType, command.Count, command.Lcount, command.Rcount, command.Lrcount, lockDataLength)

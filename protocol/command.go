@@ -111,6 +111,13 @@ const (
 	LOCK_DATA_COMMAND_TYPE_PIPELINE = 6
 )
 
+const (
+	LOCK_DATA_FLAG_VALUE_TYPE_NUMBER = 0x01
+	LOCK_DATA_FLAG_VALUE_TYPE_ARRAY  = 0x02
+	LOCK_DATA_FLAG_VALUE_TYPE_KV     = 0x04
+	LOCK_DATA_FLAG_CONTAINS_PROPERTY = 0x10
+)
+
 var ERROR_MSG []string = []string{
 	"OK",
 	"UNKNOWN_MAGIC",
@@ -390,7 +397,7 @@ func NewLockCommandDataUnsetData() *LockCommandData {
 func NewLockCommandDataIncrData(incrValue int64) *LockCommandData {
 	return &LockCommandData{[]byte{10, 0, 0, 0, LOCK_DATA_COMMAND_TYPE_INCR, 0,
 		byte(incrValue), byte(incrValue >> 8), byte(incrValue >> 16), byte(incrValue >> 24), byte(incrValue >> 32), byte(incrValue >> 40), byte(incrValue >> 48), byte(incrValue >> 56)},
-		LOCK_DATA_STAGE_LOCK, LOCK_DATA_COMMAND_TYPE_INCR, 0}
+		LOCK_DATA_STAGE_LOCK, LOCK_DATA_COMMAND_TYPE_INCR, LOCK_DATA_FLAG_VALUE_TYPE_NUMBER}
 }
 
 func NewLockCommandDataAppendData(data []byte) *LockCommandData {
@@ -404,7 +411,7 @@ func NewLockCommandDataAppendString(data string) *LockCommandData {
 func NewLockCommandDataShiftData(lengthValue uint32) *LockCommandData {
 	return &LockCommandData{[]byte{6, 0, 0, 0, LOCK_DATA_COMMAND_TYPE_SHIFT, 0,
 		byte(lengthValue), byte(lengthValue >> 8), byte(lengthValue >> 16), byte(lengthValue >> 24)},
-		LOCK_DATA_STAGE_LOCK, LOCK_DATA_COMMAND_TYPE_SHIFT, 0}
+		LOCK_DATA_STAGE_LOCK, LOCK_DATA_COMMAND_TYPE_SHIFT, LOCK_DATA_FLAG_VALUE_TYPE_NUMBER}
 }
 
 func NewLockCommandDataExecuteData(lockCommand *LockCommand, commandStage uint8) *LockCommandData {
@@ -442,33 +449,40 @@ func NewLockCommandDataPipelineData(lockCommandDatas []*LockCommandData) *LockCo
 	return &LockCommandData{buf, 0, LOCK_DATA_COMMAND_TYPE_PIPELINE, 0}
 }
 
-func (self *LockCommandData) GetBytesData() []byte {
+func (self *LockCommandData) GetValueOffset() int {
+	if self.DataFlag&LOCK_DATA_FLAG_CONTAINS_PROPERTY != 0 {
+		return (int(self.Data[6]) | (int(self.Data[7]) << 8)) + 6
+	}
+	return 6
+}
+
+func (self *LockCommandData) GetBytesValue() []byte {
 	if self.Data == nil || self.CommandType == LOCK_DATA_COMMAND_TYPE_UNSET {
 		return nil
 	}
-	return self.Data[6:]
+	return self.Data[self.GetValueOffset():]
 }
 
-func (self *LockCommandData) GetStringData() string {
+func (self *LockCommandData) GetStringValue() string {
 	if self.Data == nil || self.CommandType == LOCK_DATA_COMMAND_TYPE_UNSET {
 		return ""
 	}
-	return string(self.Data[6:])
+	return string(self.Data[self.GetValueOffset():])
 }
 
 func (self *LockCommandData) GetIncrValue() int64 {
 	if self.Data == nil || self.CommandType == LOCK_DATA_COMMAND_TYPE_UNSET {
 		return 0
 	}
-	value := int64(0)
+	valueOffset, value := self.GetValueOffset(), int64(0)
 	for i := 0; i < 8; i++ {
-		if i+6 >= len(self.Data) {
+		if i+valueOffset >= len(self.Data) {
 			break
 		}
 		if i > 0 {
-			value |= int64(self.Data[i+6]) << (i * 8)
+			value |= int64(self.Data[i+valueOffset]) << (i * 8)
 		} else {
-			value |= int64(self.Data[i+6])
+			value |= int64(self.Data[i+valueOffset])
 		}
 	}
 	return value
@@ -478,42 +492,43 @@ func (self *LockCommandData) GetShiftLengthValue() uint32 {
 	if self.Data == nil || self.CommandType == LOCK_DATA_COMMAND_TYPE_UNSET {
 		return 0
 	}
-	value := uint32(0)
+	valueOffset, value := self.GetValueOffset(), uint32(0)
 	for i := 0; i < 4; i++ {
-		if i+6 >= len(self.Data) {
+		if i+valueOffset >= len(self.Data) {
 			break
 		}
 		if i > 0 {
-			value |= uint32(self.Data[i+6]) << (i * 8)
+			value |= uint32(self.Data[i+valueOffset]) << (i * 8)
 		} else {
-			value |= uint32(self.Data[i+6])
+			value |= uint32(self.Data[i+valueOffset])
 		}
 	}
 	return value
 }
 
 func (self *LockCommandData) DecodeLockCommand(lockCommand *LockCommand) error {
-	if len(self.Data) < 70 {
+	valueOffset := self.GetValueOffset()
+	if len(self.Data) < valueOffset+64 {
 		return errors.New("data size error")
 	}
-	err := lockCommand.Decode(self.Data[6:70])
+	err := lockCommand.Decode(self.Data[valueOffset : valueOffset+64])
 	if err != nil {
 		return err
 	}
 	if lockCommand.Flag&LOCK_FLAG_CONTAINS_DATA != 0 {
-		if len(self.Data) < 74 {
+		if len(self.Data) < valueOffset+68 {
 			return errors.New("data size error")
 		}
-		dataLen := int(uint32(self.Data[70]) | uint32(self.Data[71])<<8 | uint32(self.Data[72])<<16 | uint32(self.Data[73])<<24)
+		dataLen := int(uint32(self.Data[valueOffset+64]) | uint32(self.Data[valueOffset+65])<<8 | uint32(self.Data[valueOffset+66])<<16 | uint32(self.Data[valueOffset+67])<<24)
 		buf := make([]byte, dataLen+4)
 		buf[0], buf[1], buf[2], buf[3] = byte(dataLen), byte(dataLen>>8), byte(dataLen>>16), byte(dataLen>>24)
 		if dataLen <= 0 {
 			return nil
 		}
-		if len(self.Data) < 74+dataLen {
+		if len(self.Data) < valueOffset+dataLen+68 {
 			return errors.New("data size error")
 		}
-		copy(buf[4:], self.Data[74:dataLen+74])
+		copy(buf[4:], self.Data[valueOffset+68:valueOffset+dataLen+68])
 		lockCommand.Data = NewLockCommandDataFromOriginBytes(buf)
 	}
 	return nil
@@ -646,33 +661,40 @@ func NewLockResultCommandDataFromString(data string, commandStage uint8, command
 	return &LockResultCommandData{buf, commandStage, commandType, dataFlag}
 }
 
-func (self *LockResultCommandData) GetBytesData() []byte {
+func (self *LockResultCommandData) GetValueOffset() int {
+	if self.DataFlag&LOCK_DATA_FLAG_CONTAINS_PROPERTY != 0 {
+		return (int(self.Data[6]) | (int(self.Data[7]) << 8)) + 6
+	}
+	return 6
+}
+
+func (self *LockResultCommandData) GetBytesValue() []byte {
 	if self.Data == nil || self.CommandType == LOCK_DATA_COMMAND_TYPE_UNSET {
 		return nil
 	}
-	return self.Data[6:]
+	return self.Data[self.GetValueOffset():]
 }
 
-func (self *LockResultCommandData) GetStringData() string {
+func (self *LockResultCommandData) GetStringValue() string {
 	if self.Data == nil || self.CommandType == LOCK_DATA_COMMAND_TYPE_UNSET {
 		return ""
 	}
-	return string(self.Data[6:])
+	return string(self.Data[self.GetValueOffset():])
 }
 
 func (self *LockResultCommandData) GetIncrValue() int64 {
 	if self.Data == nil || self.CommandType == LOCK_DATA_COMMAND_TYPE_UNSET {
 		return 0
 	}
-	value := int64(0)
+	valueOffset, value := self.GetValueOffset(), int64(0)
 	for i := 0; i < 8; i++ {
-		if i+6 >= len(self.Data) {
+		if i+valueOffset >= len(self.Data) {
 			break
 		}
 		if i > 0 {
-			value |= int64(self.Data[i+6]) << (i * 8)
+			value |= int64(self.Data[i+valueOffset]) << (i * 8)
 		} else {
-			value |= int64(self.Data[i+6])
+			value |= int64(self.Data[i+valueOffset])
 		}
 	}
 	return value
