@@ -694,6 +694,10 @@ func (self *Admin) commandHandleConfigCommand(serverProtocol *TextServerProtocol
 }
 
 func (self *Admin) commandHandleConfigGetCommand(serverProtocol *TextServerProtocol, args []string) error {
+	if len(args) >= 3 && strings.ToUpper(args[2]) == "DATABASES" {
+		return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(true, "", []string{"databases", "254"}))
+	}
+
 	ConfigValue := reflect.ValueOf(Config).Elem()
 	ConfigType := ConfigValue.Type()
 	infos := make([]string, 0)

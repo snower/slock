@@ -2733,13 +2733,13 @@ func (self *TextServerProtocol) commandHandlerScanCommand(_ *TextServerProtocol,
 		for i := 2; i < len(args); i += 2 {
 			switch strings.ToUpper(args[i]) {
 			case "MATCH":
-				r, cerr := regexp.Compile(strings.ReplaceAll(args[i], "*", ".*"))
+				r, cerr := regexp.Compile(strings.ReplaceAll(args[i+1], "*", ".*"))
 				if cerr != nil {
 					return self.stream.WriteBytes(self.parser.BuildResponse(false, cerr.Error(), nil))
 				}
 				matchRe = r
 			case "COUNT":
-				v, err = strconv.ParseInt(args[i], 10, 64)
+				v, err = strconv.ParseInt(args[i+1], 10, 64)
 				if err != nil {
 					return self.stream.WriteBytes(self.parser.BuildResponse(false, err.Error(), nil))
 				}
