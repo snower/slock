@@ -2822,7 +2822,8 @@ func (self *TextServerProtocol) commandHandlerScanCommand(_ *TextServerProtocol,
 		}
 	}
 
-	buf := []byte(fmt.Sprintf("*2\r\n$1\r\n0\r\n"))
+	cursor := fmt.Sprintf("%d", offset+len(keys))
+	buf := []byte(fmt.Sprintf(fmt.Sprintf("*2\r\n$%d\r\n%s\r\n", len(cursor), cursor)))
 	buf = append(buf, []byte(fmt.Sprintf("*%d\r\n", len(keys)))...)
 	for _, result := range keys {
 		buf = append(buf, []byte(fmt.Sprintf("$%d\r\n%s\r\n", len(result), result))...)
