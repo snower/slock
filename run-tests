@@ -232,6 +232,19 @@ Benchmark Parallel Lock Info:
 $BENCH_OUTPUTS
 "
 
+APT_CMD=`which apt`
+if [ -x APT_CMD ]; then
+  $APT_CMD update && $APT_CMD install -y redis
+  REDIS_BENCHMARK_CMD=`which redis-benchmark`
+  if [ -x REDIS_BENCHMARK_CMD ]; then
+    echo "Redis Benchmark Info:"
+    $REDIS_BENCHMARK_CMD -h 127.0.0.1 -p 5659 -n 2000000 -c 64 -t set,get,incr
+
+    echo "Redis Benchmark Transparency Info:"
+    $REDIS_BENCHMARK_CMD -h 127.0.0.1 -p 5658 -n 2000000 -c 64 -t set,get,incr
+  fi
+fi
+
 sleep 3
 SLOCK_INFOS=$(slock info --port=5658 2>&1)
 echo "Slock 5658 Info:
