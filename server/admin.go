@@ -67,20 +67,39 @@ func (self *Admin) commandHandleShutdownCommand(serverProtocol *TextServerProtoc
 }
 
 func (self *Admin) commandHandleBgRewritAaofCommand(serverProtocol *TextServerProtocol, _ []string) error {
+	if self.slock.state != STATE_LEADER {
+		return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(false, "State Error", nil))
+	}
+	self.slock.aof.aofGlock.Lock()
+	if self.slock.aof.isRewriting || self.slock.aof.isWaitRewite {
+		self.slock.aof.aofGlock.Unlock()
+		return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(false, "Already Rewriting", nil))
+	}
 	err := serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(true, "OK", nil))
 	if err != nil {
+		self.slock.aof.aofGlock.Unlock()
 		return err
 	}
 
 	go func() {
 		self.slock.Log().Infof("Admin command execute aof files rewrite")
 		_ = self.slock.GetAof().RewriteAofFile(true)
+		self.slock.aof.aofGlock.Unlock()
 	}()
 	return nil
 }
 
 func (self *Admin) commandHandleRewriteAofCommand(serverProtocol *TextServerProtocol, _ []string) error {
+	if self.slock.state != STATE_LEADER {
+		return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(false, "State Error", nil))
+	}
+	self.slock.aof.aofGlock.Lock()
+	if self.slock.aof.isRewriting || self.slock.aof.isWaitRewite {
+		self.slock.aof.aofGlock.Unlock()
+		return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(false, "Already Rewriting", nil))
+	}
 	_ = self.slock.GetAof().RewriteAofFile(true)
+	self.slock.aof.aofGlock.Unlock()
 	return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(true, "OK", nil))
 }
 
