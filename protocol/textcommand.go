@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type ITextProtocol interface {
@@ -17,13 +18,48 @@ type ITextProtocol interface {
 	GetParser() *TextParser
 }
 
+type ConvertTextCommand func(textProtocol ITextProtocol, args []string) (*LockCommand, WriteTextCommandResultFunc, error)
 type WriteTextCommandResultFunc func(textProtocol ITextProtocol, stream ISteam, lockCommandResult *LockResultCommand) error
 
 type TextCommandConverter struct {
+	handlers map[string]ConvertTextCommand
 }
 
 func NewTextCommandConverter() *TextCommandConverter {
-	return &TextCommandConverter{}
+	return &TextCommandConverter{nil}
+}
+
+func (self *TextCommandConverter) FindHandler(name string) (ConvertTextCommand, error) {
+	if self.handlers == nil {
+		self.handlers = make(map[string]ConvertTextCommand, 64)
+		self.handlers["LOCK"] = self.ConvertTextLockAndUnLockCommand
+		self.handlers["UNLOCK"] = self.ConvertTextLockAndUnLockCommand
+		self.handlers["DEL"] = self.ConvertTextDelCommand
+		self.handlers["SET"] = self.ConvertTextSetCommand
+		self.handlers["APPEND"] = self.ConvertTextAppendCommand
+		self.handlers["GETSET"] = self.ConvertTextGetSetCommand
+		self.handlers["SETEX"] = self.ConvertTextSetEXCommand
+		self.handlers["PSETEX"] = self.ConvertTextSetEXCommand
+		self.handlers["SETNX"] = self.ConvertTextSetNXCommand
+		self.handlers["GET"] = self.ConvertTextGetCommand
+		self.handlers["INCR"] = self.ConvertTextIncrCommand
+		self.handlers["INCRBY"] = self.ConvertTextIncrCommand
+		self.handlers["DECR"] = self.ConvertTextDecrCommand
+		self.handlers["DECRBY"] = self.ConvertTextDecrCommand
+		self.handlers["STRLEN"] = self.ConvertTextStrlenCommand
+		self.handlers["EXISTS"] = self.ConvertTextExistsCommand
+		self.handlers["EXPIRE"] = self.ConvertTextExpireCommand
+		self.handlers["PEXPIREAT"] = self.ConvertTextExpireCommand
+		self.handlers["PEXPIRE"] = self.ConvertTextExpireCommand
+		self.handlers["PEXPIREAT"] = self.ConvertTextExpireCommand
+		self.handlers["PERSIST"] = self.ConvertTextExpireCommand
+		self.handlers["TYPE"] = self.ConvertTextTypeCommand
+		self.handlers["DUMP"] = self.ConvertTextDumpCommand
+	}
+	if handler, ok := self.handlers[name]; ok {
+		return handler, nil
+	}
+	return nil, errors.New("unknown command")
 }
 
 func (self *TextCommandConverter) ConvertArgId2LockId(argId string, lockId *[16]byte) {
@@ -67,6 +103,67 @@ func (self *TextCommandConverter) ConvertArgId2LockId(argId string, lockId *[16]
 	}
 }
 
+func (self *TextCommandConverter) ConvertArgs2Flag(lockCommand *LockCommand, args []string) error {
+	for i := 0; i < len(args); i++ {
+		switch strings.ToUpper(args[i]) {
+		case "EX":
+			if i+i >= len(args) {
+				return errors.New("Command Parse Args Count Error")
+			}
+			expried, err := strconv.ParseInt(args[i+1], 10, 64)
+			if err != nil {
+				return errors.New("Command Parse EX Value Error")
+			}
+			lockCommand.Expried = uint16(expried & 0xffff)
+			lockCommand.ExpriedFlag |= uint16(expried >> 16 & 0xffff)
+			i++
+		case "PX":
+			if i+i >= len(args) {
+				return errors.New("Command Parse Args Count Error")
+			}
+			expried, err := strconv.ParseInt(args[i+1], 10, 64)
+			if err != nil {
+				return errors.New("Command Parse PX Value Error")
+			}
+			lockCommand.Expried = uint16(expried & 0xffff)
+			lockCommand.ExpriedFlag |= uint16(expried>>16&0xffff) | EXPRIED_FLAG_MILLISECOND_TIME
+			i++
+		case "TX":
+			if i+i >= len(args) {
+				return errors.New("Command Parse Args Count Error")
+			}
+			timeout, err := strconv.ParseInt(args[i+1], 10, 64)
+			if err != nil {
+				return errors.New("Command Parse TX Value Error")
+			}
+			lockCommand.Timeout = uint16(timeout & 0xffff)
+			lockCommand.TimeoutFlag |= uint16(timeout >> 16 & 0xffff)
+			i++
+		case "PTX":
+			if i+i >= len(args) {
+				return errors.New("Command Parse Args Count Error")
+			}
+			timeout, err := strconv.ParseInt(args[i+1], 10, 64)
+			if err != nil {
+				return errors.New("Command Parse TX Value Error")
+			}
+			lockCommand.Timeout = uint16(timeout & 0xffff)
+			lockCommand.TimeoutFlag |= uint16(timeout>>16&0xffff) | TIMEOUT_FLAG_MILLISECOND_TIME
+			i++
+		case "NX":
+			lockCommand.Flag = LOCK_FLAG_CONTAINS_DATA
+			lockCommand.LockId = GenLockId()
+		case "XX":
+			lockCommand.TimeoutFlag |= TIMEOUT_FLAG_LOCK_WAIT_WHEN_UNLOCK
+		case "ACK":
+			lockCommand.TimeoutFlag |= TIMEOUT_FLAG_REQUIRE_ACKED
+		case "NAOF":
+			lockCommand.ExpriedFlag |= EXPRIED_FLAG_UNLIMITED_AOF_TIME
+		}
+	}
+	return nil
+}
+
 func (self *TextCommandConverter) GetAndResetLockCommand(textProtocol ITextProtocol) *LockCommand {
 	lockCommand := textProtocol.GetLockCommand()
 	lockCommand.Magic = MAGIC
@@ -74,9 +171,9 @@ func (self *TextCommandConverter) GetAndResetLockCommand(textProtocol ITextProto
 	lockCommand.RequestId = GenRequestId()
 	lockCommand.DbId = textProtocol.GetDBId()
 	lockCommand.Flag = 0
-	lockCommand.Timeout = 3
+	lockCommand.Timeout = 0
 	lockCommand.TimeoutFlag = 0
-	lockCommand.Expried = 60
+	lockCommand.Expried = 0
 	lockCommand.ExpriedFlag = 0
 	lockCommand.Count = 0
 	lockCommand.Rcount = 0
@@ -96,6 +193,8 @@ func (self *TextCommandConverter) ConvertTextLockAndUnLockCommand(textProtocol I
 		lockCommand.CommandType = COMMAND_LOCK
 	}
 	self.ConvertArgId2LockId(args[1], &lockCommand.LockKey)
+	lockCommand.Timeout = 15
+	lockCommand.Expried = 120
 
 	hasLockId := false
 	for i := 2; i < len(args); i += 2 {
@@ -270,19 +369,11 @@ func (self *TextCommandConverter) WriteTextLockAndUnLockCommandResult(textProtoc
 }
 
 func (self *TextCommandConverter) ConvertTextKeyOperateValueCommand(textProtocol ITextProtocol, args []string) (*LockCommand, WriteTextCommandResultFunc, error) {
-	switch strings.ToUpper(args[0]) {
-	case "DEL":
-		return self.ConvertTextDelCommand(textProtocol, args)
-	case "SET":
-		return self.ConvertTextSetCommand(textProtocol, args)
-	case "GET":
-		return self.ConvertTextGetCommand(textProtocol, args)
-	case "INCR":
-		return self.ConvertTextIncrCommand(textProtocol, args)
-	case "INCRBY":
-		return self.ConvertTextIncrCommand(textProtocol, args)
+	handler, err := self.FindHandler(strings.ToUpper(args[0]))
+	if err != nil {
+		return nil, nil, err
 	}
-	return nil, nil, errors.New("unknown command: " + args[0])
+	return handler(textProtocol, args)
 }
 
 func (self *TextCommandConverter) ConvertTextDelCommand(textProtocol ITextProtocol, args []string) (*LockCommand, WriteTextCommandResultFunc, error) {
@@ -292,6 +383,7 @@ func (self *TextCommandConverter) ConvertTextDelCommand(textProtocol ITextProtoc
 
 	lockCommand := self.GetAndResetLockCommand(textProtocol)
 	lockCommand.CommandType = COMMAND_UNLOCK
+	lockCommand.Flag = UNLOCK_FLAG_UNLOCK_FIRST_LOCK_WHEN_UNLOCKED
 	self.ConvertArgId2LockId(args[1], &lockCommand.LockKey)
 	lockCommand.LockId = lockCommand.LockKey
 	return lockCommand, self.WriteTextDelCommandResult, nil
@@ -309,7 +401,7 @@ func (self *TextCommandConverter) WriteTextDelCommandResult(_ ITextProtocol, str
 }
 
 func (self *TextCommandConverter) ConvertTextSetCommand(textProtocol ITextProtocol, args []string) (*LockCommand, WriteTextCommandResultFunc, error) {
-	if len(args) < 2 {
+	if len(args) < 3 {
 		return nil, nil, errors.New("Command Parse Args Count Error")
 	}
 
@@ -318,57 +410,28 @@ func (self *TextCommandConverter) ConvertTextSetCommand(textProtocol ITextProtoc
 	self.ConvertArgId2LockId(args[1], &lockCommand.LockKey)
 	lockCommand.LockId = lockCommand.LockKey
 	lockCommand.Flag = LOCK_FLAG_UPDATE_WHEN_LOCKED | LOCK_FLAG_CONTAINS_DATA
-	lockCommand.Data = NewLockCommandDataSetString(args[2])
-	lockCommand.Timeout = 120
-	lockCommand.Expried = 0x7fff
-
-	for i := 3; i < len(args); i++ {
-		switch strings.ToUpper(args[i]) {
-		case "EX":
-			if i+i >= len(args) {
-				_ = textProtocol.FreeLockCommand(lockCommand)
-				return nil, nil, errors.New("Command Parse Args Count Error")
-			}
-			expried, err := strconv.ParseInt(args[i+1], 10, 64)
-			if err != nil {
-				_ = textProtocol.FreeLockCommand(lockCommand)
-				return nil, nil, errors.New("Command Parse EX Value Error")
-			}
-			lockCommand.Expried = uint16(expried & 0xffff)
-			lockCommand.ExpriedFlag = uint16(expried >> 16 & 0xffff)
-			i++
-		case "PX":
-			if i+i >= len(args) {
-				_ = textProtocol.FreeLockCommand(lockCommand)
-				return nil, nil, errors.New("Command Parse Args Count Error")
-			}
-			expried, err := strconv.ParseInt(args[i+1], 10, 64)
-			if err != nil {
-				return nil, nil, errors.New("Command Parse PX Value Error")
-			}
-			lockCommand.Expried = uint16(expried & 0xffff)
-			lockCommand.ExpriedFlag = uint16(expried>>16&0xffff) | EXPRIED_FLAG_MILLISECOND_TIME
-			i++
-		case "TX":
-			if i+i >= len(args) {
-				_ = textProtocol.FreeLockCommand(lockCommand)
-				return nil, nil, errors.New("Command Parse Args Count Error")
-			}
-			timeout, err := strconv.ParseInt(args[i+1], 10, 64)
-			if err != nil {
-				_ = textProtocol.FreeLockCommand(lockCommand)
-				return nil, nil, errors.New("Command Parse TX Value Error")
-			}
-			lockCommand.Timeout = uint16(timeout & 0xffff)
-			lockCommand.TimeoutFlag = uint16(timeout >> 16 & 0xffff)
-			i++
+	lockCommand.Data = NewLockCommandDataSetStringWithProperty(args[2], []*LockCommandDataProperty{NewLockCommandDataProperty(LOCK_DATA_PROPERTY_CODE_KEY, []byte(args[1]))})
+	if len(args) > 3 {
+		err := self.ConvertArgs2Flag(lockCommand, args[3:])
+		if err != nil {
+			_ = textProtocol.FreeLockCommand(lockCommand)
+			return nil, nil, err
 		}
+	}
+	if lockCommand.Expried == 0 && lockCommand.ExpriedFlag == 0 {
+		lockCommand.Expried = 0xffff
+		lockCommand.ExpriedFlag = EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME
 	}
 	return lockCommand, self.WriteTextSetCommandResult, nil
 }
 
 func (self *TextCommandConverter) WriteTextSetCommandResult(_ ITextProtocol, stream ISteam, lockCommandResult *LockResultCommand) error {
 	if lockCommandResult.Result != 0 && lockCommandResult.Result != RESULT_LOCKED_ERROR {
+		if lockCommandResult.Result == RESULT_TIMEOUT {
+			err := stream.WriteBytes([]byte("$-1\r\n"))
+			lockCommandResult.Data = nil
+			return err
+		}
 		err := stream.WriteBytes([]byte(fmt.Sprintf("-ERR %d\r\n", lockCommandResult.Result)))
 		lockCommandResult.Data = nil
 		return err
@@ -376,6 +439,127 @@ func (self *TextCommandConverter) WriteTextSetCommandResult(_ ITextProtocol, str
 	err := stream.WriteBytes([]byte("+OK\r\n"))
 	lockCommandResult.Data = nil
 	return err
+}
+
+func (self *TextCommandConverter) ConvertTextAppendCommand(textProtocol ITextProtocol, args []string) (*LockCommand, WriteTextCommandResultFunc, error) {
+	if len(args) < 3 {
+		return nil, nil, errors.New("Command Parse Args Count Error")
+	}
+
+	lockCommand := self.GetAndResetLockCommand(textProtocol)
+	lockCommand.CommandType = COMMAND_LOCK
+	self.ConvertArgId2LockId(args[1], &lockCommand.LockKey)
+	lockCommand.LockId = lockCommand.LockKey
+	lockCommand.Flag = LOCK_FLAG_UPDATE_WHEN_LOCKED | LOCK_FLAG_CONTAINS_DATA
+	lockCommand.Data = NewLockCommandDataAppendStringWithProperty(args[2], []*LockCommandDataProperty{NewLockCommandDataProperty(LOCK_DATA_PROPERTY_CODE_KEY, []byte(args[1]))})
+
+	if len(args) > 3 {
+		err := self.ConvertArgs2Flag(lockCommand, args[3:])
+		if err != nil {
+			_ = textProtocol.FreeLockCommand(lockCommand)
+			return nil, nil, err
+		}
+	}
+	if lockCommand.Expried == 0 && lockCommand.ExpriedFlag == 0 {
+		lockCommand.Expried = 0xffff
+		lockCommand.ExpriedFlag = EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME
+	}
+	return lockCommand, func(textProtocol ITextProtocol, stream ISteam, lockCommandResult *LockResultCommand) error {
+		if lockCommandResult.Result != 0 && lockCommandResult.Result != RESULT_LOCKED_ERROR {
+			if lockCommandResult.Result == RESULT_TIMEOUT {
+				werr := stream.WriteBytes([]byte("$-1\r\n"))
+				lockCommandResult.Data = nil
+				return werr
+			}
+			werr := stream.WriteBytes([]byte(fmt.Sprintf("-ERR %d\r\n", lockCommandResult.Result)))
+			lockCommandResult.Data = nil
+			return werr
+		}
+		werr := stream.WriteBytes([]byte(fmt.Sprintf(":%d\r\n", lockCommandResult.Data.GetValueSize()+len(args[2]))))
+		lockCommandResult.Data = nil
+		return werr
+	}, nil
+}
+
+func (self *TextCommandConverter) ConvertTextGetSetCommand(textProtocol ITextProtocol, args []string) (*LockCommand, WriteTextCommandResultFunc, error) {
+	lockCommand, _, err := self.ConvertTextSetCommand(textProtocol, args)
+	if err != nil {
+		return nil, nil, err
+	}
+	return lockCommand, self.WriteTextGetCommandResult, nil
+}
+
+func (self *TextCommandConverter) ConvertTextSetNXCommand(textProtocol ITextProtocol, args []string) (*LockCommand, WriteTextCommandResultFunc, error) {
+	if len(args) < 3 {
+		return nil, nil, errors.New("Command Parse Args Count Error")
+	}
+
+	lockCommand := self.GetAndResetLockCommand(textProtocol)
+	lockCommand.CommandType = COMMAND_LOCK
+	self.ConvertArgId2LockId(args[1], &lockCommand.LockKey)
+	lockCommand.LockId = GenLockId()
+	lockCommand.Flag = LOCK_FLAG_CONTAINS_DATA
+	lockCommand.Data = NewLockCommandDataSetStringWithProperty(args[2], []*LockCommandDataProperty{NewLockCommandDataProperty(LOCK_DATA_PROPERTY_CODE_KEY, []byte(args[1]))})
+	lockCommand.Timeout = 15
+	if len(args) > 3 {
+		err := self.ConvertArgs2Flag(lockCommand, args[3:])
+		if err != nil {
+			_ = textProtocol.FreeLockCommand(lockCommand)
+			return nil, nil, err
+		}
+	}
+	if lockCommand.Expried == 0 && lockCommand.ExpriedFlag == 0 {
+		lockCommand.Expried = 0xffff
+		lockCommand.ExpriedFlag = EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME
+	}
+	return lockCommand, self.WriteTextSetNXCommandResult, nil
+}
+
+func (self *TextCommandConverter) WriteTextSetNXCommandResult(_ ITextProtocol, stream ISteam, lockCommandResult *LockResultCommand) error {
+	if lockCommandResult.Result != 0 && lockCommandResult.Result != RESULT_LOCKED_ERROR {
+		if lockCommandResult.Result == RESULT_TIMEOUT {
+			err := stream.WriteBytes([]byte(":0\r\n"))
+			lockCommandResult.Data = nil
+			return err
+		}
+		err := stream.WriteBytes([]byte(fmt.Sprintf("-ERR %d\r\n", lockCommandResult.Result)))
+		lockCommandResult.Data = nil
+		return err
+	}
+	err := stream.WriteBytes([]byte(":1\r\n"))
+	lockCommandResult.Data = nil
+	return err
+}
+
+func (self *TextCommandConverter) ConvertTextSetEXCommand(textProtocol ITextProtocol, args []string) (*LockCommand, WriteTextCommandResultFunc, error) {
+	if len(args) < 3 {
+		return nil, nil, errors.New("Command Parse Args Count Error")
+	}
+
+	lockCommand := self.GetAndResetLockCommand(textProtocol)
+	lockCommand.CommandType = COMMAND_LOCK
+	self.ConvertArgId2LockId(args[1], &lockCommand.LockKey)
+	lockCommand.LockId = lockCommand.LockKey
+	lockCommand.Flag = LOCK_FLAG_UPDATE_WHEN_LOCKED | LOCK_FLAG_CONTAINS_DATA
+	lockCommand.Data = NewLockCommandDataSetStringWithProperty(args[3], []*LockCommandDataProperty{NewLockCommandDataProperty(LOCK_DATA_PROPERTY_CODE_KEY, []byte(args[1]))})
+	expried, err := strconv.ParseInt(args[2], 10, 64)
+	if err != nil {
+		return nil, nil, errors.New("Command Parse EX Value Error")
+	}
+	lockCommand.Expried = uint16(expried & 0xffff)
+	if strings.ToUpper(args[0]) == "PSETEX" {
+		lockCommand.ExpriedFlag |= uint16(expried>>16&0xffff) | EXPRIED_FLAG_MILLISECOND_TIME
+	} else {
+		lockCommand.ExpriedFlag |= uint16(expried >> 16 & 0xffff)
+	}
+	if len(args) > 4 {
+		err = self.ConvertArgs2Flag(lockCommand, args[4:])
+		if err != nil {
+			_ = textProtocol.FreeLockCommand(lockCommand)
+			return nil, nil, err
+		}
+	}
+	return lockCommand, self.WriteTextSetCommandResult, nil
 }
 
 func (self *TextCommandConverter) ConvertTextGetCommand(textProtocol ITextProtocol, args []string) (*LockCommand, WriteTextCommandResultFunc, error) {
@@ -387,12 +571,12 @@ func (self *TextCommandConverter) ConvertTextGetCommand(textProtocol ITextProtoc
 	lockCommand.CommandType = COMMAND_LOCK
 	self.ConvertArgId2LockId(args[1], &lockCommand.LockKey)
 	lockCommand.LockId = lockCommand.LockKey
-	lockCommand.Timeout = 0
+	lockCommand.Flag = LOCK_FLAG_SHOW_WHEN_LOCKED
 	return lockCommand, self.WriteTextGetCommandResult, nil
 }
 
 func (self *TextCommandConverter) WriteTextGetCommandResult(_ ITextProtocol, stream ISteam, lockCommandResult *LockResultCommand) error {
-	if lockCommandResult.Result != RESULT_LOCKED_ERROR || lockCommandResult.Data == nil {
+	if (lockCommandResult.Result != RESULT_UNOWN_ERROR && lockCommandResult.Result != RESULT_LOCKED_ERROR) || lockCommandResult.Data == nil {
 		err := stream.WriteBytes([]byte("$-1\r\n"))
 		lockCommandResult.Data = nil
 		return err
@@ -404,26 +588,23 @@ func (self *TextCommandConverter) WriteTextGetCommandResult(_ ITextProtocol, str
 		return stream.WriteBytes([]byte(fmt.Sprintf(":%d\r\n", lockResultCommandData.GetIncrValue())))
 	}
 	if lockResultCommandData.DataFlag&LOCK_DATA_FLAG_VALUE_TYPE_ARRAY != 0 {
-		index := lockResultCommandData.GetValueOffset()
-		if index+5 > len(lockResultCommandData.Data) {
+		values := lockResultCommandData.GetArrayValue()
+		if values == nil || len(values) == 0 {
 			return stream.WriteBytes([]byte("$-1\r\n"))
 		}
-		valueLen := int(uint32(lockResultCommandData.Data[index]) | uint32(lockResultCommandData.Data[index+1])<<8 | uint32(lockResultCommandData.Data[index+2])<<16 | uint32(lockResultCommandData.Data[index+3])<<24)
-		value := string(lockResultCommandData.Data[index+4 : index+4+valueLen])
+		value := string(values[0])
 		return stream.WriteBytes([]byte(fmt.Sprintf("$%d\r\n%s\r\n", len(value), value)))
 	}
 	if lockResultCommandData.DataFlag&LOCK_DATA_FLAG_VALUE_TYPE_KV != 0 {
-		index := lockResultCommandData.GetValueOffset()
-		if index+5 > len(lockResultCommandData.Data) {
+		values := lockResultCommandData.GetKVValue()
+		if values == nil || len(values) == 0 {
 			return stream.WriteBytes([]byte("$-1\r\n"))
 		}
-		keyLen := int(uint32(lockResultCommandData.Data[index]) | uint32(lockResultCommandData.Data[index+1])<<8 | uint32(lockResultCommandData.Data[index+2])<<16 | uint32(lockResultCommandData.Data[index+3])<<24)
-		index += keyLen + 4
-		if index+5 > len(lockResultCommandData.Data) {
-			return stream.WriteBytes([]byte("$-1\r\n"))
+		var value string
+		for _, v := range values {
+			value = string(v)
+			break
 		}
-		valueLen := int(uint32(lockResultCommandData.Data[index]) | uint32(lockResultCommandData.Data[index+1])<<8 | uint32(lockResultCommandData.Data[index+2])<<16 | uint32(lockResultCommandData.Data[index+3])<<24)
-		value := string(lockResultCommandData.Data[index+4 : index+4+valueLen])
 		return stream.WriteBytes([]byte(fmt.Sprintf("$%d\r\n%s\r\n", len(value), value)))
 	}
 
@@ -445,33 +626,282 @@ func (self *TextCommandConverter) ConvertTextIncrCommand(textProtocol ITextProto
 	lockCommand.LockId = lockCommand.LockKey
 	lockCommand.Flag = LOCK_FLAG_UPDATE_WHEN_LOCKED | LOCK_FLAG_CONTAINS_DATA
 
-	incrValue := int64(1)
-	if len(args) == 2 {
-		lockCommand.Data = NewLockCommandDataIncrData(1)
-	} else {
-		iv, err := strconv.ParseInt(args[2], 10, 64)
+	incrValue, index := int64(1), 3
+	if len(args) > 2 {
+		v, err := strconv.ParseInt(args[2], 10, 64)
 		if err != nil {
 			_ = textProtocol.FreeLockCommand(lockCommand)
 			return nil, nil, errors.New("Command Parse Increment Value Error")
 		}
-		lockCommand.Data = NewLockCommandDataIncrData(iv)
-		incrValue = iv
+		incrValue = v
+		index++
 	}
-	lockCommand.Timeout = 120
-	lockCommand.Expried = 0x7fff
+	lockCommand.Data = NewLockCommandDataIncrDataWithProperty(incrValue, []*LockCommandDataProperty{NewLockCommandDataProperty(LOCK_DATA_PROPERTY_CODE_KEY, []byte(args[1]))})
+	lockCommand.Expried = 0xffff
+	lockCommand.ExpriedFlag = EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME
+	if len(args) > index {
+		err := self.ConvertArgs2Flag(lockCommand, args[index:])
+		if err != nil {
+			_ = textProtocol.FreeLockCommand(lockCommand)
+			return nil, nil, err
+		}
+	}
 	return lockCommand, func(_ ITextProtocol, stream ISteam, lockCommandResult *LockResultCommand) error {
 		if lockCommandResult.Result != 0 && lockCommandResult.Result != RESULT_LOCKED_ERROR {
-			err := stream.WriteBytes([]byte(fmt.Sprintf("-ERR %d\r\n", lockCommandResult.Result)))
+			werr := stream.WriteBytes([]byte(fmt.Sprintf("-ERR %d\r\n", lockCommandResult.Result)))
 			lockCommandResult.Data = nil
-			return err
+			return werr
 		}
 		if lockCommandResult.Data == nil {
-			err := stream.WriteBytes([]byte(fmt.Sprintf(":%d\r\n", incrValue)))
+			werr := stream.WriteBytes([]byte(fmt.Sprintf(":%d\r\n", incrValue)))
+			lockCommandResult.Data = nil
+			return werr
+		}
+		werr := stream.WriteBytes([]byte(fmt.Sprintf(":%d\r\n", lockCommandResult.Data.GetIncrValue()+incrValue)))
+		lockCommandResult.Data = nil
+		return werr
+	}, nil
+}
+
+func (self *TextCommandConverter) ConvertTextDecrCommand(textProtocol ITextProtocol, args []string) (*LockCommand, WriteTextCommandResultFunc, error) {
+	if len(args) < 2 {
+		return nil, nil, errors.New("Command Parse Args Count Error")
+	}
+
+	lockCommand := self.GetAndResetLockCommand(textProtocol)
+	lockCommand.CommandType = COMMAND_LOCK
+	self.ConvertArgId2LockId(args[1], &lockCommand.LockKey)
+	lockCommand.LockId = lockCommand.LockKey
+	lockCommand.Flag = LOCK_FLAG_UPDATE_WHEN_LOCKED | LOCK_FLAG_CONTAINS_DATA
+
+	incrValue, index := int64(-1), 3
+	if len(args) > 2 {
+		v, err := strconv.ParseInt(args[2], 10, 64)
+		if err != nil {
+			_ = textProtocol.FreeLockCommand(lockCommand)
+			return nil, nil, errors.New("Command Parse Increment Value Error")
+		}
+		incrValue = -v
+		index++
+	}
+	lockCommand.Data = NewLockCommandDataIncrDataWithProperty(incrValue, []*LockCommandDataProperty{NewLockCommandDataProperty(LOCK_DATA_PROPERTY_CODE_KEY, []byte(args[1]))})
+	lockCommand.Expried = 0xffff
+	lockCommand.ExpriedFlag = EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME
+	if len(args) > index {
+		err := self.ConvertArgs2Flag(lockCommand, args[index:])
+		if err != nil {
+			_ = textProtocol.FreeLockCommand(lockCommand)
+			return nil, nil, err
+		}
+	}
+	return lockCommand, func(_ ITextProtocol, stream ISteam, lockCommandResult *LockResultCommand) error {
+		if lockCommandResult.Result != 0 && lockCommandResult.Result != RESULT_LOCKED_ERROR {
+			werr := stream.WriteBytes([]byte(fmt.Sprintf("-ERR %d\r\n", lockCommandResult.Result)))
+			lockCommandResult.Data = nil
+			return werr
+		}
+		if lockCommandResult.Data == nil {
+			werr := stream.WriteBytes([]byte(fmt.Sprintf(":%d\r\n", incrValue)))
+			lockCommandResult.Data = nil
+			return werr
+		}
+		werr := stream.WriteBytes([]byte(fmt.Sprintf(":%d\r\n", lockCommandResult.Data.GetIncrValue()+incrValue)))
+		lockCommandResult.Data = nil
+		return werr
+	}, nil
+}
+
+func (self *TextCommandConverter) ConvertTextStrlenCommand(textProtocol ITextProtocol, args []string) (*LockCommand, WriteTextCommandResultFunc, error) {
+	if len(args) < 2 {
+		return nil, nil, errors.New("Command Parse Args Count Error")
+	}
+
+	lockCommand := self.GetAndResetLockCommand(textProtocol)
+	lockCommand.CommandType = COMMAND_LOCK
+	self.ConvertArgId2LockId(args[1], &lockCommand.LockKey)
+	lockCommand.LockId = lockCommand.LockKey
+	lockCommand.Flag = LOCK_FLAG_SHOW_WHEN_LOCKED
+	return lockCommand, self.WriteTextStrlenCommandResult, nil
+}
+
+func (self *TextCommandConverter) WriteTextStrlenCommandResult(_ ITextProtocol, stream ISteam, lockCommandResult *LockResultCommand) error {
+	if lockCommandResult.Result != RESULT_UNOWN_ERROR || lockCommandResult.Data == nil {
+		err := stream.WriteBytes([]byte(":0\r\n"))
+		lockCommandResult.Data = nil
+		return err
+	}
+
+	lockResultCommandData := lockCommandResult.Data
+	lockCommandResult.Data = nil
+	if lockResultCommandData.DataFlag&LOCK_DATA_FLAG_VALUE_TYPE_NUMBER != 0 {
+		return stream.WriteBytes([]byte(fmt.Sprintf(":%d\r\n", len(fmt.Sprintf("%d", lockResultCommandData.GetIncrValue())))))
+	}
+	if lockResultCommandData.DataFlag&LOCK_DATA_FLAG_VALUE_TYPE_ARRAY != 0 {
+		values := lockResultCommandData.GetArrayValue()
+		if values == nil || len(values) == 0 {
+			return stream.WriteBytes([]byte(":0\r\n"))
+		}
+		value := string(values[0])
+		return stream.WriteBytes([]byte(fmt.Sprintf(":%d\r\n", len(value))))
+	}
+	if lockResultCommandData.DataFlag&LOCK_DATA_FLAG_VALUE_TYPE_KV != 0 {
+		values := lockResultCommandData.GetKVValue()
+		if values == nil || len(values) == 0 {
+			return stream.WriteBytes([]byte(":0\r\n"))
+		}
+		var value string
+		for _, v := range values {
+			value = string(v)
+			break
+		}
+		return stream.WriteBytes([]byte(fmt.Sprintf(":%d\r\n", len(value))))
+	}
+
+	if len(lockResultCommandData.Data) <= 6 {
+		return stream.WriteBytes([]byte(":0\r\n"))
+	}
+	value := lockResultCommandData.GetStringValue()
+	return stream.WriteBytes([]byte(fmt.Sprintf(":%d\r\n", len(value))))
+}
+
+func (self *TextCommandConverter) ConvertTextExistsCommand(textProtocol ITextProtocol, args []string) (*LockCommand, WriteTextCommandResultFunc, error) {
+	if len(args) < 2 {
+		return nil, nil, errors.New("Command Parse Args Count Error")
+	}
+
+	lockCommand := self.GetAndResetLockCommand(textProtocol)
+	lockCommand.CommandType = COMMAND_LOCK
+	self.ConvertArgId2LockId(args[1], &lockCommand.LockKey)
+	lockCommand.LockId = lockCommand.LockKey
+	lockCommand.Flag = LOCK_FLAG_SHOW_WHEN_LOCKED
+	return lockCommand, self.WriteTextExistsCommandResult, nil
+}
+
+func (self *TextCommandConverter) WriteTextExistsCommandResult(_ ITextProtocol, stream ISteam, lockCommandResult *LockResultCommand) error {
+	if lockCommandResult.Result != RESULT_UNOWN_ERROR || lockCommandResult.Data == nil {
+		err := stream.WriteBytes([]byte(":0\r\n"))
+		lockCommandResult.Data = nil
+		return err
+	}
+	err := stream.WriteBytes([]byte(":1\r\n"))
+	lockCommandResult.Data = nil
+	return err
+}
+
+func (self *TextCommandConverter) ConvertTextExpireCommand(textProtocol ITextProtocol, args []string) (*LockCommand, WriteTextCommandResultFunc, error) {
+	if len(args) < 3 {
+		return nil, nil, errors.New("Command Parse Args Count Error")
+	}
+
+	lockCommand := self.GetAndResetLockCommand(textProtocol)
+	lockCommand.CommandType = COMMAND_LOCK
+	self.ConvertArgId2LockId(args[1], &lockCommand.LockKey)
+	lockCommand.LockId = lockCommand.LockKey
+	lockCommand.Flag = LOCK_FLAG_UPDATE_WHEN_LOCKED
+	expried, err := strconv.ParseInt(args[2], 10, 64)
+	if err != nil {
+		return nil, nil, errors.New("Command Parse EX Value Error")
+	}
+	switch strings.ToUpper(args[0]) {
+	case "EXPIRE":
+		lockCommand.Expried = uint16(expried & 0xffff)
+		lockCommand.ExpriedFlag |= uint16(expried >> 16 & 0xffff)
+	case "EXPIREAT":
+		expried = expried - time.Now().Unix()
+		if expried > 0 {
+			if expried > 0xffff {
+				lockCommand.Expried = uint16((expried / 60) & 0xffff)
+				lockCommand.ExpriedFlag |= uint16(expried>>16&0xffff) | EXPRIED_FLAG_MINUTE_TIME
+			} else {
+				lockCommand.Expried = uint16(expried & 0xffff)
+				lockCommand.ExpriedFlag |= uint16(expried >> 16 & 0xffff)
+			}
+		}
+	case "PEXPIRE":
+		lockCommand.Expried = uint16(expried & 0xffff)
+		lockCommand.ExpriedFlag |= uint16(expried>>16&0xffff) | EXPRIED_FLAG_MILLISECOND_TIME
+	case "PEXPIREAT":
+		expried = expried - time.Now().UnixMilli()
+		if expried > 3000 {
+			expried = expried / 1000
+			if expried > 0xffff {
+				lockCommand.Expried = uint16((expried / 60) & 0xffff)
+				lockCommand.ExpriedFlag |= uint16(expried>>16&0xffff) | EXPRIED_FLAG_MINUTE_TIME
+			} else {
+				lockCommand.Expried = uint16(expried & 0xffff)
+				lockCommand.ExpriedFlag |= uint16(expried >> 16 & 0xffff)
+			}
+		} else if expried > 0 {
+			lockCommand.Expried = uint16(expried & 0xffff)
+			lockCommand.ExpriedFlag |= uint16(expried>>16&0xffff) | EXPRIED_FLAG_MILLISECOND_TIME
+		}
+	case "PERSIST":
+		lockCommand.Expried = 0xffff
+		lockCommand.ExpriedFlag = EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME
+	}
+	return lockCommand, self.WriteTextExpireCommandResult, nil
+}
+
+func (self *TextCommandConverter) WriteTextExpireCommandResult(_ ITextProtocol, stream ISteam, lockCommandResult *LockResultCommand) error {
+	if lockCommandResult.Result != 0 && lockCommandResult.Result != RESULT_LOCKED_ERROR {
+		if lockCommandResult.Result == RESULT_TIMEOUT {
+			err := stream.WriteBytes([]byte(":0\r\n"))
 			lockCommandResult.Data = nil
 			return err
 		}
-		err := stream.WriteBytes([]byte(fmt.Sprintf(":%d\r\n", lockCommandResult.Data.GetIncrValue()+incrValue)))
+		err := stream.WriteBytes([]byte(fmt.Sprintf("-ERR %d\r\n", lockCommandResult.Result)))
 		lockCommandResult.Data = nil
 		return err
-	}, nil
+	}
+	err := stream.WriteBytes([]byte(":1\r\n"))
+	lockCommandResult.Data = nil
+	return err
+}
+
+func (self *TextCommandConverter) ConvertTextTypeCommand(textProtocol ITextProtocol, args []string) (*LockCommand, WriteTextCommandResultFunc, error) {
+	if len(args) < 2 {
+		return nil, nil, errors.New("Command Parse Args Count Error")
+	}
+
+	lockCommand := self.GetAndResetLockCommand(textProtocol)
+	lockCommand.CommandType = COMMAND_LOCK
+	self.ConvertArgId2LockId(args[1], &lockCommand.LockKey)
+	lockCommand.LockId = lockCommand.LockKey
+	lockCommand.Flag = LOCK_FLAG_SHOW_WHEN_LOCKED
+	return lockCommand, self.WriteTextTypeCommandResult, nil
+}
+
+func (self *TextCommandConverter) WriteTextTypeCommandResult(_ ITextProtocol, stream ISteam, lockCommandResult *LockResultCommand) error {
+	if lockCommandResult.Result != RESULT_UNOWN_ERROR || lockCommandResult.Data == nil {
+		err := stream.WriteBytes([]byte("+none\r\n"))
+		lockCommandResult.Data = nil
+		return err
+	}
+	err := stream.WriteBytes([]byte("+string\r\n"))
+	lockCommandResult.Data = nil
+	return err
+}
+
+func (self *TextCommandConverter) ConvertTextDumpCommand(textProtocol ITextProtocol, args []string) (*LockCommand, WriteTextCommandResultFunc, error) {
+	if len(args) < 2 {
+		return nil, nil, errors.New("Command Parse Args Count Error")
+	}
+
+	lockCommand := self.GetAndResetLockCommand(textProtocol)
+	lockCommand.CommandType = COMMAND_LOCK
+	self.ConvertArgId2LockId(args[1], &lockCommand.LockKey)
+	lockCommand.LockId = lockCommand.LockKey
+	lockCommand.Flag = LOCK_FLAG_SHOW_WHEN_LOCKED
+	return lockCommand, self.WriteTextDumpCommandResult, nil
+}
+
+func (self *TextCommandConverter) WriteTextDumpCommandResult(_ ITextProtocol, stream ISteam, lockCommandResult *LockResultCommand) error {
+	if lockCommandResult.Result != RESULT_UNOWN_ERROR || lockCommandResult.Data == nil {
+		err := stream.WriteBytes([]byte("$-1\r\n"))
+		lockCommandResult.Data = nil
+		return err
+	}
+	err := stream.WriteBytes([]byte(fmt.Sprintf("$%d\r\n%s\r\n", len(lockCommandResult.Data.Data), lockCommandResult.Data.Data)))
+	lockCommandResult.Data = nil
+	return err
 }

@@ -118,6 +118,8 @@ const (
 	LOCK_DATA_FLAG_CONTAINS_PROPERTY = 0x10
 )
 
+const LOCK_DATA_PROPERTY_CODE_KEY = 1
+
 var ERROR_MSG []string = []string{
 	"OK",
 	"UNKNOWN_MAGIC",
@@ -353,6 +355,22 @@ func (self *InitResultCommand) Encode(buf []byte) error {
 	return nil
 }
 
+type LockCommandDataProperty struct {
+	Code  uint8
+	Value []byte
+}
+
+func NewLockCommandDataProperty(code uint8, value []byte) *LockCommandDataProperty {
+	return &LockCommandDataProperty{code, value}
+}
+
+func (self *LockCommandDataProperty) GetValueString() string {
+	if self.Value == nil {
+		return ""
+	}
+	return string(self.Value)
+}
+
 type LockCommandData struct {
 	Data         []byte
 	CommandStage uint8
@@ -364,30 +382,90 @@ func NewLockCommandDataFromOriginBytes(data []byte) *LockCommandData {
 	return &LockCommandData{data, data[4] >> 6, data[4] & 0x3f, data[5]}
 }
 
-func NewLockCommandDataFromBytes(data []byte, commandStage uint8, commandType uint8, dataFlag uint8) *LockCommandData {
-	dataLen := len(data) + 2
+func NewLockCommandDataFromBytes(data []byte, commandStage uint8, commandType uint8, dataFlag uint8, properties []*LockCommandDataProperty) *LockCommandData {
+	dataLen, propertyLen := len(data)+2, 0
+	if properties != nil {
+		for _, property := range properties {
+			if property.Value == nil {
+				propertyLen += 3
+			} else {
+				propertyLen += len(property.Value) + 3
+			}
+		}
+		dataLen += propertyLen + 2
+		dataFlag |= LOCK_DATA_FLAG_CONTAINS_PROPERTY
+	}
 	buf := make([]byte, dataLen+4)
 	buf[0], buf[1], buf[2], buf[3] = byte(dataLen), byte(dataLen>>8), byte(dataLen>>16), byte(dataLen>>24)
 	buf[4], buf[5] = (commandStage<<6)|(commandType&0x3f), dataFlag
-	copy(buf[6:], data)
+	index := 6
+	if properties != nil {
+		buf[6], buf[7] = byte(propertyLen), byte(propertyLen>>8)
+		index += 2
+		for _, property := range properties {
+			if property.Value == nil {
+				buf[index], buf[index+1], buf[index+2] = property.Code, 0, 0
+				index += 3
+			} else {
+				buf[index], buf[index+1], buf[index+2] = property.Code, byte(len(property.Value)), byte(len(property.Value)>>8)
+				copy(buf[index+3:], property.Value)
+				index += len(property.Value) + 3
+			}
+		}
+	}
+	copy(buf[index:], data)
 	return &LockCommandData{buf, commandStage, commandType, dataFlag}
 }
 
-func NewLockCommandDataFromString(data string, commandStage uint8, commandType uint8, dataFlag uint8) *LockCommandData {
-	dataLen := len(data) + 2
+func NewLockCommandDataFromString(data string, commandStage uint8, commandType uint8, dataFlag uint8, properties []*LockCommandDataProperty) *LockCommandData {
+	dataLen, propertyLen := len(data)+2, 0
+	if properties != nil {
+		for _, property := range properties {
+			if property.Value == nil {
+				propertyLen += 3
+			} else {
+				propertyLen += len(property.Value) + 3
+			}
+		}
+		dataLen += propertyLen + 2
+		dataFlag |= LOCK_DATA_FLAG_CONTAINS_PROPERTY
+	}
 	buf := make([]byte, dataLen+4)
 	buf[0], buf[1], buf[2], buf[3] = byte(dataLen), byte(dataLen>>8), byte(dataLen>>16), byte(dataLen>>24)
 	buf[4], buf[5] = (commandStage<<6)|(commandType&0x3f), dataFlag
-	copy(buf[6:], data)
+	index := 6
+	if properties != nil {
+		buf[6], buf[7] = byte(propertyLen), byte(propertyLen>>8)
+		index += 2
+		for _, property := range properties {
+			if property.Value == nil {
+				buf[index], buf[index+1], buf[index+2] = property.Code, 0, 0
+				index += 3
+			} else {
+				buf[index], buf[index+1], buf[index+2] = property.Code, byte(len(property.Value)), byte(len(property.Value)>>8)
+				copy(buf[index+3:], property.Value)
+				index += len(property.Value) + 3
+			}
+		}
+	}
+	copy(buf[index:], data)
 	return &LockCommandData{buf, commandStage, commandType, dataFlag}
 }
 
 func NewLockCommandDataSetData(data []byte) *LockCommandData {
-	return NewLockCommandDataFromBytes(data, LOCK_DATA_STAGE_LOCK, LOCK_DATA_COMMAND_TYPE_SET, 0)
+	return NewLockCommandDataFromBytes(data, LOCK_DATA_STAGE_LOCK, LOCK_DATA_COMMAND_TYPE_SET, 0, nil)
 }
 
 func NewLockCommandDataSetString(data string) *LockCommandData {
-	return NewLockCommandDataFromString(data, LOCK_DATA_STAGE_LOCK, LOCK_DATA_COMMAND_TYPE_SET, 0)
+	return NewLockCommandDataFromString(data, LOCK_DATA_STAGE_LOCK, LOCK_DATA_COMMAND_TYPE_SET, 0, nil)
+}
+
+func NewLockCommandDataSetDataWithProperty(data []byte, properties []*LockCommandDataProperty) *LockCommandData {
+	return NewLockCommandDataFromBytes(data, LOCK_DATA_STAGE_LOCK, LOCK_DATA_COMMAND_TYPE_SET, 0, properties)
+}
+
+func NewLockCommandDataSetStringWithProperty(data string, properties []*LockCommandDataProperty) *LockCommandData {
+	return NewLockCommandDataFromString(data, LOCK_DATA_STAGE_LOCK, LOCK_DATA_COMMAND_TYPE_SET, 0, properties)
 }
 
 func NewLockCommandDataSetArray(data [][]byte) *LockCommandData {
@@ -441,12 +519,25 @@ func NewLockCommandDataIncrData(incrValue int64) *LockCommandData {
 		LOCK_DATA_STAGE_LOCK, LOCK_DATA_COMMAND_TYPE_INCR, LOCK_DATA_FLAG_VALUE_TYPE_NUMBER}
 }
 
+func NewLockCommandDataIncrDataWithProperty(incrValue int64, properties []*LockCommandDataProperty) *LockCommandData {
+	return NewLockCommandDataFromBytes([]byte{byte(incrValue), byte(incrValue >> 8), byte(incrValue >> 16), byte(incrValue >> 24), byte(incrValue >> 32), byte(incrValue >> 40), byte(incrValue >> 48), byte(incrValue >> 56)},
+		LOCK_DATA_STAGE_LOCK, LOCK_DATA_COMMAND_TYPE_INCR, LOCK_DATA_FLAG_VALUE_TYPE_NUMBER, properties)
+}
+
 func NewLockCommandDataAppendData(data []byte) *LockCommandData {
-	return NewLockCommandDataFromBytes(data, LOCK_DATA_STAGE_LOCK, LOCK_DATA_COMMAND_TYPE_APPEND, 0)
+	return NewLockCommandDataFromBytes(data, LOCK_DATA_STAGE_LOCK, LOCK_DATA_COMMAND_TYPE_APPEND, 0, nil)
 }
 
 func NewLockCommandDataAppendString(data string) *LockCommandData {
-	return NewLockCommandDataFromString(data, LOCK_DATA_STAGE_LOCK, LOCK_DATA_COMMAND_TYPE_APPEND, 0)
+	return NewLockCommandDataFromString(data, LOCK_DATA_STAGE_LOCK, LOCK_DATA_COMMAND_TYPE_APPEND, 0, nil)
+}
+
+func NewLockCommandDataAppendDataWithProperty(data []byte, properties []*LockCommandDataProperty) *LockCommandData {
+	return NewLockCommandDataFromBytes(data, LOCK_DATA_STAGE_LOCK, LOCK_DATA_COMMAND_TYPE_APPEND, 0, properties)
+}
+
+func NewLockCommandDataAppendStringWithProperty(data string, properties []*LockCommandDataProperty) *LockCommandData {
+	return NewLockCommandDataFromString(data, LOCK_DATA_STAGE_LOCK, LOCK_DATA_COMMAND_TYPE_APPEND, 0, properties)
 }
 
 func NewLockCommandDataShiftData(lengthValue uint32) *LockCommandData {
@@ -492,9 +583,13 @@ func NewLockCommandDataPipelineData(lockCommandDatas []*LockCommandData) *LockCo
 
 func (self *LockCommandData) GetValueOffset() int {
 	if self.DataFlag&LOCK_DATA_FLAG_CONTAINS_PROPERTY != 0 {
-		return (int(self.Data[6]) | (int(self.Data[7]) << 8)) + 6
+		return (int(self.Data[6]) | (int(self.Data[7]) << 8)) + 8
 	}
 	return 6
+}
+
+func (self *LockCommandData) GetValueSize() int {
+	return len(self.Data) - self.GetValueOffset()
 }
 
 func (self *LockCommandData) GetBytesValue() []byte {
@@ -704,9 +799,13 @@ func NewLockResultCommandDataFromString(data string, commandStage uint8, command
 
 func (self *LockResultCommandData) GetValueOffset() int {
 	if self.DataFlag&LOCK_DATA_FLAG_CONTAINS_PROPERTY != 0 {
-		return (int(self.Data[6]) | (int(self.Data[7]) << 8)) + 6
+		return (int(self.Data[6]) | (int(self.Data[7]) << 8)) + 8
 	}
 	return 6
+}
+
+func (self *LockResultCommandData) GetValueSize() int {
+	return len(self.Data) - self.GetValueOffset()
 }
 
 func (self *LockResultCommandData) GetBytesValue() []byte {
@@ -783,6 +882,42 @@ func (self *LockResultCommandData) GetKVValue() map[string][]byte {
 		index += valueLen + 4
 	}
 	return values
+}
+
+func (self *LockResultCommandData) GetDataProperties() []*LockCommandDataProperty {
+	if self.DataFlag&LOCK_DATA_FLAG_CONTAINS_PROPERTY == 0 {
+		return nil
+	}
+	properties := make([]*LockCommandDataProperty, 0)
+	propertyLen, index := int(self.Data[6])|int(self.Data[7])<<8, 0
+	for index < propertyLen {
+		propertyCode, valueLen := self.Data[8+index], int(self.Data[9+index])|int(self.Data[10+index])<<8
+		if valueLen > 0 {
+			properties = append(properties, NewLockCommandDataProperty(propertyCode, self.Data[11+index:11+index+valueLen]))
+		} else {
+			properties = append(properties, NewLockCommandDataProperty(propertyCode, nil))
+		}
+		index += valueLen + 3
+	}
+	return properties
+}
+
+func (self *LockResultCommandData) GetDataProperty(code uint8) *LockCommandDataProperty {
+	if self.DataFlag&LOCK_DATA_FLAG_CONTAINS_PROPERTY == 0 {
+		return nil
+	}
+	propertyLen, index := int(self.Data[6])|int(self.Data[7])<<8, 0
+	for index < propertyLen {
+		propertyCode, valueLen := self.Data[8+index], int(self.Data[9+index])|int(self.Data[10+index])<<8
+		if code == propertyCode {
+			if valueLen > 0 {
+				return NewLockCommandDataProperty(code, self.Data[11+index:11+index+valueLen])
+			}
+			return NewLockCommandDataProperty(code, nil)
+		}
+		index += valueLen + 3
+	}
+	return nil
 }
 
 type LockResultCommand struct {

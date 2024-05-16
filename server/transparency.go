@@ -869,9 +869,29 @@ func (self *TransparencyTextServerProtocol) FindHandler(name string) (TextServer
 		self.handlers["PUSH"] = self.commandHandlerPush
 		self.handlers["DEL"] = self.commandHandlerKeyOperateValueCommand
 		self.handlers["SET"] = self.commandHandlerKeyOperateValueCommand
+		self.handlers["APPEND"] = self.commandHandlerKeyOperateValueCommand
+		self.handlers["GETSET"] = self.commandHandlerKeyOperateValueCommand
+		self.handlers["SETEX"] = self.commandHandlerKeyOperateValueCommand
+		self.handlers["PSETEX"] = self.commandHandlerKeyOperateValueCommand
+		self.handlers["SETNX"] = self.commandHandlerKeyOperateValueCommand
 		self.handlers["GET"] = self.commandHandlerKeyOperateValueCommand
 		self.handlers["INCR"] = self.commandHandlerKeyOperateValueCommand
 		self.handlers["INCRBY"] = self.commandHandlerKeyOperateValueCommand
+		self.handlers["DECR"] = self.commandHandlerKeyOperateValueCommand
+		self.handlers["DECRBY"] = self.commandHandlerKeyOperateValueCommand
+		self.handlers["STRLEN"] = self.commandHandlerKeyOperateValueCommand
+		self.handlers["EXISTS"] = self.commandHandlerKeyOperateValueCommand
+		self.handlers["EXPIRE"] = self.commandHandlerKeyOperateValueCommand
+		self.handlers["PEXPIREAT"] = self.commandHandlerKeyOperateValueCommand
+		self.handlers["PEXPIRE"] = self.commandHandlerKeyOperateValueCommand
+		self.handlers["PEXPIREAT"] = self.commandHandlerKeyOperateValueCommand
+		self.handlers["PERSIST"] = self.commandHandlerKeyOperateValueCommand
+		self.handlers["TYPE"] = self.commandHandlerKeyOperateValueCommand
+		self.handlers["DUMP"] = self.commandHandlerKeyOperateValueCommand
+		self.handlers["KEYS"] = self.serverProtocol.commandHandlerKeysCommand
+		self.handlers["SCAN"] = self.serverProtocol.commandHandlerScanCommand
+		self.handlers["TTL"] = self.serverProtocol.commandHandlerKeyTTLCommand
+		self.handlers["PTTL"] = self.serverProtocol.commandHandlerKeyTTLCommand
 	}
 	if handler, ok := self.handlers[name]; ok {
 		return handler, nil

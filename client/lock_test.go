@@ -696,6 +696,238 @@ func TestLock_WithData(t *testing.T) {
 			t.Errorf("Lock Unlock Pipeline Release LockData Fail %v", result.GetLockData())
 			return
 		}
+
+		lock1 := client.Lock(testString2Key("TestDataSetProperty"), 50, 10)
+		lock1.SetCount(10)
+		lock2 := client.Lock(testString2Key("TestDataSetProperty"), 50, 10)
+		lock2.SetCount(10)
+		result, err = lock1.LockWithData(protocol.NewLockCommandDataSetStringWithProperty("aaa", []*protocol.LockCommandDataProperty{
+			protocol.NewLockCommandDataProperty(protocol.LOCK_DATA_PROPERTY_CODE_KEY, []byte("bbbb"))}))
+		if err != nil {
+			t.Errorf("Lock LockWithDataDataProperty Fail %v", err)
+			return
+		}
+		if result.GetLockData() != nil {
+			t.Errorf("Lock LockWithDataDataProperty Result LockData Fail %v", result.GetLockData())
+			return
+		}
+		result, err = lock2.LockWithData(protocol.NewLockCommandDataSetStringWithProperty("bbb", []*protocol.LockCommandDataProperty{
+			protocol.NewLockCommandDataProperty(protocol.LOCK_DATA_PROPERTY_CODE_KEY, []byte("cccc"))}))
+		if err != nil {
+			t.Errorf("Lock LockWithDataDataProperty Fail %v", err)
+			return
+		}
+		if result.GetLockData() == nil || result.GetLockData().GetStringValue() != "aaa" {
+			t.Errorf("Lock Unlock Result LockData Fail %v", result.GetLockData())
+			return
+		}
+		result, err = lock1.Unlock()
+		if err != nil {
+			t.Errorf("Lock Unlock Fail %v", err)
+			return
+		}
+		if result.GetLockData() == nil || result.GetLockData().GetStringValue() != "bbb" {
+			t.Errorf("Lock Unlock Result LockData Fail %v", result.GetLockData())
+			return
+		}
+		property := result.GetLockData().GetDataProperty(protocol.LOCK_DATA_PROPERTY_CODE_KEY)
+		if property == nil || property.GetValueString() != "cccc" {
+			t.Errorf("Lock Unlock Result LockData Fail %v", result.GetLockData())
+			return
+		}
+		result, err = lock2.Unlock()
+		if err != nil {
+			t.Errorf("Lock Unlock Fail %v", err)
+			return
+		}
+
+		lock1 = client.Lock(testString2Key("TestDataIncrProperty"), 50, 10)
+		lock1.SetCount(10)
+		lock2 = client.Lock(testString2Key("TestDataIncrProperty"), 50, 10)
+		lock2.SetCount(10)
+		result, err = lock1.LockWithData(protocol.NewLockCommandDataIncrDataWithProperty(10, []*protocol.LockCommandDataProperty{
+			protocol.NewLockCommandDataProperty(protocol.LOCK_DATA_PROPERTY_CODE_KEY, []byte("bbbb"))}))
+		if err != nil {
+			t.Errorf("Lock LockWithDataDataProperty Fail %v", err)
+			return
+		}
+		if result.GetLockData() != nil {
+			t.Errorf("Lock LockWithDataDataProperty Result LockData Fail %v", result.GetLockData())
+			return
+		}
+		result, err = lock2.LockWithData(protocol.NewLockCommandDataIncrDataWithProperty(-12, []*protocol.LockCommandDataProperty{
+			protocol.NewLockCommandDataProperty(protocol.LOCK_DATA_PROPERTY_CODE_KEY, []byte("cccc"))}))
+		if err != nil {
+			t.Errorf("Lock LockWithDataDataProperty Fail %v", err)
+			return
+		}
+		if result.GetLockData() == nil || result.GetLockData().GetIncrValue() != 10 {
+			t.Errorf("Lock Unlock Result LockData Fail %v", result.GetLockData())
+			return
+		}
+		result, err = lock1.Unlock()
+		if err != nil {
+			t.Errorf("Lock Unlock Fail %v", err)
+			return
+		}
+		if result.GetLockData() == nil || result.GetLockData().GetIncrValue() != -2 {
+			t.Errorf("Lock Unlock Result LockData Fail %v", result.GetLockData())
+			return
+		}
+		property = result.GetLockData().GetDataProperty(protocol.LOCK_DATA_PROPERTY_CODE_KEY)
+		if property == nil || property.GetValueString() != "cccc" {
+			t.Errorf("Lock Unlock Result LockData Fail %v", result.GetLockData())
+			return
+		}
+		result, err = lock2.Unlock()
+		if err != nil {
+			t.Errorf("Lock Unlock Fail %v", err)
+			return
+		}
+
+		lock1 = client.Lock(testString2Key("TestDataAppendProperty"), 50, 10)
+		lock1.SetCount(10)
+		lock2 = client.Lock(testString2Key("TestDataAppendProperty"), 50, 10)
+		lock2.SetCount(10)
+		result, err = lock1.LockWithData(protocol.NewLockCommandDataAppendStringWithProperty("aaa", []*protocol.LockCommandDataProperty{
+			protocol.NewLockCommandDataProperty(protocol.LOCK_DATA_PROPERTY_CODE_KEY, []byte("bbbb"))}))
+		if err != nil {
+			t.Errorf("Lock LockWithDataDataProperty Fail %v", err)
+			return
+		}
+		if result.GetLockData() != nil {
+			t.Errorf("Lock LockWithDataDataProperty Result LockData Fail %v", result.GetLockData())
+			return
+		}
+		result, err = lock2.LockWithData(protocol.NewLockCommandDataAppendStringWithProperty("bbb", []*protocol.LockCommandDataProperty{
+			protocol.NewLockCommandDataProperty(protocol.LOCK_DATA_PROPERTY_CODE_KEY, []byte("cccc"))}))
+		if err != nil {
+			t.Errorf("Lock LockWithDataDataProperty Fail %v", err)
+			return
+		}
+		if result.GetLockData() == nil || result.GetLockData().GetStringValue() != "aaa" {
+			t.Errorf("Lock Unlock Result LockData Fail %v", result.GetLockData())
+			return
+		}
+		result, err = lock1.Unlock()
+		if err != nil {
+			t.Errorf("Lock Unlock Fail %v", err)
+			return
+		}
+		if result.GetLockData() == nil || result.GetLockData().GetStringValue() != "aaabbb" {
+			t.Errorf("Lock Unlock Result LockData Fail %v", result.GetLockData())
+			return
+		}
+		property = result.GetLockData().GetDataProperty(protocol.LOCK_DATA_PROPERTY_CODE_KEY)
+		if property == nil || property.GetValueString() != "bbbb" {
+			t.Errorf("Lock Unlock Result LockData Fail %v", result.GetLockData())
+			return
+		}
+		result, err = lock2.Unlock()
+		if err != nil {
+			t.Errorf("Lock Unlock Fail %v", err)
+			return
+		}
+
+		lock1 = client.Lock(testString2Key("TestDataArraySet"), 50, 10)
+		lock1.SetCount(10)
+		lock2 = client.Lock(testString2Key("TestDataArraySet"), 50, 10)
+		lock2.SetCount(10)
+		result, err = lock1.LockWithData(protocol.NewLockCommandDataSetArray([][]byte{[]byte("aaa"), []byte("bbb")}))
+		if err != nil {
+			t.Errorf("Lock LockWithDataDataProperty Fail %v", err)
+			return
+		}
+		if result.GetLockData() != nil {
+			t.Errorf("Lock LockWithDataDataProperty Result LockData Fail %v", result.GetLockData())
+			return
+		}
+		result, err = lock2.LockWithData(protocol.NewLockCommandDataSetArray([][]byte{[]byte("ccc"), []byte("ddd")}))
+		if err != nil {
+			t.Errorf("Lock LockWithDataDataProperty Fail %v", err)
+			return
+		}
+		if result.GetLockData() == nil {
+			t.Errorf("Lock Unlock Result LockData Fail %v", result.GetLockData())
+			return
+		}
+		valeus := result.GetLockData().GetArrayValue()
+		if valeus == nil || len(valeus) != 2 || string(valeus[0]) != "aaa" || string(valeus[1]) != "bbb" {
+			t.Errorf("Lock Unlock Result LockData Fail %v", result.GetLockData())
+			return
+		}
+		result, err = lock1.Unlock()
+		if err != nil {
+			t.Errorf("Lock Unlock Fail %v", err)
+			return
+		}
+		if result.GetLockData() == nil {
+			t.Errorf("Lock Unlock Result LockData Fail %v", result.GetLockData())
+			return
+		}
+		valeus = result.GetLockData().GetArrayValue()
+		if valeus == nil || len(valeus) != 2 || string(valeus[0]) != "ccc" || string(valeus[1]) != "ddd" {
+			t.Errorf("Lock Unlock Result LockData Fail %v", result.GetLockData())
+			return
+		}
+		result, err = lock2.Unlock()
+		if err != nil {
+			t.Errorf("Lock Unlock Fail %v", err)
+			return
+		}
+
+		lock1 = client.Lock(testString2Key("TestDataKVSet"), 50, 10)
+		lock1.SetCount(10)
+		lock2 = client.Lock(testString2Key("TestDataKVSet"), 50, 10)
+		lock2.SetCount(10)
+		kvvalues := make(map[string][]byte)
+		kvvalues["aaa"] = []byte("aaa")
+		kvvalues["bbb"] = []byte("bbb")
+		result, err = lock1.LockWithData(protocol.NewLockCommandDataSetKV(kvvalues))
+		if err != nil {
+			t.Errorf("Lock LockWithDataDataProperty Fail %v", err)
+			return
+		}
+		if result.GetLockData() != nil {
+			t.Errorf("Lock LockWithDataDataProperty Result LockData Fail %v", result.GetLockData())
+			return
+		}
+		kvvalues = make(map[string][]byte)
+		kvvalues["ccc"] = []byte("ccc")
+		kvvalues["ddd"] = []byte("ddd")
+		result, err = lock2.LockWithData(protocol.NewLockCommandDataSetKV(kvvalues))
+		if err != nil {
+			t.Errorf("Lock LockWithDataDataProperty Fail %v", err)
+			return
+		}
+		if result.GetLockData() == nil {
+			t.Errorf("Lock Unlock Result LockData Fail %v", result.GetLockData())
+			return
+		}
+		kvvalues = result.GetLockData().GetKVValue()
+		if valeus == nil || len(valeus) != 2 || string(kvvalues["aaa"]) != "aaa" || string(kvvalues["bbb"]) != "bbb" {
+			t.Errorf("Lock Unlock Result LockData Fail %v", result.GetLockData())
+			return
+		}
+		result, err = lock1.Unlock()
+		if err != nil {
+			t.Errorf("Lock Unlock Fail %v", err)
+			return
+		}
+		if result.GetLockData() == nil {
+			t.Errorf("Lock Unlock Result LockData Fail %v", result.GetLockData())
+			return
+		}
+		kvvalues = result.GetLockData().GetKVValue()
+		if valeus == nil || len(valeus) != 2 || string(kvvalues["ccc"]) != "ccc" || string(kvvalues["ddd"]) != "ddd" {
+			t.Errorf("Lock Unlock Result LockData Fail %v", result.GetLockData())
+			return
+		}
+		result, err = lock2.Unlock()
+		if err != nil {
+			t.Errorf("Lock Unlock Fail %v", err)
+			return
+		}
 	})
 }
 

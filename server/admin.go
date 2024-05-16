@@ -587,7 +587,7 @@ func (self *Admin) commandHandleShowLockCommand(serverProtocol *TextServerProtoc
 		lockInfos = append(lockInfos, fmt.Sprintf("%d", state))
 		lockData := lockManager.GetLockData()
 		if lockData != nil {
-			lockInfos = append(lockInfos, string(lockData[6:]))
+			lockInfos = append(lockInfos, string(lockData))
 		}
 	}
 
@@ -622,7 +622,7 @@ func (self *Admin) commandHandleShowLockCommand(serverProtocol *TextServerProtoc
 				lockInfos = append(lockInfos, fmt.Sprintf("%d", state))
 				lockData := lockManager.GetLockData()
 				if lockData != nil {
-					lockInfos = append(lockInfos, string(lockData[6:]))
+					lockInfos = append(lockInfos, string(lockData))
 				}
 			}
 		}
@@ -673,7 +673,7 @@ func (self *Admin) commandHandleShowLockWaitCommand(serverProtocol *TextServerPr
 				lockInfos = append(lockInfos, fmt.Sprintf("%d", state))
 				lockData := lockManager.GetLockData()
 				if lockData != nil {
-					lockInfos = append(lockInfos, string(lockData[6:]))
+					lockInfos = append(lockInfos, string(lockData))
 				}
 			}
 		}

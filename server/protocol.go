@@ -8,9 +8,11 @@ import (
 	"google.golang.org/protobuf/proto"
 	"io"
 	"net"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 type ServerProtocol interface {
@@ -1837,9 +1839,29 @@ func (self *TextServerProtocol) FindHandler(name string) (TextServerProtocolComm
 		self.handlers["PUSH"] = self.commandHandlerPush
 		self.handlers["DEL"] = self.commandHandlerKeyOperateValueCommand
 		self.handlers["SET"] = self.commandHandlerKeyOperateValueCommand
+		self.handlers["APPEND"] = self.commandHandlerKeyOperateValueCommand
+		self.handlers["GETSET"] = self.commandHandlerKeyOperateValueCommand
+		self.handlers["SETEX"] = self.commandHandlerKeyOperateValueCommand
+		self.handlers["PSETEX"] = self.commandHandlerKeyOperateValueCommand
+		self.handlers["SETNX"] = self.commandHandlerKeyOperateValueCommand
 		self.handlers["GET"] = self.commandHandlerKeyOperateValueCommand
 		self.handlers["INCR"] = self.commandHandlerKeyOperateValueCommand
 		self.handlers["INCRBY"] = self.commandHandlerKeyOperateValueCommand
+		self.handlers["DECR"] = self.commandHandlerKeyOperateValueCommand
+		self.handlers["DECRBY"] = self.commandHandlerKeyOperateValueCommand
+		self.handlers["STRLEN"] = self.commandHandlerKeyOperateValueCommand
+		self.handlers["EXISTS"] = self.commandHandlerKeyOperateValueCommand
+		self.handlers["EXPIRE"] = self.commandHandlerKeyOperateValueCommand
+		self.handlers["PEXPIREAT"] = self.commandHandlerKeyOperateValueCommand
+		self.handlers["PEXPIRE"] = self.commandHandlerKeyOperateValueCommand
+		self.handlers["PEXPIREAT"] = self.commandHandlerKeyOperateValueCommand
+		self.handlers["PERSIST"] = self.commandHandlerKeyOperateValueCommand
+		self.handlers["TYPE"] = self.commandHandlerKeyOperateValueCommand
+		self.handlers["DUMP"] = self.commandHandlerKeyOperateValueCommand
+		self.handlers["KEYS"] = self.commandHandlerKeysCommand
+		self.handlers["SCAN"] = self.commandHandlerScanCommand
+		self.handlers["TTL"] = self.commandHandlerKeyTTLCommand
+		self.handlers["PTTL"] = self.commandHandlerKeyTTLCommand
 	}
 	if handler, ok := self.handlers[name]; ok {
 		return handler, nil
@@ -2617,4 +2639,231 @@ func (self *TextServerProtocol) commandHandlerKeyOperateValueCommand(_ *TextServ
 	err = writeTextCommandResultFunc(self, self.stream, lockCommandResult)
 	self.freeCommandResult = lockCommandResult
 	return err
+}
+
+func (self *TextServerProtocol) commandHandlerKeysCommand(_ *TextServerProtocol, args []string) error {
+	if len(args) < 1 {
+		return self.stream.WriteBytes(self.parser.BuildResponse(false, "Command Parse Args Count Error", nil))
+	}
+
+	var matchRe *regexp.Regexp = nil
+	if len(args) >= 2 {
+		r, err := regexp.Compile(strings.ReplaceAll(args[1], "*", ".*"))
+		if err != nil {
+			return self.stream.WriteBytes(self.parser.BuildResponse(false, err.Error(), nil))
+		}
+		matchRe = r
+	}
+
+	keys := make([]string, 0)
+	db := self.slock.GetDB(self.dbId)
+	if db != nil {
+		lockResultCommandData := protocol.LockResultCommandData{}
+		for _, value := range db.fastLocks {
+			lockManager := value.manager
+			if lockManager == nil || lockManager.locked == 0 {
+				continue
+			}
+			lockManagerData := lockManager.currentData
+			if lockManagerData == nil {
+				continue
+			}
+			data := lockManagerData.GetData()
+			if data == nil || len(data) < 6 || data[5]&protocol.LOCK_DATA_FLAG_CONTAINS_PROPERTY == 0 {
+				continue
+			}
+			lockResultCommandData.Data = data
+			lockResultCommandData.CommandStage = data[4] >> 6
+			lockResultCommandData.CommandType = data[4] & 0x3f
+			lockResultCommandData.DataFlag = data[5]
+			lockCommandDataProperty := lockResultCommandData.GetDataProperty(protocol.LOCK_DATA_PROPERTY_CODE_KEY)
+			if lockCommandDataProperty == nil {
+				continue
+			}
+			key := lockCommandDataProperty.GetValueString()
+			if matchRe == nil || matchRe.MatchString(key) {
+				keys = append(keys, key)
+			}
+		}
+
+		db.mGlock.Lock()
+		for _, lockManager := range db.locks {
+			if lockManager == nil || lockManager.locked == 0 {
+				continue
+			}
+			lockManagerData := lockManager.currentData
+			if lockManagerData == nil {
+				continue
+			}
+			data := lockManagerData.GetData()
+			if data == nil || len(data) < 6 || data[5]&protocol.LOCK_DATA_FLAG_CONTAINS_PROPERTY == 0 {
+				continue
+			}
+			lockResultCommandData.Data = data
+			lockResultCommandData.CommandStage = data[4] >> 6
+			lockResultCommandData.CommandType = data[4] & 0x3f
+			lockResultCommandData.DataFlag = data[5]
+			lockCommandDataProperty := lockResultCommandData.GetDataProperty(protocol.LOCK_DATA_PROPERTY_CODE_KEY)
+			if lockCommandDataProperty == nil {
+				continue
+			}
+			key := lockCommandDataProperty.GetValueString()
+			if matchRe == nil || matchRe.MatchString(key) {
+				keys = append(keys, key)
+			}
+		}
+		db.mGlock.Unlock()
+	}
+	return self.stream.WriteBytes(self.parser.BuildResponse(true, "", keys))
+}
+
+func (self *TextServerProtocol) commandHandlerScanCommand(_ *TextServerProtocol, args []string) error {
+	if len(args) < 1 {
+		return self.stream.WriteBytes(self.parser.BuildResponse(false, "Command Parse Args Count Error", nil))
+	}
+
+	offset, count, index := 0, 0xffffffff, 0
+	var matchRe *regexp.Regexp = nil
+	if len(args) >= 2 {
+		v, err := strconv.ParseInt(args[1], 10, 64)
+		if err != nil {
+			return self.stream.WriteBytes(self.parser.BuildResponse(false, err.Error(), nil))
+		}
+		offset = int(v)
+		for i := 2; i < len(args); i += 2 {
+			switch strings.ToUpper(args[i]) {
+			case "MATCH":
+				r, cerr := regexp.Compile(strings.ReplaceAll(args[i], "*", ".*"))
+				if cerr != nil {
+					return self.stream.WriteBytes(self.parser.BuildResponse(false, cerr.Error(), nil))
+				}
+				matchRe = r
+			case "COUNT":
+				v, err = strconv.ParseInt(args[i], 10, 64)
+				if err != nil {
+					return self.stream.WriteBytes(self.parser.BuildResponse(false, err.Error(), nil))
+				}
+				count = int(v)
+			}
+		}
+	}
+
+	keys := make([]string, 0)
+	db := self.slock.GetDB(self.dbId)
+	if db != nil {
+		lockResultCommandData := protocol.LockResultCommandData{}
+		for _, value := range db.fastLocks {
+			lockManager := value.manager
+			if lockManager == nil || lockManager.locked == 0 {
+				continue
+			}
+			lockManagerData := lockManager.currentData
+			if lockManagerData == nil {
+				continue
+			}
+			data := lockManagerData.GetData()
+			if data == nil || len(data) < 6 || data[5]&protocol.LOCK_DATA_FLAG_CONTAINS_PROPERTY == 0 {
+				continue
+			}
+			lockResultCommandData.Data = data
+			lockResultCommandData.CommandStage = data[4] >> 6
+			lockResultCommandData.CommandType = data[4] & 0x3f
+			lockResultCommandData.DataFlag = data[5]
+			lockCommandDataProperty := lockResultCommandData.GetDataProperty(protocol.LOCK_DATA_PROPERTY_CODE_KEY)
+			if lockCommandDataProperty == nil {
+				continue
+			}
+			key := lockCommandDataProperty.GetValueString()
+			if matchRe == nil || matchRe.MatchString(key) {
+				if index >= offset {
+					keys = append(keys, key)
+				}
+				index++
+			}
+			if index >= offset+count {
+				break
+			}
+		}
+
+		if index < offset+count {
+			db.mGlock.Lock()
+			for _, lockManager := range db.locks {
+				if lockManager == nil || lockManager.locked == 0 {
+					continue
+				}
+				lockManagerData := lockManager.currentData
+				if lockManagerData == nil {
+					continue
+				}
+				data := lockManagerData.GetData()
+				if data == nil || len(data) < 6 || data[5]&protocol.LOCK_DATA_FLAG_CONTAINS_PROPERTY == 0 {
+					continue
+				}
+				lockResultCommandData.Data = data
+				lockResultCommandData.CommandStage = data[4] >> 6
+				lockResultCommandData.CommandType = data[4] & 0x3f
+				lockResultCommandData.DataFlag = data[5]
+				lockCommandDataProperty := lockResultCommandData.GetDataProperty(protocol.LOCK_DATA_PROPERTY_CODE_KEY)
+				if lockCommandDataProperty == nil {
+					continue
+				}
+				key := lockCommandDataProperty.GetValueString()
+				if matchRe == nil || matchRe.MatchString(key) {
+					if index >= offset {
+						keys = append(keys, key)
+					}
+					index++
+				}
+				if index >= offset+count {
+					break
+				}
+			}
+			db.mGlock.Unlock()
+		}
+	}
+
+	buf := []byte(fmt.Sprintf("*2\r\n$1\r\n0\r\n"))
+	buf = append(buf, []byte(fmt.Sprintf("*%d\r\n", len(keys)))...)
+	for _, result := range keys {
+		buf = append(buf, []byte(fmt.Sprintf("$%d\r\n%s\r\n", len(result), result))...)
+	}
+	return self.stream.WriteBytes(buf)
+}
+
+func (self *TextServerProtocol) commandHandlerKeyTTLCommand(_ *TextServerProtocol, args []string) error {
+	if len(args) < 2 {
+		return self.stream.WriteBytes(self.parser.BuildResponse(false, "Command Parse Args Count Error", nil))
+	}
+
+	db := self.slock.GetDB(self.dbId)
+	if db == nil {
+		return self.stream.WriteBytes([]byte(":-2\r\n"))
+	}
+	lockCommand := self.GetLockCommand()
+	lockCommand.RequestId = protocol.GenRequestId()
+	lockCommand.DbId = self.dbId
+	lockCommand.CommandType = protocol.COMMAND_LOCK
+	self.commandConverter.ConvertArgId2LockId(args[1], &lockCommand.LockKey)
+	lockCommand.LockId = lockCommand.LockKey
+	lockManager := db.GetLockManager(lockCommand)
+	if lockManager == nil || lockManager.locked == 0 {
+		_ = self.FreeLockCommand(lockCommand)
+		return self.stream.WriteBytes([]byte(":-2\r\n"))
+	}
+	lockManager.glock.Lock()
+	if lockManager.currentLock == nil {
+		lockManager.glock.Unlock()
+		_ = self.FreeLockCommand(lockCommand)
+		return self.stream.WriteBytes([]byte(":-2\r\n"))
+	}
+	expriedTime := lockManager.currentLock.expriedTime
+	lockManager.glock.Unlock()
+	_ = self.FreeLockCommand(lockCommand)
+	if expriedTime == 0x7fffffffffffffff {
+		return self.stream.WriteBytes([]byte(":-1\r\n"))
+	}
+	if strings.ToUpper(args[0]) == "PTTL" {
+		return self.stream.WriteBytes([]byte(fmt.Sprintf(":%d\r\n", expriedTime*1000-time.Now().UnixMilli())))
+	}
+	return self.stream.WriteBytes([]byte(fmt.Sprintf(":%d\r\n", expriedTime-time.Now().Unix())))
 }
