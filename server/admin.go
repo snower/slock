@@ -104,6 +104,10 @@ func (self *Admin) commandHandleRewriteAofCommand(serverProtocol *TextServerProt
 }
 
 func (self *Admin) commandHandleFlushDBCommand(serverProtocol *TextServerProtocol, args []string) error {
+	if self.slock.state != STATE_LEADER {
+		return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(false, "State Error", nil))
+	}
+
 	defer self.slock.glock.Unlock()
 	self.slock.glock.Lock()
 
@@ -128,6 +132,10 @@ func (self *Admin) commandHandleFlushDBCommand(serverProtocol *TextServerProtoco
 }
 
 func (self *Admin) commandHandleFlushAllCommand(serverProtocol *TextServerProtocol, _ []string) error {
+	if self.slock.state != STATE_LEADER {
+		return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(false, "State Error", nil))
+	}
+
 	defer self.slock.glock.Unlock()
 	self.slock.glock.Lock()
 
