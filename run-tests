@@ -233,10 +233,10 @@ $BENCH_OUTPUTS
 "
 
 APT_CMD=`which apt`
-if [ -x APT_CMD ]; then
+if [ -x $APT_CMD ]; then
   $APT_CMD update && $APT_CMD install -y redis
   REDIS_BENCHMARK_CMD=`which redis-benchmark`
-  if [ -x REDIS_BENCHMARK_CMD ]; then
+  if [ -x $REDIS_BENCHMARK_CMD ]; then
     echo "Redis Benchmark Info:"
     $REDIS_BENCHMARK_CMD -h 127.0.0.1 -p 5659 -n 2000000 -c 64 -t set,get,incr
 
