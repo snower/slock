@@ -754,7 +754,11 @@ func (self *AofChannel) Push(dbId uint8, lock *Lock, commandType uint8, lockComm
 	} else if lockCommand.ExpriedFlag&protocol.EXPRIED_FLAG_MILLISECOND_TIME != 0 {
 		aofLock.ExpriedTime = lockCommand.Expried
 	} else if lockCommand.ExpriedFlag&protocol.EXPRIED_FLAG_MINUTE_TIME != 0 {
-		aofLock.ExpriedTime = lockCommand.Expried
+		if uint64(lock.expriedTime)-aofLock.CommandTime >= 120 {
+			aofLock.ExpriedTime = uint16(uint64(lock.expriedTime) - aofLock.CommandTime)
+		} else {
+			aofLock.ExpriedTime = lockCommand.Expried
+		}
 	} else {
 		if lock.expriedTime > 0 {
 			aofLock.ExpriedTime = uint16(uint64(lock.expriedTime) - aofLock.CommandTime)
@@ -973,9 +977,9 @@ func (self *AofChannel) HandleLoad(aofLock *AofLock) {
 	} else if aofLock.ExpriedFlag&protocol.EXPRIED_FLAG_MILLISECOND_TIME != 0 {
 		expriedTime = aofLock.ExpriedTime
 	} else if aofLock.ExpriedFlag&protocol.EXPRIED_FLAG_MINUTE_TIME != 0 {
-		expriedTime = aofLock.ExpriedTime
+		expriedTime = aofLock.ExpriedTime - uint16((uint64(self.lockDb.currentTime)-aofLock.CommandTime)/60)
 	} else if aofLock.ExpriedTime > 0 {
-		expriedTime = uint16(int64(aofLock.CommandTime+uint64(aofLock.ExpriedTime))-self.lockDb.currentTime) + 1
+		expriedTime = uint16(int64(aofLock.CommandTime+uint64(aofLock.ExpriedTime)) - self.lockDb.currentTime)
 	} else {
 		expriedTime = 0
 	}
@@ -1021,9 +1025,9 @@ func (self *AofChannel) HandleReplay(aofLock *AofLock) {
 	} else if aofLock.ExpriedFlag&protocol.EXPRIED_FLAG_MILLISECOND_TIME != 0 {
 		expriedTime = aofLock.ExpriedTime
 	} else if aofLock.ExpriedFlag&protocol.EXPRIED_FLAG_MINUTE_TIME != 0 {
-		expriedTime = aofLock.ExpriedTime
+		expriedTime = aofLock.ExpriedTime - uint16((uint64(self.lockDb.currentTime)-aofLock.CommandTime)/60)
 	} else if aofLock.ExpriedTime > 0 {
-		expriedTime = uint16(int64(aofLock.CommandTime+uint64(aofLock.ExpriedTime))-self.lockDb.currentTime) + 1
+		expriedTime = uint16(int64(aofLock.CommandTime+uint64(aofLock.ExpriedTime)) - self.lockDb.currentTime)
 	} else {
 		expriedTime = 0
 	}
@@ -2024,7 +2028,19 @@ func (self *Aof) loadRewriteAofFiles(aofFilenames []string) (*AofFile, []*AofFil
 		lockCommand.LockId = aofLock.LockId
 		lockCommand.LockKey = aofLock.LockKey
 		lockCommand.ExpriedFlag = aofLock.ExpriedFlag
-		lockCommand.Expried = aofLock.ExpriedTime
+		if aofLock.ExpriedFlag&protocol.EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME != 0 {
+			lockCommand.Expried = aofLock.ExpriedTime
+		} else if aofLock.ExpriedFlag&protocol.EXPRIED_FLAG_MILLISECOND_TIME != 0 {
+			lockCommand.Expried = aofLock.ExpriedTime
+		} else if aofLock.ExpriedFlag&protocol.EXPRIED_FLAG_MINUTE_TIME != 0 {
+			lockCommand.Expried = aofLock.ExpriedTime - uint16((uint64(db.currentTime)-aofLock.CommandTime)/60)
+		} else if aofLock.ExpriedTime > 0 {
+			lockCommand.Expried = uint16(int64(aofLock.CommandTime+uint64(aofLock.ExpriedTime)) - db.currentTime)
+		} else {
+			lockCommand.Expried = 0
+		}
+		lockCommand.Count = aofLock.Count
+		lockCommand.Rcount = aofLock.Rcount
 		if !db.HasLock(lockCommand, aofLock.data) {
 			return true, nil
 		}

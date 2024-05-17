@@ -1600,7 +1600,26 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 				currentLockCommand := currentLock.command
 				if command.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
 					lockManager.ProcessLockData(command, currentLock, false)
+					if lockManager.currentData != nil && lockManager.currentData.isAof && (currentLock.data == nil || currentLock.data.aofData == nil) {
+						if lockManager.CheckLockedEqual(currentLock, command) {
+							lockManager.glock.Unlock()
+							_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_LOCKED_ERROR, uint16(lockManager.locked), currentLock.locked, lockData)
+							_ = serverProtocol.FreeLockCommand(command)
+							return nil
+						}
+						if command.Flag&protocol.LOCK_FLAG_FROM_AOF == 0 {
+							lockManager.currentData.isAof = false
+						}
+					}
+				} else {
+					if lockManager.CheckLockedEqual(currentLock, command) {
+						lockManager.glock.Unlock()
+						_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_LOCKED_ERROR, uint16(lockManager.locked), currentLock.locked, lockData)
+						_ = serverProtocol.FreeLockCommand(command)
+						return nil
+					}
 				}
+
 				if currentLock.longWaitIndex > 0 {
 					expriedTime := currentLock.expriedTime
 					lockManager.UpdateLockedLock(currentLock, command)
@@ -2423,14 +2442,19 @@ func (self *LockDB) HasLock(command *protocol.LockCommand, aofLockData []byte) b
 	}
 	if command.CommandType == protocol.COMMAND_LOCK {
 		if command.Expried == 0 && command.ExpriedFlag&0x4440 == 0 {
-			if aofLockData == nil || lockManager.currentData == nil || lockManager.currentData.data == nil || !lockManager.currentData.Equal(aofLockData) {
+			if lockManager.currentData == nil {
+				if aofLockData != nil {
+					lockManager.glock.LowPriorityUnlock()
+					return false
+				}
+			} else if !lockManager.currentData.Equal(aofLockData) {
 				lockManager.glock.LowPriorityUnlock()
 				return false
 			}
 			lockManager.glock.LowPriorityUnlock()
 			return true
 		} else if command.Flag&protocol.LOCK_FLAG_UPDATE_WHEN_LOCKED != 0 && lockManager.locked == 1 && aofLockData != nil {
-			if lockManager.currentData == nil || lockManager.currentData.data == nil || !lockManager.currentData.Equal(aofLockData) {
+			if lockManager.currentData == nil || !lockManager.currentData.Equal(aofLockData) || lockManager.currentLock == nil || !lockManager.CheckLockedEqual(lockManager.currentLock, command) {
 				lockManager.glock.LowPriorityUnlock()
 				return false
 			}
