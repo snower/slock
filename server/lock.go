@@ -2,7 +2,6 @@ package server
 
 import (
 	"github.com/snower/slock/protocol"
-	"math"
 	"sync"
 	"sync/atomic"
 )
@@ -149,19 +148,24 @@ func (self *LockManager) GetLockedLock(command *protocol.LockCommand) *Lock {
 }
 
 func (self *LockManager) CheckLockedEqual(lock *Lock, command *protocol.LockCommand) bool {
-	var expriedTime int64 = 0
 	if command.ExpriedFlag&protocol.EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME != 0 {
-		expriedTime = 0x7fffffffffffffff
-	} else if command.ExpriedFlag&protocol.EXPRIED_FLAG_MILLISECOND_TIME == 0 {
-		if command.ExpriedFlag&protocol.EXPRIED_FLAG_MINUTE_TIME != 0 {
-			expriedTime = self.lockDb.currentTime + int64(command.Expried)*60 + 1
-		} else {
-			expriedTime = self.lockDb.currentTime + int64(command.Expried) + 1
-		}
-	} else {
-		expriedTime = self.lockDb.currentTime + int64(command.Expried)/1000 + 1
+		return lock.expriedTime == 0x7fffffffffffffff && command.Count == lock.command.Count && command.Rcount == lock.command.Rcount
 	}
-	return math.Abs(float64(expriedTime-lock.expriedTime)) <= 1 && command.Count == lock.command.Count && command.Rcount == lock.command.Rcount
+	if command.ExpriedFlag&protocol.EXPRIED_FLAG_MILLISECOND_TIME == 0 {
+		if command.ExpriedFlag&protocol.EXPRIED_FLAG_MINUTE_TIME != 0 {
+			expriedTime := self.lockDb.currentTime + int64(command.Expried)*60 + 1
+			if expriedTime > lock.expriedTime {
+				return expriedTime-lock.expriedTime <= 60 && command.Count == lock.command.Count && command.Rcount == lock.command.Rcount
+			}
+			return lock.expriedTime-expriedTime <= 60 && command.Count == lock.command.Count && command.Rcount == lock.command.Rcount
+		}
+		expriedTime := self.lockDb.currentTime + int64(command.Expried) + 1
+		if expriedTime > lock.expriedTime {
+			return expriedTime-lock.expriedTime <= 1 && command.Count == lock.command.Count && command.Rcount == lock.command.Rcount
+		}
+		return lock.expriedTime-expriedTime <= 1 && command.Count == lock.command.Count && command.Rcount == lock.command.Rcount
+	}
+	return command.Count == lock.command.Count && command.Rcount == lock.command.Rcount
 }
 
 func (self *LockManager) UpdateLockedLock(lock *Lock, command *protocol.LockCommand) *protocol.LockCommand {
