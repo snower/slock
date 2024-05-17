@@ -238,7 +238,7 @@ if [ -x $REDIS_BENCHMARK_CMD ]; then
   $REDIS_BENCHMARK_CMD -h 127.0.0.1 -p 5659 -n 100000 -c 64 -t set,get,incr
 
   echo "Redis Benchmark Transparency Info:"
-  $REDIS_BENCHMARK_CMD -h 127.0.0.1 -p 5658 -n 50000 -c 64 -t set,get,incr
+  $REDIS_BENCHMARK_CMD -h 127.0.0.1 -p 5658 -n 5000 -c 64 -t set,get,incr
 fi
 
 sleep 3

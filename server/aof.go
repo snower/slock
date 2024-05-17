@@ -755,7 +755,7 @@ func (self *AofChannel) Push(dbId uint8, lock *Lock, commandType uint8, lockComm
 		aofLock.ExpriedTime = lockCommand.Expried
 	} else if lockCommand.ExpriedFlag&protocol.EXPRIED_FLAG_MINUTE_TIME != 0 {
 		if uint64(lock.expriedTime)-aofLock.CommandTime >= 120 {
-			aofLock.ExpriedTime = uint16(uint64(lock.expriedTime) - aofLock.CommandTime)
+			aofLock.ExpriedTime = uint16((uint64(lock.expriedTime) - aofLock.CommandTime) / 60)
 		} else {
 			aofLock.ExpriedTime = lockCommand.Expried
 		}
