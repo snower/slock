@@ -862,32 +862,34 @@ func NewTransparencyTextServerProtocol(slock *SLock, stream *Stream, serverProto
 
 func (self *TransparencyTextServerProtocol) FindHandler(name string) (TextServerProtocolCommandHandler, error) {
 	if self.handlers == nil {
-		self.handlers = make(map[string]TextServerProtocolCommandHandler, 16)
+		self.handlers = make(map[string]TextServerProtocolCommandHandler, 64)
 		self.handlers["SELECT"] = self.serverProtocol.commandHandlerSelectDB
 		self.handlers["LOCK"] = self.commandHandlerLock
 		self.handlers["UNLOCK"] = self.commandHandlerUnlock
 		self.handlers["PUSH"] = self.commandHandlerPush
-		self.handlers["DEL"] = self.commandHandlerKeyOperateValueCommand
-		self.handlers["SET"] = self.commandHandlerKeyOperateValueCommand
-		self.handlers["APPEND"] = self.commandHandlerKeyOperateValueCommand
-		self.handlers["GETSET"] = self.commandHandlerKeyOperateValueCommand
-		self.handlers["SETEX"] = self.commandHandlerKeyOperateValueCommand
-		self.handlers["PSETEX"] = self.commandHandlerKeyOperateValueCommand
-		self.handlers["SETNX"] = self.commandHandlerKeyOperateValueCommand
-		self.handlers["GET"] = self.commandHandlerKeyOperateValueCommand
-		self.handlers["INCR"] = self.commandHandlerKeyOperateValueCommand
-		self.handlers["INCRBY"] = self.commandHandlerKeyOperateValueCommand
-		self.handlers["DECR"] = self.commandHandlerKeyOperateValueCommand
-		self.handlers["DECRBY"] = self.commandHandlerKeyOperateValueCommand
-		self.handlers["STRLEN"] = self.commandHandlerKeyOperateValueCommand
-		self.handlers["EXISTS"] = self.commandHandlerKeyOperateValueCommand
-		self.handlers["EXPIRE"] = self.commandHandlerKeyOperateValueCommand
-		self.handlers["PEXPIREAT"] = self.commandHandlerKeyOperateValueCommand
-		self.handlers["PEXPIRE"] = self.commandHandlerKeyOperateValueCommand
-		self.handlers["PEXPIREAT"] = self.commandHandlerKeyOperateValueCommand
-		self.handlers["PERSIST"] = self.commandHandlerKeyOperateValueCommand
-		self.handlers["TYPE"] = self.commandHandlerKeyOperateValueCommand
-		self.handlers["DUMP"] = self.commandHandlerKeyOperateValueCommand
+
+		self.handlers["DEL"] = self.commandHandlerKeyWriteValueCommand
+		self.handlers["SET"] = self.commandHandlerKeyWriteValueCommand
+		self.handlers["APPEND"] = self.commandHandlerKeyWriteValueCommand
+		self.handlers["GETSET"] = self.commandHandlerKeyWriteValueCommand
+		self.handlers["SETEX"] = self.commandHandlerKeyWriteValueCommand
+		self.handlers["PSETEX"] = self.commandHandlerKeyWriteValueCommand
+		self.handlers["SETNX"] = self.commandHandlerKeyWriteValueCommand
+		self.handlers["INCR"] = self.commandHandlerKeyWriteValueCommand
+		self.handlers["INCRBY"] = self.commandHandlerKeyWriteValueCommand
+		self.handlers["DECR"] = self.commandHandlerKeyWriteValueCommand
+		self.handlers["DECRBY"] = self.commandHandlerKeyWriteValueCommand
+		self.handlers["EXPIRE"] = self.commandHandlerKeyWriteValueCommand
+		self.handlers["PEXPIREAT"] = self.commandHandlerKeyWriteValueCommand
+		self.handlers["PEXPIRE"] = self.commandHandlerKeyWriteValueCommand
+		self.handlers["PEXPIREAT"] = self.commandHandlerKeyWriteValueCommand
+		self.handlers["PERSIST"] = self.commandHandlerKeyWriteValueCommand
+
+		self.handlers["GET"] = self.commandHandlerKeyReadValueCommand
+		self.handlers["STRLEN"] = self.commandHandlerKeyReadValueCommand
+		self.handlers["EXISTS"] = self.commandHandlerKeyReadValueCommand
+		self.handlers["TYPE"] = self.commandHandlerKeyReadValueCommand
+		self.handlers["DUMP"] = self.commandHandlerKeyReadValueCommand
 		self.handlers["KEYS"] = self.serverProtocol.commandHandlerKeysCommand
 		self.handlers["SCAN"] = self.serverProtocol.commandHandlerScanCommand
 		self.handlers["TTL"] = self.serverProtocol.commandHandlerKeyTTLCommand
@@ -1317,9 +1319,9 @@ func (self *TransparencyTextServerProtocol) commandHandlerPush(serverProtocol *T
 	return self.stream.WriteBytes(self.serverProtocol.parser.BuildResponse(true, "OK", nil))
 }
 
-func (self *TransparencyTextServerProtocol) commandHandlerKeyOperateValueCommand(serverProtocol *TextServerProtocol, args []string) error {
+func (self *TransparencyTextServerProtocol) commandHandlerKeyWriteValueCommand(serverProtocol *TextServerProtocol, args []string) error {
 	if self.slock.state == STATE_LEADER {
-		return self.serverProtocol.commandHandlerKeyOperateValueCommand(serverProtocol, args)
+		return self.serverProtocol.commandHandlerKeyWriteValueCommand(serverProtocol, args)
 	}
 
 	lockCommand, writeTextCommandResultFunc, err := self.serverProtocol.GetCommandConverter().ConvertTextKeyOperateValueCommand(self, args)
@@ -1359,6 +1361,10 @@ func (self *TransparencyTextServerProtocol) commandHandlerKeyOperateValueCommand
 	_ = self.serverProtocol.FreeLockCommand(lockCommand)
 	self.serverProtocol.freeCommandResult = lockCommandResult
 	return err
+}
+
+func (self *TransparencyTextServerProtocol) commandHandlerKeyReadValueCommand(serverProtocol *TextServerProtocol, args []string) error {
+	return self.serverProtocol.commandHandlerKeyReadValueCommand(serverProtocol, args)
 }
 
 type TransparencyManager struct {

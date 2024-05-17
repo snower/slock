@@ -1832,32 +1832,34 @@ func NewTextServerProtocol(slock *SLock, stream *Stream) *TextServerProtocol {
 
 func (self *TextServerProtocol) FindHandler(name string) (TextServerProtocolCommandHandler, error) {
 	if self.handlers == nil {
-		self.handlers = make(map[string]TextServerProtocolCommandHandler, 16)
+		self.handlers = make(map[string]TextServerProtocolCommandHandler, 64)
 		self.handlers["SELECT"] = self.commandHandlerSelectDB
 		self.handlers["LOCK"] = self.commandHandlerLock
 		self.handlers["UNLOCK"] = self.commandHandlerUnlock
 		self.handlers["PUSH"] = self.commandHandlerPush
-		self.handlers["DEL"] = self.commandHandlerKeyOperateValueCommand
-		self.handlers["SET"] = self.commandHandlerKeyOperateValueCommand
-		self.handlers["APPEND"] = self.commandHandlerKeyOperateValueCommand
-		self.handlers["GETSET"] = self.commandHandlerKeyOperateValueCommand
-		self.handlers["SETEX"] = self.commandHandlerKeyOperateValueCommand
-		self.handlers["PSETEX"] = self.commandHandlerKeyOperateValueCommand
-		self.handlers["SETNX"] = self.commandHandlerKeyOperateValueCommand
-		self.handlers["GET"] = self.commandHandlerKeyOperateValueCommand
-		self.handlers["INCR"] = self.commandHandlerKeyOperateValueCommand
-		self.handlers["INCRBY"] = self.commandHandlerKeyOperateValueCommand
-		self.handlers["DECR"] = self.commandHandlerKeyOperateValueCommand
-		self.handlers["DECRBY"] = self.commandHandlerKeyOperateValueCommand
-		self.handlers["STRLEN"] = self.commandHandlerKeyOperateValueCommand
-		self.handlers["EXISTS"] = self.commandHandlerKeyOperateValueCommand
-		self.handlers["EXPIRE"] = self.commandHandlerKeyOperateValueCommand
-		self.handlers["PEXPIREAT"] = self.commandHandlerKeyOperateValueCommand
-		self.handlers["PEXPIRE"] = self.commandHandlerKeyOperateValueCommand
-		self.handlers["PEXPIREAT"] = self.commandHandlerKeyOperateValueCommand
-		self.handlers["PERSIST"] = self.commandHandlerKeyOperateValueCommand
-		self.handlers["TYPE"] = self.commandHandlerKeyOperateValueCommand
-		self.handlers["DUMP"] = self.commandHandlerKeyOperateValueCommand
+
+		self.handlers["DEL"] = self.commandHandlerKeyWriteValueCommand
+		self.handlers["SET"] = self.commandHandlerKeyWriteValueCommand
+		self.handlers["APPEND"] = self.commandHandlerKeyWriteValueCommand
+		self.handlers["GETSET"] = self.commandHandlerKeyWriteValueCommand
+		self.handlers["SETEX"] = self.commandHandlerKeyWriteValueCommand
+		self.handlers["PSETEX"] = self.commandHandlerKeyWriteValueCommand
+		self.handlers["SETNX"] = self.commandHandlerKeyWriteValueCommand
+		self.handlers["INCR"] = self.commandHandlerKeyWriteValueCommand
+		self.handlers["INCRBY"] = self.commandHandlerKeyWriteValueCommand
+		self.handlers["DECR"] = self.commandHandlerKeyWriteValueCommand
+		self.handlers["DECRBY"] = self.commandHandlerKeyWriteValueCommand
+		self.handlers["EXISTS"] = self.commandHandlerKeyReadValueCommand
+		self.handlers["EXPIRE"] = self.commandHandlerKeyWriteValueCommand
+		self.handlers["PEXPIREAT"] = self.commandHandlerKeyWriteValueCommand
+		self.handlers["PEXPIRE"] = self.commandHandlerKeyWriteValueCommand
+		self.handlers["PEXPIREAT"] = self.commandHandlerKeyWriteValueCommand
+		self.handlers["PERSIST"] = self.commandHandlerKeyWriteValueCommand
+
+		self.handlers["GET"] = self.commandHandlerKeyReadValueCommand
+		self.handlers["STRLEN"] = self.commandHandlerKeyReadValueCommand
+		self.handlers["TYPE"] = self.commandHandlerKeyReadValueCommand
+		self.handlers["DUMP"] = self.commandHandlerKeyReadValueCommand
 		self.handlers["KEYS"] = self.commandHandlerKeysCommand
 		self.handlers["SCAN"] = self.commandHandlerScanCommand
 		self.handlers["TTL"] = self.commandHandlerKeyTTLCommand
@@ -2605,7 +2607,7 @@ func (self *TextServerProtocol) commandHandlerPush(_ *TextServerProtocol, args [
 	return self.stream.WriteBytes(self.parser.BuildResponse(true, "OK", nil))
 }
 
-func (self *TextServerProtocol) commandHandlerKeyOperateValueCommand(_ *TextServerProtocol, args []string) error {
+func (self *TextServerProtocol) commandHandlerKeyWriteValueCommand(_ *TextServerProtocol, args []string) error {
 	lockCommand, writeTextCommandResultFunc, err := self.commandConverter.ConvertTextKeyOperateValueCommand(self, args)
 	if err != nil {
 		return self.stream.WriteBytes(self.parser.BuildResponse(false, "ERR "+err.Error(), nil))
@@ -2639,6 +2641,60 @@ func (self *TextServerProtocol) commandHandlerKeyOperateValueCommand(_ *TextServ
 	err = writeTextCommandResultFunc(self, self.stream, lockCommandResult)
 	self.freeCommandResult = lockCommandResult
 	return err
+}
+
+func (self *TextServerProtocol) commandHandlerKeyReadValueCommand(_ *TextServerProtocol, args []string) error {
+	lockCommand, writeTextCommandResultFunc, err := self.GetCommandConverter().ConvertTextKeyOperateValueCommand(self, args)
+	if err != nil {
+		return self.stream.WriteBytes(self.parser.BuildResponse(false, "ERR "+err.Error(), nil))
+	}
+	if lockCommand.DbId == 0xff {
+		_ = self.FreeLockCommand(lockCommand)
+		return self.stream.WriteBytes(self.parser.BuildResponse(false, "ERR Uknown DB Error", nil))
+	}
+
+	count, rcount, result, lcount, lrcount, data := uint16(0), uint8(0), uint8(protocol.RESULT_SUCCED), uint16(0), uint8(0), []byte(nil)
+	db := self.slock.GetDB(lockCommand.DbId)
+	if db != nil {
+		lockManager := db.GetLockManager(lockCommand)
+		if lockManager != nil {
+			lockManager.glock.Lock()
+			currentLock := lockManager.currentLock
+			if currentLock != nil {
+				count, rcount, result, lcount, lrcount, data = currentLock.command.Count, currentLock.command.Rcount, protocol.RESULT_UNOWN_ERROR, uint16(lockManager.locked), currentLock.locked, lockManager.GetLockData()
+			}
+			lockManager.glock.Unlock()
+		}
+	}
+
+	lockCommandResult := self.freeCommandResult
+	if lockCommandResult == nil {
+		lockCommandResult = protocol.NewLockResultCommand(lockCommand, result, 0, lcount, count, lrcount, rcount, data)
+		self.freeCommandResult = lockCommandResult
+	} else {
+		lockCommandResult.CommandType = lockCommand.CommandType
+		lockCommandResult.RequestId = lockCommand.RequestId
+		lockCommandResult.Result = result
+		if data != nil {
+			lockCommandResult.Flag = protocol.LOCK_FLAG_CONTAINS_DATA
+		} else {
+			lockCommandResult.Flag = 0
+		}
+		lockCommandResult.DbId = lockCommand.DbId
+		lockCommandResult.LockId = lockCommand.LockId
+		lockCommandResult.LockKey = lockCommand.LockKey
+		lockCommandResult.Lcount = lcount
+		lockCommandResult.Count = count
+		lockCommandResult.Lrcount = lrcount
+		lockCommandResult.Rcount = rcount
+	}
+	if data != nil {
+		lockCommandResult.Data = protocol.NewLockResultCommandDataFromOriginBytes(data)
+	} else {
+		lockCommandResult.Data = nil
+	}
+	_ = self.FreeLockCommand(lockCommand)
+	return writeTextCommandResultFunc(self, self.stream, lockCommandResult)
 }
 
 func (self *TextServerProtocol) commandHandlerKeysCommand(_ *TextServerProtocol, args []string) error {
