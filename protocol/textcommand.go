@@ -114,8 +114,12 @@ func (self *TextCommandConverter) ConvertArgs2Flag(lockCommand *LockCommand, arg
 			if err != nil {
 				return errors.New("Command Parse EX Value Error")
 			}
-			lockCommand.Expried = uint16(expried & 0xffff)
-			lockCommand.ExpriedFlag |= uint16(expried >> 16 & 0xffff)
+			if expried > 65535 {
+				lockCommand.Expried = uint16(expried/60) + 1
+				lockCommand.ExpriedFlag |= EXPRIED_FLAG_MINUTE_TIME
+			} else {
+				lockCommand.Expried = uint16(expried)
+			}
 			i++
 		case "PX":
 			if i+i >= len(args) {
@@ -125,8 +129,15 @@ func (self *TextCommandConverter) ConvertArgs2Flag(lockCommand *LockCommand, arg
 			if err != nil {
 				return errors.New("Command Parse PX Value Error")
 			}
-			lockCommand.Expried = uint16(expried & 0xffff)
-			lockCommand.ExpriedFlag |= uint16(expried>>16&0xffff) | EXPRIED_FLAG_MILLISECOND_TIME
+			if expried > 65535000 {
+				lockCommand.Expried = uint16(expried/60000) + 1
+				lockCommand.ExpriedFlag |= EXPRIED_FLAG_MINUTE_TIME
+			} else if expried > 3000 {
+				lockCommand.Expried = uint16(expried)
+				lockCommand.ExpriedFlag |= EXPRIED_FLAG_MILLISECOND_TIME
+			} else {
+				lockCommand.Expried = uint16(expried)
+			}
 			i++
 		case "TX":
 			if i+i >= len(args) {
@@ -136,8 +147,12 @@ func (self *TextCommandConverter) ConvertArgs2Flag(lockCommand *LockCommand, arg
 			if err != nil {
 				return errors.New("Command Parse TX Value Error")
 			}
-			lockCommand.Timeout = uint16(timeout & 0xffff)
-			lockCommand.TimeoutFlag |= uint16(timeout >> 16 & 0xffff)
+			if timeout > 65535 {
+				lockCommand.Timeout = uint16(timeout/60) + 1
+				lockCommand.TimeoutFlag |= TIMEOUT_FLAG_MINUTE_TIME
+			} else {
+				lockCommand.Timeout = uint16(timeout)
+			}
 			i++
 		case "PTX":
 			if i+i >= len(args) {
@@ -147,8 +162,15 @@ func (self *TextCommandConverter) ConvertArgs2Flag(lockCommand *LockCommand, arg
 			if err != nil {
 				return errors.New("Command Parse TX Value Error")
 			}
-			lockCommand.Timeout = uint16(timeout & 0xffff)
-			lockCommand.TimeoutFlag |= uint16(timeout>>16&0xffff) | TIMEOUT_FLAG_MILLISECOND_TIME
+			if timeout > 65535000 {
+				lockCommand.Timeout = uint16(timeout/60000) + 1
+				lockCommand.TimeoutFlag |= TIMEOUT_FLAG_MINUTE_TIME
+			} else if timeout > 3000 {
+				lockCommand.Timeout = uint16(timeout)
+				lockCommand.TimeoutFlag |= TIMEOUT_FLAG_MILLISECOND_TIME
+			} else {
+				lockCommand.Timeout = uint16(timeout)
+			}
 			i++
 		case "NX":
 			lockCommand.Flag = LOCK_FLAG_CONTAINS_DATA
@@ -554,9 +576,22 @@ func (self *TextCommandConverter) ConvertTextSetEXCommand(textProtocol ITextProt
 	}
 	lockCommand.Expried = uint16(expried & 0xffff)
 	if strings.ToUpper(args[0]) == "PSETEX" {
-		lockCommand.ExpriedFlag |= uint16(expried>>16&0xffff) | EXPRIED_FLAG_MILLISECOND_TIME
+		if expried > 65535000 {
+			lockCommand.Expried = uint16(expried/60000) + 1
+			lockCommand.ExpriedFlag |= EXPRIED_FLAG_MINUTE_TIME
+		} else if expried > 3000 {
+			lockCommand.Expried = uint16(expried)
+			lockCommand.ExpriedFlag |= EXPRIED_FLAG_MILLISECOND_TIME
+		} else {
+			lockCommand.Expried = uint16(expried)
+		}
 	} else {
-		lockCommand.ExpriedFlag |= uint16(expried >> 16 & 0xffff)
+		if expried > 65535 {
+			lockCommand.Expried = uint16(expried/60) + 1
+			lockCommand.ExpriedFlag |= EXPRIED_FLAG_MINUTE_TIME
+		} else {
+			lockCommand.Expried = uint16(expried)
+		}
 	}
 	if len(args) > 4 {
 		err = self.ConvertArgs2Flag(lockCommand, args[4:])
@@ -810,36 +845,40 @@ func (self *TextCommandConverter) ConvertTextExpireCommand(textProtocol ITextPro
 	}
 	switch strings.ToUpper(args[0]) {
 	case "EXPIRE":
-		lockCommand.Expried = uint16(expried & 0xffff)
-		lockCommand.ExpriedFlag |= uint16(expried >> 16 & 0xffff)
+		if expried > 65535 {
+			lockCommand.Expried = uint16(expried/60) + 1
+			lockCommand.ExpriedFlag |= EXPRIED_FLAG_MINUTE_TIME
+		} else {
+			lockCommand.Expried = uint16(expried)
+		}
 	case "EXPIREAT":
 		expried = expried - time.Now().Unix()
-		if expried > 0 {
-			if expried > 0xffff {
-				lockCommand.Expried = uint16((expried / 60) & 0xffff)
-				lockCommand.ExpriedFlag |= uint16(expried>>16&0xffff) | EXPRIED_FLAG_MINUTE_TIME
-			} else {
-				lockCommand.Expried = uint16(expried & 0xffff)
-				lockCommand.ExpriedFlag |= uint16(expried >> 16 & 0xffff)
-			}
+		if expried > 65535 {
+			lockCommand.Expried = uint16(expried/60) + 1
+			lockCommand.ExpriedFlag |= EXPRIED_FLAG_MINUTE_TIME
+		} else {
+			lockCommand.Expried = uint16(expried)
 		}
 	case "PEXPIRE":
-		lockCommand.Expried = uint16(expried & 0xffff)
-		lockCommand.ExpriedFlag |= uint16(expried>>16&0xffff) | EXPRIED_FLAG_MILLISECOND_TIME
+		if expried > 65535000 {
+			lockCommand.Expried = uint16(expried/60000) + 1
+			lockCommand.ExpriedFlag |= EXPRIED_FLAG_MINUTE_TIME
+		} else if expried > 3000 {
+			lockCommand.Expried = uint16(expried)
+			lockCommand.ExpriedFlag |= EXPRIED_FLAG_MILLISECOND_TIME
+		} else {
+			lockCommand.Expried = uint16(expried)
+		}
 	case "PEXPIREAT":
 		expried = expried - time.Now().UnixMilli()
-		if expried > 3000 {
-			expried = expried / 1000
-			if expried > 0xffff {
-				lockCommand.Expried = uint16((expried / 60) & 0xffff)
-				lockCommand.ExpriedFlag |= uint16(expried>>16&0xffff) | EXPRIED_FLAG_MINUTE_TIME
-			} else {
-				lockCommand.Expried = uint16(expried & 0xffff)
-				lockCommand.ExpriedFlag |= uint16(expried >> 16 & 0xffff)
-			}
-		} else if expried > 0 {
-			lockCommand.Expried = uint16(expried & 0xffff)
-			lockCommand.ExpriedFlag |= uint16(expried>>16&0xffff) | EXPRIED_FLAG_MILLISECOND_TIME
+		if expried > 65535000 {
+			lockCommand.Expried = uint16(expried/60000) + 1
+			lockCommand.ExpriedFlag |= EXPRIED_FLAG_MINUTE_TIME
+		} else if expried > 3000 {
+			lockCommand.Expried = uint16(expried)
+			lockCommand.ExpriedFlag |= EXPRIED_FLAG_MILLISECOND_TIME
+		} else {
+			lockCommand.Expried = uint16(expried)
 		}
 	case "PERSIST":
 		lockCommand.Expried = 0xffff
