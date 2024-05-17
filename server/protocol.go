@@ -2909,7 +2909,7 @@ func (self *TextServerProtocol) commandHandlerKeyTTLCommand(_ *TextServerProtoco
 	}
 	lockManager.glock.LowPriorityLock()
 	if lockManager.currentLock == nil {
-		lockManager.glock.Unlock()
+		lockManager.glock.LowPriorityUnlock()
 		_ = self.FreeLockCommand(lockCommand)
 		return self.stream.WriteBytes([]byte(":-2\r\n"))
 	}

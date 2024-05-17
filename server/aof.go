@@ -2118,8 +2118,12 @@ func (self *Aof) GetLockCommandExpriedTime(lockDb *LockDB, aofLock *AofLock) uin
 		return aofLock.ExpriedTime
 	}
 	if aofLock.ExpriedFlag&protocol.EXPRIED_FLAG_MINUTE_TIME != 0 {
-		expriedTimeMinutes := (lockDb.currentTime - int64(aofLock.CommandTime)) / 60
-		if expriedTimeMinutes >= 0 {
+		expriedTimeSeconds := lockDb.currentTime - int64(aofLock.CommandTime)
+		if expriedTimeSeconds >= 0 {
+			expriedTimeMinutes := expriedTimeSeconds / 60
+			if expriedTimeSeconds < 60 || expriedTimeSeconds%60 != 0 {
+				expriedTimeMinutes++
+			}
 			if aofLock.ExpriedTime > uint16(expriedTimeMinutes) {
 				return aofLock.ExpriedTime - uint16(expriedTimeMinutes)
 			}
