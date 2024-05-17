@@ -1608,12 +1608,13 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 						if expriedTime != currentLock.expriedTime {
 							self.RemoveLongExpried(currentLock, expriedTime)
 							self.AddExpried(currentLock)
+							currentLock.refCount++
 						}
 					} else {
 						self.RemoveLongExpried(currentLock, expriedTime)
 						self.AddMillisecondExpried(currentLock)
+						currentLock.refCount++
 					}
-					currentLock.refCount++
 				} else {
 					lockManager.UpdateLockedLock(currentLock, command)
 				}
@@ -1659,12 +1660,13 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 						if expriedTime != currentLock.expriedTime {
 							self.RemoveLongExpried(currentLock, expriedTime)
 							self.AddExpried(currentLock)
+							currentLock.refCount++
 						}
 					} else {
 						self.RemoveLongExpried(currentLock, expriedTime)
 						self.AddMillisecondExpried(currentLock)
+						currentLock.refCount++
 					}
-					currentLock.refCount++
 				} else {
 					lockManager.UpdateLockedLock(currentLock, command)
 				}
