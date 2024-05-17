@@ -1776,17 +1776,7 @@ func (self *ReplicationManager) addServerChannel(channel *ReplicationServer) err
 	self.glock.Lock()
 	self.serverChannels = append(self.serverChannels, channel)
 	self.serverCount = uint32(len(self.serverChannels))
-	ackCount := 0
-	if self.slock.arbiterManager != nil {
-		ackCount = self.slock.arbiterManager.GetMajorityMemberCount()
-	} else {
-		ackCount = len(self.serverChannels) + 1
-	}
-	for _, db := range self.ackDbs {
-		if db != nil {
-			db.ackCount = uint8(ackCount)
-		}
-	}
+	self.UpdateDBAckCount()
 	self.bufferQueue.AddPoll(channel.bufferCursor)
 	self.glock.Unlock()
 	return nil
@@ -1802,17 +1792,7 @@ func (self *ReplicationManager) removeServerChannel(channel *ReplicationServer) 
 	}
 	self.serverChannels = serverChannels
 	self.serverCount = uint32(len(serverChannels))
-	ackCount := 0
-	if self.slock.arbiterManager != nil {
-		ackCount = len(self.slock.arbiterManager.members)/2 + 1
-	} else {
-		ackCount = len(self.serverChannels) + 1
-	}
-	for _, db := range self.ackDbs {
-		if db != nil {
-			db.ackCount = uint8(ackCount)
-		}
-	}
+	self.UpdateDBAckCount()
 	self.bufferQueue.RemovePoll(channel.bufferCursor)
 
 	if atomic.CompareAndSwapUint32(&self.serverActiveCount, 0, 0) {
@@ -1850,14 +1830,8 @@ func (self *ReplicationManager) GetOrNewAckDB(dbId uint8) *ReplicationAckDB {
 
 	self.glock.Lock()
 	if self.ackDbs[dbId] == nil {
-		ackCount := 0
-		if self.slock.arbiterManager != nil {
-			ackCount = self.slock.arbiterManager.GetMajorityMemberCount()
-		} else {
-			ackCount = len(self.serverChannels) + 1
-		}
 		self.ackDbs[dbId] = NewReplicationAckDB(self)
-		self.ackDbs[dbId].ackCount = uint8(ackCount)
+		self.UpdateDBAckCount()
 	}
 	self.glock.Unlock()
 	return self.ackDbs[dbId]
@@ -1966,14 +1940,7 @@ func (self *ReplicationManager) SwitchToLeader() error {
 	self.slock.updateState(STATE_LEADER)
 	self.leaderAddress = ""
 
-	if self.slock.arbiterManager != nil {
-		ackCount := self.slock.arbiterManager.GetMajorityMemberCount()
-		for _, db := range self.ackDbs {
-			if db != nil {
-				db.ackCount = uint8(ackCount)
-			}
-		}
-	}
+	self.UpdateDBAckCount()
 	self.glock.Unlock()
 
 	if self.clientChannel != nil {
@@ -2113,6 +2080,28 @@ func (self *ReplicationManager) FlushDB() error {
 	}
 	self.slock.Log().Infof("Replication flush all DB")
 	return nil
+}
+
+func (self *ReplicationManager) UpdateDBAckCount() {
+	ackCount := 0
+	if self.slock.arbiterManager != nil {
+		if Config.AofAckMode == 2 {
+			ackCount = len(self.serverChannels) + 1
+		} else {
+			ackCount = self.slock.arbiterManager.GetMajorityMemberCount()
+		}
+	} else {
+		if Config.AofAckMode == 1 {
+			ackCount = (len(self.serverChannels)+1)/2 + 1
+		} else {
+			ackCount = len(self.serverChannels) + 1
+		}
+	}
+	for _, db := range self.ackDbs {
+		if db != nil {
+			db.ackCount = uint8(ackCount)
+		}
+	}
 }
 
 func (self *ReplicationManager) GetCurrentAofID() [16]byte {

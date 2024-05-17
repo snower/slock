@@ -50,6 +50,7 @@ type ServerConfig struct {
 	AofFileBufferSize    uint    `toml:"aof_file_buffer_size" long:"aof_file_buffer_size" description:"aof file buffer size" default:"4096"`
 	AofRingBufferSize    uint    `toml:"aof_ring_buffer_size" long:"aof_ring_buffer_size" description:"slave sync ring buffer size" default:"4194304"`
 	AofRingBufferMaxSize uint    `toml:"aof_ring_buffer_max_size" long:"aof_ring_buffer_max_size" description:"slave sync ring buffer max size" default:"268435456"`
+	AofAckMode           uint    `toml:"aof_ack_mode" long:"aof_ack_mode" description:"slave ack mode (0 Mixed 1 Most 2 All)" default:"0"`
 	SlaveOf              string  `toml:"slaveof" long:"slaveof" description:"slave of to master sync" default:""`
 	ReplSet              string  `toml:"replset" long:"replset" description:"replset name, start replset mode when it set" default:""`
 }
@@ -118,6 +119,9 @@ func ExtendConfig(config *ServerConfig, oconfig *ServerConfig) *ServerConfig {
 	}
 	if config.AofRingBufferMaxSize == 268435456 && oconfig.AofRingBufferMaxSize != 0 {
 		config.AofRingBufferMaxSize = oconfig.AofRingBufferMaxSize
+	}
+	if config.AofAckMode == 0 && oconfig.AofAckMode != 0 {
+		config.AofAckMode = oconfig.AofAckMode
 	}
 	if config.SlaveOf == "" && oconfig.SlaveOf != "" {
 		config.SlaveOf = oconfig.SlaveOf

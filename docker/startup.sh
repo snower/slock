@@ -80,6 +80,10 @@ if [ -n "$ARG_AOF_RING_BUFFER_MAX_SIZE" ]; then
   CMD_ARG="$CMD_ARG --aof_ring_buffer_max_size=$ARG_AOF_RING_BUFFER_MAX_SIZE"
 fi
 
+if [ -n "$AOF_ACK_MODE" ]; then
+  CMD_ARG="$CMD_ARG --aof_ack_mode=$AOF_ACK_MODE"
+fi
+
 if [ -n "$ARG_SLAVEOF" ]; then
   CMD_ARG="$CMD_ARG --slaveof=\"$ARG_SLAVEOF\""
 fi

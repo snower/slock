@@ -79,8 +79,15 @@ func main() {
 
 	if config.Conf != "" {
 		fileConfig := &server.ServerConfig{}
-		if _, err := toml.DecodeFile(config.Conf, &fileConfig); err != nil {
-			fmt.Printf("Parse conf file error: %v\r\n", err)
+		if _, derr := toml.DecodeFile(config.Conf, &fileConfig); derr != nil {
+			fmt.Printf("Parse conf file error: %v\r\n", derr)
+			return
+		}
+		config = server.ExtendConfig(config, fileConfig)
+	} else if _, serr := os.Stat("slock.toml"); os.IsExist(serr) {
+		fileConfig := &server.ServerConfig{}
+		if _, derr := toml.DecodeFile(config.Conf, &fileConfig); derr != nil {
+			fmt.Printf("Parse conf file error: %v\r\n", derr)
 			return
 		}
 		config = server.ExtendConfig(config, fileConfig)
