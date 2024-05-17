@@ -1401,15 +1401,15 @@ func (self *LockDB) RemoveExpried(lock *Lock) {
 	lock.manager.state.ExpriedCount--
 }
 
-func (self *LockDB) RemoveLongExpried(lock *Lock) {
-	if longLocks, ok := self.longExpriedLocks[lock.manager.glockIndex][lock.expriedTime]; ok {
+func (self *LockDB) RemoveLongExpried(lock *Lock, expriedTime int64) {
+	if longLocks, ok := self.longExpriedLocks[lock.manager.glockIndex][expriedTime]; ok {
 		longLocks.Remove(lock)
 		if longLocks.freeCount*3 >= longLocks.lockCount && (longLocks.freeCount >= longLocks.lockCount || longLocks.freeCount >= LONG_LOCKS_QUEUE_INIT_SIZE) {
 			self.restructuringLongExpriedQueue(longLocks)
 		}
 		lock.refCount--
 	} else {
-		self.slock.Log().Errorf("Database remove long expried not found %d %d", lock.longWaitIndex, lock.expriedTime)
+		self.slock.Log().Errorf("Database remove long expried not found %d %d", lock.longWaitIndex, expriedTime)
 		lock.longWaitIndex = 0
 	}
 }
@@ -1572,8 +1572,10 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 		if command.Flag&protocol.LOCK_FLAG_SHOW_WHEN_LOCKED != 0 {
 			currentLock := lockManager.currentLock
 			command.LockId = currentLock.command.LockId
-			command.Expried = uint16(currentLock.expriedTime - currentLock.startTime)
 			command.Timeout = currentLock.command.Timeout
+			command.TimeoutFlag = currentLock.command.TimeoutFlag
+			command.Expried = currentLock.command.Expried
+			command.ExpriedFlag = currentLock.command.ExpriedFlag
 			command.Count = currentLock.command.Count
 			command.Rcount = currentLock.command.Rcount
 			lockManager.glock.Unlock()
@@ -1595,61 +1597,76 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 
 			lockData := lockManager.GetLockData()
 			if command.Flag&protocol.LOCK_FLAG_UPDATE_WHEN_LOCKED != 0 {
+				currentLockCommand := currentLock.command
 				if command.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
 					lockManager.ProcessLockData(command, currentLock, false)
 				}
 				if currentLock.longWaitIndex > 0 {
-					self.RemoveLongExpried(currentLock)
-					lockManager.UpdateLockedLock(currentLock, command.Timeout, command.TimeoutFlag, command.Expried, command.ExpriedFlag, command.Count, command.Rcount)
+					expriedTime := currentLock.expriedTime
+					lockManager.UpdateLockedLock(currentLock, command)
 					if command.ExpriedFlag&protocol.EXPRIED_FLAG_MILLISECOND_TIME == 0 {
-						self.AddExpried(currentLock)
+						if expriedTime != currentLock.expriedTime {
+							self.RemoveLongExpried(currentLock, expriedTime)
+							self.AddExpried(currentLock)
+						}
 					} else {
+						self.RemoveLongExpried(currentLock, expriedTime)
 						self.AddMillisecondExpried(currentLock)
 					}
-
 					currentLock.refCount++
 				} else {
-					lockManager.UpdateLockedLock(currentLock, command.TimeoutFlag, command.Timeout, command.Expried, command.ExpriedFlag, command.Count, command.Rcount)
+					lockManager.UpdateLockedLock(currentLock, command)
 				}
 				currentLock.protocol = serverProtocol.GetProxy()
-				if currentLock.isAof {
-					_ = lockManager.PushLockAof(currentLock, AOF_FLAG_UPDATED)
+				if command.Flag&protocol.LOCK_FLAG_FROM_AOF == 0 {
+					if command.TimeoutFlag&protocol.TIMEOUT_FLAG_REQUIRE_ACKED != 0 && currentLock.aofTime != 0xff {
+						err := lockManager.PushLockAof(currentLock, AOF_FLAG_UPDATED)
+						if err == nil {
+							currentLock.refCount++
+							lockManager.glock.Unlock()
+							_ = serverProtocol.FreeLockCommand(currentLockCommand)
+							return nil
+						}
+					}
+					if currentLock.isAof {
+						_ = lockManager.PushLockAof(currentLock, AOF_FLAG_UPDATED)
+					}
 				}
-
-				command.Expried = uint16(currentLock.expriedTime - currentLock.startTime)
-				command.Timeout = currentLock.command.Timeout
-				command.Count = currentLock.command.Count
-				command.Rcount = currentLock.command.Rcount
 				lockManager.glock.Unlock()
-			} else if currentLock.locked < 0xff && currentLock.locked <= command.Rcount {
+				_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_LOCKED_ERROR, uint16(lockManager.locked), currentLock.locked, lockData)
+				_ = serverProtocol.FreeLockCommand(currentLockCommand)
+				return nil
+			}
+			if currentLock.locked < 0xff && currentLock.locked <= command.Rcount {
 				if command.Expried == 0 {
-					command.Expried = uint16(currentLock.expriedTime - currentLock.startTime)
-					command.Timeout = currentLock.command.Timeout
-					command.Count = currentLock.command.Count
-					command.Rcount = currentLock.command.Rcount
 					lockManager.glock.Unlock()
 
-					_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_EXPRIED, uint16(lockManager.locked), currentLock.locked, lockData)
+					_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, uint16(lockManager.locked), currentLock.locked, lockData)
 					_ = serverProtocol.FreeLockCommand(command)
 					return nil
 				}
 
 				lockManager.locked++
 				currentLock.locked++
+				currentLockCommand := currentLock.command
 				if command.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
 					lockManager.ProcessLockData(command, currentLock, false)
 				}
 				if currentLock.longWaitIndex > 0 {
-					self.RemoveLongExpried(currentLock)
-					lockManager.UpdateLockedLock(currentLock, command.Timeout, command.TimeoutFlag, command.Expried, command.ExpriedFlag, command.Count, command.Rcount)
+					expriedTime := currentLock.expriedTime
+					lockManager.UpdateLockedLock(currentLock, command)
 					if command.ExpriedFlag&protocol.EXPRIED_FLAG_MILLISECOND_TIME == 0 {
-						self.AddExpried(currentLock)
+						if expriedTime != currentLock.expriedTime {
+							self.RemoveLongExpried(currentLock, expriedTime)
+							self.AddExpried(currentLock)
+						}
 					} else {
+						self.RemoveLongExpried(currentLock, expriedTime)
 						self.AddMillisecondExpried(currentLock)
 					}
 					currentLock.refCount++
 				} else {
-					lockManager.UpdateLockedLock(currentLock, command.Timeout, command.TimeoutFlag, command.Expried, command.ExpriedFlag, command.Count, command.Rcount)
+					lockManager.UpdateLockedLock(currentLock, command)
 				}
 				currentLock.protocol = serverProtocol.GetProxy()
 				if currentLock.isAof {
@@ -1660,12 +1677,11 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 				lockManager.glock.Unlock()
 
 				_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, uint16(lockManager.locked), currentLock.locked, lockData)
-				_ = serverProtocol.FreeLockCommand(command)
+				_ = serverProtocol.FreeLockCommand(currentLockCommand)
 				return nil
-			} else {
-				lockManager.glock.Unlock()
 			}
 
+			lockManager.glock.Unlock()
 			_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_LOCKED_ERROR, uint16(lockManager.locked), currentLock.locked, lockData)
 			_ = serverProtocol.FreeLockCommand(command)
 			return nil
@@ -1939,7 +1955,7 @@ func (self *LockDB) UnLock(serverProtocol ServerProtocol, command *protocol.Lock
 				lockManager.ProcessExecuteLockCommand(currentLock, protocol.LOCK_DATA_STAGE_UNLOCK)
 			}
 			if currentLock.longWaitIndex > 0 {
-				self.RemoveLongExpried(currentLock)
+				self.RemoveLongExpried(currentLock, currentLock.expriedTime)
 				if currentLock.isAof {
 					_ = lockManager.PushUnLockAof(lockManager.dbId, currentLock, currentLockCommand, command, false, 0)
 				}
@@ -1981,7 +1997,7 @@ func (self *LockDB) UnLock(serverProtocol ServerProtocol, command *protocol.Lock
 		}
 		if currentLock.longWaitIndex > 0 {
 			lockManager.locked--
-			self.RemoveLongExpried(currentLock)
+			self.RemoveLongExpried(currentLock, currentLock.expriedTime)
 			if currentLock.isAof {
 				_ = lockManager.PushUnLockAof(lockManager.dbId, currentLock, currentLockCommand, command, false, 0)
 			}
@@ -2291,6 +2307,21 @@ func (self *LockDB) DoAckLock(lock *Lock, succed bool) {
 			}
 		}
 		lockManager.glock.Unlock()
+		return
+	}
+
+	if !lock.expried {
+		lock.ackCount = 0xff
+		var lockData []byte = nil
+		if lock.command.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
+			lockData = lockManager.ProcessAckLockData(lock)
+		} else {
+			lockData = lockManager.GetLockData()
+		}
+		lockProtocol, lockCommand := lock.protocol, lock.command
+		lockManager.glock.Unlock()
+
+		_ = lockProtocol.ProcessLockResultCommandLocked(lockCommand, protocol.RESULT_LOCKED_ERROR, uint16(lockManager.locked), lock.locked, lockData)
 		return
 	}
 

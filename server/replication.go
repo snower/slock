@@ -1486,7 +1486,11 @@ func (self *ReplicationAckDB) ProcessFollowerAckLocked(glockIndex uint16, comman
 
 	ackLock.lockResult.CommandType = command.CommandType
 	ackLock.lockResult.RequestId = command.RequestId
-	ackLock.lockResult.Result = result
+	if command.Flag&protocol.LOCK_FLAG_UPDATE_WHEN_LOCKED != 0 && result == protocol.RESULT_LOCKED_ERROR {
+		ackLock.lockResult.Result = 0
+	} else {
+		ackLock.lockResult.Result = result
+	}
 	ackLock.lockResult.Flag = 0
 	ackLock.lockResult.DbId = command.DbId
 	ackLock.lockResult.LockId = command.LockId

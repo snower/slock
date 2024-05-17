@@ -420,7 +420,9 @@ func (self *TextCommandConverter) ConvertTextSetCommand(textProtocol ITextProtoc
 	}
 	if lockCommand.Expried == 0 && lockCommand.ExpriedFlag == 0 {
 		lockCommand.Expried = 0xffff
-		lockCommand.ExpriedFlag = EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME
+		lockCommand.ExpriedFlag = EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME | EXPRIED_FLAG_ZEOR_AOF_TIME
+	} else {
+		lockCommand.ExpriedFlag |= EXPRIED_FLAG_ZEOR_AOF_TIME
 	}
 	return lockCommand, self.WriteTextSetCommandResult, nil
 }
@@ -462,7 +464,9 @@ func (self *TextCommandConverter) ConvertTextAppendCommand(textProtocol ITextPro
 	}
 	if lockCommand.Expried == 0 && lockCommand.ExpriedFlag == 0 {
 		lockCommand.Expried = 0xffff
-		lockCommand.ExpriedFlag = EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME
+		lockCommand.ExpriedFlag = EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME | EXPRIED_FLAG_ZEOR_AOF_TIME
+	} else {
+		lockCommand.ExpriedFlag |= EXPRIED_FLAG_ZEOR_AOF_TIME
 	}
 	return lockCommand, func(textProtocol ITextProtocol, stream ISteam, lockCommandResult *LockResultCommand) error {
 		if lockCommandResult.Result != 0 && lockCommandResult.Result != RESULT_LOCKED_ERROR {
@@ -510,7 +514,9 @@ func (self *TextCommandConverter) ConvertTextSetNXCommand(textProtocol ITextProt
 	}
 	if lockCommand.Expried == 0 && lockCommand.ExpriedFlag == 0 {
 		lockCommand.Expried = 0xffff
-		lockCommand.ExpriedFlag = EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME
+		lockCommand.ExpriedFlag = EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME | EXPRIED_FLAG_ZEOR_AOF_TIME
+	} else {
+		lockCommand.ExpriedFlag |= EXPRIED_FLAG_ZEOR_AOF_TIME
 	}
 	return lockCommand, self.WriteTextSetNXCommandResult, nil
 }
@@ -638,7 +644,7 @@ func (self *TextCommandConverter) ConvertTextIncrCommand(textProtocol ITextProto
 	}
 	lockCommand.Data = NewLockCommandDataIncrDataWithProperty(incrValue, []*LockCommandDataProperty{NewLockCommandDataProperty(LOCK_DATA_PROPERTY_CODE_KEY, []byte(args[1]))})
 	lockCommand.Expried = 0xffff
-	lockCommand.ExpriedFlag = EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME
+	lockCommand.ExpriedFlag = EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME | EXPRIED_FLAG_ZEOR_AOF_TIME
 	if len(args) > index {
 		err := self.ConvertArgs2Flag(lockCommand, args[index:])
 		if err != nil {
@@ -686,7 +692,7 @@ func (self *TextCommandConverter) ConvertTextDecrCommand(textProtocol ITextProto
 	}
 	lockCommand.Data = NewLockCommandDataIncrDataWithProperty(incrValue, []*LockCommandDataProperty{NewLockCommandDataProperty(LOCK_DATA_PROPERTY_CODE_KEY, []byte(args[1]))})
 	lockCommand.Expried = 0xffff
-	lockCommand.ExpriedFlag = EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME
+	lockCommand.ExpriedFlag = EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME | EXPRIED_FLAG_ZEOR_AOF_TIME
 	if len(args) > index {
 		err := self.ConvertArgs2Flag(lockCommand, args[index:])
 		if err != nil {
@@ -839,6 +845,7 @@ func (self *TextCommandConverter) ConvertTextExpireCommand(textProtocol ITextPro
 		lockCommand.Expried = 0xffff
 		lockCommand.ExpriedFlag = EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME
 	}
+	lockCommand.ExpriedFlag |= EXPRIED_FLAG_ZEOR_AOF_TIME
 	return lockCommand, self.WriteTextExpireCommandResult, nil
 }
 

@@ -100,7 +100,7 @@ func TestLockDB_LockExpriedLongWait(t *testing.T) {
 			lock.expriedTime = lockExpriedTime
 			db.AddExpried(lock)
 			if i%10 != 0 {
-				db.RemoveLongExpried(lock)
+				db.RemoveLongExpried(lock, lock.expriedTime)
 			} else {
 				locks = append(locks, lock)
 			}
@@ -118,7 +118,7 @@ func TestLockDB_LockExpriedLongWait(t *testing.T) {
 		}
 		db.managerGlocks[0].Lock()
 		for _, lock := range locks {
-			db.RemoveLongExpried(lock)
+			db.RemoveLongExpried(lock, lock.expriedTime)
 		}
 		db.managerGlocks[0].Unlock()
 		if longLocks, ok := db.longExpriedLocks[0][lockExpriedTime]; ok {

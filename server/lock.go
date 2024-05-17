@@ -147,61 +147,56 @@ func (self *LockManager) GetLockedLock(command *protocol.LockCommand) *Lock {
 	return nil
 }
 
-func (self *LockManager) UpdateLockedLock(lock *Lock, timeout uint16, timeout_flag uint16, expried uint16, expried_flag uint16, count uint16, rcount uint8) {
-	lock.command.Timeout = timeout
-	if lock.command.TimeoutFlag&protocol.TIMEOUT_FLAG_REQUIRE_ACKED != 0 {
-		lock.command.TimeoutFlag = timeout_flag
-		lock.command.TimeoutFlag |= protocol.TIMEOUT_FLAG_REQUIRE_ACKED
-	} else {
-		lock.command.TimeoutFlag = timeout_flag
+func (self *LockManager) UpdateLockedLock(lock *Lock, command *protocol.LockCommand) *protocol.LockCommand {
+	currentCommand := lock.command
+	if currentCommand.TimeoutFlag&protocol.TIMEOUT_FLAG_REQUIRE_ACKED != 0 {
+		command.TimeoutFlag |= protocol.TIMEOUT_FLAG_REQUIRE_ACKED
 	}
-	lock.command.Expried = expried
-	lock.command.ExpriedFlag = expried_flag
-	lock.command.Count = count
-	lock.command.Rcount = rcount
+	lock.command = command
 
 	lock.startTime = self.lockDb.currentTime
-	if timeout_flag&protocol.TIMEOUT_FLAG_MILLISECOND_TIME == 0 {
-		if timeout_flag&protocol.TIMEOUT_FLAG_MINUTE_TIME != 0 {
-			lock.timeoutTime = lock.startTime + int64(timeout)*60 + 1
+	if command.TimeoutFlag&protocol.TIMEOUT_FLAG_MILLISECOND_TIME == 0 {
+		if command.TimeoutFlag&protocol.TIMEOUT_FLAG_MINUTE_TIME != 0 {
+			lock.timeoutTime = lock.startTime + int64(command.Timeout)*60 + 1
 		} else {
-			lock.timeoutTime = lock.startTime + int64(timeout) + 1
+			lock.timeoutTime = lock.startTime + int64(command.Timeout) + 1
 		}
 	} else {
-		lock.timeoutTime = lock.startTime + int64(timeout)/1000 + 1
+		lock.timeoutTime = lock.startTime + int64(command.Timeout)/1000 + 1
 	}
 
-	if expried_flag&protocol.EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME != 0 {
+	if command.ExpriedFlag&protocol.EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME != 0 {
 		lock.expriedTime = 0x7fffffffffffffff
-	} else if expried_flag&protocol.EXPRIED_FLAG_MILLISECOND_TIME == 0 {
-		if expried_flag&protocol.EXPRIED_FLAG_MINUTE_TIME != 0 {
-			lock.expriedTime = lock.startTime + int64(expried)*60 + 1
+	} else if command.ExpriedFlag&protocol.EXPRIED_FLAG_MILLISECOND_TIME == 0 {
+		if command.ExpriedFlag&protocol.EXPRIED_FLAG_MINUTE_TIME != 0 {
+			lock.expriedTime = lock.startTime + int64(command.Expried)*60 + 1
 		} else {
-			lock.expriedTime = lock.startTime + int64(expried) + 1
+			lock.expriedTime = lock.startTime + int64(command.Expried) + 1
 		}
 	} else {
-		lock.expriedTime = lock.startTime + int64(expried)/1000 + 1
+		lock.expriedTime = lock.startTime + int64(command.Expried)/1000 + 1
 	}
 
-	if timeout_flag&protocol.TIMEOUT_FLAG_UPDATE_NO_RESET_TIMEOUT_CHECKED_COUNT == 0 {
+	if command.TimeoutFlag&protocol.TIMEOUT_FLAG_UPDATE_NO_RESET_TIMEOUT_CHECKED_COUNT == 0 {
 		lock.timeoutCheckedCount = 1
 	}
-	if expried_flag&protocol.EXPRIED_FLAG_UPDATE_NO_RESET_EXPRIED_CHECKED_COUNT == 0 {
+	if command.ExpriedFlag&protocol.EXPRIED_FLAG_UPDATE_NO_RESET_EXPRIED_CHECKED_COUNT == 0 {
 		lock.expriedCheckedCount = 1
 	}
 
 	if !lock.isAof && self.currentLock == lock && self.locks.Head() == nil {
-		switch expried_flag & 0x1300 {
+		switch command.ExpriedFlag & 0x1300 {
 		case protocol.EXPRIED_FLAG_ZEOR_AOF_TIME:
 			lock.aofTime = 0
 		case protocol.EXPRIED_FLAG_UNLIMITED_AOF_TIME:
 			lock.aofTime = 0xff
 		case protocol.EXPRIED_FLAG_AOF_TIME_OF_EXPRIED_PARCENT:
-			lock.aofTime = uint8(float64(expried) * Config.DBLockAofParcentTime)
+			lock.aofTime = uint8(float64(command.Expried) * Config.DBLockAofParcentTime)
 		default:
 			lock.aofTime = self.lockDb.aofTime
 		}
 	}
+	return currentCommand
 }
 
 func (self *LockManager) AddWaitLock(lock *Lock) *Lock {
