@@ -2658,12 +2658,12 @@ func (self *TextServerProtocol) commandHandlerKeyReadValueCommand(_ *TextServerP
 	if db != nil {
 		lockManager := db.GetLockManager(lockCommand)
 		if lockManager != nil {
-			lockManager.glock.Lock()
+			lockManager.glock.LowPriorityLock()
 			currentLock := lockManager.currentLock
 			if currentLock != nil {
 				count, rcount, result, lcount, lrcount, data = currentLock.command.Count, currentLock.command.Rcount, protocol.RESULT_UNOWN_ERROR, uint16(lockManager.locked), currentLock.locked, lockManager.GetLockData()
 			}
-			lockManager.glock.Unlock()
+			lockManager.glock.LowPriorityUnlock()
 		}
 	}
 
@@ -2907,14 +2907,14 @@ func (self *TextServerProtocol) commandHandlerKeyTTLCommand(_ *TextServerProtoco
 		_ = self.FreeLockCommand(lockCommand)
 		return self.stream.WriteBytes([]byte(":-2\r\n"))
 	}
-	lockManager.glock.Lock()
+	lockManager.glock.LowPriorityLock()
 	if lockManager.currentLock == nil {
 		lockManager.glock.Unlock()
 		_ = self.FreeLockCommand(lockCommand)
 		return self.stream.WriteBytes([]byte(":-2\r\n"))
 	}
 	expriedTime := lockManager.currentLock.expriedTime
-	lockManager.glock.Unlock()
+	lockManager.glock.LowPriorityUnlock()
 	_ = self.FreeLockCommand(lockCommand)
 	if expriedTime == 0x7fffffffffffffff {
 		return self.stream.WriteBytes([]byte(":-1\r\n"))
