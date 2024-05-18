@@ -1194,9 +1194,6 @@ func (self *TransparencyTextServerProtocol) commandHandlerLock(serverProtocol *T
 			self.serverProtocol.lockRequestId[8], self.serverProtocol.lockRequestId[9], self.serverProtocol.lockRequestId[10], self.serverProtocol.lockRequestId[11], self.serverProtocol.lockRequestId[12], self.serverProtocol.lockRequestId[13], self.serverProtocol.lockRequestId[14], self.serverProtocol.lockRequestId[15] =
 			0, 0, 0, 0, 0, 0, 0, 0,
 			0, 0, 0, 0, 0, 0, 0, 0
-		if self.clientProtocol != nil {
-			_ = self.manager.ReleaseClient(self.clientProtocol)
-		}
 		_ = self.serverProtocol.FreeLockCommand(lockCommand)
 		return self.stream.WriteBytes(self.serverProtocol.parser.BuildResponse(false, "ERR Lock Error", nil))
 	}
@@ -1205,10 +1202,6 @@ func (self *TransparencyTextServerProtocol) commandHandlerLock(serverProtocol *T
 	if lockCommandResult.Result == 0 {
 		self.serverProtocol.lockId = lockCommandResult.LockId
 	}
-	if self.clientProtocol != nil {
-		_ = self.manager.ReleaseClient(self.clientProtocol)
-	}
-
 	err = writeTextCommandResultFunc(self, self.stream, lockCommandResult)
 	_ = self.serverProtocol.FreeLockCommand(lockCommand)
 	self.serverProtocol.freeCommandResult = lockCommandResult
@@ -1256,9 +1249,6 @@ func (self *TransparencyTextServerProtocol) commandHandlerUnlock(serverProtocol 
 			self.serverProtocol.lockRequestId[8], self.serverProtocol.lockRequestId[9], self.serverProtocol.lockRequestId[10], self.serverProtocol.lockRequestId[11], self.serverProtocol.lockRequestId[12], self.serverProtocol.lockRequestId[13], self.serverProtocol.lockRequestId[14], self.serverProtocol.lockRequestId[15] =
 			0, 0, 0, 0, 0, 0, 0, 0,
 			0, 0, 0, 0, 0, 0, 0, 0
-		if self.clientProtocol != nil {
-			_ = self.manager.ReleaseClient(self.clientProtocol)
-		}
 		_ = self.serverProtocol.FreeLockCommand(lockCommand)
 		return self.stream.WriteBytes(self.serverProtocol.parser.BuildResponse(false, "ERR UnLock Error", nil))
 	}
@@ -1272,10 +1262,6 @@ func (self *TransparencyTextServerProtocol) commandHandlerUnlock(serverProtocol 
 			0, 0, 0, 0, 0, 0, 0, 0,
 			0, 0, 0, 0, 0, 0, 0, 0
 	}
-	if self.clientProtocol != nil {
-		_ = self.manager.ReleaseClient(self.clientProtocol)
-	}
-
 	err = writeTextCommandResultFunc(self, self.stream, lockCommandResult)
 	_ = self.serverProtocol.FreeLockCommand(lockCommand)
 	self.serverProtocol.freeCommandResult = lockCommandResult
@@ -1305,15 +1291,8 @@ func (self *TransparencyTextServerProtocol) commandHandlerPush(serverProtocol *T
 
 	err = clientProtocol.Write(lockCommand)
 	if err != nil {
-		if self.clientProtocol != nil {
-			_ = self.manager.ReleaseClient(self.clientProtocol)
-		}
 		_ = self.serverProtocol.FreeLockCommand(lockCommand)
 		return self.stream.WriteBytes(self.serverProtocol.parser.BuildResponse(false, "ERR Lock Error", nil))
-	}
-
-	if self.clientProtocol != nil {
-		_ = self.manager.ReleaseClient(self.clientProtocol)
 	}
 	_ = self.serverProtocol.FreeLockCommand(lockCommand)
 	return self.stream.WriteBytes(self.serverProtocol.parser.BuildResponse(true, "OK", nil))
@@ -1346,17 +1325,11 @@ func (self *TransparencyTextServerProtocol) commandHandlerKeyWriteValueCommand(s
 			self.serverProtocol.lockRequestId[8], self.serverProtocol.lockRequestId[9], self.serverProtocol.lockRequestId[10], self.serverProtocol.lockRequestId[11], self.serverProtocol.lockRequestId[12], self.serverProtocol.lockRequestId[13], self.serverProtocol.lockRequestId[14], self.serverProtocol.lockRequestId[15] =
 			0, 0, 0, 0, 0, 0, 0, 0,
 			0, 0, 0, 0, 0, 0, 0, 0
-		if self.clientProtocol != nil {
-			_ = self.manager.ReleaseClient(self.clientProtocol)
-		}
 		_ = self.serverProtocol.FreeLockCommand(lockCommand)
 		return self.stream.WriteBytes(self.serverProtocol.parser.BuildResponse(false, "ERR Lock Error", nil))
 	}
 
 	lockCommandResult := <-self.lockWaiter
-	if self.clientProtocol != nil {
-		_ = self.manager.ReleaseClient(self.clientProtocol)
-	}
 	err = writeTextCommandResultFunc(self, self.stream, lockCommandResult)
 	_ = self.serverProtocol.FreeLockCommand(lockCommand)
 	self.serverProtocol.freeCommandResult = lockCommandResult
