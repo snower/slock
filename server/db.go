@@ -2338,6 +2338,13 @@ func (self *LockDB) DoAckLock(lock *Lock, succed bool) {
 			lockData = lockManager.GetLockData()
 		}
 		lockProtocol, lockCommand := lock.protocol, lock.command
+		lock.refCount--
+		if lock.refCount == 0 {
+			lockManager.FreeLock(lock)
+			if lockManager.refCount == 0 {
+				self.RemoveLockManager(lockManager)
+			}
+		}
 		lockManager.glock.Unlock()
 
 		_ = lockProtocol.ProcessLockResultCommandLocked(lockCommand, protocol.RESULT_LOCKED_ERROR, uint16(lockManager.locked), lock.locked, lockData)
