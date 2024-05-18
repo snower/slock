@@ -49,6 +49,12 @@ func (self *LockManager) AddLock(lock *Lock) *Lock {
 		} else {
 			lock.expriedTime = lock.startTime + int64(lock.command.Expried)/1000 + 1
 		}
+
+		if lock.command.ExpriedFlag&protocol.EXPRIED_FLAG_ZEOR_AOF_TIME != 0 && lock.startTime-lock.expriedTime > 5 {
+			lock.expriedCheckedCount = EXPRIED_QUEUE_MAX_WAIT + 1
+		} else {
+			lock.expriedCheckedCount = 1
+		}
 	}
 
 	if self.currentLock == nil {
@@ -149,6 +155,9 @@ func (self *LockManager) GetLockedLock(command *protocol.LockCommand) *Lock {
 
 func (self *LockManager) CheckLockedEqual(lock *Lock, command *protocol.LockCommand) bool {
 	if command.ExpriedFlag&protocol.EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME != 0 {
+		if command.Expried == 0xffff {
+			return command.Count == lock.command.Count && command.Rcount == lock.command.Rcount
+		}
 		return lock.expriedTime == 0x7fffffffffffffff && command.Count == lock.command.Count && command.Rcount == lock.command.Rcount
 	}
 	if command.ExpriedFlag&protocol.EXPRIED_FLAG_MILLISECOND_TIME == 0 {
@@ -170,39 +179,42 @@ func (self *LockManager) CheckLockedEqual(lock *Lock, command *protocol.LockComm
 
 func (self *LockManager) UpdateLockedLock(lock *Lock, command *protocol.LockCommand) *protocol.LockCommand {
 	currentCommand := lock.command
-	if currentCommand.TimeoutFlag&protocol.TIMEOUT_FLAG_REQUIRE_ACKED != 0 {
-		command.TimeoutFlag |= protocol.TIMEOUT_FLAG_REQUIRE_ACKED
-	}
 	lock.command = command
 
-	lock.startTime = self.lockDb.currentTime
-	if command.TimeoutFlag&protocol.TIMEOUT_FLAG_MILLISECOND_TIME == 0 {
-		if command.TimeoutFlag&protocol.TIMEOUT_FLAG_MINUTE_TIME != 0 {
-			lock.timeoutTime = lock.startTime + int64(command.Timeout)*60 + 1
+	if command.ExpriedFlag&protocol.EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME == 0 || command.Expried < 0xffff {
+		lock.startTime = self.lockDb.currentTime
+		if command.TimeoutFlag&protocol.TIMEOUT_FLAG_MILLISECOND_TIME == 0 {
+			if command.TimeoutFlag&protocol.TIMEOUT_FLAG_MINUTE_TIME != 0 {
+				lock.timeoutTime = lock.startTime + int64(command.Timeout)*60 + 1
+			} else {
+				lock.timeoutTime = lock.startTime + int64(command.Timeout) + 1
+			}
 		} else {
-			lock.timeoutTime = lock.startTime + int64(command.Timeout) + 1
+			lock.timeoutTime = lock.startTime + int64(command.Timeout)/1000 + 1
 		}
-	} else {
-		lock.timeoutTime = lock.startTime + int64(command.Timeout)/1000 + 1
-	}
 
-	if command.ExpriedFlag&protocol.EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME != 0 {
-		lock.expriedTime = 0x7fffffffffffffff
-	} else if command.ExpriedFlag&protocol.EXPRIED_FLAG_MILLISECOND_TIME == 0 {
-		if command.ExpriedFlag&protocol.EXPRIED_FLAG_MINUTE_TIME != 0 {
-			lock.expriedTime = lock.startTime + int64(command.Expried)*60 + 1
+		if command.ExpriedFlag&protocol.EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME != 0 {
+			lock.expriedTime = 0x7fffffffffffffff
+		} else if command.ExpriedFlag&protocol.EXPRIED_FLAG_MILLISECOND_TIME == 0 {
+			if command.ExpriedFlag&protocol.EXPRIED_FLAG_MINUTE_TIME != 0 {
+				lock.expriedTime = lock.startTime + int64(command.Expried)*60 + 1
+			} else {
+				lock.expriedTime = lock.startTime + int64(command.Expried) + 1
+			}
 		} else {
-			lock.expriedTime = lock.startTime + int64(command.Expried) + 1
+			lock.expriedTime = lock.startTime + int64(command.Expried)/1000 + 1
 		}
-	} else {
-		lock.expriedTime = lock.startTime + int64(command.Expried)/1000 + 1
-	}
 
-	if command.TimeoutFlag&protocol.TIMEOUT_FLAG_UPDATE_NO_RESET_TIMEOUT_CHECKED_COUNT == 0 {
-		lock.timeoutCheckedCount = 1
-	}
-	if command.ExpriedFlag&protocol.EXPRIED_FLAG_UPDATE_NO_RESET_EXPRIED_CHECKED_COUNT == 0 {
-		lock.expriedCheckedCount = 1
+		if command.TimeoutFlag&protocol.TIMEOUT_FLAG_UPDATE_NO_RESET_TIMEOUT_CHECKED_COUNT == 0 {
+			lock.timeoutCheckedCount = 1
+		}
+		if command.ExpriedFlag&protocol.EXPRIED_FLAG_UPDATE_NO_RESET_EXPRIED_CHECKED_COUNT == 0 {
+			if command.ExpriedFlag&protocol.EXPRIED_FLAG_ZEOR_AOF_TIME != 0 && lock.startTime-lock.expriedTime > 5 {
+				lock.expriedCheckedCount = EXPRIED_QUEUE_MAX_WAIT + 1
+			} else {
+				lock.expriedCheckedCount = 1
+			}
+		}
 	}
 
 	if !lock.isAof && self.currentLock == lock && self.locks.Head() == nil {
@@ -330,8 +342,15 @@ func (self *LockManager) GetOrNewLock(serverProtocol ServerProtocol, command *pr
 		} else {
 			lock.expriedTime = lock.startTime + int64(lock.command.Expried)/1000 + 1
 		}
+
+		if command.ExpriedFlag&protocol.EXPRIED_FLAG_ZEOR_AOF_TIME != 0 && lock.startTime-lock.expriedTime > 5 {
+			lock.expriedCheckedCount = EXPRIED_QUEUE_MAX_WAIT + 1
+		} else {
+			lock.expriedCheckedCount = 1
+		}
 	} else {
 		lock.expriedTime = 0
+		lock.expriedCheckedCount = 1
 	}
 	if lock.command.TimeoutFlag&protocol.TIMEOUT_FLAG_MILLISECOND_TIME == 0 {
 		if lock.command.TimeoutFlag&protocol.TIMEOUT_FLAG_MINUTE_TIME != 0 {
@@ -343,7 +362,6 @@ func (self *LockManager) GetOrNewLock(serverProtocol ServerProtocol, command *pr
 		lock.timeoutTime = now + int64(command.Timeout)/1000 + 1
 	}
 	lock.timeoutCheckedCount = 1
-	lock.expriedCheckedCount = 1
 	lock.longWaitIndex = 0
 	self.refCount++
 	return lock

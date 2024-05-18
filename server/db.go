@@ -1607,9 +1607,6 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 							_ = serverProtocol.FreeLockCommand(command)
 							return nil
 						}
-						if command.Flag&protocol.LOCK_FLAG_FROM_AOF == 0 {
-							lockManager.currentData.isAof = false
-						}
 					}
 				} else {
 					if lockManager.CheckLockedEqual(currentLock, command) {
@@ -2453,10 +2450,23 @@ func (self *LockDB) HasLock(command *protocol.LockCommand, aofLockData []byte) b
 			}
 			lockManager.glock.LowPriorityUnlock()
 			return true
-		} else if command.Flag&protocol.LOCK_FLAG_UPDATE_WHEN_LOCKED != 0 && lockManager.locked == 1 && aofLockData != nil {
-			if lockManager.currentData == nil || !lockManager.currentData.Equal(aofLockData) || lockManager.currentLock == nil || !lockManager.CheckLockedEqual(lockManager.currentLock, command) {
-				lockManager.glock.LowPriorityUnlock()
-				return false
+		} else if command.Flag&protocol.LOCK_FLAG_UPDATE_WHEN_LOCKED != 0 {
+			if aofLockData == nil {
+				if lockManager.currentLock == nil || !lockManager.CheckLockedEqual(lockManager.currentLock, command) {
+					lockManager.glock.LowPriorityUnlock()
+					return false
+				}
+			} else if lockManager.currentData == nil || !lockManager.currentData.Equal(aofLockData) {
+				currentLock := lockManager.currentLock
+				if command.ExpriedFlag&protocol.EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME != 0 && command.Expried == 0xffff {
+					if currentLock == nil || (currentLock.command.Count == command.Count && currentLock.command.Rcount == command.Rcount) {
+						lockManager.glock.LowPriorityUnlock()
+						return false
+					}
+				} else if currentLock == nil || !lockManager.CheckLockedEqual(currentLock, command) {
+					lockManager.glock.LowPriorityUnlock()
+					return false
+				}
 			}
 			lockManager.glock.LowPriorityUnlock()
 			return true

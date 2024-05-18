@@ -115,7 +115,11 @@ func (self *TextCommandConverter) ConvertArgs2Flag(lockCommand *LockCommand, arg
 				return errors.New("Command Parse EX Value Error")
 			}
 			if expried > 65535 {
-				lockCommand.Expried = uint16(expried/60) + 1
+				if expried%60 == 0 {
+					lockCommand.Expried = uint16(expried / 60)
+				} else {
+					lockCommand.Expried = uint16(expried/60) + 1
+				}
 				lockCommand.ExpriedFlag |= EXPRIED_FLAG_MINUTE_TIME
 			} else {
 				lockCommand.Expried = uint16(expried)
@@ -130,9 +134,13 @@ func (self *TextCommandConverter) ConvertArgs2Flag(lockCommand *LockCommand, arg
 				return errors.New("Command Parse PX Value Error")
 			}
 			if expried > 65535000 {
-				lockCommand.Expried = uint16(expried/60000) + 1
+				if expried%60000 == 0 {
+					lockCommand.Expried = uint16(expried / 60000)
+				} else {
+					lockCommand.Expried = uint16(expried/60000) + 1
+				}
 				lockCommand.ExpriedFlag |= EXPRIED_FLAG_MINUTE_TIME
-			} else if expried > 3000 {
+			} else if expried <= 3000 {
 				lockCommand.Expried = uint16(expried)
 				lockCommand.ExpriedFlag |= EXPRIED_FLAG_MILLISECOND_TIME
 			} else {
@@ -148,7 +156,11 @@ func (self *TextCommandConverter) ConvertArgs2Flag(lockCommand *LockCommand, arg
 				return errors.New("Command Parse TX Value Error")
 			}
 			if timeout > 65535 {
-				lockCommand.Timeout = uint16(timeout/60) + 1
+				if timeout%60 == 0 {
+					lockCommand.Timeout = uint16(timeout / 60)
+				} else {
+					lockCommand.Timeout = uint16(timeout/60) + 1
+				}
 				lockCommand.TimeoutFlag |= TIMEOUT_FLAG_MINUTE_TIME
 			} else {
 				lockCommand.Timeout = uint16(timeout)
@@ -163,9 +175,13 @@ func (self *TextCommandConverter) ConvertArgs2Flag(lockCommand *LockCommand, arg
 				return errors.New("Command Parse TX Value Error")
 			}
 			if timeout > 65535000 {
-				lockCommand.Timeout = uint16(timeout/60000) + 1
+				if (timeout/1000)%60 == 0 {
+					lockCommand.Timeout = uint16(timeout / 60000)
+				} else {
+					lockCommand.Timeout = uint16(timeout/60000) + 1
+				}
 				lockCommand.TimeoutFlag |= TIMEOUT_FLAG_MINUTE_TIME
-			} else if timeout > 3000 {
+			} else if timeout <= 3000 {
 				lockCommand.Timeout = uint16(timeout)
 				lockCommand.TimeoutFlag |= TIMEOUT_FLAG_MILLISECOND_TIME
 			} else {
@@ -441,10 +457,14 @@ func (self *TextCommandConverter) ConvertTextSetCommand(textProtocol ITextProtoc
 		}
 	}
 	if lockCommand.Expried == 0 && lockCommand.ExpriedFlag == 0 {
-		lockCommand.Expried = 0xffff
-		lockCommand.ExpriedFlag = EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME | EXPRIED_FLAG_ZEOR_AOF_TIME
+		lockCommand.Expried = 0x7fff
+		lockCommand.ExpriedFlag = EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME | EXPRIED_FLAG_ZEOR_AOF_TIME | EXPRIED_FLAG_UPDATE_NO_RESET_EXPRIED_CHECKED_COUNT
 	} else {
-		lockCommand.ExpriedFlag |= EXPRIED_FLAG_ZEOR_AOF_TIME
+		if lockCommand.ExpriedFlag&EXPRIED_FLAG_UNLIMITED_AOF_TIME != 0 {
+			lockCommand.ExpriedFlag |= EXPRIED_FLAG_UPDATE_NO_RESET_EXPRIED_CHECKED_COUNT
+		} else {
+			lockCommand.ExpriedFlag |= EXPRIED_FLAG_ZEOR_AOF_TIME | EXPRIED_FLAG_UPDATE_NO_RESET_EXPRIED_CHECKED_COUNT
+		}
 	}
 	return lockCommand, self.WriteTextSetCommandResult, nil
 }
@@ -486,9 +506,13 @@ func (self *TextCommandConverter) ConvertTextAppendCommand(textProtocol ITextPro
 	}
 	if lockCommand.Expried == 0 && lockCommand.ExpriedFlag == 0 {
 		lockCommand.Expried = 0xffff
-		lockCommand.ExpriedFlag = EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME | EXPRIED_FLAG_ZEOR_AOF_TIME
+		lockCommand.ExpriedFlag = EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME | EXPRIED_FLAG_ZEOR_AOF_TIME | EXPRIED_FLAG_UPDATE_NO_RESET_EXPRIED_CHECKED_COUNT
 	} else {
-		lockCommand.ExpriedFlag |= EXPRIED_FLAG_ZEOR_AOF_TIME
+		if lockCommand.ExpriedFlag&EXPRIED_FLAG_UNLIMITED_AOF_TIME != 0 {
+			lockCommand.ExpriedFlag |= EXPRIED_FLAG_UPDATE_NO_RESET_EXPRIED_CHECKED_COUNT
+		} else {
+			lockCommand.ExpriedFlag |= EXPRIED_FLAG_ZEOR_AOF_TIME | EXPRIED_FLAG_UPDATE_NO_RESET_EXPRIED_CHECKED_COUNT
+		}
 	}
 	return lockCommand, func(textProtocol ITextProtocol, stream ISteam, lockCommandResult *LockResultCommand) error {
 		if lockCommandResult.Result != 0 && lockCommandResult.Result != RESULT_LOCKED_ERROR {
@@ -536,9 +560,13 @@ func (self *TextCommandConverter) ConvertTextSetNXCommand(textProtocol ITextProt
 	}
 	if lockCommand.Expried == 0 && lockCommand.ExpriedFlag == 0 {
 		lockCommand.Expried = 0xffff
-		lockCommand.ExpriedFlag = EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME | EXPRIED_FLAG_ZEOR_AOF_TIME
+		lockCommand.ExpriedFlag = EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME | EXPRIED_FLAG_ZEOR_AOF_TIME | EXPRIED_FLAG_UPDATE_NO_RESET_EXPRIED_CHECKED_COUNT
 	} else {
-		lockCommand.ExpriedFlag |= EXPRIED_FLAG_ZEOR_AOF_TIME
+		if lockCommand.ExpriedFlag&EXPRIED_FLAG_UNLIMITED_AOF_TIME != 0 {
+			lockCommand.ExpriedFlag |= EXPRIED_FLAG_UPDATE_NO_RESET_EXPRIED_CHECKED_COUNT
+		} else {
+			lockCommand.ExpriedFlag |= EXPRIED_FLAG_ZEOR_AOF_TIME | EXPRIED_FLAG_UPDATE_NO_RESET_EXPRIED_CHECKED_COUNT
+		}
 	}
 	return lockCommand, self.WriteTextSetNXCommandResult, nil
 }
@@ -577,9 +605,13 @@ func (self *TextCommandConverter) ConvertTextSetEXCommand(textProtocol ITextProt
 	lockCommand.Expried = uint16(expried & 0xffff)
 	if strings.ToUpper(args[0]) == "PSETEX" {
 		if expried > 65535000 {
-			lockCommand.Expried = uint16(expried/60000) + 1
+			if (expried/1000)%60 == 0 {
+				lockCommand.Expried = uint16(expried / 60000)
+			} else {
+				lockCommand.Expried = uint16(expried/60000) + 1
+			}
 			lockCommand.ExpriedFlag |= EXPRIED_FLAG_MINUTE_TIME
-		} else if expried > 3000 {
+		} else if expried <= 3000 {
 			lockCommand.Expried = uint16(expried)
 			lockCommand.ExpriedFlag |= EXPRIED_FLAG_MILLISECOND_TIME
 		} else {
@@ -587,7 +619,11 @@ func (self *TextCommandConverter) ConvertTextSetEXCommand(textProtocol ITextProt
 		}
 	} else {
 		if expried > 65535 {
-			lockCommand.Expried = uint16(expried/60) + 1
+			if expried%60 == 0 {
+				lockCommand.Expried = uint16(expried / 60)
+			} else {
+				lockCommand.Expried = uint16(expried/60) + 1
+			}
 			lockCommand.ExpriedFlag |= EXPRIED_FLAG_MINUTE_TIME
 		} else {
 			lockCommand.Expried = uint16(expried)
@@ -599,6 +635,11 @@ func (self *TextCommandConverter) ConvertTextSetEXCommand(textProtocol ITextProt
 			_ = textProtocol.FreeLockCommand(lockCommand)
 			return nil, nil, err
 		}
+	}
+	if lockCommand.ExpriedFlag&EXPRIED_FLAG_UNLIMITED_AOF_TIME != 0 {
+		lockCommand.ExpriedFlag |= EXPRIED_FLAG_UPDATE_NO_RESET_EXPRIED_CHECKED_COUNT
+	} else {
+		lockCommand.ExpriedFlag |= EXPRIED_FLAG_ZEOR_AOF_TIME | EXPRIED_FLAG_UPDATE_NO_RESET_EXPRIED_CHECKED_COUNT
 	}
 	return lockCommand, self.WriteTextSetCommandResult, nil
 }
@@ -678,13 +719,21 @@ func (self *TextCommandConverter) ConvertTextIncrCommand(textProtocol ITextProto
 		index++
 	}
 	lockCommand.Data = NewLockCommandDataIncrDataWithProperty(incrValue, []*LockCommandDataProperty{NewLockCommandDataProperty(LOCK_DATA_PROPERTY_CODE_KEY, []byte(args[1]))})
-	lockCommand.Expried = 0xffff
-	lockCommand.ExpriedFlag = EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME | EXPRIED_FLAG_ZEOR_AOF_TIME
 	if len(args) > index {
 		err := self.ConvertArgs2Flag(lockCommand, args[index:])
 		if err != nil {
 			_ = textProtocol.FreeLockCommand(lockCommand)
 			return nil, nil, err
+		}
+	}
+	if lockCommand.Expried == 0 && lockCommand.ExpriedFlag == 0 {
+		lockCommand.Expried = 0xffff
+		lockCommand.ExpriedFlag = EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME | EXPRIED_FLAG_ZEOR_AOF_TIME | EXPRIED_FLAG_UPDATE_NO_RESET_EXPRIED_CHECKED_COUNT
+	} else {
+		if lockCommand.ExpriedFlag&EXPRIED_FLAG_UNLIMITED_AOF_TIME != 0 {
+			lockCommand.ExpriedFlag |= EXPRIED_FLAG_UPDATE_NO_RESET_EXPRIED_CHECKED_COUNT
+		} else {
+			lockCommand.ExpriedFlag |= EXPRIED_FLAG_ZEOR_AOF_TIME | EXPRIED_FLAG_UPDATE_NO_RESET_EXPRIED_CHECKED_COUNT
 		}
 	}
 	return lockCommand, func(_ ITextProtocol, stream ISteam, lockCommandResult *LockResultCommand) error {
@@ -726,13 +775,21 @@ func (self *TextCommandConverter) ConvertTextDecrCommand(textProtocol ITextProto
 		index++
 	}
 	lockCommand.Data = NewLockCommandDataIncrDataWithProperty(incrValue, []*LockCommandDataProperty{NewLockCommandDataProperty(LOCK_DATA_PROPERTY_CODE_KEY, []byte(args[1]))})
-	lockCommand.Expried = 0xffff
-	lockCommand.ExpriedFlag = EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME | EXPRIED_FLAG_ZEOR_AOF_TIME
 	if len(args) > index {
 		err := self.ConvertArgs2Flag(lockCommand, args[index:])
 		if err != nil {
 			_ = textProtocol.FreeLockCommand(lockCommand)
 			return nil, nil, err
+		}
+	}
+	if lockCommand.Expried == 0 && lockCommand.ExpriedFlag == 0 {
+		lockCommand.Expried = 0xffff
+		lockCommand.ExpriedFlag = EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME | EXPRIED_FLAG_ZEOR_AOF_TIME | EXPRIED_FLAG_UPDATE_NO_RESET_EXPRIED_CHECKED_COUNT
+	} else {
+		if lockCommand.ExpriedFlag&EXPRIED_FLAG_UNLIMITED_AOF_TIME != 0 {
+			lockCommand.ExpriedFlag |= EXPRIED_FLAG_UPDATE_NO_RESET_EXPRIED_CHECKED_COUNT
+		} else {
+			lockCommand.ExpriedFlag |= EXPRIED_FLAG_ZEOR_AOF_TIME | EXPRIED_FLAG_UPDATE_NO_RESET_EXPRIED_CHECKED_COUNT
 		}
 	}
 	return lockCommand, func(_ ITextProtocol, stream ISteam, lockCommandResult *LockResultCommand) error {
@@ -846,7 +903,11 @@ func (self *TextCommandConverter) ConvertTextExpireCommand(textProtocol ITextPro
 	switch strings.ToUpper(args[0]) {
 	case "EXPIRE":
 		if expried > 65535 {
-			lockCommand.Expried = uint16(expried/60) + 1
+			if expried%60 == 0 {
+				lockCommand.Expried = uint16(expried / 60)
+			} else {
+				lockCommand.Expried = uint16(expried/60) + 1
+			}
 			lockCommand.ExpriedFlag |= EXPRIED_FLAG_MINUTE_TIME
 		} else {
 			lockCommand.Expried = uint16(expried)
@@ -854,16 +915,24 @@ func (self *TextCommandConverter) ConvertTextExpireCommand(textProtocol ITextPro
 	case "EXPIREAT":
 		expried = expried - time.Now().Unix()
 		if expried > 65535 {
-			lockCommand.Expried = uint16(expried/60) + 1
+			if expried%60 == 0 {
+				lockCommand.Expried = uint16(expried / 60)
+			} else {
+				lockCommand.Expried = uint16(expried/60) + 1
+			}
 			lockCommand.ExpriedFlag |= EXPRIED_FLAG_MINUTE_TIME
 		} else {
 			lockCommand.Expried = uint16(expried)
 		}
 	case "PEXPIRE":
 		if expried > 65535000 {
-			lockCommand.Expried = uint16(expried/60000) + 1
+			if (expried/1000)%60 == 0 {
+				lockCommand.Expried = uint16(expried / 60000)
+			} else {
+				lockCommand.Expried = uint16(expried/60000) + 1
+			}
 			lockCommand.ExpriedFlag |= EXPRIED_FLAG_MINUTE_TIME
-		} else if expried > 3000 {
+		} else if expried <= 3000 {
 			lockCommand.Expried = uint16(expried)
 			lockCommand.ExpriedFlag |= EXPRIED_FLAG_MILLISECOND_TIME
 		} else {
@@ -872,19 +941,23 @@ func (self *TextCommandConverter) ConvertTextExpireCommand(textProtocol ITextPro
 	case "PEXPIREAT":
 		expried = expried - time.Now().UnixMilli()
 		if expried > 65535000 {
-			lockCommand.Expried = uint16(expried/60000) + 1
+			if (expried/1000)%60 == 0 {
+				lockCommand.Expried = uint16(expried / 60000)
+			} else {
+				lockCommand.Expried = uint16(expried/60000) + 1
+			}
 			lockCommand.ExpriedFlag |= EXPRIED_FLAG_MINUTE_TIME
-		} else if expried > 3000 {
+		} else if expried <= 3000 {
 			lockCommand.Expried = uint16(expried)
 			lockCommand.ExpriedFlag |= EXPRIED_FLAG_MILLISECOND_TIME
 		} else {
 			lockCommand.Expried = uint16(expried)
 		}
 	case "PERSIST":
-		lockCommand.Expried = 0xffff
+		lockCommand.Expried = 0x7fff
 		lockCommand.ExpriedFlag = EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME
 	}
-	lockCommand.ExpriedFlag |= EXPRIED_FLAG_ZEOR_AOF_TIME
+	lockCommand.ExpriedFlag |= EXPRIED_FLAG_ZEOR_AOF_TIME | EXPRIED_FLAG_UPDATE_NO_RESET_EXPRIED_CHECKED_COUNT
 	return lockCommand, self.WriteTextExpireCommandResult, nil
 }
 
