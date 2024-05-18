@@ -2452,19 +2452,23 @@ func (self *LockDB) HasLock(command *protocol.LockCommand, aofLockData []byte) b
 			lockManager.glock.LowPriorityUnlock()
 			return true
 		} else if command.Flag&protocol.LOCK_FLAG_UPDATE_WHEN_LOCKED != 0 {
+			currentLock := lockManager.GetLockedLock(command)
+			if currentLock == nil {
+				lockManager.glock.LowPriorityUnlock()
+				return false
+			}
 			if aofLockData == nil {
-				if lockManager.currentLock == nil || !lockManager.CheckLockedEqual(lockManager.currentLock, command) {
+				if !lockManager.CheckLockedEqual(currentLock, command) {
 					lockManager.glock.LowPriorityUnlock()
 					return false
 				}
 			} else if lockManager.currentData == nil || !lockManager.currentData.Equal(aofLockData) {
-				currentLock := lockManager.currentLock
 				if command.ExpriedFlag&protocol.EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME != 0 && command.Expried == 0xffff {
-					if currentLock == nil || (currentLock.command.Count == command.Count && currentLock.command.Rcount == command.Rcount) {
+					if currentLock.command.Count == command.Count && currentLock.command.Rcount == command.Rcount {
 						lockManager.glock.LowPriorityUnlock()
 						return false
 					}
-				} else if currentLock == nil || !lockManager.CheckLockedEqual(currentLock, command) {
+				} else if !lockManager.CheckLockedEqual(currentLock, command) {
 					lockManager.glock.LowPriorityUnlock()
 					return false
 				}
