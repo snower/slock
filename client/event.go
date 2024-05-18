@@ -206,7 +206,7 @@ func (self *Event) Wait(timeout uint32) (*protocol.LockResultCommand, error) {
 func (self *Event) WaitAndTimeoutRetryClear(timeout uint32) (*protocol.LockResultCommand, error) {
 	if self.setedMode == EVENT_MODE_DEFAULT_SET {
 		self.waitLock = &Lock{self.db, self.db.GenLockId(), self.eventKey, timeout, 0, 0, 0}
-		result, err := self.waitLock.Lock()
+		result, err := self.waitLock.LockWithData(protocol.NewLockCommandDataUnsetData())
 		if err == nil {
 			return result, nil
 		}
@@ -217,7 +217,7 @@ func (self *Event) WaitAndTimeoutRetryClear(timeout uint32) (*protocol.LockResul
 			}
 			self.glock.Unlock()
 
-			rresult, rerr := self.eventLock.LockUpdate()
+			rresult, rerr := self.eventLock.LockUpdateWithData(protocol.NewLockCommandDataUnsetData())
 			if rerr == nil {
 				if rresult.Result == protocol.RESULT_SUCCED {
 					_, _ = self.eventLock.Unlock()
@@ -232,7 +232,7 @@ func (self *Event) WaitAndTimeoutRetryClear(timeout uint32) (*protocol.LockResul
 	}
 
 	self.waitLock = &Lock{self.db, self.db.GenLockId(), self.eventKey, timeout | 0x02000000, 0, 1, 0}
-	result, err := self.waitLock.Lock()
+	result, err := self.waitLock.LockWithData(protocol.NewLockCommandDataUnsetData())
 	if err == nil {
 		self.glock.Lock()
 		if self.eventLock == nil {
