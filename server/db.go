@@ -1386,11 +1386,12 @@ func (self *LockDB) AddExpried(lock *Lock) {
 			self.slock.Log().Errorf("Database long expried wait index error %d %d", lock.longWaitIndex, lock.expriedTime)
 			lock.longWaitIndex = 0
 		}
-		if !lock.isAof && lock.aofTime != 0xff {
-			if self.currentTime-lock.startTime >= int64(lock.aofTime) {
-				for i := uint8(0); i < lock.locked; i++ {
-					_ = lock.manager.PushLockAof(lock, 0)
-				}
+	}
+
+	if !lock.isAof && lock.aofTime != 0xff {
+		if self.currentTime-lock.startTime >= int64(lock.aofTime) {
+			for i := uint8(0); i < lock.locked; i++ {
+				_ = lock.manager.PushLockAof(lock, 0)
 			}
 		}
 	}

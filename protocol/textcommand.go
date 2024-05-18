@@ -456,6 +456,9 @@ func (self *TextCommandConverter) ConvertTextSetCommand(textProtocol ITextProtoc
 			return nil, nil, err
 		}
 	}
+	if lockCommand.Flag&LOCK_FLAG_UPDATE_WHEN_LOCKED == 0 && lockCommand.Timeout == 0 && lockCommand.TimeoutFlag == 0 {
+		lockCommand.Timeout = 15
+	}
 	if lockCommand.Expried == 0 && lockCommand.ExpriedFlag == 0 {
 		lockCommand.Expried = 0x7fff
 		lockCommand.ExpriedFlag = EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME | EXPRIED_FLAG_ZEOR_AOF_TIME | EXPRIED_FLAG_UPDATE_NO_RESET_EXPRIED_CHECKED_COUNT
