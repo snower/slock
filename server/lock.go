@@ -50,7 +50,7 @@ func (self *LockManager) AddLock(lock *Lock) *Lock {
 			lock.expriedTime = lock.startTime + int64(lock.command.Expried)/1000 + 1
 		}
 
-		if lock.command.ExpriedFlag&protocol.EXPRIED_FLAG_ZEOR_AOF_TIME != 0 && lock.startTime-lock.expriedTime > 5 {
+		if lock.command.ExpriedFlag&protocol.EXPRIED_FLAG_ZEOR_AOF_TIME != 0 && lock.expriedTime-lock.startTime > 5 {
 			lock.expriedCheckedCount = EXPRIED_QUEUE_MAX_WAIT + 1
 		} else {
 			lock.expriedCheckedCount = 1
@@ -209,7 +209,7 @@ func (self *LockManager) UpdateLockedLock(lock *Lock, command *protocol.LockComm
 			lock.timeoutCheckedCount = 1
 		}
 		if command.ExpriedFlag&protocol.EXPRIED_FLAG_UPDATE_NO_RESET_EXPRIED_CHECKED_COUNT == 0 {
-			if command.ExpriedFlag&protocol.EXPRIED_FLAG_ZEOR_AOF_TIME != 0 && lock.startTime-lock.expriedTime > 5 {
+			if command.ExpriedFlag&protocol.EXPRIED_FLAG_ZEOR_AOF_TIME != 0 && lock.expriedTime-lock.startTime > 5 {
 				lock.expriedCheckedCount = EXPRIED_QUEUE_MAX_WAIT + 1
 			} else {
 				lock.expriedCheckedCount = 1
@@ -343,7 +343,7 @@ func (self *LockManager) GetOrNewLock(serverProtocol ServerProtocol, command *pr
 			lock.expriedTime = lock.startTime + int64(lock.command.Expried)/1000 + 1
 		}
 
-		if command.ExpriedFlag&protocol.EXPRIED_FLAG_ZEOR_AOF_TIME != 0 && lock.startTime-lock.expriedTime > 5 {
+		if command.ExpriedFlag&protocol.EXPRIED_FLAG_ZEOR_AOF_TIME != 0 && lock.expriedTime-lock.startTime > 5 {
 			lock.expriedCheckedCount = EXPRIED_QUEUE_MAX_WAIT + 1
 		} else {
 			lock.expriedCheckedCount = 1
