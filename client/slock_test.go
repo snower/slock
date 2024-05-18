@@ -11,14 +11,8 @@ var testGlock sync.Mutex
 
 func testString2Key(key string) [16]byte {
 	bkey := [16]byte{}
-	klen := 16
-	if len(key) < 16 {
-		klen = len(key)
-	}
-
-	for i := 0; i < klen; i++ {
-		bkey[i] = key[i]
-	}
+	textCommandConverter := protocol.NewTextCommandConverter()
+	textCommandConverter.ConvertArgId2LockId(key, &bkey)
 	return bkey
 }
 

@@ -738,7 +738,7 @@ type Lock struct {
 
 func NewLock(manager *LockManager, protocol ServerProtocol, command *protocol.LockCommand) *Lock {
 	return &Lock{manager, command, protocol.GetProxy(), nil, 0, 0, 0,
-		0, 1, 1, 0, 0, 0xff, false, false, 0, false}
+		0, 1, 1, 0, 0, 0xff, true, true, 0, false}
 }
 
 func (self *Lock) GetDB() *LockDB {
