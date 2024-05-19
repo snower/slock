@@ -2329,7 +2329,7 @@ func (self *LockDB) DoAckLock(lock *Lock, succed bool) {
 		return
 	}
 
-	if !lock.expried {
+	if !lock.expried || lock.locked == 0 {
 		lock.ackCount = 0xff
 		var lockData []byte = nil
 		if lock.command.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
