@@ -1812,6 +1812,7 @@ type TextServerProtocol struct {
 	lockId             [16]byte
 	willCommands       *LockCommandQueue
 	totalCommandCount  uint64
+	timeout            uint16
 	dbId               uint8
 	closed             bool
 }
@@ -1821,7 +1822,7 @@ func NewTextServerProtocol(slock *SLock, stream *Stream) *TextServerProtocol {
 	parser := protocol.NewTextParser(make([]byte, 1024), make([]byte, 1024))
 	serverProtocol := &TextServerProtocol{slock, &sync.Mutex{}, stream, nil, make([]*ProxyServerProtocol, 0), make([]*protocol.LockCommand, FREE_COMMAND_MAX_SIZE),
 		0, NewLockCommandQueue(4, 64, FREE_COMMAND_QUEUE_INIT_SIZE), nil, parser, protocol.NewTextCommandConverter(),
-		nil, make(chan *protocol.LockResultCommand, 4), [16]byte{}, [16]byte{}, nil, 0, 0, false}
+		nil, make(chan *protocol.LockResultCommand, 4), [16]byte{}, [16]byte{}, nil, 0, 15, 0, false}
 	proxy.serverProtocol = serverProtocol
 	serverProtocol.InitLockCommand()
 	serverProtocol.session = slock.addServerProtocol(serverProtocol)
@@ -1834,6 +1835,7 @@ func (self *TextServerProtocol) FindHandler(name string) (TextServerProtocolComm
 	if self.handlers == nil {
 		self.handlers = make(map[string]TextServerProtocolCommandHandler, 64)
 		self.handlers["SELECT"] = self.commandHandlerSelectDB
+		self.handlers["TIMEOUT"] = self.commandHandlerTimeoutDB
 		self.handlers["LOCK"] = self.commandHandlerLock
 		self.handlers["UNLOCK"] = self.commandHandlerUnlock
 		self.handlers["PUSH"] = self.commandHandlerPush
@@ -1940,6 +1942,10 @@ func (self *TextServerProtocol) GetDBId() uint8 {
 
 func (self *TextServerProtocol) GetLockId() [16]byte {
 	return self.lockId
+}
+
+func (self *TextServerProtocol) GetTimeout() uint16 {
+	return self.timeout
 }
 
 func (self *TextServerProtocol) GetParser() *protocol.TextParser {
@@ -2490,6 +2496,22 @@ func (self *TextServerProtocol) commandHandlerSelectDB(_ *TextServerProtocol, ar
 	return self.stream.WriteBytes(self.parser.BuildResponse(true, "OK", nil))
 }
 
+func (self *TextServerProtocol) commandHandlerTimeoutDB(_ *TextServerProtocol, args []string) error {
+	if len(args) < 3 {
+		return self.stream.WriteBytes(self.parser.BuildResponse(false, "ERR Command Parse Len Error", nil))
+	}
+	if strings.ToUpper(args[1]) != "SET" {
+		return self.stream.WriteBytes([]byte(fmt.Sprintf(":%d\r\n", self.timeout)))
+	}
+
+	timeout, err := strconv.Atoi(args[2])
+	if err != nil {
+		return self.stream.WriteBytes(self.parser.BuildResponse(false, "ERR Command Parse Timeout Value Error", nil))
+	}
+	self.timeout = uint16(timeout)
+	return self.stream.WriteBytes(self.parser.BuildResponse(true, "OK", nil))
+}
+
 func (self *TextServerProtocol) commandHandlerLock(_ *TextServerProtocol, args []string) error {
 	lockCommand, writeTextCommandResultFunc, err := self.commandConverter.ConvertTextLockAndUnLockCommand(self, args)
 	if err != nil {
@@ -2531,7 +2553,7 @@ func (self *TextServerProtocol) commandHandlerLock(_ *TextServerProtocol, args [
 		self.lockId = lockCommandResult.LockId
 	}
 	err = writeTextCommandResultFunc(self, self.stream, lockCommandResult)
-	self.freeCommandResult = lockCommandResult
+	self.freeCommandResult, lockCommandResult.Data = lockCommandResult, nil
 	return err
 }
 
@@ -2581,7 +2603,7 @@ func (self *TextServerProtocol) commandHandlerUnlock(_ *TextServerProtocol, args
 			0, 0, 0, 0, 0, 0, 0, 0
 	}
 	err = writeTextCommandResultFunc(self, self.stream, lockCommandResult)
-	self.freeCommandResult = lockCommandResult
+	self.freeCommandResult, lockCommandResult.Data = lockCommandResult, nil
 	return err
 }
 
@@ -2635,11 +2657,11 @@ func (self *TextServerProtocol) commandHandlerKeyWriteValueCommand(_ *TextServer
 			self.lockRequestId[8], self.lockRequestId[9], self.lockRequestId[10], self.lockRequestId[11], self.lockRequestId[12], self.lockRequestId[13], self.lockRequestId[14], self.lockRequestId[15] =
 			0, 0, 0, 0, 0, 0, 0, 0,
 			0, 0, 0, 0, 0, 0, 0, 0
-		return self.stream.WriteBytes(self.parser.BuildResponse(false, "ERR Lock Error", nil))
+		return self.stream.WriteBytes(self.parser.BuildResponse(false, err.Error(), nil))
 	}
 	lockCommandResult := <-self.lockWaiter
 	err = writeTextCommandResultFunc(self, self.stream, lockCommandResult)
-	self.freeCommandResult = lockCommandResult
+	self.freeCommandResult, lockCommandResult.Data = lockCommandResult, nil
 	return err
 }
 
@@ -2670,8 +2692,8 @@ func (self *TextServerProtocol) commandHandlerKeyReadValueCommand(_ *TextServerP
 	lockCommandResult := self.freeCommandResult
 	if lockCommandResult == nil {
 		lockCommandResult = protocol.NewLockResultCommand(lockCommand, result, 0, lcount, count, lrcount, rcount, data)
-		self.freeCommandResult = lockCommandResult
 	} else {
+		self.freeCommandResult = nil
 		lockCommandResult.CommandType = lockCommand.CommandType
 		lockCommandResult.RequestId = lockCommand.RequestId
 		lockCommandResult.Result = result
@@ -2693,8 +2715,10 @@ func (self *TextServerProtocol) commandHandlerKeyReadValueCommand(_ *TextServerP
 	} else {
 		lockCommandResult.Data = nil
 	}
+	err = writeTextCommandResultFunc(self, self.stream, lockCommandResult)
 	_ = self.FreeLockCommand(lockCommand)
-	return writeTextCommandResultFunc(self, self.stream, lockCommandResult)
+	self.freeCommandResult, lockCommandResult.Data = lockCommandResult, nil
+	return err
 }
 
 func (self *TextServerProtocol) commandHandlerKeysCommand(_ *TextServerProtocol, args []string) error {

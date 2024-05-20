@@ -864,6 +864,7 @@ func (self *TransparencyTextServerProtocol) FindHandler(name string) (TextServer
 	if self.handlers == nil {
 		self.handlers = make(map[string]TextServerProtocolCommandHandler, 64)
 		self.handlers["SELECT"] = self.serverProtocol.commandHandlerSelectDB
+		self.handlers["TIMEOUT"] = self.serverProtocol.commandHandlerTimeoutDB
 		self.handlers["LOCK"] = self.commandHandlerLock
 		self.handlers["UNLOCK"] = self.commandHandlerUnlock
 		self.handlers["PUSH"] = self.commandHandlerPush
@@ -957,6 +958,10 @@ func (self *TransparencyTextServerProtocol) GetDBId() uint8 {
 
 func (self *TransparencyTextServerProtocol) GetLockId() [16]byte {
 	return self.serverProtocol.GetLockId()
+}
+
+func (self *TransparencyTextServerProtocol) GetTimeout() uint16 {
+	return self.serverProtocol.GetTimeout()
 }
 
 func (self *TransparencyTextServerProtocol) GetParser() *protocol.TextParser {
@@ -1204,7 +1209,7 @@ func (self *TransparencyTextServerProtocol) commandHandlerLock(serverProtocol *T
 	}
 	err = writeTextCommandResultFunc(self, self.stream, lockCommandResult)
 	_ = self.serverProtocol.FreeLockCommand(lockCommand)
-	self.serverProtocol.freeCommandResult = lockCommandResult
+	self.serverProtocol.freeCommandResult, lockCommandResult.Data = lockCommandResult, nil
 	return err
 }
 
@@ -1264,7 +1269,7 @@ func (self *TransparencyTextServerProtocol) commandHandlerUnlock(serverProtocol 
 	}
 	err = writeTextCommandResultFunc(self, self.stream, lockCommandResult)
 	_ = self.serverProtocol.FreeLockCommand(lockCommand)
-	self.serverProtocol.freeCommandResult = lockCommandResult
+	self.serverProtocol.freeCommandResult, lockCommandResult.Data = lockCommandResult, nil
 	return err
 }
 
@@ -1332,7 +1337,7 @@ func (self *TransparencyTextServerProtocol) commandHandlerKeyWriteValueCommand(s
 	lockCommandResult := <-self.lockWaiter
 	err = writeTextCommandResultFunc(self, self.stream, lockCommandResult)
 	_ = self.serverProtocol.FreeLockCommand(lockCommand)
-	self.serverProtocol.freeCommandResult = lockCommandResult
+	self.serverProtocol.freeCommandResult, lockCommandResult.Data = lockCommandResult, nil
 	return err
 }
 
