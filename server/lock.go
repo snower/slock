@@ -86,7 +86,7 @@ func (self *LockManager) AddLock(lock *Lock) *Lock {
 		self.currentLock = lock
 	} else {
 		if self.locks == nil {
-			self.locks = NewLockQueue(4, 16, 4)
+			self.locks = NewLockQueue(4, 4, 4)
 			self.lockMaps = make(map[[16]byte]*Lock, 8)
 		}
 		_ = self.locks.Push(lock)
@@ -246,7 +246,7 @@ func (self *LockManager) UpdateLockedLock(lock *Lock, command *protocol.LockComm
 
 func (self *LockManager) AddWaitLock(lock *Lock) *Lock {
 	if self.waitLocks == nil {
-		self.waitLocks = NewLockQueue(4, 32, 4)
+		self.waitLocks = NewLockQueue(4, 4, 4)
 	}
 	_ = self.waitLocks.Push(lock)
 	lock.refCount++
