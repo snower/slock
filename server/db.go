@@ -1014,9 +1014,9 @@ func (self *LockDB) initNewLockManager(dbId uint8) {
 
 		lockManagers[i].lockDb = self
 		lockManagers[i].dbId = dbId
-		lockManagers[i].locks = NewLockQueue(4, 16, 4)
-		lockManagers[i].lockMaps = make(map[[16]byte]*Lock, 8)
-		lockManagers[i].waitLocks = NewLockQueue(4, 32, 4)
+		lockManagers[i].locks = nil
+		lockManagers[i].lockMaps = nil
+		lockManagers[i].waitLocks = nil
 		lockManagers[i].glock = self.managerGlocks[self.managerGlockIndex]
 		lockManagers[i].glockIndex = self.managerGlockIndex
 		lockManagers[i].freeLocks = self.freeLocks[self.managerGlockIndex]
@@ -1133,9 +1133,8 @@ func (self *LockDB) RemoveLockManager(lockManager *LockManager) {
 			if self.freeLockManagers[freeLockManagerHead] == nil {
 				self.freeLockManagers[freeLockManagerHead] = lockManager
 
-				if lockManager.locks != nil {
-					_ = lockManager.locks.Rellac()
-				}
+				lockManager.locks = nil
+				lockManager.lockMaps = nil
 				if lockManager.waitLocks != nil {
 					_ = lockManager.waitLocks.Rellac()
 				}
@@ -1176,9 +1175,8 @@ func (self *LockDB) RemoveLockManager(lockManager *LockManager) {
 		if self.freeLockManagers[freeLockManagerHead] == nil {
 			self.freeLockManagers[freeLockManagerHead] = lockManager
 
-			if lockManager.locks != nil {
-				_ = lockManager.locks.Rellac()
-			}
+			lockManager.locks = nil
+			lockManager.lockMaps = nil
 			if lockManager.waitLocks != nil {
 				_ = lockManager.waitLocks.Rellac()
 			}

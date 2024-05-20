@@ -26,8 +26,8 @@ type LockManager struct {
 }
 
 func NewLockManager(lockDb *LockDB, command *protocol.LockCommand, glock *PriorityMutex, glockIndex uint16, freeLocks *LockQueue, state *protocol.LockDBState) *LockManager {
-	return &LockManager{lockDb, command.LockKey,
-		nil, nil, nil, nil, nil, glock, freeLocks, nil, state, 0, 0,
+	return &LockManager{lockDb, command.LockKey, nil, nil, nil, nil,
+		nil, glock, freeLocks, nil, state, 0, 0,
 		glockIndex, command.DbId, false}
 }
 
@@ -85,6 +85,10 @@ func (self *LockManager) AddLock(lock *Lock) *Lock {
 	if self.currentLock == nil {
 		self.currentLock = lock
 	} else {
+		if self.locks == nil {
+			self.locks = NewLockQueue(4, 16, 4)
+			self.lockMaps = make(map[[16]byte]*Lock, 8)
+		}
 		_ = self.locks.Push(lock)
 		self.lockMaps[lock.command.LockId] = lock
 	}
@@ -98,6 +102,9 @@ func (self *LockManager) RemoveLock(lock *Lock) *Lock {
 	if self.currentLock == lock {
 		self.currentLock = nil
 		lock.refCount--
+		if self.locks == nil {
+			return lock
+		}
 
 		lockedLock := self.locks.Pop()
 		for lockedLock != nil {
@@ -120,6 +127,9 @@ func (self *LockManager) RemoveLock(lock *Lock) *Lock {
 		return lock
 	}
 
+	if self.locks == nil {
+		return lock
+	}
 	delete(self.lockMaps, lock.command.LockId)
 	lockedLock := self.locks.Head()
 	for lockedLock != nil {
@@ -217,7 +227,7 @@ func (self *LockManager) UpdateLockedLock(lock *Lock, command *protocol.LockComm
 		}
 	}
 
-	if !lock.isAof && self.currentLock == lock && self.locks.Head() == nil {
+	if !lock.isAof && self.currentLock == lock && (self.locks == nil || self.locks.Head() == nil) {
 		switch command.ExpriedFlag & 0x1300 {
 		case protocol.EXPRIED_FLAG_ZEOR_AOF_TIME:
 			lock.aofTime = 0
@@ -233,6 +243,9 @@ func (self *LockManager) UpdateLockedLock(lock *Lock, command *protocol.LockComm
 }
 
 func (self *LockManager) AddWaitLock(lock *Lock) *Lock {
+	if self.waitLocks == nil {
+		self.waitLocks = NewLockQueue(4, 32, 4)
+	}
 	_ = self.waitLocks.Push(lock)
 	lock.refCount++
 	self.waited = true
@@ -240,6 +253,9 @@ func (self *LockManager) AddWaitLock(lock *Lock) *Lock {
 }
 
 func (self *LockManager) GetWaitLock() *Lock {
+	if self.waitLocks == nil {
+		return nil
+	}
 	lock := self.waitLocks.Head()
 	for lock != nil {
 		if lock.timeouted {
