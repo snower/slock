@@ -155,7 +155,9 @@ func (self *LockManager) GetLockedLock(command *protocol.LockCommand) *Lock {
 	if self.currentLock.command.LockId == command.LockId {
 		return self.currentLock
 	}
-
+	if self.locks == nil {
+		return nil
+	}
 	lockedLock, ok := self.lockMaps[command.LockId]
 	if ok {
 		return lockedLock
