@@ -619,8 +619,8 @@ func (self *Admin) commandHandleShowLockCommand(serverProtocol *TextServerProtoc
 	}
 
 	if lockManager.locks != nil {
-		for i := range lockManager.locks.IterNodes() {
-			nodeQueues := lockManager.locks.IterNodeQueues(int32(i))
+		for i := range lockManager.locks.queue.IterNodes() {
+			nodeQueues := lockManager.locks.queue.IterNodeQueues(int32(i))
 			for _, lock := range nodeQueues {
 				if lock.locked == 0 {
 					continue
@@ -670,9 +670,8 @@ func (self *Admin) commandHandleShowLockWaitCommand(serverProtocol *TextServerPr
 	lockInfos := make([]string, 0)
 	lockManager.glock.LowPriorityLock()
 	if lockManager.waitLocks != nil {
-		for i := range lockManager.waitLocks.IterNodes() {
-			nodeQueues := lockManager.waitLocks.IterNodeQueues(int32(i))
-			for _, lock := range nodeQueues {
+		for _, waitLocks := range lockManager.waitLocks.IterNodes() {
+			for _, lock := range waitLocks {
 				if lock.timeouted {
 					continue
 				}

@@ -1015,7 +1015,6 @@ func (self *LockDB) initNewLockManager(dbId uint8) {
 		lockManagers[i].lockDb = self
 		lockManagers[i].dbId = dbId
 		lockManagers[i].locks = nil
-		lockManagers[i].lockMaps = nil
 		lockManagers[i].waitLocks = nil
 		lockManagers[i].glock = self.managerGlocks[self.managerGlockIndex]
 		lockManagers[i].glockIndex = self.managerGlockIndex
@@ -1134,9 +1133,8 @@ func (self *LockDB) RemoveLockManager(lockManager *LockManager) {
 				self.freeLockManagers[freeLockManagerHead] = lockManager
 
 				lockManager.locks = nil
-				lockManager.lockMaps = nil
 				if lockManager.waitLocks != nil {
-					_ = lockManager.waitLocks.Rellac()
+					lockManager.waitLocks.Rellac()
 				}
 				lockManager.currentData = nil
 				atomic.AddUint32(&lockManager.state.KeyCount, 0xffffffff)
@@ -1148,7 +1146,6 @@ func (self *LockDB) RemoveLockManager(lockManager *LockManager) {
 		lockManager.currentLock = nil
 		lockManager.currentData = nil
 		lockManager.locks = nil
-		lockManager.lockMaps = nil
 		lockManager.waitLocks = nil
 		lockManager.freeLocks = nil
 		atomic.AddUint32(&lockManager.state.KeyCount, 0xffffffff)
@@ -1176,9 +1173,8 @@ func (self *LockDB) RemoveLockManager(lockManager *LockManager) {
 			self.freeLockManagers[freeLockManagerHead] = lockManager
 
 			lockManager.locks = nil
-			lockManager.lockMaps = nil
 			if lockManager.waitLocks != nil {
-				_ = lockManager.waitLocks.Rellac()
+				lockManager.waitLocks.Rellac()
 			}
 			lockManager.currentData = nil
 			atomic.AddUint32(&lockManager.state.KeyCount, 0xffffffff)
@@ -1190,7 +1186,6 @@ func (self *LockDB) RemoveLockManager(lockManager *LockManager) {
 	lockManager.currentLock = nil
 	lockManager.currentData = nil
 	lockManager.locks = nil
-	lockManager.lockMaps = nil
 	lockManager.waitLocks = nil
 	lockManager.freeLocks = nil
 	atomic.AddUint32(&lockManager.state.KeyCount, 0xffffffff)
@@ -2189,9 +2184,8 @@ func (self *LockDB) wakeUpWaitLock(lockManager *LockManager, waitLock *Lock, ser
 func (self *LockDB) cancelWaitLock(lockManager *LockManager, command *protocol.LockCommand, serverProtocol ServerProtocol) {
 	var waitLock *Lock = nil
 	if lockManager.waitLocks != nil {
-		for i := range lockManager.waitLocks.IterNodes() {
-			nodeQueues := lockManager.waitLocks.IterNodeQueues(int32(i))
-			for _, lock := range nodeQueues {
+		for _, waitLocks := range lockManager.waitLocks.IterNodes() {
+			for _, lock := range waitLocks {
 				if lock.timeouted {
 					continue
 				}

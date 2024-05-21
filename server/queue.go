@@ -29,7 +29,7 @@ func NewLockQueue(baseNodeSize int32, nodeSize int32, queueSize int32) *LockQueu
 	queues := make([][]*Lock, nodeSize)
 	nodeQueueSizes := make([]int32, nodeSize)
 
-	queues[0] = make([]*Lock, queueSize)
+	queues[0] = make([]*Lock, queueSize, queueSize)
 	nodeQueueSizes[0] = queueSize
 
 	return &LockQueue{0, queueSize, queues[0], 0,
@@ -48,7 +48,7 @@ func (self *LockQueue) mallocQueue() {
 			self.queueSize = QUEUE_MAX_MALLOC_SIZE
 		}
 
-		self.queues = append(self.queues, make([]*Lock, self.queueSize))
+		self.queues = append(self.queues, make([]*Lock, self.queueSize, self.queueSize))
 		self.nodeQueueSizes = append(self.nodeQueueSizes, self.queueSize)
 		self.nodeIndex++
 		self.nodeSize++
@@ -58,7 +58,7 @@ func (self *LockQueue) mallocQueue() {
 			self.queueSize = QUEUE_MAX_MALLOC_SIZE
 		}
 
-		self.queues[self.tailNodeIndex] = make([]*Lock, self.queueSize)
+		self.queues[self.tailNodeIndex] = make([]*Lock, self.queueSize, self.queueSize)
 		self.nodeQueueSizes[self.tailNodeIndex] = self.queueSize
 		self.nodeIndex++
 	}
@@ -334,7 +334,7 @@ func NewLockCommandQueue(baseNodeSize int32, nodeSize int32, queueSize int32) *L
 	queues := make([][]*protocol.LockCommand, nodeSize)
 	nodeQueueSizes := make([]int32, nodeSize)
 
-	queues[0] = make([]*protocol.LockCommand, queueSize)
+	queues[0] = make([]*protocol.LockCommand, queueSize, queueSize)
 	nodeQueueSizes[0] = queueSize
 
 	return &LockCommandQueue{0, queueSize, queues[0], 0,
@@ -352,7 +352,7 @@ func (self *LockCommandQueue) mallocQueue() {
 		if self.queueSize > QUEUE_MAX_MALLOC_SIZE {
 			self.queueSize = QUEUE_MAX_MALLOC_SIZE
 		}
-		self.queues = append(self.queues, make([]*protocol.LockCommand, self.queueSize))
+		self.queues = append(self.queues, make([]*protocol.LockCommand, self.queueSize, self.queueSize))
 		self.nodeQueueSizes = append(self.nodeQueueSizes, self.queueSize)
 		self.nodeIndex++
 		self.nodeSize++
@@ -361,7 +361,7 @@ func (self *LockCommandQueue) mallocQueue() {
 		if self.queueSize > QUEUE_MAX_MALLOC_SIZE {
 			self.queueSize = QUEUE_MAX_MALLOC_SIZE
 		}
-		self.queues[self.tailNodeIndex] = make([]*protocol.LockCommand, self.queueSize)
+		self.queues[self.tailNodeIndex] = make([]*protocol.LockCommand, self.queueSize, self.queueSize)
 		self.nodeQueueSizes[self.tailNodeIndex] = self.queueSize
 		self.nodeIndex++
 	}

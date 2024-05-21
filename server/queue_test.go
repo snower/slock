@@ -6,6 +6,23 @@ import (
 	"testing"
 )
 
+func BenchmarkLockQueue(b *testing.B) {
+	lock := &Lock{}
+	queue := NewLockQueue(4, 16, 4)
+	for i := 0; i < b.N; i++ {
+		for j := 0; j < 10000; j++ {
+			n := rand.Intn(1024)
+			for k := 0; k < n; k++ {
+				queue.Push(lock)
+			}
+			n = rand.Intn(1024)
+			for k := 0; k < n; k++ {
+				queue.Pop()
+			}
+		}
+	}
+}
+
 func TestLockQueuePushPop(t *testing.T) {
 	head := &Lock{}
 	tail := &Lock{}
@@ -476,6 +493,23 @@ func TestLockQueueIter(t *testing.T) {
 		if len(nodeQueues) != 0 {
 			t.Error("LockQueue Pop After Iter Not Empty Fail")
 			return
+		}
+	}
+}
+
+func BenchmarkLockCommandQueue(b *testing.B) {
+	lockCommand := &protocol.LockCommand{}
+	queue := NewLockCommandQueue(4, 16, 4)
+	for i := 0; i < b.N; i++ {
+		for j := 0; j < 10000; j++ {
+			n := rand.Intn(1024)
+			for k := 0; k < n; k++ {
+				queue.Push(lockCommand)
+			}
+			n = rand.Intn(1024)
+			for k := 0; k < n; k++ {
+				queue.Pop()
+			}
 		}
 	}
 }
