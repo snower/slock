@@ -53,7 +53,7 @@ type LockManagerLockQueue struct {
 }
 
 func NewLockManagerLockQueue() *LockManagerLockQueue {
-	return &LockManagerLockQueue{NewLockQueue(4, 16, 4), make(map[[16]byte]*Lock)}
+	return &LockManagerLockQueue{NewLockQueue(4, 8, 4), make(map[[16]byte]*Lock)}
 }
 
 func (self *LockManagerLockQueue) Push(lock *Lock) {
@@ -78,7 +78,7 @@ type LockManagerWaitQueue struct {
 }
 
 func NewLockManagerWaitQueue() *LockManagerWaitQueue {
-	return &LockManagerWaitQueue{make([]*Lock, 0, 16), 0, nil}
+	return &LockManagerWaitQueue{make([]*Lock, 0, 8), 0, nil}
 }
 
 func (self *LockManagerWaitQueue) Push(lock *Lock) {

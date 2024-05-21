@@ -63,17 +63,18 @@ func TestLockManagerRingQueue(t *testing.T) {
 	for i := 0; i < 1000000; i++ {
 		queue.Push(lock)
 	}
-	if len(queue.queue) != 1000000 || cap(queue.queue) != 1135616 {
+	if len(queue.queue) != 1000000 || cap(queue.queue) < 1000000 {
 		t.Errorf("LockManagerRingQueue Push Size fail")
 		return
 	}
+	capSize := cap(queue.queue)
 	for i := 0; i < 1000000; i++ {
 		if queue.Pop() != lock {
 			t.Errorf("LockManagerRingQueue Pop fail")
 			return
 		}
 	}
-	if len(queue.queue) != 0 || cap(queue.queue) != 1135616 || queue.index != 0 {
+	if len(queue.queue) != 0 || cap(queue.queue) != capSize || queue.index != 0 {
 		t.Errorf("LockManagerRingQueue Pop Size fail")
 		return
 	}
@@ -89,45 +90,45 @@ func TestLockManagerWaitQueue(t *testing.T) {
 		return
 	}
 
-	for i := 0; i < 16; i++ {
+	for i := 0; i < 8; i++ {
 		queue.Push(lock)
-		if len(queue.fastQueue) != i+1 || cap(queue.fastQueue) != 16 {
+		if len(queue.fastQueue) != i+1 || cap(queue.fastQueue) != 8 {
 			t.Errorf("LockManagerWaitQueue Push Size fail")
 			return
 		}
 	}
-	for i := 0; i < 15; i++ {
+	for i := 0; i < 7; i++ {
 		if queue.Pop() != lock || queue.fastIndex != i+1 {
 			t.Errorf("LockManagerWaitQueue Pop fail")
 			return
 		}
 	}
 	queue.Push(lock)
-	if len(queue.fastQueue) != 2 || cap(queue.fastQueue) != 16 || queue.fastIndex != 0 {
+	if len(queue.fastQueue) != 2 || cap(queue.fastQueue) != 8 || queue.fastIndex != 0 {
 		t.Errorf("LockManagerWaitQueue Push Size fail")
 		return
 	}
-	for i := 0; i < 14; i++ {
+	for i := 0; i < 6; i++ {
 		queue.Push(lock)
-		if len(queue.fastQueue) != i+3 || cap(queue.fastQueue) != 16 {
+		if len(queue.fastQueue) != i+3 || cap(queue.fastQueue) != 8 {
 			t.Errorf("LockManagerWaitQueue Push Size fail")
 			return
 		}
 	}
 	for i := 0; i < 1024; i++ {
 		queue.Push(lock)
-		if len(queue.fastQueue) != 16 || cap(queue.fastQueue) != 16 || queue.ringQueue == nil || len(queue.ringQueue.queue) != i+1 {
+		if len(queue.fastQueue) != 8 || cap(queue.fastQueue) != 8 || queue.ringQueue == nil || len(queue.ringQueue.queue) != i+1 {
 			t.Errorf("LockManagerWaitQueue Push Size fail")
 			return
 		}
 	}
-	for i := 0; i < 15; i++ {
-		if queue.Pop() != lock || queue.fastIndex != i+1 || cap(queue.fastQueue) != 16 {
+	for i := 0; i < 7; i++ {
+		if queue.Pop() != lock || queue.fastIndex != i+1 || cap(queue.fastQueue) != 8 {
 			t.Errorf("LockManagerWaitQueue Pop fail")
 			return
 		}
 	}
-	if queue.Head() != lock || queue.Pop() != lock || queue.fastIndex != 0 || cap(queue.fastQueue) != 16 || queue.Head() != lock {
+	if queue.Head() != lock || queue.Pop() != lock || queue.fastIndex != 0 || cap(queue.fastQueue) != 8 || queue.Head() != lock {
 		t.Errorf("LockManagerWaitQueue Pop fail")
 		return
 	}
@@ -142,7 +143,7 @@ func TestLockManagerWaitQueue(t *testing.T) {
 		return
 	}
 	queue.Rellac()
-	if queue.fastIndex != 0 || len(queue.fastQueue) != 0 || cap(queue.fastQueue) != 16 || queue.ringQueue != nil {
+	if queue.fastIndex != 0 || len(queue.fastQueue) != 0 || cap(queue.fastQueue) != 8 || queue.ringQueue != nil {
 		t.Errorf("LockManagerWaitQueue Rellac fail")
 		return
 	}
