@@ -2055,24 +2055,33 @@ func (self *LockDB) doLock(lockManager *LockManager, lock *Lock) bool {
 	if lockManager.locked == 0 {
 		return true
 	}
-
+	if lock.command.Count == 0 {
+		return false
+	}
 	if lockManager.locked >= 0xffff {
 		if lockManager.locked >= 0x7fffffff {
 			return false
 		}
-
 		if lockManager.currentLock.command.Count == 0xffff && lock.command.Count == 0xffff {
+			if lock.command.TimeoutFlag&protocol.TIMEOUT_FLAG_LESS_LOCK_VERSION_IS_LOCK_SUCCED != 0 {
+				if lockManager.currentLock != nil && self.compareLockVersion(lock.command.LockId, lockManager.currentLock.command.LockId) == 1 {
+					return false
+				}
+			}
 			return true
 		}
 		return false
 	}
-
 	if lockManager.locked <= uint32(lockManager.currentLock.command.Count) {
 		if lockManager.locked <= uint32(lock.command.Count) {
+			if lock.command.TimeoutFlag&protocol.TIMEOUT_FLAG_LESS_LOCK_VERSION_IS_LOCK_SUCCED != 0 {
+				if lockManager.currentLock != nil && self.compareLockVersion(lock.command.LockId, lockManager.currentLock.command.LockId) == 1 {
+					return false
+				}
+			}
 			return true
 		}
 	}
-
 	return false
 }
 

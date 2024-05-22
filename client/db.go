@@ -42,50 +42,57 @@ func (self *Database) sendCommand(command protocol.ICommand) error {
 	return self.client.SendCommand(command)
 }
 
+func (self *Database) mergeTimeoutFlag(timeout uint32) uint32 {
+	if self.defaultTimeoutFlag != 0 {
+		return timeout | (uint32(self.defaultTimeoutFlag) << 16)
+	}
+	return timeout
+}
+
+func (self *Database) mergeExpriedFlag(expried uint32) uint32 {
+	if self.defaultExpriedFlag != 0 {
+		return expried | (uint32(self.defaultExpriedFlag) << 16)
+	}
+	return expried
+}
+
 func (self *Database) Lock(lockKey [16]byte, timeout uint32, expried uint32) *Lock {
-	lock := NewLock(self, lockKey, timeout, expried)
-	if self.defaultTimeoutFlag > 0 {
-		lock.SetTimeoutFlag(self.defaultTimeoutFlag)
-	}
-	if self.defaultExpriedFlag > 0 {
-		lock.SetExpriedFlag(self.defaultExpriedFlag)
-	}
-	return lock
+	return NewLock(self, lockKey, self.mergeTimeoutFlag(timeout), self.mergeExpriedFlag(expried))
 }
 
 func (self *Database) Event(eventKey [16]byte, timeout uint32, expried uint32, defaultSeted bool) *Event {
 	if defaultSeted {
-		return NewDefaultSetEvent(self, eventKey, timeout, expried)
+		return NewDefaultSetEvent(self, eventKey, self.mergeTimeoutFlag(timeout), self.mergeExpriedFlag(expried))
 	}
-	return NewDefaultClearEvent(self, eventKey, timeout, expried)
+	return NewDefaultClearEvent(self, eventKey, self.mergeTimeoutFlag(timeout), self.mergeExpriedFlag(expried))
 }
 
 func (self *Database) GroupEvent(groupKey [16]byte, clientId uint64, versionId uint64, timeout uint32, expried uint32) *GroupEvent {
-	return NewGroupEvent(self, groupKey, clientId, versionId, timeout, expried)
+	return NewGroupEvent(self, groupKey, clientId, versionId, self.mergeTimeoutFlag(timeout), self.mergeExpriedFlag(expried))
 }
 
 func (self *Database) Semaphore(semaphoreKey [16]byte, timeout uint32, expried uint32, count uint16) *Semaphore {
-	return NewSemaphore(self, semaphoreKey, timeout, expried, count)
+	return NewSemaphore(self, semaphoreKey, self.mergeTimeoutFlag(timeout), self.mergeExpriedFlag(expried), count)
 }
 
 func (self *Database) RWLock(lockKey [16]byte, timeout uint32, expried uint32) *RWLock {
-	return NewRWLock(self, lockKey, timeout, expried)
+	return NewRWLock(self, lockKey, self.mergeTimeoutFlag(timeout), self.mergeExpriedFlag(expried))
 }
 
 func (self *Database) RLock(lockKey [16]byte, timeout uint32, expried uint32) *RLock {
-	return NewRLock(self, lockKey, timeout, expried)
+	return NewRLock(self, lockKey, self.mergeTimeoutFlag(timeout), self.mergeExpriedFlag(expried))
 }
 
 func (self *Database) MaxConcurrentFlow(flowKey [16]byte, count uint16, timeout uint32, expried uint32) *MaxConcurrentFlow {
-	return NewMaxConcurrentFlow(self, flowKey, count, timeout, expried)
+	return NewMaxConcurrentFlow(self, flowKey, count, self.mergeTimeoutFlag(timeout), self.mergeExpriedFlag(expried))
 }
 
 func (self *Database) TokenBucketFlow(flowKey [16]byte, count uint16, timeout uint32, period float64) *TokenBucketFlow {
-	return NewTokenBucketFlow(self, flowKey, count, timeout, period)
+	return NewTokenBucketFlow(self, flowKey, count, self.mergeTimeoutFlag(timeout), period)
 }
 
 func (self *Database) TreeLock(lockKey [16]byte, parentKey [16]byte, timeout uint32, expried uint32) *TreeLock {
-	return NewTreeLock(self, lockKey, parentKey, timeout, expried)
+	return NewTreeLock(self, lockKey, parentKey, self.mergeTimeoutFlag(timeout), self.mergeExpriedFlag(expried))
 }
 
 func (self *Database) State() *protocol.StateResultCommand {

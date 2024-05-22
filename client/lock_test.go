@@ -1020,3 +1020,60 @@ func TestLock_RequireAck(t *testing.T) {
 		}
 	})
 }
+
+func TestLock_MultiLockCheckVersion(t *testing.T) {
+	testWithClient(t, func(client *Client) {
+		lock1 := client.Lock(testString2Key("TestMultiLockCheckVersion"), 0, 10)
+		lock1.SetTimeoutFlag(protocol.TIMEOUT_FLAG_LESS_LOCK_VERSION_IS_LOCK_SUCCED)
+		lock1.SetCount(0xffff)
+		lock1.lockId = [16]byte{1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0}
+		lock2 := client.Lock(testString2Key("TestMultiLockCheckVersion"), 0, 10)
+		lock2.SetTimeoutFlag(protocol.TIMEOUT_FLAG_LESS_LOCK_VERSION_IS_LOCK_SUCCED)
+		lock2.SetCount(0xffff)
+		lock2.lockId = [16]byte{1, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0}
+		_, err := lock1.Lock()
+		if err != nil {
+			t.Errorf("MultiLockCheckVersion Lock Fail %v", err)
+			return
+		}
+		_, err = lock2.Lock()
+		if err != nil {
+			t.Errorf("MultiLockCheckVersion Lock Fail %v", err)
+			return
+		}
+		_, err = lock1.Unlock()
+		if err != nil {
+			t.Errorf("MultiLockCheckVersion Unlock Fail %v", err)
+			return
+		}
+		_, err = lock2.Unlock()
+		if err != nil {
+			t.Errorf("MultiLockCheckVersion Unlock Fail %v", err)
+			return
+		}
+
+		lock1 = client.Lock(testString2Key("TestMultiLockCheckVersion"), 0, 10)
+		lock1.SetTimeoutFlag(protocol.TIMEOUT_FLAG_LESS_LOCK_VERSION_IS_LOCK_SUCCED)
+		lock1.SetCount(0xffff)
+		lock1.lockId = [16]byte{1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0}
+		lock2 = client.Lock(testString2Key("TestMultiLockCheckVersion"), 0, 10)
+		lock2.SetTimeoutFlag(protocol.TIMEOUT_FLAG_LESS_LOCK_VERSION_IS_LOCK_SUCCED)
+		lock2.SetCount(0xffff)
+		lock2.lockId = [16]byte{2, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0}
+		_, err = lock1.Lock()
+		if err != nil {
+			t.Errorf("MultiLockCheckVersion Lock Fail %v", err)
+			return
+		}
+		result, err := lock2.Lock()
+		if err == nil || result == nil || result.Result != protocol.RESULT_TIMEOUT {
+			t.Errorf("MultiLockCheckVersion Lock Fail %v", err)
+			return
+		}
+		_, err = lock1.Unlock()
+		if err != nil {
+			t.Errorf("MultiLockCheckVersion Unlock Fail %v", err)
+			return
+		}
+	})
+}
