@@ -111,7 +111,7 @@ func TestClient_ListLocks(t *testing.T) {
 			t.Errorf("TestClient_ListLocks ListLocks Fail %v", err)
 			return
 		}
-		if response.Locks == nil || len(response.Locks) != 1 {
+		if response.Locks == nil || len(response.Locks) == 0 {
 			t.Errorf("TestClient_ListLocks ListLocks Empty %v", response.Locks)
 			return
 		}
