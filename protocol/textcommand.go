@@ -323,7 +323,7 @@ func (self *TextCommandConverter) ConvertTextLockAndUnLockCommand(textProtocol I
 			lockCommand.Data = NewLockCommandDataShiftData(uint32(lengthValue))
 			lockCommand.Flag |= LOCK_FLAG_CONTAINS_DATA
 		case "EXECUTE":
-			commandStage := uint8(LOCK_DATA_STAGE_LOCK)
+			commandStage := uint8(LOCK_DATA_STAGE_CURRENT)
 			switch strings.ToUpper(args[i+1]) {
 			case "UNLOCK":
 				commandStage = LOCK_DATA_STAGE_UNLOCK

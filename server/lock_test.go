@@ -373,7 +373,7 @@ func TestLockManager_ProcessLockDataExecute(t *testing.T) {
 		lockKey, executeLockKey := protocol.GenLockId(), protocol.GenLockId()
 		executeLockCommand := protocol.NewLockCommand(db.dbId, executeLockKey, protocol.GenLockId(), 10, 10, 0)
 		lockCommand := protocol.NewLockCommand(db.dbId, lockKey, protocol.GenLockId(), 10, 10, 0)
-		lockCommand.Data = protocol.NewLockCommandDataExecuteData(executeLockCommand, protocol.LOCK_DATA_STAGE_LOCK)
+		lockCommand.Data = protocol.NewLockCommandDataExecuteData(executeLockCommand, protocol.LOCK_DATA_STAGE_CURRENT)
 		lockManager := db.GetOrNewLockManager(lockCommand)
 		lock := lockManager.GetOrNewLock(defaultServerProtocol, lockCommand)
 		lockManager.ProcessLockData(lockCommand, lock, true)
@@ -408,7 +408,7 @@ func TestLockManager_ProcessLockDataExecute(t *testing.T) {
 		executeLockKey = protocol.GenLockId()
 		executeLockCommand = protocol.NewLockCommand(db.dbId, executeLockKey, protocol.GenLockId(), 10, 10, 0)
 		lockCommand = protocol.NewLockCommand(db.dbId, lockKey, protocol.GenLockId(), 10, 10, 0)
-		lockCommand.Data = protocol.NewLockCommandDataExecuteData(executeLockCommand, protocol.LOCK_DATA_STAGE_LOCK)
+		lockCommand.Data = protocol.NewLockCommandDataExecuteData(executeLockCommand, protocol.LOCK_DATA_STAGE_CURRENT)
 		lock = lockManager.GetOrNewLock(defaultServerProtocol, lockCommand)
 		lockManager.ProcessLockData(lockCommand, lock, true)
 		if lockManager.currentData != nil || lock.data == nil || lock.data.commandDatas == nil {
@@ -455,7 +455,7 @@ func TestLockManager_ProcessLockDataPipeline(t *testing.T) {
 		lockCommand.Data = protocol.NewLockCommandDataPipelineData([]*protocol.LockCommandData{
 			protocol.NewLockCommandDataIncrData(2),
 			protocol.NewLockCommandDataSetString("aaa"),
-			protocol.NewLockCommandDataExecuteData(executeLockCommand, protocol.LOCK_DATA_STAGE_LOCK),
+			protocol.NewLockCommandDataExecuteData(executeLockCommand, protocol.LOCK_DATA_STAGE_CURRENT),
 		})
 		lockManager := db.GetOrNewLockManager(lockCommand)
 		lock := lockManager.GetOrNewLock(defaultServerProtocol, lockCommand)
@@ -499,7 +499,7 @@ func TestLockManager_ProcessLockDataPipeline(t *testing.T) {
 		lockCommand.Data = protocol.NewLockCommandDataPipelineData([]*protocol.LockCommandData{
 			protocol.NewLockCommandDataIncrData(2),
 			protocol.NewLockCommandDataSetString("aaa"),
-			protocol.NewLockCommandDataExecuteData(executeLockCommand, protocol.LOCK_DATA_STAGE_LOCK),
+			protocol.NewLockCommandDataExecuteData(executeLockCommand, protocol.LOCK_DATA_STAGE_CURRENT),
 		})
 		lockManager = db.GetOrNewLockManager(lockCommand)
 		lock = lockManager.GetOrNewLock(defaultServerProtocol, lockCommand)

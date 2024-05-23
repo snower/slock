@@ -59,6 +59,7 @@ const (
 )
 
 const (
+	TIMEOUT_FLAG_RCOUNT_IS_PRIORITY                    = 0x0010
 	TIMEOUT_FLAG_PUSH_SUBSCRIBE                        = 0x0020
 	TIMEOUT_FLAG_MINUTE_TIME                           = 0x0040
 	TIMEOUT_FLAG_REVERSE_KEY_LOCK_WHEN_TIMEOUT         = 0x0080
@@ -95,7 +96,7 @@ const (
 )
 
 const (
-	LOCK_DATA_STAGE_LOCK    = 0
+	LOCK_DATA_STAGE_CURRENT = 0
 	LOCK_DATA_STAGE_UNLOCK  = 1
 	LOCK_DATA_STAGE_TIMEOUT = 2
 	LOCK_DATA_STAGE_EXPRIED = 3
@@ -112,10 +113,11 @@ const (
 )
 
 const (
-	LOCK_DATA_FLAG_VALUE_TYPE_NUMBER = 0x01
-	LOCK_DATA_FLAG_VALUE_TYPE_ARRAY  = 0x02
-	LOCK_DATA_FLAG_VALUE_TYPE_KV     = 0x04
-	LOCK_DATA_FLAG_CONTAINS_PROPERTY = 0x10
+	LOCK_DATA_FLAG_VALUE_TYPE_NUMBER     = 0x01
+	LOCK_DATA_FLAG_VALUE_TYPE_ARRAY      = 0x02
+	LOCK_DATA_FLAG_VALUE_TYPE_KV         = 0x04
+	LOCK_DATA_FLAG_CONTAINS_PROPERTY     = 0x10
+	LOCK_DATA_FLAG_PROCESS_FIRST_OR_LAST = 0x20
 )
 
 const LOCK_DATA_PROPERTY_CODE_KEY = 1
@@ -453,19 +455,19 @@ func NewLockCommandDataFromString(data string, commandStage uint8, commandType u
 }
 
 func NewLockCommandDataSetData(data []byte) *LockCommandData {
-	return NewLockCommandDataFromBytes(data, LOCK_DATA_STAGE_LOCK, LOCK_DATA_COMMAND_TYPE_SET, 0, nil)
+	return NewLockCommandDataFromBytes(data, LOCK_DATA_STAGE_CURRENT, LOCK_DATA_COMMAND_TYPE_SET, 0, nil)
 }
 
 func NewLockCommandDataSetString(data string) *LockCommandData {
-	return NewLockCommandDataFromString(data, LOCK_DATA_STAGE_LOCK, LOCK_DATA_COMMAND_TYPE_SET, 0, nil)
+	return NewLockCommandDataFromString(data, LOCK_DATA_STAGE_CURRENT, LOCK_DATA_COMMAND_TYPE_SET, 0, nil)
 }
 
 func NewLockCommandDataSetDataWithProperty(data []byte, properties []*LockCommandDataProperty) *LockCommandData {
-	return NewLockCommandDataFromBytes(data, LOCK_DATA_STAGE_LOCK, LOCK_DATA_COMMAND_TYPE_SET, 0, properties)
+	return NewLockCommandDataFromBytes(data, LOCK_DATA_STAGE_CURRENT, LOCK_DATA_COMMAND_TYPE_SET, 0, properties)
 }
 
 func NewLockCommandDataSetStringWithProperty(data string, properties []*LockCommandDataProperty) *LockCommandData {
-	return NewLockCommandDataFromString(data, LOCK_DATA_STAGE_LOCK, LOCK_DATA_COMMAND_TYPE_SET, 0, properties)
+	return NewLockCommandDataFromString(data, LOCK_DATA_STAGE_CURRENT, LOCK_DATA_COMMAND_TYPE_SET, 0, properties)
 }
 
 func NewLockCommandDataSetArray(data [][]byte) *LockCommandData {
@@ -476,14 +478,14 @@ func NewLockCommandDataSetArray(data [][]byte) *LockCommandData {
 	dataLen := size + 2
 	i, buf := 6, make([]byte, dataLen+4)
 	buf[0], buf[1], buf[2], buf[3] = byte(dataLen), byte(dataLen>>8), byte(dataLen>>16), byte(dataLen>>24)
-	buf[4], buf[5] = (LOCK_DATA_STAGE_LOCK<<6)|LOCK_DATA_COMMAND_TYPE_SET, LOCK_DATA_FLAG_VALUE_TYPE_ARRAY
+	buf[4], buf[5] = (LOCK_DATA_STAGE_CURRENT<<6)|LOCK_DATA_COMMAND_TYPE_SET, LOCK_DATA_FLAG_VALUE_TYPE_ARRAY
 	for _, value := range data {
 		valueLen := len(value)
 		buf[i], buf[i+1], buf[i+2], buf[i+3] = byte(valueLen), byte(valueLen>>8), byte(valueLen>>16), byte(valueLen>>24)
 		i += 4
 		i += copy(buf[i:], value)
 	}
-	return &LockCommandData{buf, LOCK_DATA_STAGE_LOCK, LOCK_DATA_COMMAND_TYPE_SET, LOCK_DATA_FLAG_VALUE_TYPE_ARRAY}
+	return &LockCommandData{buf, LOCK_DATA_STAGE_CURRENT, LOCK_DATA_COMMAND_TYPE_SET, LOCK_DATA_FLAG_VALUE_TYPE_ARRAY}
 }
 
 func NewLockCommandDataSetKV(data map[string][]byte) *LockCommandData {
@@ -495,7 +497,7 @@ func NewLockCommandDataSetKV(data map[string][]byte) *LockCommandData {
 	dataLen := size + 2
 	i, buf := 6, make([]byte, dataLen+4)
 	buf[0], buf[1], buf[2], buf[3] = byte(dataLen), byte(dataLen>>8), byte(dataLen>>16), byte(dataLen>>24)
-	buf[4], buf[5] = (LOCK_DATA_STAGE_LOCK<<6)|LOCK_DATA_COMMAND_TYPE_SET, LOCK_DATA_FLAG_VALUE_TYPE_KV
+	buf[4], buf[5] = (LOCK_DATA_STAGE_CURRENT<<6)|LOCK_DATA_COMMAND_TYPE_SET, LOCK_DATA_FLAG_VALUE_TYPE_KV
 	for key, value := range data {
 		keyLen := len(value)
 		buf[i], buf[i+1], buf[i+2], buf[i+3] = byte(keyLen), byte(keyLen>>8), byte(keyLen>>16), byte(keyLen>>24)
@@ -506,47 +508,51 @@ func NewLockCommandDataSetKV(data map[string][]byte) *LockCommandData {
 		i += 4
 		i += copy(buf[i:], value)
 	}
-	return &LockCommandData{buf, LOCK_DATA_STAGE_LOCK, LOCK_DATA_COMMAND_TYPE_SET, LOCK_DATA_FLAG_VALUE_TYPE_KV}
+	return &LockCommandData{buf, LOCK_DATA_STAGE_CURRENT, LOCK_DATA_COMMAND_TYPE_SET, LOCK_DATA_FLAG_VALUE_TYPE_KV}
 }
 
 func NewLockCommandDataUnsetData() *LockCommandData {
-	return &LockCommandData{[]byte{2, 0, 0, 0, LOCK_DATA_COMMAND_TYPE_UNSET, 0}, LOCK_DATA_STAGE_LOCK, LOCK_DATA_COMMAND_TYPE_UNSET, 0}
+	return &LockCommandData{[]byte{2, 0, 0, 0, LOCK_DATA_COMMAND_TYPE_UNSET, 0}, LOCK_DATA_STAGE_CURRENT, LOCK_DATA_COMMAND_TYPE_UNSET, 0}
 }
 
 func NewLockCommandDataIncrData(incrValue int64) *LockCommandData {
 	return &LockCommandData{[]byte{10, 0, 0, 0, LOCK_DATA_COMMAND_TYPE_INCR, 0,
 		byte(incrValue), byte(incrValue >> 8), byte(incrValue >> 16), byte(incrValue >> 24), byte(incrValue >> 32), byte(incrValue >> 40), byte(incrValue >> 48), byte(incrValue >> 56)},
-		LOCK_DATA_STAGE_LOCK, LOCK_DATA_COMMAND_TYPE_INCR, LOCK_DATA_FLAG_VALUE_TYPE_NUMBER}
+		LOCK_DATA_STAGE_CURRENT, LOCK_DATA_COMMAND_TYPE_INCR, LOCK_DATA_FLAG_VALUE_TYPE_NUMBER}
 }
 
 func NewLockCommandDataIncrDataWithProperty(incrValue int64, properties []*LockCommandDataProperty) *LockCommandData {
 	return NewLockCommandDataFromBytes([]byte{byte(incrValue), byte(incrValue >> 8), byte(incrValue >> 16), byte(incrValue >> 24), byte(incrValue >> 32), byte(incrValue >> 40), byte(incrValue >> 48), byte(incrValue >> 56)},
-		LOCK_DATA_STAGE_LOCK, LOCK_DATA_COMMAND_TYPE_INCR, LOCK_DATA_FLAG_VALUE_TYPE_NUMBER, properties)
+		LOCK_DATA_STAGE_CURRENT, LOCK_DATA_COMMAND_TYPE_INCR, LOCK_DATA_FLAG_VALUE_TYPE_NUMBER, properties)
 }
 
 func NewLockCommandDataAppendData(data []byte) *LockCommandData {
-	return NewLockCommandDataFromBytes(data, LOCK_DATA_STAGE_LOCK, LOCK_DATA_COMMAND_TYPE_APPEND, 0, nil)
+	return NewLockCommandDataFromBytes(data, LOCK_DATA_STAGE_CURRENT, LOCK_DATA_COMMAND_TYPE_APPEND, 0, nil)
 }
 
 func NewLockCommandDataAppendString(data string) *LockCommandData {
-	return NewLockCommandDataFromString(data, LOCK_DATA_STAGE_LOCK, LOCK_DATA_COMMAND_TYPE_APPEND, 0, nil)
+	return NewLockCommandDataFromString(data, LOCK_DATA_STAGE_CURRENT, LOCK_DATA_COMMAND_TYPE_APPEND, 0, nil)
 }
 
 func NewLockCommandDataAppendDataWithProperty(data []byte, properties []*LockCommandDataProperty) *LockCommandData {
-	return NewLockCommandDataFromBytes(data, LOCK_DATA_STAGE_LOCK, LOCK_DATA_COMMAND_TYPE_APPEND, 0, properties)
+	return NewLockCommandDataFromBytes(data, LOCK_DATA_STAGE_CURRENT, LOCK_DATA_COMMAND_TYPE_APPEND, 0, properties)
 }
 
 func NewLockCommandDataAppendStringWithProperty(data string, properties []*LockCommandDataProperty) *LockCommandData {
-	return NewLockCommandDataFromString(data, LOCK_DATA_STAGE_LOCK, LOCK_DATA_COMMAND_TYPE_APPEND, 0, properties)
+	return NewLockCommandDataFromString(data, LOCK_DATA_STAGE_CURRENT, LOCK_DATA_COMMAND_TYPE_APPEND, 0, properties)
 }
 
 func NewLockCommandDataShiftData(lengthValue uint32) *LockCommandData {
 	return &LockCommandData{[]byte{6, 0, 0, 0, LOCK_DATA_COMMAND_TYPE_SHIFT, 0,
 		byte(lengthValue), byte(lengthValue >> 8), byte(lengthValue >> 16), byte(lengthValue >> 24)},
-		LOCK_DATA_STAGE_LOCK, LOCK_DATA_COMMAND_TYPE_SHIFT, LOCK_DATA_FLAG_VALUE_TYPE_NUMBER}
+		LOCK_DATA_STAGE_CURRENT, LOCK_DATA_COMMAND_TYPE_SHIFT, LOCK_DATA_FLAG_VALUE_TYPE_NUMBER}
 }
 
 func NewLockCommandDataExecuteData(lockCommand *LockCommand, commandStage uint8) *LockCommandData {
+	return NewLockCommandDataExecuteDataWithFlag(lockCommand, commandStage, 0)
+}
+
+func NewLockCommandDataExecuteDataWithFlag(lockCommand *LockCommand, commandStage uint8, dataFlag uint8) *LockCommandData {
 	dataLen := 66
 	if lockCommand.Data != nil {
 		lockCommand.Flag |= LOCK_FLAG_CONTAINS_DATA
@@ -554,7 +560,7 @@ func NewLockCommandDataExecuteData(lockCommand *LockCommand, commandStage uint8)
 	}
 	buf := make([]byte, dataLen+4)
 	buf[0], buf[1], buf[2], buf[3] = byte(dataLen), byte(dataLen>>8), byte(dataLen>>16), byte(dataLen>>24)
-	buf[4], buf[5] = (commandStage<<6)|LOCK_DATA_COMMAND_TYPE_EXECUTE, 0
+	buf[4], buf[5] = (commandStage<<6)|LOCK_DATA_COMMAND_TYPE_EXECUTE, dataFlag
 	err := lockCommand.Encode(buf[6:70])
 	if err != nil {
 		return nil
@@ -562,7 +568,7 @@ func NewLockCommandDataExecuteData(lockCommand *LockCommand, commandStage uint8)
 	if lockCommand.Data != nil {
 		copy(buf[70:], lockCommand.Data.Data)
 	}
-	return &LockCommandData{buf, commandStage, LOCK_DATA_COMMAND_TYPE_EXECUTE, 0}
+	return &LockCommandData{buf, commandStage, LOCK_DATA_COMMAND_TYPE_EXECUTE, dataFlag}
 }
 
 func NewLockCommandDataPipelineData(lockCommandDatas []*LockCommandData) *LockCommandData {
@@ -678,9 +684,9 @@ type LockCommand struct {
 	LockKey     [16]byte
 	TimeoutFlag uint16
 	/*
-	   |    15  |              14              |                13                   |  12 |        11      |       10       |      9       |           8        |             7          |      6    |       5      |4           0|
-	   |--------|------------------------------|-------------------------------------|-----|----------------|----------------|--------------|--------------------|------------------------|-----------|--------------|-------------|
-	   |keeplive|less_request_id_is_lock_succed|update_no_reset_timeout_checked_count|acked|timeout_is_error|millisecond_time|unlock_to_wait|unrenew_expried_time|timeout_reverse_key_lock|minute_time|push_subscribe|             |
+	   |    15  |              14              |                13                   |  12 |        11      |       10       |      9       |           8        |             7          |      6    |       5      |        4         |3           0|
+	   |--------|------------------------------|-------------------------------------|-----|----------------|----------------|--------------|--------------------|------------------------|-----------|--------------|------------------|-------------|
+	   |keeplive|less_request_id_is_lock_succed|update_no_reset_timeout_checked_count|acked|timeout_is_error|millisecond_time|unlock_to_wait|unrenew_expried_time|timeout_reverse_key_lock|minute_time|push_subscribe|rcount_is_priority|             |
 	*/
 	Timeout     uint16
 	ExpriedFlag uint16

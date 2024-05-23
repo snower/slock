@@ -541,7 +541,12 @@ func (self *LockManager) ProcessLockData(command *protocol.LockCommand, lock *Lo
 	}
 	currentLockData := self.currentData
 	lockCommandData := command.Data
-	if lockCommandData.CommandStage != protocol.LOCK_DATA_STAGE_LOCK && lockCommandData.CommandType != protocol.LOCK_DATA_COMMAND_TYPE_EXECUTE {
+	if lockCommandData.CommandStage == protocol.LOCK_DATA_STAGE_CURRENT {
+		if lockCommandData.DataFlag&protocol.LOCK_DATA_FLAG_PROCESS_FIRST_OR_LAST != 0 && self.locked != 1 {
+			command.Data = nil
+			return
+		}
+	} else if lockCommandData.CommandType != protocol.LOCK_DATA_COMMAND_TYPE_EXECUTE {
 		command.Data = nil
 		return
 	}
@@ -642,7 +647,7 @@ func (self *LockManager) ProcessLockData(command *protocol.LockCommand, lock *Lo
 			}
 		}
 	case protocol.LOCK_DATA_COMMAND_TYPE_EXECUTE:
-		if lockCommandData.CommandStage == protocol.LOCK_DATA_STAGE_LOCK && !requireRecover {
+		if lockCommandData.CommandStage == protocol.LOCK_DATA_STAGE_CURRENT && !requireRecover {
 			lockCommand := lock.protocol.GetLockCommand()
 			err := lockCommandData.DecodeLockCommand(lockCommand)
 			if err == nil && lockCommand.DbId == lockCommand.DbId {
@@ -698,7 +703,11 @@ func (self *LockManager) ProcessAckLockData(lock *Lock) []byte {
 	if lockData.commandDatas != nil {
 		commandDatas := make([]*protocol.LockCommandData, 0)
 		for _, lockCommandData := range lockData.commandDatas {
-			if lockCommandData.CommandStage != protocol.LOCK_DATA_STAGE_LOCK {
+			if lockCommandData.CommandStage != protocol.LOCK_DATA_STAGE_CURRENT {
+				commandDatas = append(commandDatas, lockCommandData)
+				continue
+			}
+			if lockCommandData.DataFlag&protocol.LOCK_DATA_FLAG_PROCESS_FIRST_OR_LAST != 0 && self.locked != 1 {
 				commandDatas = append(commandDatas, lockCommandData)
 				continue
 			}
@@ -847,6 +856,9 @@ func (self *LockManager) ProcessExecuteLockCommand(lock *Lock, commandStage uint
 	}
 	for _, lockCommandData := range lock.data.commandDatas {
 		if lockCommandData.CommandStage != commandStage {
+			continue
+		}
+		if lockCommandData.DataFlag&protocol.LOCK_DATA_FLAG_PROCESS_FIRST_OR_LAST != 0 && self.locked != 1 {
 			continue
 		}
 		lockCommand := lock.protocol.GetLockCommand()
