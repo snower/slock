@@ -1566,17 +1566,19 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 		if command.Flag&protocol.LOCK_FLAG_SHOW_WHEN_LOCKED != 0 {
 			currentLock := lockManager.currentLock
 			command.LockId = currentLock.command.LockId
-			command.Timeout = currentLock.command.Timeout
-			command.TimeoutFlag = currentLock.command.TimeoutFlag
-			command.Expried = currentLock.command.Expried
-			command.ExpriedFlag = currentLock.command.ExpriedFlag
-			command.Count = currentLock.command.Count
-			command.Rcount = currentLock.command.Rcount
-			lockManager.glock.Unlock()
+			if command.Flag&protocol.LOCK_FLAG_UPDATE_WHEN_LOCKED == 0 {
+				command.Timeout = currentLock.command.Timeout
+				command.TimeoutFlag = currentLock.command.TimeoutFlag
+				command.Expried = currentLock.command.Expried
+				command.ExpriedFlag = currentLock.command.ExpriedFlag
+				command.Count = currentLock.command.Count
+				command.Rcount = currentLock.command.Rcount
+				lockManager.glock.Unlock()
 
-			_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_UNOWN_ERROR, uint16(lockManager.locked), currentLock.locked, lockManager.GetLockData())
-			_ = serverProtocol.FreeLockCommand(command)
-			return nil
+				_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_UNOWN_ERROR, uint16(lockManager.locked), currentLock.locked, lockManager.GetLockData())
+				_ = serverProtocol.FreeLockCommand(command)
+				return nil
+			}
 		}
 
 		currentLock := lockManager.GetLockedLock(command)

@@ -95,6 +95,10 @@ func (self *Database) TreeLock(lockKey [16]byte, parentKey [16]byte, timeout uin
 	return NewTreeLock(self, lockKey, parentKey, self.mergeTimeoutFlag(timeout), self.mergeExpriedFlag(expried))
 }
 
+func (self *Database) PriorityLock(lockKey [16]byte, priority uint8, timeout uint32, expried uint32) *PriorityLock {
+	return NewPriorityLock(self, lockKey, priority, timeout, expried)
+}
+
 func (self *Database) State() *protocol.StateResultCommand {
 	requestId := self.client.GenRequestId()
 	command := &protocol.StateCommand{Command: protocol.Command{Magic: protocol.MAGIC, Version: protocol.VERSION, CommandType: protocol.COMMAND_STATE, RequestId: requestId},

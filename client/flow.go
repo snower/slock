@@ -13,6 +13,7 @@ type MaxConcurrentFlow struct {
 	count    uint16
 	timeout  uint32
 	expried  uint32
+	priority uint8
 	flowLock *Lock
 	glock    *sync.Mutex
 }
@@ -21,7 +22,7 @@ func NewMaxConcurrentFlow(db *Database, flowKey [16]byte, count uint16, timeout 
 	if count > 0 {
 		count -= 1
 	}
-	return &MaxConcurrentFlow{db, flowKey, count, timeout, expried, nil, &sync.Mutex{}}
+	return &MaxConcurrentFlow{db, flowKey, count, timeout, expried, 0, nil, &sync.Mutex{}}
 }
 
 func (self *MaxConcurrentFlow) GetTimeoutFlag() uint16 {
@@ -44,10 +45,24 @@ func (self *MaxConcurrentFlow) SetExpriedFlag(flag uint16) uint16 {
 	return oflag
 }
 
+func (self *MaxConcurrentFlow) GetPriority() uint8 {
+	return self.priority
+}
+
+func (self *MaxConcurrentFlow) SetPriority(priority uint8) uint8 {
+	oPriority := self.priority
+	self.priority = priority
+	return oPriority
+}
+
 func (self *MaxConcurrentFlow) Acquire() (*protocol.LockResultCommand, error) {
 	self.glock.Lock()
 	if self.flowLock == nil {
-		self.flowLock = &Lock{self.db, self.db.GenLockId(), self.flowKey, self.timeout, self.expried, self.count, 0}
+		timeout := self.timeout
+		if self.priority > 0 {
+			timeout |= protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY
+		}
+		self.flowLock = &Lock{self.db, self.db.GenLockId(), self.flowKey, timeout, self.expried, self.count, self.priority}
 	}
 	self.glock.Unlock()
 	return self.flowLock.Lock()
@@ -56,7 +71,11 @@ func (self *MaxConcurrentFlow) Acquire() (*protocol.LockResultCommand, error) {
 func (self *MaxConcurrentFlow) Release() (*protocol.LockResultCommand, error) {
 	self.glock.Lock()
 	if self.flowLock == nil {
-		self.flowLock = &Lock{self.db, self.db.GenLockId(), self.flowKey, self.timeout, self.expried, self.count, 0}
+		timeout := self.timeout
+		if self.priority > 0 {
+			timeout |= protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY
+		}
+		self.flowLock = &Lock{self.db, self.db.GenLockId(), self.flowKey, timeout, self.expried, self.count, self.priority}
 	}
 	self.glock.Unlock()
 	return self.flowLock.Unlock()
@@ -69,6 +88,7 @@ type TokenBucketFlow struct {
 	timeout     uint32
 	period      float64
 	expriedFlag uint16
+	priority    uint8
 	flowLock    *Lock
 	glock       *sync.Mutex
 }
@@ -77,7 +97,7 @@ func NewTokenBucketFlow(db *Database, flowKey [16]byte, count uint16, timeout ui
 	if count > 0 {
 		count -= 1
 	}
-	return &TokenBucketFlow{db, flowKey, count, timeout, period, 0, nil, &sync.Mutex{}}
+	return &TokenBucketFlow{db, flowKey, count, timeout, period, 0, 0, nil, &sync.Mutex{}}
 }
 
 func (self *TokenBucketFlow) GetTimeoutFlag() uint16 {
@@ -100,12 +120,26 @@ func (self *TokenBucketFlow) SetExpriedFlag(flag uint16) uint16 {
 	return oflag
 }
 
+func (self *TokenBucketFlow) GetPriority() uint8 {
+	return self.priority
+}
+
+func (self *TokenBucketFlow) SetPriority(priority uint8) uint8 {
+	oPriority := self.priority
+	self.priority = priority
+	return oPriority
+}
+
 func (self *TokenBucketFlow) Acquire() (*protocol.LockResultCommand, error) {
 	self.glock.Lock()
+	timeout := self.timeout
+	if self.priority > 0 {
+		timeout |= protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY
+	}
 	if self.period < 3 {
 		expried := uint32(math.Ceil(self.period*1000)) | 0x04000000
 		expried |= uint32(self.expriedFlag) << 16
-		self.flowLock = &Lock{self.db, self.db.GenLockId(), self.flowKey, self.timeout, expried, self.count, 0}
+		self.flowLock = &Lock{self.db, self.db.GenLockId(), self.flowKey, timeout, expried, self.count, self.priority}
 		self.glock.Unlock()
 		return self.flowLock.Lock()
 	}
@@ -113,7 +147,7 @@ func (self *TokenBucketFlow) Acquire() (*protocol.LockResultCommand, error) {
 	now := time.Now().UnixNano() / 1e9
 	expried := uint32(int64(math.Ceil(self.period)) - (now % int64(math.Ceil(self.period))))
 	expried |= uint32(self.expriedFlag) << 16
-	self.flowLock = &Lock{self.db, self.db.GenLockId(), self.flowKey, 0, expried, self.count, 0}
+	self.flowLock = &Lock{self.db, self.db.GenLockId(), self.flowKey, 0, expried, self.count, self.priority}
 	self.glock.Unlock()
 
 	result, err := self.flowLock.Lock()
@@ -121,7 +155,7 @@ func (self *TokenBucketFlow) Acquire() (*protocol.LockResultCommand, error) {
 		self.glock.Lock()
 		expried = uint32(math.Ceil(self.period))
 		expried |= uint32(self.expriedFlag) << 16
-		self.flowLock = &Lock{self.db, self.db.GenLockId(), self.flowKey, self.timeout, expried, self.count, 0}
+		self.flowLock = &Lock{self.db, self.db.GenLockId(), self.flowKey, timeout, expried, self.count, self.priority}
 		self.glock.Unlock()
 		return self.flowLock.Lock()
 	}
