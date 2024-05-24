@@ -110,6 +110,8 @@ const (
 	LOCK_DATA_COMMAND_TYPE_SHIFT    = 4
 	LOCK_DATA_COMMAND_TYPE_EXECUTE  = 5
 	LOCK_DATA_COMMAND_TYPE_PIPELINE = 6
+	LOCK_DATA_COMMAND_TYPE_PUSH     = 7
+	LOCK_DATA_COMMAND_TYPE_POP      = 8
 )
 
 const (
@@ -516,7 +518,7 @@ func NewLockCommandDataUnsetData() *LockCommandData {
 }
 
 func NewLockCommandDataIncrData(incrValue int64) *LockCommandData {
-	return &LockCommandData{[]byte{10, 0, 0, 0, LOCK_DATA_COMMAND_TYPE_INCR, 0,
+	return &LockCommandData{[]byte{10, 0, 0, 0, LOCK_DATA_COMMAND_TYPE_INCR, LOCK_DATA_FLAG_VALUE_TYPE_NUMBER,
 		byte(incrValue), byte(incrValue >> 8), byte(incrValue >> 16), byte(incrValue >> 24), byte(incrValue >> 32), byte(incrValue >> 40), byte(incrValue >> 48), byte(incrValue >> 56)},
 		LOCK_DATA_STAGE_CURRENT, LOCK_DATA_COMMAND_TYPE_INCR, LOCK_DATA_FLAG_VALUE_TYPE_NUMBER}
 }
@@ -543,7 +545,7 @@ func NewLockCommandDataAppendStringWithProperty(data string, properties []*LockC
 }
 
 func NewLockCommandDataShiftData(lengthValue uint32) *LockCommandData {
-	return &LockCommandData{[]byte{6, 0, 0, 0, LOCK_DATA_COMMAND_TYPE_SHIFT, 0,
+	return &LockCommandData{[]byte{6, 0, 0, 0, LOCK_DATA_COMMAND_TYPE_SHIFT, LOCK_DATA_FLAG_VALUE_TYPE_NUMBER,
 		byte(lengthValue), byte(lengthValue >> 8), byte(lengthValue >> 16), byte(lengthValue >> 24)},
 		LOCK_DATA_STAGE_CURRENT, LOCK_DATA_COMMAND_TYPE_SHIFT, LOCK_DATA_FLAG_VALUE_TYPE_NUMBER}
 }
@@ -585,6 +587,28 @@ func NewLockCommandDataPipelineData(lockCommandDatas []*LockCommandData) *LockCo
 		index += len(lockCommandData.Data)
 	}
 	return &LockCommandData{buf, 0, LOCK_DATA_COMMAND_TYPE_PIPELINE, 0}
+}
+
+func NewLockCommandDataPushData(data []byte) *LockCommandData {
+	return NewLockCommandDataFromBytes(data, LOCK_DATA_STAGE_CURRENT, LOCK_DATA_COMMAND_TYPE_PUSH, 0, nil)
+}
+
+func NewLockCommandDataPushString(data string) *LockCommandData {
+	return NewLockCommandDataFromString(data, LOCK_DATA_STAGE_CURRENT, LOCK_DATA_COMMAND_TYPE_PUSH, 0, nil)
+}
+
+func NewLockCommandDataPushDataWithProperty(data []byte, properties []*LockCommandDataProperty) *LockCommandData {
+	return NewLockCommandDataFromBytes(data, LOCK_DATA_STAGE_CURRENT, LOCK_DATA_COMMAND_TYPE_PUSH, 0, properties)
+}
+
+func NewLockCommandDataPushStringWithProperty(data string, properties []*LockCommandDataProperty) *LockCommandData {
+	return NewLockCommandDataFromString(data, LOCK_DATA_STAGE_CURRENT, LOCK_DATA_COMMAND_TYPE_PUSH, 0, properties)
+}
+
+func NewLockCommandDataPopData(popValue uint32) *LockCommandData {
+	return &LockCommandData{[]byte{6, 0, 0, 0, LOCK_DATA_COMMAND_TYPE_POP, LOCK_DATA_FLAG_VALUE_TYPE_NUMBER,
+		byte(popValue), byte(popValue >> 8), byte(popValue >> 16), byte(popValue >> 24)},
+		LOCK_DATA_STAGE_CURRENT, LOCK_DATA_COMMAND_TYPE_POP, LOCK_DATA_FLAG_VALUE_TYPE_NUMBER}
 }
 
 func (self *LockCommandData) GetValueOffset() int {
@@ -631,6 +655,24 @@ func (self *LockCommandData) GetIncrValue() int64 {
 }
 
 func (self *LockCommandData) GetShiftLengthValue() uint32 {
+	if self.Data == nil || self.CommandType == LOCK_DATA_COMMAND_TYPE_UNSET {
+		return 0
+	}
+	valueOffset, value := self.GetValueOffset(), uint32(0)
+	for i := 0; i < 4; i++ {
+		if i+valueOffset >= len(self.Data) {
+			break
+		}
+		if i > 0 {
+			value |= uint32(self.Data[i+valueOffset]) << (i * 8)
+		} else {
+			value |= uint32(self.Data[i+valueOffset])
+		}
+	}
+	return value
+}
+
+func (self *LockCommandData) GetPopCountValue() uint32 {
 	if self.Data == nil || self.CommandType == LOCK_DATA_COMMAND_TYPE_UNSET {
 		return 0
 	}

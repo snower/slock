@@ -708,11 +708,11 @@ func (self *LockManager) ProcessLockData(command *protocol.LockCommand, lock *Lo
 			self.currentData = NewLockManagerData(data, protocol.LOCK_DATA_COMMAND_TYPE_APPEND, command.Flag&protocol.LOCK_FLAG_FROM_AOF != 0)
 		}
 		if requireRecover {
-			lock.SaveRecoverData(currentLockData, uint64(len(self.currentData.data)-len(lockCommandData.Data)+6)<<32|uint64(len(lockCommandData.Data)-6))
+			lock.SaveRecoverData(currentLockData, uint64(len(self.currentData.data)-len(lockCommandData.Data)+lockCommandData.GetValueOffset())<<32|uint64(len(lockCommandData.Data)-lockCommandData.GetValueOffset()))
 		}
 	case protocol.LOCK_DATA_COMMAND_TYPE_SHIFT:
 		lengthValue := int(lockCommandData.GetShiftLengthValue())
-		if currentLockData.GetData() != nil && lengthValue > 0 {
+		if self.currentData != nil && self.currentData.GetData() != nil && lengthValue > 0 {
 			if lengthValue > len(currentLockData.data) {
 				lengthValue = len(currentLockData.data)
 			}
@@ -774,6 +774,65 @@ func (self *LockManager) ProcessLockData(command *protocol.LockCommand, lock *Lo
 			}
 			if requireRecover {
 				lock.SaveRecoverData(currentLockData, nil)
+			}
+		}
+	case protocol.LOCK_DATA_COMMAND_TYPE_PUSH:
+		if self.currentData == nil || self.currentData.GetData() == nil || !self.currentData.IsArrayValue() {
+			dataLen := len(lockCommandData.Data)
+			data := make([]byte, dataLen+4)
+			data[0], data[1], data[2], data[3] = byte(dataLen), byte(dataLen>>8), byte(dataLen>>16), byte(dataLen>>24)
+			data[4], data[5] = protocol.LOCK_DATA_COMMAND_TYPE_SET, (lockCommandData.Data[5]&0xf8)|protocol.LOCK_DATA_FLAG_VALUE_TYPE_ARRAY
+			if lockCommandData.GetValueOffset() > 6 {
+				copy(data[6:], lockCommandData.Data[6:lockCommandData.GetValueOffset()])
+			}
+			index, dataSize := lockCommandData.GetValueOffset(), lockCommandData.GetValueSize()
+			data[index], data[index+1], data[index+2], data[index+3] = byte(dataSize), byte(dataSize>>8), byte(dataSize>>16), byte(dataSize>>24)
+			copy(data[index+4:], lockCommandData.GetBytesValue())
+			self.currentData = NewLockManagerData(data, protocol.LOCK_DATA_COMMAND_TYPE_PUSH, command.Flag&protocol.LOCK_FLAG_FROM_AOF != 0)
+		} else {
+			dataLen := len(self.currentData.data) + lockCommandData.GetValueSize()
+			data := make([]byte, dataLen+4)
+			data[0], data[1], data[2], data[3] = byte(dataLen), byte(dataLen>>8), byte(dataLen>>16), byte(dataLen>>24)
+			data[4], data[5] = protocol.LOCK_DATA_COMMAND_TYPE_SET, (self.currentData.data[5]&0xf8)|protocol.LOCK_DATA_FLAG_VALUE_TYPE_ARRAY
+			copy(data[6:], self.currentData.data[6:])
+			index, dataSize := len(self.currentData.data), lockCommandData.GetValueSize()
+			data[index], data[index+1], data[index+2], data[index+3] = byte(dataSize), byte(dataSize>>8), byte(dataSize>>16), byte(dataSize>>24)
+			copy(data[index+4:], lockCommandData.GetBytesValue())
+			self.currentData = NewLockManagerData(data, protocol.LOCK_DATA_COMMAND_TYPE_PUSH, command.Flag&protocol.LOCK_FLAG_FROM_AOF != 0)
+		}
+		if requireRecover {
+			lock.SaveRecoverData(currentLockData, lockCommandData.GetBytesValue())
+		}
+	case protocol.LOCK_DATA_COMMAND_TYPE_POP:
+		popCount := int(lockCommandData.GetPopCountValue())
+		if self.currentData != nil && self.currentData.GetData() != nil && popCount > 0 && self.currentData.IsArrayValue() {
+			values := make([][]byte, 0)
+			for i := self.currentData.GetValueOffset(); i+4 < len(self.currentData.data); {
+				valueLen := int(uint32(self.currentData.data[i]) | uint32(self.currentData.data[i+1])<<8 | uint32(self.currentData.data[i+2])<<16 | uint32(self.currentData.data[i+3])<<24)
+				if valueLen == 0 {
+					i += 4
+					continue
+				}
+				values = append(values, self.currentData.data[i+4:i+4+valueLen])
+				i += valueLen + 4
+			}
+			if popCount > len(values) {
+				popCount = len(values)
+			}
+			dataLen := self.currentData.GetValueOffset() - 4
+			for _, value := range values[popCount:] {
+				dataLen += len(value) + 4
+			}
+			i, data := self.currentData.GetValueOffset(), make([]byte, dataLen+4)
+			data[0], data[1], data[2], data[3] = byte(dataLen), byte(dataLen>>8), byte(dataLen>>16), byte(dataLen>>24)
+			copy(data[4:], self.currentData.data[4:i])
+			for _, value := range values[popCount:] {
+				data[i], data[i+1], data[i+2], data[i+3] = byte(len(value)), byte(len(value)>>8), byte(len(value)>>16), byte(len(value)>>24)
+				i += copy(data[i+4:], value) + 4
+			}
+			self.currentData = NewLockManagerData(data, protocol.LOCK_DATA_COMMAND_TYPE_POP, command.Flag&protocol.LOCK_FLAG_FROM_AOF != 0)
+			if requireRecover {
+				lock.SaveRecoverData(currentLockData, values[:popCount])
 			}
 		}
 	}
@@ -927,6 +986,74 @@ func (self *LockManager) ProcessRecoverLockData(lock *Lock) {
 				self.currentData.isAof = false
 			}
 		}
+	case protocol.LOCK_DATA_COMMAND_TYPE_PUSH:
+		if recoverData == nil {
+			self.currentData = NewLockManagerDataUnsetData(false)
+		} else if recoverData.IsArrayValue() && self.currentData != nil && self.currentData.GetData() != nil && self.currentData.IsArrayValue() {
+			values, recoverValueBytes, recoverIndex := make([][]byte, 0), recoverValue.([]byte), 0
+			for i := self.currentData.GetValueOffset(); i+4 < len(self.currentData.data); {
+				valueLen := int(uint32(self.currentData.data[i]) | uint32(self.currentData.data[i+1])<<8 | uint32(self.currentData.data[i+2])<<16 | uint32(self.currentData.data[i+3])<<24)
+				if valueLen == 0 {
+					i += 4
+					continue
+				}
+				value := self.currentData.data[i+4 : i+4+valueLen]
+				values = append(values, value)
+				i += valueLen + 4
+				if string(value) == string(recoverValueBytes) {
+					recoverIndex = len(values) - 1
+				}
+			}
+			if len(values) > 0 {
+				if recoverIndex == 0 {
+					values = values[1:]
+				} else {
+					values = append(values[:recoverIndex], values[recoverIndex+1:]...)
+				}
+				dataLen := self.currentData.GetValueOffset() - 4
+				for _, value := range values {
+					dataLen += len(value) + 4
+				}
+				i, data := self.currentData.GetValueOffset(), make([]byte, dataLen+4)
+				data[0], data[1], data[2], data[3] = byte(dataLen), byte(dataLen>>8), byte(dataLen>>16), byte(dataLen>>24)
+				copy(data[4:], self.currentData.data[4:i])
+				for _, value := range values {
+					data[i], data[i+1], data[i+2], data[i+3] = byte(len(value)), byte(len(value)>>8), byte(len(value)>>16), byte(len(value)>>24)
+					i += copy(data[i+4:], value) + 4
+				}
+				self.currentData = NewLockManagerData(data, protocol.LOCK_DATA_COMMAND_TYPE_POP, false)
+			}
+		}
+	case protocol.LOCK_DATA_COMMAND_TYPE_POP:
+		if recoverData == nil {
+			self.currentData = NewLockManagerDataUnsetData(false)
+		} else if recoverData.IsArrayValue() && self.currentData != nil && self.currentData.GetData() != nil && self.currentData.IsArrayValue() {
+			values := make([][]byte, 0)
+			if recoverValue != nil {
+				values = append(values, recoverValue.([][]byte)...)
+			}
+			for i := self.currentData.GetValueOffset(); i+4 < len(self.currentData.data); {
+				valueLen := int(uint32(self.currentData.data[i]) | uint32(self.currentData.data[i+1])<<8 | uint32(self.currentData.data[i+2])<<16 | uint32(self.currentData.data[i+3])<<24)
+				if valueLen == 0 {
+					i += 4
+					continue
+				}
+				values = append(values, self.currentData.data[i+4:i+4+valueLen])
+				i += valueLen + 4
+			}
+			dataLen := self.currentData.GetValueOffset() - 4
+			for _, value := range values {
+				dataLen += len(value) + 4
+			}
+			i, data := self.currentData.GetValueOffset(), make([]byte, dataLen+4)
+			data[0], data[1], data[2], data[3] = byte(dataLen), byte(dataLen>>8), byte(dataLen>>16), byte(dataLen>>24)
+			copy(data[4:], self.currentData.data[4:i])
+			for _, value := range values {
+				data[i], data[i+1], data[i+2], data[i+3] = byte(len(value)), byte(len(value)>>8), byte(len(value)>>16), byte(len(value)>>24)
+				i += copy(data[i+4:], value) + 4
+			}
+			self.currentData = NewLockManagerData(data, protocol.LOCK_DATA_COMMAND_TYPE_PUSH, false)
+		}
 	}
 
 	lock.data.commandDatas = nil
@@ -1033,6 +1160,17 @@ func (self *LockManagerData) GetValueOffset() int {
 		return (int(self.data[6]) | (int(self.data[7]) << 8)) + 8
 	}
 	return 6
+}
+
+func (self *LockManagerData) GetValueSize() int {
+	return len(self.data) - self.GetValueOffset()
+}
+
+func (self *LockManagerData) IsArrayValue() bool {
+	if self.data == nil || len(self.data) < 6 {
+		return false
+	}
+	return self.data[5]&protocol.LOCK_DATA_FLAG_VALUE_TYPE_ARRAY != 0
 }
 
 func (self *LockManagerData) GetData() []byte {

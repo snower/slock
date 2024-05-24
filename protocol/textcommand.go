@@ -339,6 +339,17 @@ func (self *TextCommandConverter) ConvertTextLockAndUnLockCommand(textProtocol I
 			}
 			lockCommand.Data = NewLockCommandDataExecuteData(executeCommand, commandStage)
 			lockCommand.Flag |= LOCK_FLAG_CONTAINS_DATA
+		case "PUSH":
+			lockCommand.Data = NewLockCommandDataPushString(args[i+1])
+			lockCommand.Flag |= LOCK_FLAG_CONTAINS_DATA
+		case "POP":
+			popValue, err := strconv.Atoi(args[i+1])
+			if err != nil {
+				_ = textProtocol.FreeLockCommand(lockCommand)
+				return nil, nil, errors.New("Command Parse SHIFT Error")
+			}
+			lockCommand.Data = NewLockCommandDataPopData(uint32(popValue))
+			lockCommand.Flag |= LOCK_FLAG_CONTAINS_DATA
 		}
 	}
 
@@ -400,6 +411,24 @@ func (self *TextCommandConverter) WriteTextLockAndUnLockCommandResult(textProtoc
 
 	err := stream.WriteBytes(wbuf[:bufIndex])
 	if err == nil && lockCommandResult.Flag&UNLOCK_FLAG_CONTAINS_DATA != 0 {
+		if lockCommandResult.Data.DataFlag&LOCK_DATA_FLAG_VALUE_TYPE_NUMBER != 0 {
+			return stream.WriteBytes([]byte(fmt.Sprintf("$4\r\nDATA\r\n:%d\r\n", lockCommandResult.Data.GetIncrValue())))
+		} else if lockCommandResult.Data.DataFlag&LOCK_DATA_FLAG_VALUE_TYPE_ARRAY != 0 {
+			values := lockCommandResult.Data.GetArrayValue()
+			dataBuf := []byte(fmt.Sprintf("$4\r\nDATA\r\n*%d\r\n", len(values)))
+			for _, value := range values {
+				dataBuf = append(dataBuf, []byte(fmt.Sprintf("$%d\r\n%s\r\n", len(string(value)), string(value)))...)
+			}
+			return stream.WriteBytes(dataBuf)
+		} else if lockCommandResult.Data.DataFlag&LOCK_DATA_FLAG_VALUE_TYPE_KV != 0 {
+			values := lockCommandResult.Data.GetKVValue()
+			dataBuf := []byte(fmt.Sprintf("$4\r\nDATA\r\n*%d\r\n", len(values)*2))
+			for key, value := range values {
+				dataBuf = append(dataBuf, []byte(fmt.Sprintf("$%d\r\n%s\r\n", len(key), key))...)
+				dataBuf = append(dataBuf, []byte(fmt.Sprintf("$%d\r\n%s\r\n", len(string(value)), string(value)))...)
+			}
+			return stream.WriteBytes(dataBuf)
+		}
 		data := lockCommandResult.Data.GetStringValue()
 		return stream.WriteBytes([]byte(fmt.Sprintf("$4\r\nDATA\r\n$%d\r\n%s\r\n", len(data), data)))
 	}
