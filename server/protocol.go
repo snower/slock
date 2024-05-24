@@ -2801,7 +2801,7 @@ func (self *TextServerProtocol) commandHandlerScanCommand(_ *TextServerProtocol,
 		return self.stream.WriteBytes(self.parser.BuildResponse(false, "Command Parse Args Count Error", nil))
 	}
 
-	offset, count, index := 0, 0xffffffff, 0
+	offset, count, index := 0, -1, 0
 	var matchRe *regexp.Regexp = nil
 	if len(args) >= 2 {
 		v, err := strconv.ParseInt(args[1], 10, 64)
@@ -2859,12 +2859,12 @@ func (self *TextServerProtocol) commandHandlerScanCommand(_ *TextServerProtocol,
 				}
 				index++
 			}
-			if index >= offset+count {
+			if count >= 0 && index >= offset+count {
 				break
 			}
 		}
 
-		if index < offset+count {
+		if count >= 0 && index < offset+count {
 			db.mGlock.Lock()
 			for _, lockManager := range db.locks {
 				if lockManager == nil || lockManager.locked == 0 {
@@ -2893,7 +2893,7 @@ func (self *TextServerProtocol) commandHandlerScanCommand(_ *TextServerProtocol,
 					}
 					index++
 				}
-				if index >= offset+count {
+				if count >= 0 && index >= offset+count {
 					break
 				}
 			}
