@@ -59,6 +59,7 @@ const (
 )
 
 const (
+	TIMEOUT_FLAG_TIMEOUT_WHEN_CONTAINS_DATA            = 0x0008
 	TIMEOUT_FLAG_RCOUNT_IS_PRIORITY                    = 0x0010
 	TIMEOUT_FLAG_PUSH_SUBSCRIBE                        = 0x0020
 	TIMEOUT_FLAG_MINUTE_TIME                           = 0x0040
@@ -726,9 +727,9 @@ type LockCommand struct {
 	LockKey     [16]byte
 	TimeoutFlag uint16
 	/*
-	   |    15  |              14              |                13                   |  12 |        11      |       10       |      9       |           8        |             7          |      6    |       5      |        4         |3           0|
-	   |--------|------------------------------|-------------------------------------|-----|----------------|----------------|--------------|--------------------|------------------------|-----------|--------------|------------------|-------------|
-	   |keeplive|less_request_id_is_lock_succed|update_no_reset_timeout_checked_count|acked|timeout_is_error|millisecond_time|unlock_to_wait|unrenew_expried_time|timeout_reverse_key_lock|minute_time|push_subscribe|rcount_is_priority|             |
+	   |    15  |              14              |                13                   |  12 |        11      |       10       |      9       |           8        |             7          |      6    |       5      |        4         |            3             |2        0|
+	   |--------|------------------------------|-------------------------------------|-----|----------------|----------------|--------------|--------------------|------------------------|-----------|--------------|------------------|--------------------------|----------|
+	   |keeplive|less_request_id_is_lock_succed|update_no_reset_timeout_checked_count|acked|timeout_is_error|millisecond_time|unlock_to_wait|unrenew_expried_time|timeout_reverse_key_lock|minute_time|push_subscribe|rcount_is_priority|timeout_when_contains_data|          |
 	*/
 	Timeout     uint16
 	ExpriedFlag uint16

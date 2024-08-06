@@ -1812,7 +1812,7 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 		}
 	}
 
-	if command.Timeout > 0 {
+	if command.Timeout > 0 && (command.TimeoutFlag&protocol.TIMEOUT_FLAG_TIMEOUT_WHEN_CONTAINS_DATA == 0 || lockManager.GetLockData() == nil) {
 		lockManager.AddWaitLock(lock)
 		if command.TimeoutFlag&protocol.TIMEOUT_FLAG_MILLISECOND_TIME == 0 {
 			self.AddTimeOut(lock)
@@ -2066,7 +2066,7 @@ func (self *LockDB) doLock(lockManager *LockManager, lock *Lock) bool {
 		}
 		if lockManager.currentLock.command.Count == 0xffff && lock.command.Count == 0xffff {
 			if lock.command.TimeoutFlag&protocol.TIMEOUT_FLAG_LESS_LOCK_VERSION_IS_LOCK_SUCCED != 0 {
-				if lockManager.currentLock != nil && self.compareLockVersion(lock.command.LockId, lockManager.currentLock.command.LockId) == 1 {
+				if self.compareLockVersion(lock.command.LockId, lockManager.currentLock.command.LockId) == 1 {
 					return false
 				}
 			}
@@ -2077,7 +2077,7 @@ func (self *LockDB) doLock(lockManager *LockManager, lock *Lock) bool {
 	if lockManager.locked <= uint32(lockManager.currentLock.command.Count) {
 		if lockManager.locked <= uint32(lock.command.Count) {
 			if lock.command.TimeoutFlag&protocol.TIMEOUT_FLAG_LESS_LOCK_VERSION_IS_LOCK_SUCCED != 0 {
-				if lockManager.currentLock != nil && self.compareLockVersion(lock.command.LockId, lockManager.currentLock.command.LockId) == 1 {
+				if self.compareLockVersion(lock.command.LockId, lockManager.currentLock.command.LockId) == 1 {
 					return false
 				}
 			}
@@ -2257,6 +2257,12 @@ func (self *LockDB) addUnlockLockCommandToWaitLock(lockManager *LockManager, com
 	if command.TimeoutFlag&protocol.TIMEOUT_FLAG_LESS_LOCK_VERSION_IS_LOCK_SUCCED != 0 {
 		command.LockId = self.increaseLockVersion(command.LockId)
 	}
+	command.Timeout = requestCommand.Timeout
+	command.TimeoutFlag = requestCommand.TimeoutFlag
+	command.Expried = requestCommand.Expried
+	command.ExpriedFlag = requestCommand.ExpriedFlag
+	command.Count = requestCommand.Count
+	command.Rcount = requestCommand.Rcount
 	requestCommand.LockId = command.LockId
 
 	if command.Timeout > 0 {
