@@ -735,7 +735,7 @@ func (self *LockManager) ProcessLockData(command *protocol.LockCommand, lock *Lo
 		if lockCommandData.CommandStage == protocol.LOCK_DATA_STAGE_CURRENT && !requireRecover {
 			lockCommand := lock.protocol.GetLockCommand()
 			err := lockCommandData.DecodeLockCommand(lockCommand)
-			if err == nil && lockCommand.DbId == lockCommand.DbId {
+			if err == nil && self.dbId == lockCommand.DbId {
 				_ = self.lockDb.PushExecutorLockCommand(self, lock.protocol, lockCommand)
 			}
 		} else {
@@ -857,7 +857,7 @@ func (self *LockManager) ProcessAckLockData(lock *Lock) []byte {
 			}
 			lockCommand := lock.protocol.GetLockCommand()
 			err := lockCommandData.DecodeLockCommand(lockCommand)
-			if err == nil && lockCommand.DbId == lockCommand.DbId {
+			if err == nil && self.dbId == lockCommand.DbId {
 				_ = self.lockDb.PushExecutorLockCommand(self, lock.protocol, lockCommand)
 			}
 		}
@@ -1075,7 +1075,7 @@ func (self *LockManager) ProcessExecuteLockCommand(lock *Lock, commandStage uint
 		}
 		lockCommand := lock.protocol.GetLockCommand()
 		err := lockCommandData.DecodeLockCommand(lockCommand)
-		if err == nil && lockCommand.DbId == lockCommand.DbId {
+		if err == nil && self.dbId == lockCommand.DbId {
 			_ = self.lockDb.PushExecutorLockCommand(self, lock.protocol, lockCommand)
 		}
 	}
