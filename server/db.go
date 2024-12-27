@@ -112,32 +112,46 @@ type LockDBExecutorTask struct {
 type LockDBExecutor struct {
 	db                *LockDB
 	glock             *PriorityMutex
+	queueLock         *sync.Mutex
 	queueHead         *LockDBExecutorTask
 	queueTail         *LockDBExecutorTask
 	freeTasks         []*LockDBExecutorTask
 	freeTaskIndex     int
 	freeTaskMax       int
-	runCount          uint32
+	runingCount       uint32
 	queueCount        int
 	executeCount      uint64
 	queueWaiter       chan bool
-	queueWaited       bool
+	queueWaited       int
 	glockAcquiredSize int
 	glockAcquired     bool
+	closeWaiter       chan bool
+}
+
+func NewLockDBExecutor(db *LockDB, glock *PriorityMutex) *LockDBExecutor {
+	freeTaskMax := int(Config.AofQueueSize) / 64
+	executor := &LockDBExecutor{db, glock, &sync.Mutex{}, nil, nil,
+		make([]*LockDBExecutorTask, freeTaskMax), 0, freeTaskMax, 0, 0,
+		0, make(chan bool, 4), 0, freeTaskMax * 2, false,
+		make(chan bool)}
+	go executor.Run()
+	go executor.Run()
+	return executor
 }
 
 func (self *LockDBExecutor) Run() {
-	self.glock.Lock()
+	self.queueLock.Lock()
+	self.runingCount++
 	for {
 		executorTask := self.queueTail
 		if executorTask == nil {
 			if self.db.status == STATE_CLOSE {
 				break
 			}
-			self.queueWaited = true
-			self.glock.Unlock()
+			self.queueWaited++
+			self.queueLock.Unlock()
 			<-self.queueWaiter
-			self.glock.Lock()
+			self.queueLock.Lock()
 			continue
 		}
 		self.queueTail = executorTask.next
@@ -149,7 +163,7 @@ func (self *LockDBExecutor) Run() {
 			self.glock.LowUnSetPriority()
 			self.glockAcquired = false
 		}
-		self.glock.Unlock()
+		self.queueLock.Unlock()
 		if self.db.status == STATE_LEADER {
 			switch executorTask.command.CommandType {
 			case protocol.COMMAND_LOCK:
@@ -168,18 +182,22 @@ func (self *LockDBExecutor) Run() {
 		executorTask.serverProtocol = nil
 		executorTask.command = nil
 		executorTask.lockManager = nil
-		self.glock.Lock()
+		self.queueLock.Lock()
 		self.executeCount++
 		if self.freeTaskIndex < self.freeTaskMax {
 			self.freeTasks[self.freeTaskIndex] = executorTask
 			self.freeTaskIndex++
 		}
 	}
-	self.glock.Unlock()
-	atomic.AddUint32(&self.runCount, 0xffffffff)
+	self.runingCount--
+	if self.db.status == STATE_CLOSE && self.runingCount == 0 {
+		close(self.closeWaiter)
+	}
+	self.queueLock.Unlock()
 }
 
 func (self *LockDBExecutor) Push(serverProtocol ServerProtocol, lockCommand *protocol.LockCommand, lockManager *LockManager) {
+	self.queueLock.Lock()
 	var executorTask *LockDBExecutorTask
 	if self.freeTaskIndex > 0 {
 		self.freeTaskIndex--
@@ -202,17 +220,15 @@ func (self *LockDBExecutor) Push(serverProtocol ServerProtocol, lockCommand *pro
 	if !self.glockAcquired && self.queueCount > self.glockAcquiredSize {
 		self.glockAcquired = self.glock.LowSetPriority()
 	}
-	if self.queueWaited {
+	if self.queueWaited > 0 {
 		self.queueWaiter <- true
-		self.queueWaited = false
+		self.queueWaited--
 	}
-	if self.runCount == 0 {
-		go self.Run()
-		atomic.AddUint32(&self.runCount, 1)
-	}
+	self.queueLock.Unlock()
 }
 
 func (self *LockDBExecutor) FlushQueue() {
+	self.queueLock.Lock()
 	executorTask := self.queueTail
 	for executorTask != nil {
 		executorTask.lockManager.glock.LowUnSetPriority()
@@ -237,6 +253,13 @@ func (self *LockDBExecutor) FlushQueue() {
 		self.glock.LowUnSetPriority()
 		self.glockAcquired = false
 	}
+	self.queueLock.Unlock()
+}
+
+func (self *LockDBExecutor) Close() {
+	close(self.queueWaiter)
+	self.queueWaited = 0
+	<-self.closeWaiter
 }
 
 type LockDB struct {
@@ -408,10 +431,7 @@ func (self *LockDB) PushExecutorLockCommand(serverProtocol ServerProtocol, lockC
 		self.glock.Lock()
 		executor = self.exectors[lockManager.glockIndex]
 		if executor == nil {
-			freeTaskMax := int(Config.AofQueueSize) / 64
-			executor = &LockDBExecutor{self, self.managerGlocks[lockManager.glockIndex], nil, nil,
-				make([]*LockDBExecutorTask, freeTaskMax), 0, freeTaskMax, 0, 0,
-				0, make(chan bool, 4), false, freeTaskMax * 2, false}
+			executor = NewLockDBExecutor(self, self.managerGlocks[lockManager.glockIndex])
 			self.exectors[lockManager.glockIndex] = executor
 		}
 		self.glock.Unlock()
@@ -433,7 +453,7 @@ func (self *LockDB) Close() {
 	for i := uint16(0); i < self.managerMaxGlocks; i++ {
 		self.managerGlocks[i].Lock()
 		if self.exectors[i] != nil {
-			close(self.exectors[i].queueWaiter)
+			self.exectors[i].Close()
 			self.exectors[i] = nil
 		}
 		self.flushTimeOut(i, true)
