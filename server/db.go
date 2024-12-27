@@ -215,7 +215,7 @@ func (self *LockDBExecutor) Push(serverProtocol ServerProtocol, lockCommand *pro
 		self.queueTail = executorTask
 	}
 	self.queueHead = executorTask
-	lockManager.glock.LowSetPriority()
+	lockManager.glock.LowSetPriorityWithNotTraceCount()
 	self.queueCount++
 	if !self.glockAcquired && self.queueCount > self.glockAcquiredSize {
 		self.glockAcquired = self.glock.LowSetPriority()

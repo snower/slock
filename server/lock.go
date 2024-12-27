@@ -1297,7 +1297,14 @@ func (self *PriorityMutex) HighUnSetPriority() bool {
 func (self *PriorityMutex) LowSetPriority() bool {
 	if atomic.AddUint32(&self.lowPriority, 1) == 1 {
 		self.lowPriorityMutex.Lock()
-		self.setLowPriorityCount++
+	}
+	atomic.AddUint64(&self.setLowPriorityCount, 1)
+	return true
+}
+
+func (self *PriorityMutex) LowSetPriorityWithNotTraceCount() bool {
+	if atomic.AddUint32(&self.lowPriority, 1) == 1 {
+		self.lowPriorityMutex.Lock()
 	}
 	return true
 }
