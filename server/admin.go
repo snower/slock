@@ -367,9 +367,7 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 					exector := db.exectors[i]
 					if exector != nil {
 						exectorCount++
-						if !exector.queueWaited {
-							exectorRunningCount++
-						}
+						exectorRunningCount += exector.runingCount - exector.queueWaited
 						exectorQueueCount += exector.queueCount
 						exectorExecuteCount += exector.executeCount
 					}

@@ -118,7 +118,7 @@ type LockDBExecutor struct {
 	freeTasks         []*LockDBExecutorTask
 	freeTaskIndex     int
 	freeTaskMax       int
-	runingCount       uint32
+	runingCount       int
 	queueCount        int
 	executeCount      uint64
 	queueWaiter       chan bool
