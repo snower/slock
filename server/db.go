@@ -118,7 +118,7 @@ type LockDBExecutor struct {
 	freeTasks         []*LockDBExecutorTask
 	freeTaskIndex     int
 	freeTaskMax       int
-	runingCount       int
+	runningCount      int
 	queueCount        int
 	executeCount      uint64
 	queueWaiter       chan bool
@@ -141,7 +141,7 @@ func NewLockDBExecutor(db *LockDB, glock *PriorityMutex) *LockDBExecutor {
 
 func (self *LockDBExecutor) Run() {
 	self.queueLock.Lock()
-	self.runingCount++
+	self.runningCount++
 	for {
 		executorTask := self.queueTail
 		if executorTask == nil {
@@ -189,8 +189,8 @@ func (self *LockDBExecutor) Run() {
 			self.freeTaskIndex++
 		}
 	}
-	self.runingCount--
-	if self.db.status == STATE_CLOSE && self.runingCount == 0 {
+	self.runningCount--
+	if self.db.status == STATE_CLOSE && self.runningCount == 0 {
 		close(self.closeWaiter)
 	}
 	self.queueLock.Unlock()
