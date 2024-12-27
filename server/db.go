@@ -179,14 +179,7 @@ func (self *LockDBExecutor) Run() {
 	atomic.AddUint32(&self.runCount, 0xffffffff)
 }
 
-func (self *LockDBExecutor) Push(serverProtocol ServerProtocol, lockCommand *protocol.LockCommand) {
-	lockManager := self.db.GetOrNewLockManager(lockCommand)
-	for atomic.AddUint32(&lockManager.refCount, 1) == 0 {
-		if atomic.AddUint32(&lockManager.refCount, 0xffffffff) == 0 {
-			self.db.RemoveLockManager(lockManager)
-		}
-		lockManager = self.db.GetOrNewLockManager(lockCommand)
-	}
+func (self *LockDBExecutor) Push(serverProtocol ServerProtocol, lockCommand *protocol.LockCommand, lockManager *LockManager) {
 	var executorTask *LockDBExecutorTask
 	if self.freeTaskIndex > 0 {
 		self.freeTaskIndex--
@@ -204,7 +197,6 @@ func (self *LockDBExecutor) Push(serverProtocol ServerProtocol, lockCommand *pro
 		self.queueTail = executorTask
 	}
 	self.queueHead = executorTask
-	atomic.AddUint32(&lockManager.refCount, 1)
 	lockManager.glock.LowSetPriority()
 	self.queueCount++
 	if !self.glockAcquired && self.queueCount > self.glockAcquiredSize {
@@ -395,22 +387,36 @@ func (self *LockDB) resizeExpried() {
 	}
 }
 
-func (self *LockDB) PushExecutorLockCommand(lockManager *LockManager, serverProtocol ServerProtocol, lockCommand *protocol.LockCommand) error {
+func (self *LockDB) PushExecutorLockCommand(serverProtocol ServerProtocol, lockCommand *protocol.LockCommand) error {
 	if self.slock.state != STATE_LEADER {
 		return nil
 	}
-	if self.exectors == nil || len(self.exectors) <= int(lockManager.glockIndex) {
+	if self.exectors == nil {
 		return errors.New("No exectors")
 	}
+
+	lockManager := self.GetOrNewLockManager(lockCommand)
+	for atomic.AddUint32(&lockManager.refCount, 1) == 0 {
+		if atomic.AddUint32(&lockManager.refCount, 0xffffffff) == 0 {
+			self.RemoveLockManager(lockManager)
+		}
+		lockManager = self.GetOrNewLockManager(lockCommand)
+	}
+
 	executor := self.exectors[lockManager.glockIndex]
 	if executor == nil {
-		freeTaskMax := int(Config.AofQueueSize) / 64
-		executor = &LockDBExecutor{self, self.managerGlocks[lockManager.glockIndex], nil, nil,
-			make([]*LockDBExecutorTask, freeTaskMax), 0, freeTaskMax, 0, 0,
-			0, make(chan bool, 4), false, freeTaskMax * 2, false}
-		self.exectors[lockManager.glockIndex] = executor
+		self.glock.Lock()
+		executor = self.exectors[lockManager.glockIndex]
+		if executor == nil {
+			freeTaskMax := int(Config.AofQueueSize) / 64
+			executor = &LockDBExecutor{self, self.managerGlocks[lockManager.glockIndex], nil, nil,
+				make([]*LockDBExecutorTask, freeTaskMax), 0, freeTaskMax, 0, 0,
+				0, make(chan bool, 4), false, freeTaskMax * 2, false}
+			self.exectors[lockManager.glockIndex] = executor
+		}
+		self.glock.Unlock()
 	}
-	executor.Push(serverProtocol, lockCommand)
+	executor.Push(serverProtocol, lockCommand, lockManager)
 	return nil
 }
 
@@ -1353,7 +1359,7 @@ func (self *LockDB) doTimeOut(lock *Lock, forcedExpried bool) {
 				lockKey[15], lockKey[14], lockKey[13], lockKey[12], lockKey[11], lockKey[10], lockKey[9], lockKey[8],
 				lockKey[7], lockKey[6], lockKey[5], lockKey[4], lockKey[3], lockKey[2], lockKey[1], lockKey[0]
 
-			_ = self.Lock(lockProtocol, lockCommand, 1)
+			_ = self.PushExecutorLockCommand(lockProtocol, lockCommand)
 		} else {
 			_ = lockProtocol.FreeLockCommandLocked(lockCommand)
 		}
@@ -1520,7 +1526,7 @@ func (self *LockDB) doExpried(lock *Lock, forcedExpried bool) {
 			lockKey[15], lockKey[14], lockKey[13], lockKey[12], lockKey[11], lockKey[10], lockKey[9], lockKey[8],
 			lockKey[7], lockKey[6], lockKey[5], lockKey[4], lockKey[3], lockKey[2], lockKey[1], lockKey[0]
 
-		_ = self.Lock(lockProtocol, lockCommand, 1)
+		_ = self.PushExecutorLockCommand(lockProtocol, lockCommand)
 	}
 }
 
@@ -2324,7 +2330,7 @@ func (self *LockDB) unlockTreeLock(serverProtocol ServerProtocol, command *proto
 		_ = serverProtocol.FreeLockCommand(currentLockCommand)
 
 		command.RequestId = protocol.GenRequestId()
-		_ = self.UnLock(serverProtocol, command, 1)
+		_ = self.PushExecutorLockCommand(serverProtocol, command)
 		return true
 	}
 
@@ -2336,7 +2342,7 @@ func (self *LockDB) unlockTreeLock(serverProtocol ServerProtocol, command *proto
 
 	command.Flag |= protocol.UNLOCK_FLAG_UNLOCK_TREE_LOCK
 	command.RequestId = protocol.GenRequestId()
-	_ = self.UnLock(serverProtocol, command, 1)
+	_ = self.PushExecutorLockCommand(serverProtocol, command)
 	return true
 }
 
