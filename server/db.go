@@ -107,6 +107,7 @@ type LockDBExecutorTask struct {
 	next           *LockDBExecutorTask
 	serverProtocol ServerProtocol
 	command        *protocol.LockCommand
+	lockManager    *LockManager
 }
 
 type LockDBExecutor struct {
@@ -131,12 +132,12 @@ func (self *LockDBExecutor) Run() {
 	for {
 		executorTask := self.queueTail
 		if executorTask == nil {
-			self.queueWaited = true
-			self.glock.Unlock()
-			<-self.queueWaiter
 			if self.db.status == STATE_CLOSE {
 				break
 			}
+			self.queueWaited = true
+			self.glock.Unlock()
+			<-self.queueWaiter
 			self.glock.Lock()
 			continue
 		}
@@ -150,23 +151,22 @@ func (self *LockDBExecutor) Run() {
 			self.glockAcquired = false
 		}
 		self.glock.Unlock()
-		if self.db.slock.state != STATE_LEADER {
-			self.glock.Lock()
-			continue
+		if self.db.status == STATE_LEADER {
+			switch executorTask.command.CommandType {
+			case protocol.COMMAND_LOCK:
+				_ = self.db.Lock(executorTask.serverProtocol, executorTask.command, 1)
+			case protocol.COMMAND_UNLOCK:
+				_ = self.db.UnLock(executorTask.serverProtocol, executorTask.command, 1)
+			}
 		}
-		if self.db.status == STATE_CLOSE {
-			break
-		}
-
-		switch executorTask.command.CommandType {
-		case protocol.COMMAND_LOCK:
-			_ = self.db.Lock(executorTask.serverProtocol, executorTask.command, 1)
-		case protocol.COMMAND_UNLOCK:
-			_ = self.db.UnLock(executorTask.serverProtocol, executorTask.command, 1)
+		executorTask.lockManager.glock.LowUnSetPriority()
+		if atomic.AddUint32(&executorTask.lockManager.refCount, 0xffffffff) == 0 {
+			self.db.RemoveLockManager(executorTask.lockManager)
 		}
 		executorTask.next = nil
 		executorTask.serverProtocol = nil
 		executorTask.command = nil
+		executorTask.lockManager = nil
 		self.glock.Lock()
 		self.executeCount++
 		if self.freeTaskIndex < self.freeTaskMax {
@@ -178,16 +178,17 @@ func (self *LockDBExecutor) Run() {
 	atomic.AddUint32(&self.runCount, 0xffffffff)
 }
 
-func (self *LockDBExecutor) Push(serverProtocol ServerProtocol, lockCommand *protocol.LockCommand) {
+func (self *LockDBExecutor) Push(serverProtocol ServerProtocol, lockCommand *protocol.LockCommand, lockManager *LockManager) {
 	var executorTask *LockDBExecutorTask
 	if self.freeTaskIndex > 0 {
 		self.freeTaskIndex--
 		executorTask = self.freeTasks[self.freeTaskIndex]
 		executorTask.serverProtocol = serverProtocol
 		executorTask.command = lockCommand
+		executorTask.lockManager = lockManager
 		executorTask.next = nil
 	} else {
-		executorTask = &LockDBExecutorTask{nil, serverProtocol, lockCommand}
+		executorTask = &LockDBExecutorTask{nil, serverProtocol, lockCommand, lockManager}
 	}
 	if self.queueHead != nil {
 		self.queueHead.next = executorTask
@@ -195,6 +196,8 @@ func (self *LockDBExecutor) Push(serverProtocol ServerProtocol, lockCommand *pro
 		self.queueTail = executorTask
 	}
 	self.queueHead = executorTask
+	atomic.AddUint32(&lockManager.refCount, 1)
+	lockManager.glock.LowSetPriority()
 	self.queueCount++
 	if !self.glockAcquired && self.queueCount > self.glockAcquiredSize {
 		self.glockAcquired = self.glock.LowSetPriority()
@@ -212,7 +215,15 @@ func (self *LockDBExecutor) Push(serverProtocol ServerProtocol, lockCommand *pro
 func (self *LockDBExecutor) FlushQueue() {
 	executorTask := self.queueTail
 	for executorTask != nil {
+		executorTask.lockManager.glock.LowUnSetPriority()
+		if atomic.AddUint32(&executorTask.lockManager.refCount, 0xffffffff) == 0 {
+			self.db.RemoveLockManager(executorTask.lockManager)
+		}
 		_ = executorTask.serverProtocol.FreeLockCommandLocked(executorTask.command)
+		executorTask.next = nil
+		executorTask.serverProtocol = nil
+		executorTask.command = nil
+		executorTask.lockManager = nil
 		self.queueCount--
 		if self.freeTaskIndex < self.freeTaskMax {
 			self.freeTasks[self.freeTaskIndex] = executorTask
@@ -391,7 +402,7 @@ func (self *LockDB) PushExecutorLockCommand(lockManager *LockManager, serverProt
 			0, make(chan bool, 4), false, freeTaskMax * 2, false}
 		self.exectors[lockManager.glockIndex] = executor
 	}
-	executor.Push(serverProtocol, lockCommand)
+	executor.Push(serverProtocol, lockCommand, self.GetOrNewLockManager(lockCommand))
 	return nil
 }
 
@@ -1109,6 +1120,9 @@ func (self *LockDB) GetLockManager(command *protocol.LockCommand) *LockManager {
 }
 
 func (self *LockDB) RemoveLockManager(lockManager *LockManager) {
+	if atomic.LoadUint32(&lockManager.refCount) != 0 {
+		return
+	}
 	fastValue := lockManager.fastKeyValue
 	if fastValue == nil {
 		return

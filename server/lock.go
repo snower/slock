@@ -540,7 +540,7 @@ func (self *LockManager) FreeLock(lock *Lock) *Lock {
 		return lock
 	}
 
-	self.refCount--
+	atomic.AddUint32(&self.refCount, 0xffffffff)
 	lock.manager = nil
 	lock.protocol = nil
 	lock.command = nil
@@ -593,7 +593,7 @@ func (self *LockManager) GetOrNewLock(serverProtocol ServerProtocol, command *pr
 	}
 	lock.timeoutCheckedCount = 1
 	lock.longWaitIndex = 0
-	self.refCount++
+	atomic.AddUint32(&self.refCount, 1)
 	return lock
 }
 
