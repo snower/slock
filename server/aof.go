@@ -784,7 +784,7 @@ func (self *AofChannel) Load(fromAofLock *AofLock) error {
 		return io.EOF
 	}
 
-	if self.lockDbGlock.lowPriority == 1 {
+	if self.lockDbGlock.lowPriority != 0 {
 		self.lockDbGlock.LowPriorityLock()
 		self.lockDbGlock.LowPriorityUnlock()
 	}
@@ -804,7 +804,7 @@ func (self *AofChannel) Replay(fromAofLock *AofLock) error {
 		return io.EOF
 	}
 
-	if self.lockDbGlock.lowPriority == 1 {
+	if self.lockDbGlock.lowPriority != 0 {
 		self.lockDbGlock.LowPriorityLock()
 		self.lockDbGlock.LowPriorityUnlock()
 	}

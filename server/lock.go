@@ -1248,17 +1248,17 @@ func NewPriorityMutex() *PriorityMutex {
 }
 
 func (self *PriorityMutex) Lock() {
-	if self.highPriority == 1 {
-		if atomic.CompareAndSwapUint32(&self.highPriority, 1, 1) {
+	if self.highPriority != 0 {
+		if atomic.LoadUint32(&self.highPriority) != 0 {
 			self.highPriorityMutex.Lock()
 			self.highPriorityMutex.Unlock()
 		}
 	}
 	self.mutex.Lock()
-	if self.highPriority == 1 {
+	if self.highPriority != 0 {
 		for {
 			self.mutex.Unlock()
-			if atomic.CompareAndSwapUint32(&self.highPriority, 1, 1) {
+			if atomic.LoadUint32(&self.highPriority) != 0 {
 				self.highPriorityMutex.Lock()
 				self.highPriorityMutex.Unlock()
 			}
@@ -1295,20 +1295,18 @@ func (self *PriorityMutex) HighUnSetPriority() bool {
 }
 
 func (self *PriorityMutex) LowSetPriority() bool {
-	if atomic.CompareAndSwapUint32(&self.lowPriority, 0, 1) {
+	if atomic.AddUint32(&self.lowPriority, 1) == 1 {
 		self.lowPriorityMutex.Lock()
 		self.setLowPriorityCount++
-		return true
 	}
-	return false
+	return true
 }
 
 func (self *PriorityMutex) LowUnSetPriority() bool {
-	if atomic.CompareAndSwapUint32(&self.lowPriority, 1, 0) {
+	if atomic.AddUint32(&self.lowPriority, 0xffffffff) == 0 {
 		self.lowPriorityMutex.Unlock()
-		return true
 	}
-	return false
+	return true
 }
 
 func (self *PriorityMutex) HighPriorityLock() {
@@ -1325,17 +1323,17 @@ func (self *PriorityMutex) HighPriorityUnlock() {
 }
 
 func (self *PriorityMutex) LowPriorityLock() {
-	if self.lowPriority == 1 {
-		if atomic.CompareAndSwapUint32(&self.lowPriority, 1, 1) {
+	if self.lowPriority != 0 {
+		if atomic.LoadUint32(&self.lowPriority) != 0 {
 			self.lowPriorityMutex.Lock()
 			self.lowPriorityMutex.Unlock()
 		}
 	}
 	self.Lock()
-	if self.lowPriority == 1 {
+	if self.lowPriority != 0 {
 		for {
 			self.Unlock()
-			if atomic.CompareAndSwapUint32(&self.lowPriority, 1, 1) {
+			if atomic.LoadUint32(&self.lowPriority) != 0 {
 				self.lowPriorityMutex.Lock()
 				self.lowPriorityMutex.Unlock()
 			}
@@ -1352,7 +1350,7 @@ func (self *PriorityMutex) LowPriorityUnlock() {
 }
 
 func (self *PriorityMutex) HighPriorityMutexWait() {
-	if self.highPriority == 1 {
+	if self.highPriority != 0 {
 		self.highPriorityMutex.Lock()
 		self.highPriorityMutex.Unlock()
 	}
