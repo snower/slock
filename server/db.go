@@ -1132,7 +1132,7 @@ func (self *LockDB) GetLockManager(command *protocol.LockCommand) *LockManager {
 }
 
 func (self *LockDB) RemoveLockManager(lockManager *LockManager) {
-	if atomic.CompareAndSwapUint32(&lockManager.refCount, 0, 0xffffffff) {
+	if !atomic.CompareAndSwapUint32(&lockManager.refCount, 0, 0xffffffff) {
 		return
 	}
 	fastValue := lockManager.fastKeyValue
