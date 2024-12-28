@@ -1041,7 +1041,7 @@ func (self *LockDB) initNewLockManager(dbId uint8, freeLockManagerTail uint32) {
 	}
 
 	self.glock.Lock()
-	lockManager := self.freeLockManagers[freeLockManagerTail%self.maxFreeLockManagerCount]
+	lockManager := self.freeLockManagers[freeLockManagerTail]
 	if lockManager != nil {
 		self.glock.Unlock()
 		return
