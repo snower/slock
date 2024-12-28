@@ -420,9 +420,7 @@ func (self *LockDB) PushExecutorLockCommand(serverProtocol ServerProtocol, lockC
 
 	lockManager := self.GetOrNewLockManager(lockCommand)
 	for atomic.AddUint32(&lockManager.refCount, 1) == 0 {
-		if atomic.AddUint32(&lockManager.refCount, 0xffffffff) == 0 {
-			self.RemoveLockManager(lockManager)
-		}
+		atomic.AddUint32(&lockManager.refCount, 0xffffffff)
 		lockManager = self.GetOrNewLockManager(lockCommand)
 	}
 
