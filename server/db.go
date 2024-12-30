@@ -1095,18 +1095,23 @@ func (self *LockDB) GetOrNewLockManager(command *protocol.LockCommand) *LockMana
 		atomic.AddUint32(&lockManager.state.KeyCount, 1)
 		return lockManager
 	}
-	if atomic.LoadUint32(&fastValue.lock) == 1 {
+	if atomic.LoadUint32(&fastValue.lock) == 2 {
+		fastLockManager := fastValue.manager
+		if fastLockManager != nil && fastLockManager.lockKey == command.LockKey && atomic.LoadUint32(&fastLockManager.refCount) != 0xffffffff {
+			return fastLockManager
+		}
+	} else {
 		for i := 1; atomic.LoadUint32(&fastValue.lock) == 1; i++ {
 			for j := uint16(0); j < self.managerMaxGlocks; j++ {
 				self.managerGlocks[j].HighPriorityMutexWait()
 			}
 			time.Sleep(time.Nanosecond * time.Duration(i))
 		}
-	}
-	if atomic.LoadUint32(&fastValue.lock) == 2 {
-		fastLockManager := fastValue.manager
-		if fastLockManager != nil && atomic.LoadUint32(&fastLockManager.refCount) != 0xffffffff && fastLockManager.lockKey == command.LockKey {
-			return fastLockManager
+		if atomic.LoadUint32(&fastValue.lock) == 2 {
+			fastLockManager := fastValue.manager
+			if fastLockManager != nil && fastLockManager.lockKey == command.LockKey && atomic.LoadUint32(&fastLockManager.refCount) != 0xffffffff {
+				return fastLockManager
+			}
 		}
 	}
 
@@ -1137,7 +1142,7 @@ func (self *LockDB) GetLockManager(command *protocol.LockCommand) *LockManager {
 
 	if atomic.LoadUint32(&fastValue.lock) == 2 {
 		fastLockManager := fastValue.manager
-		if fastLockManager != nil && atomic.LoadUint32(&fastLockManager.refCount) != 0xffffffff && fastLockManager.lockKey == command.LockKey {
+		if fastLockManager != nil && fastLockManager.lockKey == command.LockKey && atomic.LoadUint32(&fastLockManager.refCount) != 0xffffffff {
 			return fastLockManager
 		}
 	}
