@@ -1508,6 +1508,7 @@ func (self *ArbiterManager) GetMajorityMemberCount() int {
 
 func (self *ArbiterManager) QuitLeader() error {
 	self.slock.Log().Infof("Arbiter quit leader start")
+	self.slock.updateState(STATE_FOLLOWER)
 	err := self.slock.replicationManager.transparencyManager.ChangeLeader("")
 	if err != nil {
 		self.slock.Log().Errorf("Arbiter quit leader change transparency address error %v", err)

@@ -200,12 +200,13 @@ func (self *SLock) updateState(state uint8) {
 	self.state = state
 
 	for _, db := range self.dbs {
-		if db != nil && db.status != STATE_CLOSE && state != STATE_CLOSE {
-			db.status = state
-
+		if db != nil && db.status != state && db.status != STATE_CLOSE && state != STATE_CLOSE {
 			for i := uint16(0); i < db.managerMaxGlocks; i++ {
-				db.managerGlocks[i].Lock()
-				db.managerGlocks[i].Unlock()
+				db.managerGlocks[i].LowPriorityLock()
+			}
+			db.status = state
+			for i := uint16(0); i < db.managerMaxGlocks; i++ {
+				db.managerGlocks[i].LowPriorityUnlock()
 			}
 		}
 	}
