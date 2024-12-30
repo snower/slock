@@ -1138,6 +1138,12 @@ func (self *Lock) AddLockCommandData(lockCommandData *protocol.LockCommandData) 
 	self.data.commandDatas = append(self.data.commandDatas, lockCommandData)
 }
 
+func (self *Lock) ClearLockCommandDatas() {
+	if self.data != nil && self.data.commandDatas != nil {
+		self.data.commandDatas = nil
+	}
+}
+
 type LockManagerData struct {
 	data        []byte
 	commandType uint8

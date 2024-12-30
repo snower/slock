@@ -1635,6 +1635,7 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 			if command.Flag&protocol.LOCK_FLAG_UPDATE_WHEN_LOCKED != 0 {
 				currentLockCommand := currentLock.command
 				if command.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
+					currentLock.ClearLockCommandDatas()
 					lockManager.ProcessLockData(command, currentLock, false)
 					if lockManager.currentData != nil && lockManager.currentData.isAof && (currentLock.data == nil || currentLock.data.aofData == nil) {
 						if lockManager.CheckLockedEqual(currentLock, command) {
