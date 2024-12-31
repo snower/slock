@@ -2315,7 +2315,7 @@ func (self *ArbiterManager) commandHandleStatusCommand(_ *BinaryServerProtocol, 
 	return protocol.NewCallResultCommand(command, 0, "", data), nil
 }
 
-func (self *ArbiterManager) commandHandleConfigCommand(serverProtocol *BinaryServerProtocol, command *protocol.CallCommand) (*protocol.CallResultCommand, error) {
+func (self *ArbiterManager) commandHandleConfigCommand(_ *BinaryServerProtocol, command *protocol.CallCommand) (*protocol.CallResultCommand, error) {
 	if self.stoped {
 		return protocol.NewCallResultCommand(command, 0, "ERR_STOPED", nil), nil
 	}
@@ -2402,7 +2402,7 @@ func (self *ArbiterManager) commandHandleMemberListCommand(serverProtocol *Binar
 	return getResultCommand(), nil
 }
 
-func (self *ArbiterManager) commandHandleMemberAddCommand(serverProtocol *BinaryServerProtocol, command *protocol.CallCommand) (*protocol.CallResultCommand, error) {
+func (self *ArbiterManager) commandHandleMemberAddCommand(_ *BinaryServerProtocol, command *protocol.CallCommand) (*protocol.CallResultCommand, error) {
 	if self.stoped {
 		return protocol.NewCallResultCommand(command, 0, "ERR_STOPED", nil), nil
 	}
@@ -2439,7 +2439,7 @@ func (self *ArbiterManager) commandHandleMemberAddCommand(serverProtocol *Binary
 	return protocol.NewCallResultCommand(command, 0, "", data), nil
 }
 
-func (self *ArbiterManager) commandHandleMemberUpdateCommand(serverProtocol *BinaryServerProtocol, command *protocol.CallCommand) (*protocol.CallResultCommand, error) {
+func (self *ArbiterManager) commandHandleMemberUpdateCommand(_ *BinaryServerProtocol, command *protocol.CallCommand) (*protocol.CallResultCommand, error) {
 	if self.stoped {
 		return protocol.NewCallResultCommand(command, 0, "ERR_STOPED", nil), nil
 	}
@@ -2476,7 +2476,7 @@ func (self *ArbiterManager) commandHandleMemberUpdateCommand(serverProtocol *Bin
 	return protocol.NewCallResultCommand(command, 0, "", data), nil
 }
 
-func (self *ArbiterManager) commandHandleMemberRemoveCommand(serverProtocol *BinaryServerProtocol, command *protocol.CallCommand) (*protocol.CallResultCommand, error) {
+func (self *ArbiterManager) commandHandleMemberRemoveCommand(_ *BinaryServerProtocol, command *protocol.CallCommand) (*protocol.CallResultCommand, error) {
 	if self.stoped {
 		return protocol.NewCallResultCommand(command, 0, "ERR_STOPED", nil), nil
 	}
