@@ -19,6 +19,7 @@ const (
 	STATE_CONFIG
 	STATE_VOTE
 	STATE_CLOSE
+	STATE_CLOSING
 )
 
 type SLock struct {
@@ -176,12 +177,24 @@ func (self *SLock) startFollower() {
 	return
 }
 
-func (self *SLock) Close() {
+func (self *SLock) PrepareClose() {
 	if self.arbiterManager != nil {
 		_ = self.arbiterManager.Close()
 	}
+	self.updateState(STATE_CLOSING)
+	time.Sleep(time.Millisecond)
+	self.aof.Close()
 	self.replicationManager.Close()
+	self.subscribeManager.Close()
+	self.admin.Close()
+}
+
+func (self *SLock) Close() {
+	if self.state != STATE_CLOSING {
+		self.PrepareClose()
+	}
 	self.glock.Lock()
+	self.state = STATE_CLOSE
 	for i, db := range self.dbs {
 		if db != nil {
 			db.Close()
@@ -189,9 +202,6 @@ func (self *SLock) Close() {
 		}
 	}
 	self.glock.Unlock()
-	self.admin.Close()
-	self.subscribeManager.Close()
-	self.aof.Close()
 	self.server = nil
 	self.logger.Infof("Slock closed")
 }

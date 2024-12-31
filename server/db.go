@@ -449,7 +449,7 @@ func (self *LockDB) Close() {
 	self.glock.Unlock()
 
 	for i := uint16(0); i < self.managerMaxGlocks; i++ {
-		self.managerGlocks[i].Lock()
+		self.managerGlocks[i].LowPriorityLock()
 		if self.exectors[i] != nil {
 			self.exectors[i].Close()
 			self.exectors[i] = nil
@@ -458,14 +458,14 @@ func (self *LockDB) Close() {
 		self.flushExpried(i, false)
 		self.slock.GetAof().CloseAofChannel(self.aofChannels[i])
 		self.slock.GetSubscribeManager().CloseSubscribeChannel(self.subscribeChannels[i])
-		self.managerGlocks[i].Unlock()
+		self.managerGlocks[i].LowPriorityUnlock()
 	}
 	close(self.closeWaiter)
 }
 
 func (self *LockDB) FlushDB() error {
 	for i := uint16(0); i < self.managerMaxGlocks; i++ {
-		self.managerGlocks[i].Lock()
+		self.managerGlocks[i].LowPriorityLock()
 	}
 
 	for i := uint16(0); i < self.managerMaxGlocks; i++ {
@@ -477,7 +477,7 @@ func (self *LockDB) FlushDB() error {
 	}
 
 	for i := uint16(0); i < self.managerMaxGlocks; i++ {
-		self.managerGlocks[i].Unlock()
+		self.managerGlocks[i].LowPriorityUnlock()
 	}
 	return nil
 }

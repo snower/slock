@@ -57,6 +57,7 @@ func (self *Server) Close() {
 	}
 	self.glock.Unlock()
 
+	self.slock.PrepareClose()
 	for _, stream := range streams {
 		if stream.streamType != STREAM_TYPE_NORMAL {
 			continue
