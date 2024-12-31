@@ -1075,7 +1075,8 @@ func (self *LockDB) initNewLockManager(dbId uint8, freeLockManagerTail uint32) {
 }
 
 func (self *LockDB) GetOrNewLockManager(command *protocol.LockCommand) *LockManager {
-	fastValue := &self.fastLocks[protocol.MurmurHash3KeySum(command.LockKey)%self.fastKeyCount]
+	fashHash := (uint32(command.LockKey[0])<<24 | uint32(command.LockKey[1])<<16 | uint32(command.LockKey[2])<<8 | uint32(command.LockKey[3])) ^ (uint32(command.LockKey[4])<<24 | uint32(command.LockKey[5])<<16 | uint32(command.LockKey[6])<<8 | uint32(command.LockKey[7])) ^ (uint32(command.LockKey[8])<<24 | uint32(command.LockKey[9])<<16 | uint32(command.LockKey[10])<<8 | uint32(command.LockKey[11])) ^ (uint32(command.LockKey[12])<<24 | uint32(command.LockKey[13])<<16 | uint32(command.LockKey[14])<<8 | uint32(command.LockKey[15]))
+	fastValue := &self.fastLocks[fashHash%self.fastKeyCount]
 
 	if atomic.CompareAndSwapUint32(&fastValue.lock, 0, 1) {
 		freeLockManagerTail := atomic.AddUint32(&self.freeLockManagerTail, 1) % self.maxFreeLockManagerCount
@@ -1136,7 +1137,8 @@ func (self *LockDB) GetOrNewLockManager(command *protocol.LockCommand) *LockMana
 }
 
 func (self *LockDB) GetLockManager(command *protocol.LockCommand) *LockManager {
-	fastValue := &self.fastLocks[protocol.MurmurHash3KeySum(command.LockKey)%self.fastKeyCount]
+	fashHash := (uint32(command.LockKey[0])<<24 | uint32(command.LockKey[1])<<16 | uint32(command.LockKey[2])<<8 | uint32(command.LockKey[3])) ^ (uint32(command.LockKey[4])<<24 | uint32(command.LockKey[5])<<16 | uint32(command.LockKey[6])<<8 | uint32(command.LockKey[7])) ^ (uint32(command.LockKey[8])<<24 | uint32(command.LockKey[9])<<16 | uint32(command.LockKey[10])<<8 | uint32(command.LockKey[11])) ^ (uint32(command.LockKey[12])<<24 | uint32(command.LockKey[13])<<16 | uint32(command.LockKey[14])<<8 | uint32(command.LockKey[15]))
+	fastValue := &self.fastLocks[fashHash%self.fastKeyCount]
 
 	if atomic.LoadUint32(&fastValue.lock) == 2 {
 		fastLockManager := fastValue.manager
