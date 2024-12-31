@@ -19,7 +19,6 @@ const (
 	STATE_CONFIG
 	STATE_VOTE
 	STATE_CLOSE
-	STATE_CLOSING
 )
 
 type SLock struct {
@@ -181,7 +180,14 @@ func (self *SLock) PrepareClose() {
 	if self.arbiterManager != nil {
 		_ = self.arbiterManager.Close()
 	}
-	self.updateState(STATE_CLOSING)
+	self.glock.Lock()
+	self.state = STATE_CLOSE
+	for _, db := range self.dbs {
+		if db != nil {
+			db.Close()
+		}
+	}
+	self.glock.Unlock()
 	time.Sleep(time.Millisecond)
 	self.aof.Close()
 	self.replicationManager.Close()
@@ -190,14 +196,12 @@ func (self *SLock) PrepareClose() {
 }
 
 func (self *SLock) Close() {
-	if self.state != STATE_CLOSING {
+	if self.state != STATE_CLOSE {
 		self.PrepareClose()
 	}
 	self.glock.Lock()
-	self.state = STATE_CLOSE
 	for i, db := range self.dbs {
 		if db != nil {
-			db.Close()
 			self.dbs[i] = nil
 		}
 	}
