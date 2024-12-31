@@ -1638,8 +1638,8 @@ func (self *Aof) LoadLock(aofLock *AofLock) error {
 	if db == nil {
 		db = self.slock.GetOrNewDB(aofLock.DbId)
 	}
-	fashHash := (uint32(aofLock.LockKey[0])<<24 | uint32(aofLock.LockKey[1])<<16 | uint32(aofLock.LockKey[2])<<8 | uint32(aofLock.LockKey[3])) ^ (uint32(aofLock.LockKey[4])<<24 | uint32(aofLock.LockKey[5])<<16 | uint32(aofLock.LockKey[6])<<8 | uint32(aofLock.LockKey[7])) ^ (uint32(aofLock.LockKey[8])<<24 | uint32(aofLock.LockKey[9])<<16 | uint32(aofLock.LockKey[10])<<8 | uint32(aofLock.LockKey[11])) ^ (uint32(aofLock.LockKey[12])<<24 | uint32(aofLock.LockKey[13])<<16 | uint32(aofLock.LockKey[14])<<8 | uint32(aofLock.LockKey[15]))
-	aofChannel := db.aofChannels[fashHash%uint32(db.managerMaxGlocks)]
+	fastHash := (uint32(aofLock.LockKey[0])<<24 | uint32(aofLock.LockKey[1])<<16 | uint32(aofLock.LockKey[2])<<8 | uint32(aofLock.LockKey[3])) ^ (uint32(aofLock.LockKey[4])<<24 | uint32(aofLock.LockKey[5])<<16 | uint32(aofLock.LockKey[6])<<8 | uint32(aofLock.LockKey[7])) ^ (uint32(aofLock.LockKey[8])<<24 | uint32(aofLock.LockKey[9])<<16 | uint32(aofLock.LockKey[10])<<8 | uint32(aofLock.LockKey[11])) ^ (uint32(aofLock.LockKey[12])<<24 | uint32(aofLock.LockKey[13])<<16 | uint32(aofLock.LockKey[14])<<8 | uint32(aofLock.LockKey[15]))
+	aofChannel := db.aofChannels[fastHash%uint32(db.managerMaxGlocks)]
 	return aofChannel.Load(aofLock)
 }
 
@@ -1648,8 +1648,8 @@ func (self *Aof) ReplayLock(aofLock *AofLock) error {
 	if db == nil {
 		db = self.slock.GetOrNewDB(aofLock.DbId)
 	}
-	fashHash := (uint32(aofLock.LockKey[0])<<24 | uint32(aofLock.LockKey[1])<<16 | uint32(aofLock.LockKey[2])<<8 | uint32(aofLock.LockKey[3])) ^ (uint32(aofLock.LockKey[4])<<24 | uint32(aofLock.LockKey[5])<<16 | uint32(aofLock.LockKey[6])<<8 | uint32(aofLock.LockKey[7])) ^ (uint32(aofLock.LockKey[8])<<24 | uint32(aofLock.LockKey[9])<<16 | uint32(aofLock.LockKey[10])<<8 | uint32(aofLock.LockKey[11])) ^ (uint32(aofLock.LockKey[12])<<24 | uint32(aofLock.LockKey[13])<<16 | uint32(aofLock.LockKey[14])<<8 | uint32(aofLock.LockKey[15]))
-	aofChannel := db.aofChannels[fashHash%uint32(db.managerMaxGlocks)]
+	fastHash := (uint32(aofLock.LockKey[0])<<24 | uint32(aofLock.LockKey[1])<<16 | uint32(aofLock.LockKey[2])<<8 | uint32(aofLock.LockKey[3])) ^ (uint32(aofLock.LockKey[4])<<24 | uint32(aofLock.LockKey[5])<<16 | uint32(aofLock.LockKey[6])<<8 | uint32(aofLock.LockKey[7])) ^ (uint32(aofLock.LockKey[8])<<24 | uint32(aofLock.LockKey[9])<<16 | uint32(aofLock.LockKey[10])<<8 | uint32(aofLock.LockKey[11])) ^ (uint32(aofLock.LockKey[12])<<24 | uint32(aofLock.LockKey[13])<<16 | uint32(aofLock.LockKey[14])<<8 | uint32(aofLock.LockKey[15]))
+	aofChannel := db.aofChannels[fastHash%uint32(db.managerMaxGlocks)]
 	return aofChannel.Replay(aofLock)
 }
 
@@ -1658,8 +1658,8 @@ func (self *Aof) loadLockAck(lockResult *protocol.LockResultCommand) error {
 	if db == nil {
 		db = self.slock.GetOrNewDB(lockResult.DbId)
 	}
-	fashHash := (uint32(lockResult.LockKey[0])<<24 | uint32(lockResult.LockKey[1])<<16 | uint32(lockResult.LockKey[2])<<8 | uint32(lockResult.LockKey[3])) ^ (uint32(lockResult.LockKey[4])<<24 | uint32(lockResult.LockKey[5])<<16 | uint32(lockResult.LockKey[6])<<8 | uint32(lockResult.LockKey[7])) ^ (uint32(lockResult.LockKey[8])<<24 | uint32(lockResult.LockKey[9])<<16 | uint32(lockResult.LockKey[10])<<8 | uint32(lockResult.LockKey[11])) ^ (uint32(lockResult.LockKey[12])<<24 | uint32(lockResult.LockKey[13])<<16 | uint32(lockResult.LockKey[14])<<8 | uint32(lockResult.LockKey[15]))
-	aofChannel := db.aofChannels[fashHash%uint32(db.managerMaxGlocks)]
+	fastHash := (uint32(lockResult.LockKey[0])<<24 | uint32(lockResult.LockKey[1])<<16 | uint32(lockResult.LockKey[2])<<8 | uint32(lockResult.LockKey[3])) ^ (uint32(lockResult.LockKey[4])<<24 | uint32(lockResult.LockKey[5])<<16 | uint32(lockResult.LockKey[6])<<8 | uint32(lockResult.LockKey[7])) ^ (uint32(lockResult.LockKey[8])<<24 | uint32(lockResult.LockKey[9])<<16 | uint32(lockResult.LockKey[10])<<8 | uint32(lockResult.LockKey[11])) ^ (uint32(lockResult.LockKey[12])<<24 | uint32(lockResult.LockKey[13])<<16 | uint32(lockResult.LockKey[14])<<8 | uint32(lockResult.LockKey[15]))
+	aofChannel := db.aofChannels[fastHash%uint32(db.managerMaxGlocks)]
 	return aofChannel.Acked(lockResult)
 }
 
@@ -1733,12 +1733,15 @@ func (self *Aof) AppendLock(aofLock *AofLock) bool {
 }
 
 func (self *Aof) lockAcked(buf []byte, succed bool) error {
+	if len(buf) < 64 {
+		return errors.New("buf size error")
+	}
 	db := self.slock.dbs[buf[20]]
 	if db == nil {
 		db = self.slock.GetOrNewDB(buf[20])
 	}
-	fashHash := (uint32(buf[37])<<24 | uint32(buf[38])<<16 | uint32(buf[39])<<8 | uint32(buf[40])) ^ (uint32(buf[41])<<24 | uint32(buf[42])<<16 | uint32(buf[43])<<8 | uint32(buf[44])) ^ (uint32(buf[45])<<24 | uint32(buf[46])<<16 | uint32(buf[47])<<8 | uint32(buf[48])) ^ (uint32(buf[49])<<24 | uint32(buf[50])<<16 | uint32(buf[51])<<8 | uint32(buf[52]))
-	aofChannel := db.aofChannels[fashHash%uint32(db.managerMaxGlocks)]
+	fastHash := (uint32(buf[37])<<24 | uint32(buf[38])<<16 | uint32(buf[39])<<8 | uint32(buf[40])) ^ (uint32(buf[41])<<24 | uint32(buf[42])<<16 | uint32(buf[43])<<8 | uint32(buf[44])) ^ (uint32(buf[45])<<24 | uint32(buf[46])<<16 | uint32(buf[47])<<8 | uint32(buf[48])) ^ (uint32(buf[49])<<24 | uint32(buf[50])<<16 | uint32(buf[51])<<8 | uint32(buf[52]))
+	aofChannel := db.aofChannels[fastHash%uint32(db.managerMaxGlocks)]
 	return aofChannel.AofAcked(buf, succed)
 }
 
