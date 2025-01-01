@@ -1573,17 +1573,21 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 	   |               |contains_data|lock_tree_lock|concurrent_check|from_aof|when_locked_update_lock|when_locked_show_lock|
 	*/
 
-	lockManager := self.GetOrNewLockManager(command)
-	if command.Timeout == 0 && command.Flag&protocol.LOCK_FLAG_CONCURRENT_CHECK != 0 {
-		if command.Count < 0xffff && lockManager.locked > uint32(command.Count) {
-			if lockManager.refCount > 0 {
-				_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_TIMEOUT, uint16(lockManager.locked), 0, lockManager.GetLockData())
-				_ = serverProtocol.FreeLockCommand(command)
-				return nil
-			}
+	if command.Flag&protocol.LOCK_FLAG_CONCURRENT_CHECK != 0 && command.Timeout == 0 {
+		lockManager := self.GetLockManager(command)
+		if lockManager != nil && command.Count < 0xffff && lockManager.locked > uint32(command.Count) {
+			_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_TIMEOUT, uint16(lockManager.locked), 0, lockManager.GetLockData())
+			_ = serverProtocol.FreeLockCommand(command)
+			return nil
+		}
+		if (lockManager == nil || lockManager.locked == 0) && command.TimeoutFlag&protocol.TIMEOUT_FLAG_LOCK_WAIT_WHEN_UNLOCK != 0 {
+			_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_TIMEOUT, 0, 0, nil)
+			_ = serverProtocol.FreeLockCommand(command)
+			return nil
 		}
 	}
 
+	lockManager := self.GetOrNewLockManager(command)
 	if lockPriorityLevel == 0 {
 		lockManager.glock.LowPriorityLock()
 	} else {
@@ -2467,14 +2471,17 @@ func (self *LockDB) DoAckLock(lock *Lock, succed bool) {
 }
 
 func (self *LockDB) CheckProbableLock(serverProtocol ServerProtocol, command *protocol.LockCommand) bool {
-	if command.Timeout == 0 && command.Flag&protocol.LOCK_FLAG_CONCURRENT_CHECK != 0 {
-		lockManager := self.GetOrNewLockManager(command)
-		if command.Count < 0xffff && lockManager.locked > uint32(command.Count) {
-			if lockManager.refCount > 0 {
-				_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_TIMEOUT, uint16(lockManager.locked), 0, lockManager.GetLockData())
-				_ = serverProtocol.FreeLockCommand(command)
-				return true
-			}
+	if command.Flag&protocol.LOCK_FLAG_CONCURRENT_CHECK != 0 && command.Timeout == 0 {
+		lockManager := self.GetLockManager(command)
+		if lockManager != nil && command.Count < 0xffff && lockManager.locked > uint32(command.Count) {
+			_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_TIMEOUT, uint16(lockManager.locked), 0, lockManager.GetLockData())
+			_ = serverProtocol.FreeLockCommand(command)
+			return true
+		}
+		if (lockManager == nil || lockManager.locked == 0) && command.TimeoutFlag&protocol.TIMEOUT_FLAG_LOCK_WAIT_WHEN_UNLOCK != 0 {
+			_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_TIMEOUT, 0, 0, nil)
+			_ = serverProtocol.FreeLockCommand(command)
+			return true
 		}
 	}
 	return false
