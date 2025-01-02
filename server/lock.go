@@ -1254,14 +1254,12 @@ func NewPriorityMutex() *PriorityMutex {
 }
 
 func (self *PriorityMutex) Lock() {
-	if self.highPriority != 0 {
-		if atomic.LoadUint32(&self.highPriority) != 0 {
-			self.highPriorityMutex.Lock()
-			self.highPriorityMutex.Unlock()
-		}
+	if atomic.LoadUint32(&self.highPriority) != 0 {
+		self.highPriorityMutex.Lock()
+		self.highPriorityMutex.Unlock()
 	}
 	self.mutex.Lock()
-	if self.highPriority != 0 {
+	if atomic.LoadUint32(&self.highPriority) != 0 {
 		for {
 			self.mutex.Unlock()
 			if atomic.LoadUint32(&self.highPriority) != 0 {
@@ -1269,7 +1267,7 @@ func (self *PriorityMutex) Lock() {
 				self.highPriorityMutex.Unlock()
 			}
 			self.mutex.Lock()
-			if self.highPriority == 0 {
+			if atomic.LoadUint32(&self.highPriority) == 0 {
 				return
 			}
 		}
@@ -1336,14 +1334,12 @@ func (self *PriorityMutex) HighPriorityUnlock() {
 }
 
 func (self *PriorityMutex) LowPriorityLock() {
-	if self.lowPriority != 0 {
-		if atomic.LoadUint32(&self.lowPriority) != 0 {
-			self.lowPriorityMutex.Lock()
-			self.lowPriorityMutex.Unlock()
-		}
+	if atomic.LoadUint32(&self.lowPriority) != 0 {
+		self.lowPriorityMutex.Lock()
+		self.lowPriorityMutex.Unlock()
 	}
 	self.Lock()
-	if self.lowPriority != 0 {
+	if atomic.LoadUint32(&self.lowPriority) != 0 {
 		for {
 			self.Unlock()
 			if atomic.LoadUint32(&self.lowPriority) != 0 {
@@ -1351,7 +1347,7 @@ func (self *PriorityMutex) LowPriorityLock() {
 				self.lowPriorityMutex.Unlock()
 			}
 			self.Lock()
-			if self.lowPriority == 0 {
+			if atomic.LoadUint32(&self.lowPriority) == 0 {
 				return
 			}
 		}
@@ -1363,7 +1359,7 @@ func (self *PriorityMutex) LowPriorityUnlock() {
 }
 
 func (self *PriorityMutex) HighPriorityMutexWait() {
-	if self.highPriority != 0 {
+	if atomic.LoadUint32(&self.highPriority) != 0 {
 		self.highPriorityMutex.Lock()
 		self.highPriorityMutex.Unlock()
 	}
