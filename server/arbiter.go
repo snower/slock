@@ -1056,14 +1056,18 @@ func (self *ArbiterVoter) DoVote() error {
 		return errors.New("not found")
 	}
 
+	self.glock.Lock()
 	self.voteHost = selectVoteResponse.Host
 	self.voteAofId = self.manager.DecodeAofId(selectVoteResponse.AofId)
+	self.glock.Unlock()
 	self.manager.slock.Log().Infof("Arbier voter do vote succed,  host %s aofId %s proposalId %d", self.voteHost, FormatAofId(self.voteAofId), self.proposalId)
 	return nil
 }
 
 func (self *ArbiterVoter) DoProposal() error {
+	self.glock.Lock()
 	self.proposalId++
+	self.glock.Unlock()
 	isReject := false
 	responses := self.DoRequests("do proposal", func(member *ArbiterMember) (interface{}, error) {
 		response, err := member.DoProposal(self.proposalId, self.voteHost, self.voteAofId)
@@ -1085,9 +1089,11 @@ func (self *ArbiterVoter) DoProposal() error {
 }
 
 func (self *ArbiterVoter) DoCommit() error {
+	self.glock.Lock()
 	self.proposalHost = self.voteHost
 	self.proposalFromHost = self.manager.ownMember.host
 	self.commitId = self.proposalId
+	self.glock.Unlock()
 
 	responses := self.DoRequests("do commit", func(member *ArbiterMember) (interface{}, error) {
 		return member.DoCommit(self.proposalId, self.proposalHost, self.voteAofId)
@@ -2059,6 +2065,8 @@ func (self *ArbiterManager) commandHandleProposalCommand(serverProtocol *BinaryS
 		return protocol.NewCallResultCommand(command, 0, "ERR_OFFLINE", nil), nil
 	}
 
+	defer self.voter.glock.Unlock()
+	self.voter.glock.Lock()
 	if self.voter.proposalId >= request.ProposalId || self.voter.proposalHost != "" {
 		response := protobuf.ArbiterProposalResponse{ErrMessage: "", ProposalId: self.voter.proposalId}
 		data, err := proto.Marshal(&response)
@@ -2108,6 +2116,8 @@ func (self *ArbiterManager) commandHandleCommitCommand(serverProtocol *BinarySer
 		return protocol.NewCallResultCommand(command, 0, "ERR_HOST", nil), nil
 	}
 
+	defer self.voter.glock.Unlock()
+	self.voter.glock.Lock()
 	if self.voter.commitId >= request.ProposalId {
 		response := protobuf.ArbiterCommitResponse{ErrMessage: "", CommitId: self.voter.commitId}
 		data, err := proto.Marshal(&response)
@@ -2149,8 +2159,10 @@ func (self *ArbiterManager) commandHandleAnnouncementCommand(serverProtocol *Bin
 		return protocol.NewCallResultCommand(command, 0, "ERR_GID", nil), nil
 	}
 
-	self.glock.Lock()
+	self.voter.glock.Lock()
 	if request.Replset.CommitId == self.voter.commitId && self.voter.proposalHost != "" {
+		self.voter.glock.Unlock()
+		self.glock.Lock()
 		if self.version < request.Replset.Version {
 			self.version = request.Replset.Version
 		}
@@ -2158,6 +2170,8 @@ func (self *ArbiterManager) commandHandleAnnouncementCommand(serverProtocol *Bin
 			self.vertime = request.Replset.Vertime
 		}
 	} else {
+		self.voter.glock.Unlock()
+		self.glock.Lock()
 		if request.Replset.Version < self.version || (request.Replset.Version == self.version && request.Replset.Vertime < self.vertime) {
 			self.slock.Log().Infof("Arbiter handle announcement version waring CommitId %d %d Version %d %d Vertime %d %d", request.Replset.CommitId,
 				self.voter.commitId, request.Replset.Version, self.version, request.Replset.Vertime, self.vertime)
@@ -2238,6 +2252,7 @@ func (self *ArbiterManager) commandHandleAnnouncementCommand(serverProtocol *Bin
 			self.voter.proposalHost = ""
 			self.voter.proposalFromHost = ""
 		}
+		ownMember.abstianed = false
 	}
 
 	self.members = newMembers
@@ -2264,20 +2279,18 @@ func (self *ArbiterManager) commandHandleAnnouncementCommand(serverProtocol *Bin
 			_ = member.Close()
 		}
 
+		self.glock.Lock()
 		if self.ownMember.role != ARBITER_ROLE_LEADER {
-			self.glock.Lock()
 			err = self.updateStatus()
 			if err != nil {
 				self.slock.Log().Errorf("Arbiter handle announcement update status error %v", err)
 			}
-			self.glock.Unlock()
 		} else {
 			if self.ownMember.weight == 0 {
-				self.glock.Lock()
 				_ = self.QuitLeader()
-				self.glock.Unlock()
 			}
 		}
+		self.glock.Unlock()
 		self.slock.Log().Infof("Arbiter handle announcementcommand update status succed")
 	}()
 

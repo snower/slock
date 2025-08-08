@@ -921,6 +921,8 @@ func (self *Admin) commandHandleReplsetCommand(serverProtocol *TextServerProtoco
 		return self.commandHandleReplsetGetCommand(serverProtocol, args)
 	case "MEMBERS":
 		return self.commandHandleReplsetMembersCommand(serverProtocol, args)
+	case "QUIT-LEADER":
+		return self.commandHandleReplsetQuitLeaderCommand(serverProtocol, args)
 	}
 	return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(false, "ERR unkonwn command", nil))
 }
@@ -1085,4 +1087,25 @@ func (self *Admin) commandHandleReplsetMembersCommand(serverProtocol *TextServer
 		}
 	}
 	return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(true, "", results))
+}
+
+func (self *Admin) commandHandleReplsetQuitLeaderCommand(serverProtocol *TextServerProtocol, _ []string) error {
+	if self.slock.arbiterManager.ownMember == nil {
+		return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(false, "ERR not leader", nil))
+	}
+	if self.slock.arbiterManager.ownMember.role != ARBITER_ROLE_LEADER {
+		return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(false, "ERR not leader", nil))
+	}
+	if len(self.slock.arbiterManager.members) <= 1 {
+		return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(false, "ERR not found followers", nil))
+	}
+	self.slock.arbiterManager.glock.Lock()
+	self.slock.arbiterManager.ownMember.abstianed = true
+	err := self.slock.arbiterManager.QuitLeader()
+	if err != nil {
+		self.slock.arbiterManager.glock.Unlock()
+		return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(false, "ERR quit leader error", nil))
+	}
+	self.slock.arbiterManager.glock.Unlock()
+	return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(true, "OK", nil))
 }

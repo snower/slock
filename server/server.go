@@ -273,7 +273,16 @@ func (self *Server) handle(stream *Stream) {
 					err = serverProtocol.Process()
 				}
 			} else {
-				err = serverProtocol.Process()
+				if err == AGAIN {
+					binaryServerProtocol := serverProtocol.(*BinaryServerProtocol)
+					buf, binaryServerProtocol.rbuf = binaryServerProtocol.rbuf, nil
+					err = serverProtocol.ProcessParse(buf)
+					if err == nil {
+						err = serverProtocol.Process()
+					}
+				} else {
+					err = serverProtocol.Process()
+				}
 			}
 		case *TextServerProtocol:
 			if self.slock.state != STATE_LEADER {
@@ -290,7 +299,15 @@ func (self *Server) handle(stream *Stream) {
 					err = serverProtocol.Process()
 				}
 			} else {
-				err = serverProtocol.Process()
+				if err == AGAIN {
+					textServerProtocol := serverProtocol.(*TextServerProtocol)
+					err = textServerProtocol.RunCommand()
+					if err == nil {
+						err = serverProtocol.Process()
+					}
+				} else {
+					err = serverProtocol.Process()
+				}
 			}
 		case *TransparencyBinaryServerProtocol:
 			if self.slock.state == STATE_LEADER {
@@ -306,7 +323,17 @@ func (self *Server) handle(stream *Stream) {
 					err = binaryServerProtocol.Process()
 				}
 			} else {
-				err = serverProtocol.Process()
+				if err == AGAIN {
+					transparencyServerProtocol := serverProtocol.(*TransparencyBinaryServerProtocol)
+					binaryServerProtocol := transparencyServerProtocol.serverProtocol
+					buf, binaryServerProtocol.rbuf = binaryServerProtocol.rbuf, nil
+					err = serverProtocol.ProcessParse(buf)
+					if err == nil {
+						err = serverProtocol.Process()
+					}
+				} else {
+					err = serverProtocol.Process()
+				}
 			}
 		case *TransparencyTextServerProtocol:
 			if self.slock.state == STATE_LEADER {
@@ -321,7 +348,16 @@ func (self *Server) handle(stream *Stream) {
 					err = textServerProtocol.Process()
 				}
 			} else {
-				err = serverProtocol.Process()
+				if err == AGAIN {
+					transparencyServerProtocol := serverProtocol.(*TransparencyTextServerProtocol)
+					textServerProtocol := transparencyServerProtocol.serverProtocol
+					err = textServerProtocol.RunCommand()
+					if err == nil {
+						err = serverProtocol.Process()
+					}
+				} else {
+					err = serverProtocol.Process()
+				}
 			}
 		default:
 			err = serverProtocol.Process()
