@@ -2070,15 +2070,6 @@ func (self *ReplicationManager) SwitchToFollower(address string) error {
 	_ = self.slock.aof.WaitFlushAofChannel()
 	_ = self.WakeupServerChannel()
 	_ = self.WaitServerSynced()
-	for _, channel := range self.serverChannels {
-		err := channel.SendQuit()
-		if err != nil {
-			self.slock.logger.Warnf("Replication send quit server channel error %v", err)
-			_ = channel.Close()
-		}
-		<-channel.closedWaiter
-	}
-
 	for _, db := range self.ackDbs {
 		if db != nil {
 			_ = db.SwitchToFollower()
@@ -2159,6 +2150,18 @@ func (self *ReplicationManager) ChangeLeader(address string) error {
 		return err
 	}
 	self.slock.logger.Infof("Replication follower finish change current leader %s", address)
+	return nil
+}
+
+func (self *ReplicationManager) DoServerChannelQuit() error {
+	for _, channel := range self.serverChannels {
+		err := channel.SendQuit()
+		if err != nil {
+			self.slock.logger.Warnf("Replication send quit server channel error %v", err)
+			_ = channel.Close()
+		}
+		<-channel.closedWaiter
+	}
 	return nil
 }
 

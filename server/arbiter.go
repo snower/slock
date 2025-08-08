@@ -1529,7 +1529,9 @@ func (self *ArbiterManager) QuitLeader() error {
 	_ = self.store.Save(self)
 	self.glock.Unlock()
 	_ = self.voter.DoAnnouncement()
+	time.Sleep(time.Millisecond)
 	self.glock.Lock()
+	_ = self.slock.replicationManager.DoServerChannelQuit()
 	self.slock.Log().Infof("Arbiter quit leader finish")
 	return nil
 }
@@ -1537,6 +1539,7 @@ func (self *ArbiterManager) QuitLeader() error {
 func (self *ArbiterManager) QuitMember() error {
 	self.slock.Log().Infof("Arbiter quit members start")
 	_ = self.slock.replicationManager.SwitchToFollower("")
+	_ = self.slock.replicationManager.DoServerChannelQuit()
 
 	self.glock.Lock()
 	members := self.members
@@ -1677,6 +1680,7 @@ func (self *ArbiterManager) updateStatus() error {
 		if err != nil {
 			self.slock.Log().Errorf("Arbiter update status reset follower error %v", err)
 		}
+		_ = self.slock.replicationManager.DoServerChannelQuit()
 		_ = self.StartVote()
 		return nil
 	}
@@ -1761,6 +1765,7 @@ func (self *ArbiterManager) updateStatus() error {
 		if err != nil {
 			self.slock.Log().Errorf("Arbiter update status change follower error %v", err)
 		}
+		_ = self.slock.replicationManager.DoServerChannelQuit()
 		_ = self.voter.WakeupRetryVote()
 		return nil
 	}
@@ -1769,6 +1774,7 @@ func (self *ArbiterManager) updateStatus() error {
 	if err != nil {
 		self.slock.Log().Errorf("Arbiter update status reset follower error %v", err)
 	}
+	_ = self.slock.replicationManager.DoServerChannelQuit()
 	err = self.slock.replicationManager.transparencyManager.ChangeLeader(self.leaderMember.host)
 	if err != nil {
 		self.slock.Log().Errorf("Arbiter update status change transparency address error %v", err)
