@@ -412,9 +412,6 @@ func (self *ReplicationClient) Run() {
 			}
 		}
 
-		if self.protocol != nil {
-			_ = self.protocol.Close()
-		}
 		self.glock.Lock()
 		appendWaiter := self.appendWaiter
 		if appendWaiter != nil {
@@ -435,6 +432,9 @@ func (self *ReplicationClient) Run() {
 			self.glock.Lock()
 		}
 
+		if self.protocol != nil {
+			_ = self.protocol.Close()
+		}
 		self.stream = nil
 		self.protocol = nil
 		self.glock.Unlock()
@@ -747,6 +747,13 @@ func (self *ReplicationClient) Process() error {
 			self.aofQueue <- nil
 			self.pushQueue <- nil
 			return err
+		}
+		if aofLock.CommandType == protocol.COMMAND_QUIT {
+			self.replayQueue <- nil
+			self.aofQueue <- nil
+			self.pushQueue <- nil
+			self.manager.slock.logger.Infof("Replication client recv quit command")
+			return nil
 		}
 		if aofLock.AofFlag&AOF_FLAG_CONTAINS_DATA != 0 {
 			buf, derr := self.stream.ReadBytesFrame()
@@ -1299,6 +1306,22 @@ func (self *ReplicationServer) RecvProcess() error {
 		self.state.ackCount++
 	}
 	return io.EOF
+}
+
+func (self *ReplicationServer) SendQuit() error {
+	if self.stream == nil {
+		return nil
+	}
+	aofLock := AofLock{CommandType: protocol.COMMAND_QUIT, buf: make([]byte, 64)}
+	err := aofLock.Encode()
+	if err != nil {
+		return err
+	}
+	err = self.stream.WriteBytes(aofLock.buf)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 type ReplicationAckLock struct {
@@ -2047,6 +2070,15 @@ func (self *ReplicationManager) SwitchToFollower(address string) error {
 	_ = self.slock.aof.WaitFlushAofChannel()
 	_ = self.WakeupServerChannel()
 	_ = self.WaitServerSynced()
+	for _, channel := range self.serverChannels {
+		err := channel.SendQuit()
+		if err != nil {
+			self.slock.logger.Warnf("Replication send quit server channel error %v", err)
+			_ = channel.Close()
+		}
+		<-channel.closedWaiter
+	}
+
 	for _, db := range self.ackDbs {
 		if db != nil {
 			_ = db.SwitchToFollower()
