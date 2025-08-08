@@ -411,7 +411,7 @@ func (self *LockDB) resizeExpried() {
 }
 
 func (self *LockDB) PushExecutorLockCommand(serverProtocol ServerProtocol, lockCommand *protocol.LockCommand) error {
-	if self.slock.state != STATE_LEADER {
+	if self.status != STATE_LEADER {
 		return nil
 	}
 	if self.exectors == nil {

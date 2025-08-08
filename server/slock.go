@@ -188,7 +188,7 @@ func (self *SLock) PrepareClose() {
 		}
 	}
 	self.glock.Unlock()
-	time.Sleep(time.Millisecond)
+	time.Sleep(time.Second)
 	self.aof.Close()
 	self.replicationManager.Close()
 	self.subscribeManager.Close()
@@ -211,6 +211,15 @@ func (self *SLock) Close() {
 }
 
 func (self *SLock) updateState(state uint8) {
+	defer self.glock.Unlock()
+	self.glock.Lock()
+	if self.state == state {
+		return
+	}
+	var isRequiredFlush = false
+	if self.state == STATE_LEADER && state != STATE_LEADER {
+		isRequiredFlush = true
+	}
 	self.state = state
 
 	for _, db := range self.dbs {
@@ -223,6 +232,12 @@ func (self *SLock) updateState(state uint8) {
 				db.managerGlocks[i].LowPriorityUnlock()
 			}
 		}
+	}
+
+	if isRequiredFlush {
+		_ = self.aof.WaitFlushAofChannel()
+		_ = self.replicationManager.WaitServerSynced()
+		_ = self.subscribeManager.WaitFlushSubscribeChannel()
 	}
 }
 

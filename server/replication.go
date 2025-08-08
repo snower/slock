@@ -1702,8 +1702,16 @@ func (self *ReplicationManager) Close() {
 func (self *ReplicationManager) WaitServerSynced() error {
 	self.glock.Lock()
 	if atomic.CompareAndSwapUint32(&self.serverActiveCount, 0, 0) {
-		self.glock.Unlock()
-		return nil
+		var waitPulledCount = 0
+		for _, channel := range self.serverChannels {
+			if atomic.LoadUint32(&channel.pulledState) != 2 {
+				waitPulledCount++
+			}
+		}
+		if waitPulledCount == 0 {
+			self.glock.Unlock()
+			return nil
+		}
 	}
 
 	serverFlushWaiter := make(chan bool, 1)
@@ -1711,7 +1719,7 @@ func (self *ReplicationManager) WaitServerSynced() error {
 		select {
 		case <-serverFlushWaiter:
 			return
-		case <-time.After(30 * time.Second):
+		case <-time.After(120 * time.Second):
 			self.serverFlushWaiter = nil
 			close(serverFlushWaiter)
 		}
@@ -1987,23 +1995,10 @@ func (self *ReplicationManager) SwitchToFollower(address string) error {
 	_ = self.slock.aof.WaitFlushAofChannel()
 	_ = self.WakeupServerChannel()
 	_ = self.WaitServerSynced()
-	for _, channel := range self.serverChannels {
-		_ = channel.Close()
-		<-channel.closedWaiter
-	}
-
 	for _, db := range self.ackDbs {
 		if db != nil {
 			_ = db.SwitchToFollower()
 		}
-	}
-
-	if self.clientChannel != nil {
-		clientChannel := self.clientChannel
-		_ = clientChannel.Close()
-		<-clientChannel.closedWaiter
-		self.currentAofId = clientChannel.currentAofId
-		self.clientChannel = nil
 	}
 
 	if self.leaderAddress == "" {
@@ -2011,7 +2006,13 @@ func (self *ReplicationManager) SwitchToFollower(address string) error {
 		self.slock.logger.Infof("Replication finish change to follower, leader empty")
 		return nil
 	}
-
+	if self.clientChannel != nil {
+		clientChannel := self.clientChannel
+		_ = clientChannel.Close()
+		<-clientChannel.closedWaiter
+		self.currentAofId = clientChannel.currentAofId
+		self.clientChannel = nil
+	}
 	err := self.StartSync()
 	if err != nil {
 		return err
@@ -2054,7 +2055,6 @@ func (self *ReplicationManager) ChangeLeader(address string) error {
 		self.slock.logger.Infof("Replication follower finish change current empty leader")
 		return nil
 	}
-
 	err := self.StartSync()
 	if err != nil {
 		return err
