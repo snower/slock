@@ -318,6 +318,8 @@ type ReplicationClient struct {
 	pushQueue       chan *AofLock
 	state           *ReplicationClientState
 	appendWaiter    chan bool
+	replayWaiter    chan bool
+	pushWaiter      chan bool
 	wakeupSignal    chan bool
 	closedWaiter    chan bool
 	closed          bool
@@ -329,8 +331,8 @@ func NewReplicationClient(manager *ReplicationManager) *ReplicationClient {
 	state := &ReplicationClientState{0, 0, 0, 0, 0, 0, 0, 0}
 	channel := &ReplicationClient{manager, &sync.Mutex{}, nil, nil, manager.slock.GetAof(),
 		nil, [16]byte{}, 0, make([]*AofLock, 256), 0, make(chan *AofLock, 64),
-		make(chan *AofLock, 64), make(chan *AofLock, 64), state, nil, nil, make(chan bool, 1),
-		false, true, false}
+		make(chan *AofLock, 64), make(chan *AofLock, 64), state, nil, nil, nil,
+		nil, make(chan bool, 1), false, true, false}
 	for i := 0; i < len(channel.rbufs); i++ {
 		channel.rbufs[i] = NewAofLock()
 	}
@@ -361,6 +363,13 @@ func (self *ReplicationClient) Close() error {
 	}
 	_ = self.WakeupRetryConnect()
 	self.manager.slock.logger.Infof("Replication client %s close", self.manager.leaderAddress)
+	return nil
+}
+
+func (self *ReplicationClient) End() error {
+	self.closed = true
+	_ = self.WakeupRetryConnect()
+	self.manager.slock.logger.Infof("Replication client %s end", self.manager.leaderAddress)
 	return nil
 }
 
@@ -413,6 +422,19 @@ func (self *ReplicationClient) Run() {
 			<-appendWaiter
 			self.glock.Lock()
 		}
+		replayWaiter := self.replayWaiter
+		if replayWaiter != nil {
+			self.glock.Unlock()
+			<-replayWaiter
+			self.glock.Lock()
+		}
+		pushWaiter := self.pushWaiter
+		if pushWaiter != nil {
+			self.glock.Unlock()
+			<-pushWaiter
+			self.glock.Lock()
+		}
+
 		self.stream = nil
 		self.protocol = nil
 		self.glock.Unlock()
@@ -755,6 +777,21 @@ func (self *ReplicationClient) Process() error {
 }
 
 func (self *ReplicationClient) ProcessReplayLock() {
+	self.glock.Lock()
+	if self.replayWaiter != nil {
+		close(self.replayWaiter)
+	}
+	self.replayWaiter = make(chan bool)
+	self.glock.Unlock()
+	defer func() {
+		self.glock.Lock()
+		if self.replayWaiter != nil {
+			close(self.replayWaiter)
+			self.replayWaiter = nil
+		}
+		self.glock.Unlock()
+	}()
+
 	aof := self.aof
 	self.replayAofIndex = aof.aofFileIndex
 	for !self.closed {
@@ -864,6 +901,21 @@ func (self *ReplicationClient) ProcessAofAppend() {
 }
 
 func (self *ReplicationClient) ProcessPushAofLock() {
+	self.glock.Lock()
+	if self.pushWaiter != nil {
+		close(self.pushWaiter)
+	}
+	self.pushWaiter = make(chan bool)
+	self.glock.Unlock()
+	defer func() {
+		self.glock.Lock()
+		if self.pushWaiter != nil {
+			close(self.pushWaiter)
+			self.pushWaiter = nil
+		}
+		self.glock.Unlock()
+	}()
+
 	bufferQueue := self.manager.bufferQueue
 	for !self.closed {
 		aofLock := <-self.pushQueue
@@ -2002,10 +2054,18 @@ func (self *ReplicationManager) SwitchToFollower(address string) error {
 	}
 
 	if self.leaderAddress == "" {
+		if self.clientChannel != nil {
+			clientChannel := self.clientChannel
+			_ = clientChannel.End()
+			<-clientChannel.closedWaiter
+			self.currentAofId = clientChannel.currentAofId
+			self.clientChannel = nil
+		}
 		self.isLeader = false
 		self.slock.logger.Infof("Replication finish change to follower, leader empty")
 		return nil
 	}
+
 	if self.clientChannel != nil {
 		clientChannel := self.clientChannel
 		_ = clientChannel.Close()
@@ -2042,18 +2102,25 @@ func (self *ReplicationManager) ChangeLeader(address string) error {
 	}
 	self.glock.Unlock()
 
+	if self.leaderAddress == "" {
+		if self.clientChannel != nil {
+			clientChannel := self.clientChannel
+			_ = clientChannel.End()
+			<-clientChannel.closedWaiter
+			self.currentAofId = clientChannel.currentAofId
+			self.clientChannel = nil
+		}
+		self.isLeader = false
+		self.slock.logger.Infof("Replication follower finish change current empty leader")
+		return nil
+	}
+
 	if self.clientChannel != nil {
 		clientChannel := self.clientChannel
 		_ = clientChannel.Close()
 		<-clientChannel.closedWaiter
 		self.currentAofId = clientChannel.currentAofId
 		self.clientChannel = nil
-	}
-
-	if self.leaderAddress == "" {
-		self.isLeader = false
-		self.slock.logger.Infof("Replication follower finish change current empty leader")
-		return nil
 	}
 	err := self.StartSync()
 	if err != nil {
