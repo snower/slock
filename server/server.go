@@ -44,6 +44,10 @@ func (self *Server) Listen() error {
 
 func (self *Server) Close() {
 	self.glock.Lock()
+	if self.stoped {
+		self.glock.Unlock()
+		return
+	}
 	self.stoped = true
 	err := self.server.Close()
 	if err != nil {
@@ -350,8 +354,7 @@ func (self *Server) handle(stream *Stream) {
 			} else {
 				if err == AGAIN {
 					transparencyServerProtocol := serverProtocol.(*TransparencyTextServerProtocol)
-					textServerProtocol := transparencyServerProtocol.serverProtocol
-					err = textServerProtocol.RunCommand()
+					err = transparencyServerProtocol.RunCommand()
 					if err == nil {
 						err = serverProtocol.Process()
 					}

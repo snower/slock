@@ -1090,16 +1090,19 @@ func (self *Admin) commandHandleReplsetMembersCommand(serverProtocol *TextServer
 }
 
 func (self *Admin) commandHandleReplsetQuitLeaderCommand(serverProtocol *TextServerProtocol, _ []string) error {
+	self.slock.arbiterManager.glock.Lock()
 	if self.slock.arbiterManager.ownMember == nil {
+		self.slock.arbiterManager.glock.Unlock()
 		return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(false, "ERR not leader", nil))
 	}
 	if self.slock.arbiterManager.ownMember.role != ARBITER_ROLE_LEADER {
+		self.slock.arbiterManager.glock.Unlock()
 		return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(false, "ERR not leader", nil))
 	}
 	if len(self.slock.arbiterManager.members) <= 1 {
+		self.slock.arbiterManager.glock.Unlock()
 		return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(false, "ERR not found followers", nil))
 	}
-	self.slock.arbiterManager.glock.Lock()
 	self.slock.arbiterManager.ownMember.abstianed = true
 	err := self.slock.arbiterManager.QuitLeader()
 	if err != nil {

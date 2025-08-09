@@ -1066,7 +1066,11 @@ func (self *ArbiterVoter) DoVote() error {
 
 func (self *ArbiterVoter) DoProposal() error {
 	self.glock.Lock()
-	self.proposalId++
+	if self.proposalId <= self.commitId {
+		self.proposalId = self.commitId + 1
+	} else {
+		self.proposalId++
+	}
 	self.glock.Unlock()
 	isReject := false
 	responses := self.DoRequests("do proposal", func(member *ArbiterMember) (interface{}, error) {
@@ -1513,6 +1517,9 @@ func (self *ArbiterManager) GetMajorityMemberCount() int {
 }
 
 func (self *ArbiterManager) QuitLeader() error {
+	if self.ownMember == nil || self.ownMember.role != ARBITER_ROLE_LEADER {
+		return errors.New("not leader")
+	}
 	self.slock.Log().Infof("Arbiter quit leader start")
 	self.slock.updateState(STATE_FOLLOWER)
 	time.Sleep(time.Millisecond)
@@ -2118,6 +2125,9 @@ func (self *ArbiterManager) commandHandleCommitCommand(serverProtocol *BinarySer
 
 	defer self.voter.glock.Unlock()
 	self.voter.glock.Lock()
+	if self.voter.proposalId != request.ProposalId {
+		return protocol.NewCallResultCommand(command, 0, "ERR_PROPOSALID", nil), nil
+	}
 	if self.voter.commitId >= request.ProposalId {
 		response := protobuf.ArbiterCommitResponse{ErrMessage: "", CommitId: self.voter.commitId}
 		data, err := proto.Marshal(&response)
