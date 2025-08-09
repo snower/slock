@@ -1131,7 +1131,7 @@ func (self *ReplicationServer) sendFiles() error {
 		aofFilenames = append(aofFilenames, rewriteFile)
 	}
 	aofFilenames = append(aofFilenames, appendFiles...)
-	err = self.aof.LoadAofFiles(aofFilenames, time.Now().Unix(), func(filename string, aofFile *AofFile, lock *AofLock, firstLock bool) (bool, error) {
+	err, laofLock := self.aof.LoadAofFiles(aofFilenames, time.Now().Unix(), func(filename string, aofFile *AofFile, lock *AofLock, firstLock bool) (bool, error) {
 		if lock.AofIndex > self.waofLock.AofIndex && lock.AofOffset > self.waofLock.AofOffset {
 			return false, nil
 		}
@@ -1157,8 +1157,16 @@ func (self *ReplicationServer) sendFiles() error {
 	if err != nil {
 		return err
 	}
-	self.manager.slock.logger.Infof("Replication server handle client %s send file finish, send queue by aofId %s",
-		self.protocol.RemoteAddr().String(), FormatAofId(self.waofLock.GetAofId()))
+	if laofLock != nil {
+		self.bufferCursor.currentAofId = laofLock.GetAofId()
+	}
+	if laofLock != nil && laofLock.AofIndex >= self.waofLock.AofIndex && laofLock.AofOffset >= self.waofLock.AofOffset && laofLock.CommandTime >= self.waofLock.CommandTime {
+		self.manager.slock.logger.Infof("Replication server handle client %s send file finish, send queue by aofId %s",
+			self.protocol.RemoteAddr().String(), FormatAofId(self.bufferCursor.currentAofId))
+	} else {
+		self.manager.slock.logger.Infof("Replication server handle client %s send file finish, send queue by aofId %s",
+			self.protocol.RemoteAddr().String(), FormatAofId(self.waofLock.GetAofId()))
+	}
 	return self.manager.WakeupServerChannel()
 }
 

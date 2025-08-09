@@ -1183,7 +1183,7 @@ func (self *Aof) LoadAndInit() error {
 		aofFilenames = append(aofFilenames, rewriteFile)
 	}
 	aofFilenames = append(aofFilenames, appendFiles...)
-	err = self.LoadAofFiles(aofFilenames, time.Now().Unix(), func(filename string, aofFile *AofFile, lock *AofLock, firstLock bool) (bool, error) {
+	err, _ = self.LoadAofFiles(aofFilenames, time.Now().Unix(), func(filename string, aofFile *AofFile, lock *AofLock, firstLock bool) (bool, error) {
 		lerr := self.LoadLock(lock)
 		if lerr != nil {
 			return true, lerr
@@ -1228,7 +1228,7 @@ func (self *Aof) Load() error {
 		aofFilenames = append(aofFilenames, rewriteFile)
 	}
 	aofFilenames = append(aofFilenames, appendFiles...)
-	err = self.LoadAofFiles(aofFilenames, time.Now().Unix(), func(filename string, aofFile *AofFile, lock *AofLock, firstLock bool) (bool, error) {
+	err, _ = self.LoadAofFiles(aofFilenames, time.Now().Unix(), func(filename string, aofFile *AofFile, lock *AofLock, firstLock bool) (bool, error) {
 		lerr := self.LoadLock(lock)
 		if lerr != nil {
 			return true, lerr
@@ -1410,19 +1410,21 @@ func (self *Aof) FindAofFiles() ([]string, string, error) {
 	return appendFiles, rewriteFile, nil
 }
 
-func (self *Aof) LoadAofFiles(filenames []string, expriedTime int64, iterFunc func(string, *AofFile, *AofLock, bool) (bool, error)) error {
+func (self *Aof) LoadAofFiles(filenames []string, expriedTime int64, iterFunc func(string, *AofFile, *AofLock, bool) (bool, error)) (error, *AofLock) {
+	if len(filenames) == 0 {
+		return nil, nil
+	}
 	lock := NewAofLock()
-
 	for _, filename := range filenames {
 		err := self.LoadAofFile(filename, lock, expriedTime, iterFunc)
 		if err != nil {
 			if err == io.EOF {
-				return nil
+				return nil, lock
 			}
-			return err
+			return err, nil
 		}
 	}
-	return nil
+	return nil, lock
 }
 
 func (self *Aof) LoadAofFile(filename string, lock *AofLock, expriedTime int64, iterFunc func(string, *AofFile, *AofLock, bool) (bool, error)) error {
@@ -1979,7 +1981,7 @@ func (self *Aof) loadRewriteAofFiles(aofFilenames []string) (*AofFile, []*AofFil
 	if self.slock.state != STATE_LEADER {
 		expriedTime -= 300
 	}
-	lerr := self.LoadAofFiles(aofFilenames, expriedTime, func(filename string, aofFile *AofFile, aofLock *AofLock, firstLock bool) (bool, error) {
+	lerr, _ := self.LoadAofFiles(aofFilenames, expriedTime, func(filename string, aofFile *AofFile, aofLock *AofLock, firstLock bool) (bool, error) {
 		db := self.slock.GetDB(aofLock.DbId)
 		if db == nil {
 			return true, nil
