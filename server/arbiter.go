@@ -1314,17 +1314,17 @@ func (self *ArbiterManager) Start() error {
 }
 
 func (self *ArbiterManager) Close() error {
+	self.glock.Lock()
 	if self.stoped {
+		self.glock.Unlock()
 		return nil
 	}
-
 	if self.ownMember == nil || len(self.members) == 0 {
 		self.stoped = true
+		self.glock.Unlock()
 		self.slock.logger.Infof("Arbiter closed")
 		return nil
 	}
-
-	self.glock.Lock()
 	if self.ownMember.role == ARBITER_ROLE_LEADER && len(self.members) > 1 {
 		self.ownMember.abstianed = true
 		_ = self.QuitLeader()
@@ -1551,10 +1551,10 @@ func (self *ArbiterManager) QuitLeader() error {
 
 func (self *ArbiterManager) QuitMember() error {
 	self.slock.Log().Infof("Arbiter quit members start")
+	self.glock.Lock()
 	_ = self.slock.replicationManager.SwitchToFollower("")
 	_ = self.slock.replicationManager.DoServerChannelQuit()
 
-	self.glock.Lock()
 	members := self.members
 	self.members = make([]*ArbiterMember, 0)
 	self.ownMember = nil
@@ -1599,12 +1599,11 @@ func (self *ArbiterManager) StartVote() error {
 }
 
 func (self *ArbiterManager) voteSucced() error {
+	self.slock.Log().Infof("Arbiter election succed, current leader %s", self.voter.proposalHost)
+	self.glock.Lock()
 	if self.stoped {
 		return nil
 	}
-
-	self.slock.Log().Infof("Arbiter election succed, current leader %s", self.voter.proposalHost)
-	self.glock.Lock()
 	proposalHost := self.voter.proposalHost
 	for _, member := range self.members {
 		if member.host == self.voter.proposalHost {
