@@ -757,7 +757,38 @@ func (self *ArbiterMember) DoVote() (*protobuf.ArbiterVoteResponse, error) {
 	return &response, nil
 }
 
-func (self *ArbiterMember) DoSelfProposal(proposalId uint64) (*protobuf.ArbiterProposalResponse, error) {
+func (self *ArbiterMember) DoSelfProposal(proposalId uint64, host string, aofId [16]byte) (*protobuf.ArbiterProposalResponse, error) {
+	if self.manager.ownMember == nil || len(self.manager.members) == 0 {
+		return nil, errors.New("except code ERR_UNINIT")
+	}
+	if !self.manager.ownMember.abstianed && self.manager.ownMember.arbiter == 0 && self.manager.CompareAofId(self.manager.GetCurrentAofID(), aofId) > 0 {
+		return nil, ProposalRejectError
+	}
+	if self.manager.ownMember.role == ARBITER_ROLE_LEADER {
+		self.manager.DoAnnouncement()
+		return nil, errors.New("except code ERR_ROLE")
+	}
+
+	var voteMember *ArbiterMember = nil
+	for _, member := range self.manager.members {
+		if member.role == ARBITER_ROLE_LEADER && member.status == ARBITER_MEMBER_STATUS_ONLINE {
+			self.manager.DoAnnouncement()
+			return nil, errors.New("except code ERR_STATUS")
+		}
+		if member.host == host {
+			voteMember = member
+		}
+		if self.manager.CompareAofId(member.aofId, aofId) > 0 {
+			return nil, errors.New("except code ERR_AOFID")
+		}
+	}
+	if voteMember == nil {
+		return nil, errors.New("except code ERR_HOST")
+	}
+	if !voteMember.isSelf && voteMember.status != ARBITER_MEMBER_STATUS_ONLINE {
+		return nil, errors.New("except code ERR_OFFLINE")
+	}
+
 	defer self.manager.voter.glock.Unlock()
 	self.manager.voter.glock.Lock()
 	if self.manager.voter.proposalId >= proposalId || self.manager.voter.proposalHost != "" {
@@ -772,7 +803,7 @@ func (self *ArbiterMember) DoSelfProposal(proposalId uint64) (*protobuf.ArbiterP
 
 func (self *ArbiterMember) DoProposal(proposalId uint64, host string, aofId [16]byte) (*protobuf.ArbiterProposalResponse, error) {
 	if self.isSelf {
-		return self.DoSelfProposal(proposalId)
+		return self.DoSelfProposal(proposalId, host, aofId)
 	}
 	if self.status != ARBITER_MEMBER_STATUS_ONLINE {
 		return nil, errors.New("not online")
@@ -815,7 +846,20 @@ func (self *ArbiterMember) DoProposal(proposalId uint64, host string, aofId [16]
 	return &response, nil
 }
 
-func (self *ArbiterMember) DoSelfCommit(proposalId uint64, host string, aofId [16]byte) (*protobuf.ArbiterCommitResponse, error) {
+func (self *ArbiterMember) DoSelfCommit(proposalId uint64, host string) (*protobuf.ArbiterCommitResponse, error) {
+	if self.manager.ownMember == nil || len(self.manager.members) == 0 {
+		return nil, errors.New("except code ERR_UNINIT")
+	}
+	var voteMember *ArbiterMember = nil
+	for _, member := range self.manager.members {
+		if member.host == host {
+			voteMember = member
+		}
+	}
+	if voteMember == nil {
+		return nil, errors.New("except code ERR_HOST")
+	}
+
 	defer self.manager.voter.glock.Unlock()
 	self.manager.voter.glock.Lock()
 	if self.manager.voter.proposalId != proposalId {
@@ -832,7 +876,7 @@ func (self *ArbiterMember) DoSelfCommit(proposalId uint64, host string, aofId [1
 
 func (self *ArbiterMember) DoCommit(proposalId uint64, host string, aofId [16]byte) (*protobuf.ArbiterCommitResponse, error) {
 	if self.isSelf {
-		return self.DoSelfCommit(proposalId, host, aofId)
+		return self.DoSelfCommit(proposalId, host)
 	}
 	if self.status != ARBITER_MEMBER_STATUS_ONLINE {
 		return nil, errors.New("not online")
@@ -2130,8 +2174,7 @@ func (self *ArbiterManager) commandHandleProposalCommand(serverProtocol *BinaryS
 	if voteMember == nil || voteFromMember == nil {
 		return protocol.NewCallResultCommand(command, 0, "ERR_HOST", nil), nil
 	}
-
-	if voteMember.status != ARBITER_MEMBER_STATUS_ONLINE {
+	if !voteMember.isSelf && voteMember.status != ARBITER_MEMBER_STATUS_ONLINE {
 		return protocol.NewCallResultCommand(command, 0, "ERR_OFFLINE", nil), nil
 	}
 
@@ -2146,7 +2189,7 @@ func (self *ArbiterManager) commandHandleProposalCommand(serverProtocol *BinaryS
 		return protocol.NewCallResultCommand(command, 0, "ERR_PROPOSALID", data), nil
 	}
 	if self.voter.commitId >= request.ProposalId {
-		response := protobuf.ArbiterProposalResponse{ErrMessage: "", ProposalId: self.voter.commitId + 1}
+		response := protobuf.ArbiterProposalResponse{ErrMessage: "", ProposalId: self.voter.commitId}
 		data, err := proto.Marshal(&response)
 		if err != nil {
 			return protocol.NewCallResultCommand(command, 0, "ERR_ENCODE", nil), nil
