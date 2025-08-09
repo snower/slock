@@ -175,6 +175,19 @@ func (self *ArbiterStore) Save(manager *ArbiterManager) error {
 	return nil
 }
 
+func (self *ArbiterStore) Destroy(manager *ArbiterManager) error {
+	if self.filename == "" {
+		err := self.Init(manager)
+		if err != nil {
+			return err
+		}
+	}
+	if _, err := os.Stat(self.filename); os.IsNotExist(err) {
+		return err
+	}
+	return os.Remove(self.filename)
+}
+
 func (self *ArbiterStore) readHeader(buf []byte) ([]byte, error) {
 	if len(buf) < 11 {
 		return nil, errors.New("File is not Meta FIle")
@@ -269,6 +282,9 @@ func (self *ArbiterClient) Close() error {
 }
 
 func (self *ArbiterClient) handleInit() error {
+	if self.member.manager.ownMember == nil {
+		return errors.New("not own member")
+	}
 	request := protobuf.ArbiterConnectRequest{FromHost: self.member.manager.ownMember.host, ToHost: self.member.host}
 	data, err := proto.Marshal(&request)
 	if err != nil {
@@ -1552,8 +1568,7 @@ func (self *ArbiterManager) QuitLeader() error {
 func (self *ArbiterManager) QuitMember() error {
 	self.slock.Log().Infof("Arbiter quit members start")
 	self.glock.Lock()
-	_ = self.slock.replicationManager.SwitchToFollower("")
-	_ = self.slock.replicationManager.DoServerChannelQuit()
+	self.slock.updateState(STATE_CONFIG)
 
 	members := self.members
 	self.members = make([]*ArbiterMember, 0)
@@ -1565,7 +1580,20 @@ func (self *ArbiterManager) QuitMember() error {
 	self.voter.commitId = 0
 	self.version = 1
 	self.vertime = 0
-	_ = self.store.Save(self)
+	_ = self.store.Destroy(self)
+
+	err := self.slock.replicationManager.transparencyManager.ChangeLeader("")
+	if err != nil {
+		self.slock.Log().Errorf("Arbiter quit memeber change transparency address error %v", err)
+	}
+	err = self.slock.subscribeManager.ChangeLeader("")
+	if err != nil {
+		self.slock.Log().Errorf("Arbiter quit memeber change subscribe address error %v", err)
+	}
+	err = self.slock.replicationManager.SuspendFollower()
+	if err != nil {
+		self.slock.Log().Errorf("Arbiter equit memeber change suspend follower error %v", err)
+	}
 	self.glock.Unlock()
 
 	for _, member := range members {
@@ -2229,7 +2257,7 @@ func (self *ArbiterManager) commandHandleAnnouncementCommand(serverProtocol *Bin
 	if ownMember == nil {
 		go func() {
 			self.glock.Lock()
-			if self.ownMember.role == ARBITER_ROLE_LEADER {
+			if self.ownMember != nil && self.ownMember.role == ARBITER_ROLE_LEADER {
 				_ = self.QuitLeader()
 			}
 			self.glock.Unlock()

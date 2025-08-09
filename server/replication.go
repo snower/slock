@@ -2161,6 +2161,54 @@ func (self *ReplicationManager) ChangeLeader(address string) error {
 	return nil
 }
 
+func (self *ReplicationManager) SuspendFollower() error {
+	self.glock.Lock()
+	if self.slock.state == STATE_CLOSE {
+		self.glock.Unlock()
+		return errors.New("state error")
+	}
+	self.slock.logger.Infof("Replication start change suspend follower")
+	if self.leaderAddress != "" {
+		self.leaderAddress = ""
+		self.glock.Unlock()
+
+		for _, db := range self.slock.dbs {
+			if db != nil {
+				for i := uint16(0); i < db.managerMaxGlocks; i++ {
+					db.managerGlocks[i].Lock()
+					db.managerGlocks[i].Unlock()
+				}
+			}
+		}
+		_ = self.slock.aof.WaitFlushAofChannel()
+		_ = self.WakeupServerChannel()
+		_ = self.WaitServerSynced()
+		for _, db := range self.ackDbs {
+			if db != nil {
+				_ = db.SwitchToFollower()
+			}
+		}
+	} else {
+		self.glock.Unlock()
+	}
+
+	for _, channel := range self.serverChannels {
+		_ = channel.Close()
+		<-channel.closedWaiter
+	}
+	if self.clientChannel != nil {
+		clientChannel := self.clientChannel
+		_ = clientChannel.Close()
+		<-clientChannel.closedWaiter
+		self.currentAofId = clientChannel.currentAofId
+		self.clientChannel = nil
+	}
+
+	self.isLeader = false
+	self.slock.logger.Infof("Replication finish change spspend follower")
+	return nil
+}
+
 func (self *ReplicationManager) DoServerChannelQuit() error {
 	for _, channel := range self.serverChannels {
 		err := channel.SendQuit()

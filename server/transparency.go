@@ -329,7 +329,7 @@ func (self *TransparencyBinaryServerProtocol) CheckClient() (*TransparencyBinary
 		}
 	}
 
-	if self.slock.state != STATE_FOLLOWER {
+	if self.slock.state != STATE_FOLLOWER && self.slock.state != STATE_SYNC {
 		return nil, io.EOF
 	}
 
@@ -1010,7 +1010,7 @@ func (self *TransparencyTextServerProtocol) CheckClient() (*TransparencyBinaryCl
 		}
 	}
 
-	if self.slock.state != STATE_FOLLOWER {
+	if self.slock.state != STATE_FOLLOWER && self.slock.state != STATE_SYNC {
 		return nil, io.EOF
 	}
 

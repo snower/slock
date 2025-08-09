@@ -518,7 +518,7 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 					} else {
 						dbInfos = append(dbInfos, "wait_ack_count=0")
 					}
-				} else if self.slock.state == STATE_FOLLOWER {
+				} else if self.slock.state == STATE_FOLLOWER || self.slock.state == STATE_SYNC {
 					ackDb := self.slock.replicationManager.GetAckDB(uint8(dbId))
 					if ackDb != nil && ackDb.ackLocks != nil {
 						waitAckCount := 0
@@ -884,7 +884,7 @@ func (self *Admin) commandHandleClientSlaveOfCommand(serverProtocol *TextServerP
 		}
 		return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(true, "OK", nil))
 	} else if len(args) >= 3 && args[1] != "" && args[2] != "" {
-		if self.slock.state == STATE_FOLLOWER {
+		if self.slock.state == STATE_FOLLOWER || self.slock.state == STATE_SYNC {
 			return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(true, "OK", nil))
 		}
 
