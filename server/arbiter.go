@@ -757,9 +757,22 @@ func (self *ArbiterMember) DoVote() (*protobuf.ArbiterVoteResponse, error) {
 	return &response, nil
 }
 
+func (self *ArbiterMember) DoSelfProposal(proposalId uint64) (*protobuf.ArbiterProposalResponse, error) {
+	defer self.manager.voter.glock.Unlock()
+	self.manager.voter.glock.Lock()
+	if self.manager.voter.proposalId >= proposalId || self.manager.voter.proposalHost != "" {
+		return nil, errors.New("except code ERR_PROPOSALID")
+	}
+	if self.manager.voter.commitId >= proposalId {
+		return nil, errors.New("except code ERR_PROPOSALID")
+	}
+	self.manager.voter.proposalId = proposalId
+	return &protobuf.ArbiterProposalResponse{ErrMessage: ""}, nil
+}
+
 func (self *ArbiterMember) DoProposal(proposalId uint64, host string, aofId [16]byte) (*protobuf.ArbiterProposalResponse, error) {
 	if self.isSelf {
-		return &protobuf.ArbiterProposalResponse{ErrMessage: ""}, nil
+		return self.DoSelfProposal(proposalId)
 	}
 	if self.status != ARBITER_MEMBER_STATUS_ONLINE {
 		return nil, errors.New("not online")
@@ -785,8 +798,8 @@ func (self *ArbiterMember) DoProposal(proposalId uint64, host string, aofId [16]
 		if callResultCommand.ErrType == "ERR_PROPOSALID" {
 			response := protobuf.ArbiterProposalResponse{}
 			err = proto.Unmarshal(callResultCommand.Data, &response)
-			if err == nil {
-				self.manager.voter.proposalId = response.ProposalId
+			if err == nil && self.manager.voter.proposalIndex < response.ProposalId {
+				self.manager.voter.proposalIndex = response.ProposalId
 			}
 		}
 		return nil, errors.New(fmt.Sprintf("except code %d:%s", callResultCommand.Result, callResultCommand.ErrType))
@@ -802,9 +815,24 @@ func (self *ArbiterMember) DoProposal(proposalId uint64, host string, aofId [16]
 	return &response, nil
 }
 
+func (self *ArbiterMember) DoSelfCommit(proposalId uint64, host string, aofId [16]byte) (*protobuf.ArbiterCommitResponse, error) {
+	defer self.manager.voter.glock.Unlock()
+	self.manager.voter.glock.Lock()
+	if self.manager.voter.proposalId != proposalId {
+		return nil, errors.New("except code ERR_PROPOSALID")
+	}
+	if self.manager.voter.commitId >= proposalId {
+		return nil, errors.New("except code ERR_COMMITID")
+	}
+	self.manager.voter.proposalHost = host
+	self.manager.voter.proposalFromHost = self.host
+	self.manager.voter.commitId = proposalId
+	return &protobuf.ArbiterCommitResponse{ErrMessage: ""}, nil
+}
+
 func (self *ArbiterMember) DoCommit(proposalId uint64, host string, aofId [16]byte) (*protobuf.ArbiterCommitResponse, error) {
 	if self.isSelf {
-		return &protobuf.ArbiterCommitResponse{ErrMessage: ""}, nil
+		return self.DoSelfCommit(proposalId, host, aofId)
 	}
 	if self.status != ARBITER_MEMBER_STATUS_ONLINE {
 		return nil, errors.New("not online")
@@ -890,6 +918,7 @@ type ArbiterVoterSubscriber struct {
 type ArbiterVoter struct {
 	manager          *ArbiterManager
 	glock            *sync.Mutex
+	proposalIndex    uint64
 	commitId         uint64
 	proposalId       uint64
 	proposalHost     string
@@ -904,7 +933,8 @@ type ArbiterVoter struct {
 }
 
 func NewArbiterVoter() *ArbiterVoter {
-	return &ArbiterVoter{nil, &sync.Mutex{}, 0, 0, "", "", "", [16]byte{},
+	return &ArbiterVoter{nil, &sync.Mutex{}, 0, 0, 0,
+		"", "", "", [16]byte{},
 		false, false, make(chan bool, 1), nil, nil}
 }
 
@@ -1082,15 +1112,18 @@ func (self *ArbiterVoter) DoVote() error {
 
 func (self *ArbiterVoter) DoProposal() error {
 	self.glock.Lock()
-	if self.proposalId <= self.commitId {
-		self.proposalId = self.commitId + 1
-	} else {
-		self.proposalId++
+	if self.proposalIndex <= self.commitId {
+		self.proposalIndex = self.commitId
 	}
+	if self.proposalIndex <= self.proposalId {
+		self.proposalIndex = self.proposalId
+	}
+	self.proposalIndex++
 	self.glock.Unlock()
+
 	isReject := false
 	responses := self.DoRequests("do proposal", func(member *ArbiterMember) (interface{}, error) {
-		response, err := member.DoProposal(self.proposalId, self.voteHost, self.voteAofId)
+		response, err := member.DoProposal(self.proposalIndex, self.voteHost, self.voteAofId)
 		if err == ProposalRejectError {
 			isReject = true
 		}
@@ -1104,19 +1137,16 @@ func (self *ArbiterVoter) DoProposal() error {
 		self.manager.slock.Log().Errorf("Arbier voter do proposal fail")
 		return errors.New("member accept proposal count too small")
 	}
+	self.glock.Lock()
+	self.proposalId = self.proposalIndex
+	self.glock.Unlock()
 	self.manager.slock.Log().Infof("Arbier voter do proposal succed, host %s aofId %s proposalId %d", self.voteHost, FormatAofId(self.voteAofId), self.proposalId)
 	return nil
 }
 
 func (self *ArbiterVoter) DoCommit() error {
-	self.glock.Lock()
-	self.proposalHost = self.voteHost
-	self.proposalFromHost = self.manager.ownMember.host
-	self.commitId = self.proposalId
-	self.glock.Unlock()
-
 	responses := self.DoRequests("do commit", func(member *ArbiterMember) (interface{}, error) {
-		return member.DoCommit(self.proposalId, self.proposalHost, self.voteAofId)
+		return member.DoCommit(self.proposalIndex, self.voteHost, self.voteAofId)
 	})
 
 	if len(responses) < len(self.manager.members)/2+1 {
@@ -1126,6 +1156,11 @@ func (self *ArbiterVoter) DoCommit() error {
 		return errors.New("member accept proposal count too small")
 	}
 
+	self.glock.Lock()
+	self.proposalHost = self.voteHost
+	self.proposalFromHost = self.manager.ownMember.host
+	self.commitId = self.proposalId
+	self.glock.Unlock()
 	self.manager.slock.Log().Infof("Arbier voter do commit succed, host %s aofId %s commitId %d", self.voteHost, FormatAofId(self.voteAofId), self.commitId)
 	return nil
 }
@@ -1574,6 +1609,7 @@ func (self *ArbiterManager) QuitMember() error {
 	self.members = make([]*ArbiterMember, 0)
 	self.ownMember = nil
 	self.leaderMember = nil
+	self.voter.proposalIndex = 0
 	self.voter.proposalId = 0
 	self.voter.proposalHost = ""
 	self.voter.proposalFromHost = ""
