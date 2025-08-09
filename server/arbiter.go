@@ -2109,6 +2109,14 @@ func (self *ArbiterManager) commandHandleProposalCommand(serverProtocol *BinaryS
 		}
 		return protocol.NewCallResultCommand(command, 0, "ERR_PROPOSALID", data), nil
 	}
+	if self.voter.commitId >= request.ProposalId {
+		response := protobuf.ArbiterProposalResponse{ErrMessage: "", ProposalId: self.voter.commitId + 1}
+		data, err := proto.Marshal(&response)
+		if err != nil {
+			return protocol.NewCallResultCommand(command, 0, "ERR_ENCODE", nil), nil
+		}
+		return protocol.NewCallResultCommand(command, 0, "ERR_PROPOSALID", data), nil
+	}
 
 	response := protobuf.ArbiterProposalResponse{ErrMessage: "", ProposalId: self.voter.proposalId}
 	data, err := proto.Marshal(&response)
