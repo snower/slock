@@ -387,6 +387,10 @@ func (self *Server) handle(stream *Stream) {
 
 func (self *Server) PushStateInitCommand() {
 	self.glock.Lock()
+	if self.stoped {
+		self.glock.Unlock()
+		return
+	}
 	binaryServerProtocols := make([]*BinaryServerProtocol, 0)
 	currentStream := self.streams
 	for currentStream != nil {

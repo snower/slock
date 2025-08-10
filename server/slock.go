@@ -178,6 +178,7 @@ func (self *SLock) startFollower() {
 
 func (self *SLock) PrepareClose() {
 	if self.arbiterManager != nil {
+		self.arbiterManager.isClosing = true
 		_ = self.arbiterManager.Close()
 	}
 	self.glock.Lock()

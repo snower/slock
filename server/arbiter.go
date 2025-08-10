@@ -1353,6 +1353,7 @@ type ArbiterManager struct {
 	vertime      uint64
 	stoped       bool
 	loaded       bool
+	isClosing    bool
 }
 
 func NewArbiterManager(slock *SLock, name string) *ArbiterManager {
@@ -1360,7 +1361,7 @@ func NewArbiterManager(slock *SLock, name string) *ArbiterManager {
 	voter := NewArbiterVoter()
 	manager := &ArbiterManager{slock, &sync.Mutex{}, store, voter,
 		make([]*ArbiterMember, 0), nil, nil, name, "", 1, 0,
-		false, false}
+		false, false, false}
 	voter.manager = manager
 	return manager
 }
@@ -1783,7 +1784,7 @@ func (self *ArbiterManager) updateStatus() error {
 		}
 	}
 
-	if self.ownMember == nil || self.ownMember.abstianed {
+	if self.ownMember == nil || self.isClosing {
 		return nil
 	}
 
