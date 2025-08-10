@@ -2033,6 +2033,7 @@ func (self *ReplicationManager) SwitchToLeader() error {
 
 	self.UpdateDBAckCount()
 	self.glock.Unlock()
+	self.slock.ReplicationUpdate()
 
 	if self.clientChannel != nil {
 		clientChannel := self.clientChannel
@@ -2083,6 +2084,7 @@ func (self *ReplicationManager) SwitchToFollower(address string) error {
 			_ = db.SwitchToFollower()
 		}
 	}
+	self.slock.ReplicationUpdate()
 
 	if self.leaderAddress == "" {
 		if self.clientChannel != nil {
@@ -2132,6 +2134,7 @@ func (self *ReplicationManager) ChangeLeader(address string) error {
 		self.slock.updateState(STATE_SYNC)
 	}
 	self.glock.Unlock()
+	self.slock.ReplicationUpdate()
 
 	if self.leaderAddress == "" {
 		if self.clientChannel != nil {
@@ -2188,6 +2191,7 @@ func (self *ReplicationManager) SuspendFollower() error {
 				_ = db.SwitchToFollower()
 			}
 		}
+		self.slock.ReplicationUpdate()
 	} else {
 		self.glock.Unlock()
 	}

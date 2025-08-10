@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"github.com/snower/slock/protocol"
 	"io"
 	"net"
 	"os"
@@ -382,4 +383,26 @@ func (self *Server) handle(stream *Stream) {
 		self.slock.Log().Errorf("Server protocol connection close error %v", err)
 	}
 	self.slock.Log().Infof("Server protocol connection closed %s", serverProtocol.RemoteAddr().String())
+}
+
+func (self *Server) PushStateInitCommand() {
+	self.glock.Lock()
+	binaryServerProtocols := make([]*BinaryServerProtocol, 0)
+	currentStream := self.streams
+	for currentStream != nil {
+		if currentStream.streamType == STREAM_TYPE_NORMAL && currentStream.protocol != nil {
+			if binaryServerProtocol, ok := currentStream.protocol.(*BinaryServerProtocol); ok {
+				binaryServerProtocols = append(binaryServerProtocols, binaryServerProtocol)
+			}
+		}
+		currentStream = currentStream.nextStream
+	}
+	self.glock.Unlock()
+	if len(binaryServerProtocols) == 0 {
+		return
+	}
+	initCommandResult := protocol.BuildInitResultCommand(protocol.RESULT_SUCCED, 2, self.slock.GetInitCommandState())
+	for _, binaryServerProtocol := range binaryServerProtocols {
+		_ = binaryServerProtocol.Write(initCommandResult)
+	}
 }

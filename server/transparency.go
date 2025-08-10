@@ -320,15 +320,6 @@ func (self *TransparencyBinaryServerProtocol) CheckClient() (*TransparencyBinary
 		self.clientProtocol = nil
 	}
 
-	if self.slock.state == STATE_SYNC {
-		waiter := make(chan bool, 1)
-		self.slock.replicationManager.WaitInitSynced(waiter)
-		succed := <-waiter
-		if !succed {
-			return nil, io.EOF
-		}
-	}
-
 	if self.slock.state != STATE_FOLLOWER && self.slock.state != STATE_SYNC {
 		return nil, io.EOF
 	}
@@ -710,7 +701,7 @@ func (self *TransparencyBinaryServerProtocol) ProcessCommad(command protocol.ICo
 			initCommand := command.(*protocol.InitCommand)
 			err := self.Init(initCommand.ClientId)
 			if err != nil {
-				return self.Write(protocol.NewInitResultCommand(initCommand, protocol.RESULT_ERROR, 0))
+				return self.Write(protocol.NewInitResultCommand(initCommand, protocol.RESULT_ERROR, 0, self.slock.GetInitCommandState()))
 			}
 
 			self.slock.clientsGlock.Lock()
@@ -720,7 +711,7 @@ func (self *TransparencyBinaryServerProtocol) ProcessCommad(command protocol.ICo
 
 			clientProtocol, err := self.CheckClient()
 			if err != nil || clientProtocol == nil {
-				return self.Write(protocol.NewInitResultCommand(initCommand, protocol.RESULT_STATE_ERROR, 0))
+				return self.Write(protocol.NewInitResultCommand(initCommand, protocol.RESULT_STATE_ERROR, 0, self.slock.GetInitCommandState()))
 			}
 			if clientProtocol.initCommand == initCommand {
 				return nil
@@ -728,7 +719,7 @@ func (self *TransparencyBinaryServerProtocol) ProcessCommad(command protocol.ICo
 
 			err = clientProtocol.Write(initCommand)
 			if err != nil {
-				return self.Write(protocol.NewInitResultCommand(initCommand, protocol.RESULT_ERROR, 0))
+				return self.Write(protocol.NewInitResultCommand(initCommand, protocol.RESULT_ERROR, 0, self.slock.GetInitCommandState()))
 			}
 			return nil
 		}
@@ -999,15 +990,6 @@ func (self *TransparencyTextServerProtocol) CheckClient() (*TransparencyBinaryCl
 			return self.clientProtocol, nil
 		}
 		self.clientProtocol = nil
-	}
-
-	if self.slock.state == STATE_SYNC {
-		waiter := make(chan bool, 1)
-		self.slock.replicationManager.WaitInitSynced(waiter)
-		succed := <-waiter
-		if !succed {
-			return nil, io.EOF
-		}
 	}
 
 	if self.slock.state != STATE_FOLLOWER && self.slock.state != STATE_SYNC {

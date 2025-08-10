@@ -468,3 +468,20 @@ func (self *SLock) getLockCommands(count int32) []*protocol.LockCommand {
 	self.freeLockCommandLock.Unlock()
 	return commands
 }
+
+func (self *SLock) GetInitCommandState() uint8 {
+	state := uint8(0)
+	if self.state == STATE_LEADER {
+		state = 0x03
+	} else if self.replicationManager != nil && self.replicationManager.leaderAddress != "" {
+		state = 0x02
+	}
+	return state
+}
+
+func (self *SLock) ReplicationUpdate() {
+	if self.state == STATE_CLOSE || self.server == nil {
+		return
+	}
+	go self.server.PushStateInitCommand()
+}
