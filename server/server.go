@@ -401,8 +401,12 @@ func (self *Server) PushStateInitCommand() {
 	if len(binaryServerProtocols) == 0 {
 		return
 	}
-	initCommandResult := protocol.BuildInitResultCommand(protocol.RESULT_SUCCED, 2, self.slock.GetInitCommandState())
+	state := self.slock.GetInitCommandState()
 	for _, binaryServerProtocol := range binaryServerProtocols {
-		_ = binaryServerProtocol.Write(initCommandResult)
+		if binaryServerProtocol.inited {
+			_ = binaryServerProtocol.Write(protocol.BuildInitResultCommand(protocol.RESULT_SUCCED, 1|state))
+		} else {
+			_ = binaryServerProtocol.Write(protocol.BuildInitResultCommand(protocol.RESULT_SUCCED, 0|state))
+		}
 	}
 }

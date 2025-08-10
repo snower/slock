@@ -472,9 +472,9 @@ func (self *SLock) getLockCommands(count int32) []*protocol.LockCommand {
 func (self *SLock) GetInitCommandState() uint8 {
 	state := uint8(0)
 	if self.state == STATE_LEADER {
-		state = 0x03
+		state = 0x08 | 0x04
 	} else if self.replicationManager != nil && self.replicationManager.leaderAddress != "" {
-		state = 0x02
+		state = 0x08
 	}
 	return state
 }

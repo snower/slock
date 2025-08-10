@@ -146,7 +146,7 @@ func (self *TransparencyBinaryClientProtocol) processBinaryProcotol(command prot
 		if self.latestRequestId == initResultCommand.RequestId {
 			self.latestCommandType = 0xff
 		}
-		initResultCommand.InitType += 2
+		initResultCommand.InitType = initResultCommand.InitType | 0x02 | self.manager.slock.GetInitCommandState()
 		if initResultCommand.Result == 0 {
 			self.initResultCommand = initResultCommand
 		} else {
@@ -701,7 +701,7 @@ func (self *TransparencyBinaryServerProtocol) ProcessCommad(command protocol.ICo
 			initCommand := command.(*protocol.InitCommand)
 			err := self.Init(initCommand.ClientId)
 			if err != nil {
-				return self.Write(protocol.NewInitResultCommand(initCommand, protocol.RESULT_ERROR, 0, self.slock.GetInitCommandState()))
+				return self.Write(protocol.NewInitResultCommand(initCommand, protocol.RESULT_ERROR, 0x02|self.slock.GetInitCommandState()))
 			}
 
 			self.slock.clientsGlock.Lock()
@@ -711,7 +711,7 @@ func (self *TransparencyBinaryServerProtocol) ProcessCommad(command protocol.ICo
 
 			clientProtocol, err := self.CheckClient()
 			if err != nil || clientProtocol == nil {
-				return self.Write(protocol.NewInitResultCommand(initCommand, protocol.RESULT_STATE_ERROR, 0, self.slock.GetInitCommandState()))
+				return self.Write(protocol.NewInitResultCommand(initCommand, protocol.RESULT_STATE_ERROR, 0x02|self.slock.GetInitCommandState()))
 			}
 			if clientProtocol.initCommand == initCommand {
 				return nil
@@ -719,7 +719,7 @@ func (self *TransparencyBinaryServerProtocol) ProcessCommad(command protocol.ICo
 
 			err = clientProtocol.Write(initCommand)
 			if err != nil {
-				return self.Write(protocol.NewInitResultCommand(initCommand, protocol.RESULT_ERROR, 0, self.slock.GetInitCommandState()))
+				return self.Write(protocol.NewInitResultCommand(initCommand, protocol.RESULT_ERROR, 0x02|self.slock.GetInitCommandState()))
 			}
 			return nil
 		}
@@ -1571,11 +1571,7 @@ func (self *TransparencyManager) CloseClient(binaryClient *TransparencyBinaryCli
 func (self *TransparencyManager) processFinish(binaryClient *TransparencyBinaryClientProtocol) error {
 	if binaryClient.initResultCommand != nil && binaryClient.serverProtocol != nil && self.leaderAddress != binaryClient.leaderAddress {
 		initType := binaryClient.initResultCommand.InitType
-		if self.leaderAddress == "" {
-			binaryClient.initResultCommand.InitType = 5
-		} else {
-			binaryClient.initResultCommand.InitType = 6
-		}
+		binaryClient.initResultCommand.InitType = 0x03 | self.slock.GetInitCommandState()
 		_ = binaryClient.serverProtocol.Write(binaryClient.initResultCommand)
 		binaryClient.initResultCommand.InitType = initType
 	}

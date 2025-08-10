@@ -309,23 +309,27 @@ func (self *InitCommand) Encode(buf []byte) error {
 	return nil
 }
 
-var INIT_COMMAND_BLANK_BYTERS = [42]byte{}
+var INIT_COMMAND_BLANK_BYTERS = [43]byte{}
 
 type InitResultCommand struct {
 	ResultCommand
+	/*
+	   |                  |    3     |    2    |      1        |      0      |
+	   |------------------|----------|---------|-------------- |-------------|
+	   |                  |has_leader|is_leader|is_transparency|has_client_id|
+	*/
 	InitType uint8
-	State    uint8
-	Blank    [42]byte
+	Blank    [43]byte
 }
 
-func NewInitResultCommand(command *InitCommand, result uint8, initType uint8, state uint8) *InitResultCommand {
+func NewInitResultCommand(command *InitCommand, result uint8, initType uint8) *InitResultCommand {
 	resultCommand := ResultCommand{MAGIC, VERSION, command.CommandType, command.RequestId, result}
-	return &InitResultCommand{resultCommand, initType, state, INIT_COMMAND_BLANK_BYTERS}
+	return &InitResultCommand{resultCommand, initType, INIT_COMMAND_BLANK_BYTERS}
 }
 
-func BuildInitResultCommand(result uint8, initType uint8, state uint8) *InitResultCommand {
+func BuildInitResultCommand(result uint8, initType uint8) *InitResultCommand {
 	resultCommand := ResultCommand{MAGIC, VERSION, COMMAND_INIT, GenRequestId(), result}
-	return &InitResultCommand{resultCommand, initType, state, INIT_COMMAND_BLANK_BYTERS}
+	return &InitResultCommand{resultCommand, initType, INIT_COMMAND_BLANK_BYTERS}
 }
 
 func (self *InitResultCommand) Decode(buf []byte) error {
@@ -340,7 +344,7 @@ func (self *InitResultCommand) Decode(buf []byte) error {
 		buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
 		buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18]
 
-	self.Result, self.InitType, self.State = uint8(buf[19]), uint8(buf[20]), uint8(buf[21])
+	self.Result, self.InitType = uint8(buf[19]), uint8(buf[20])
 
 	return nil
 }
@@ -357,10 +361,10 @@ func (self *InitResultCommand) Encode(buf []byte) error {
 		self.RequestId[0], self.RequestId[1], self.RequestId[2], self.RequestId[3], self.RequestId[4], self.RequestId[5], self.RequestId[6], self.RequestId[7],
 		self.RequestId[8], self.RequestId[9], self.RequestId[10], self.RequestId[11], self.RequestId[12], self.RequestId[13], self.RequestId[14], self.RequestId[15]
 
-	buf[19], buf[20], buf[21] = uint8(self.Result), byte(self.InitType), byte(self.State)
+	buf[19], buf[20] = uint8(self.Result), byte(self.InitType)
 
-	for i := 0; i < 42; i++ {
-		buf[22+i] = 0x00
+	for i := 0; i < 43; i++ {
+		buf[21+i] = 0x00
 	}
 
 	return nil

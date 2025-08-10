@@ -237,7 +237,7 @@ func (self *Client) handleInitCommandResult(initResultCommand *protocol.InitResu
 		return errors.New(fmt.Sprintf("init stream error: %d", initResultCommand.Result))
 	}
 
-	if initResultCommand.InitType != 0 && initResultCommand.InitType != 2 {
+	if initResultCommand.InitType&0x01 == 0 {
 		self.requestLock.Lock()
 		for requestId := range self.requests {
 			close(self.requests[requestId])

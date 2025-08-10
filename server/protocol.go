@@ -1291,7 +1291,7 @@ func (self *BinaryServerProtocol) ProcessCommad(command protocol.ICommand) error
 			initCommand := command.(*protocol.InitCommand)
 			err := self.Init(initCommand.ClientId)
 			if err != nil {
-				return self.Write(protocol.NewInitResultCommand(initCommand, protocol.RESULT_ERROR, 0, self.slock.GetInitCommandState()))
+				return self.Write(protocol.NewInitResultCommand(initCommand, protocol.RESULT_ERROR, 0|self.slock.GetInitCommandState()))
 			}
 
 			self.slock.clientsGlock.Lock()
@@ -1301,7 +1301,7 @@ func (self *BinaryServerProtocol) ProcessCommad(command protocol.ICommand) error
 			}
 			self.slock.clients[initCommand.ClientId] = self
 			self.slock.clientsGlock.Unlock()
-			return self.Write(protocol.NewInitResultCommand(initCommand, protocol.RESULT_SUCCED, initType, self.slock.GetInitCommandState()))
+			return self.Write(protocol.NewInitResultCommand(initCommand, protocol.RESULT_SUCCED, initType|self.slock.GetInitCommandState()))
 
 		case protocol.COMMAND_STATE:
 			return self.slock.GetState(self, command.(*protocol.StateCommand))
@@ -2212,7 +2212,7 @@ func (self *TextServerProtocol) ProcessCommad(command protocol.ICommand) error {
 		case protocol.COMMAND_INIT:
 			initCommand := command.(*protocol.InitCommand)
 			if self.Init(initCommand.ClientId) != nil {
-				return self.Write(protocol.NewInitResultCommand(initCommand, protocol.RESULT_ERROR, 0, self.slock.GetInitCommandState()))
+				return self.Write(protocol.NewInitResultCommand(initCommand, protocol.RESULT_ERROR, 0|self.slock.GetInitCommandState()))
 			}
 			self.slock.clientsGlock.Lock()
 			initType := uint8(0)
@@ -2221,7 +2221,7 @@ func (self *TextServerProtocol) ProcessCommad(command protocol.ICommand) error {
 			}
 			self.slock.clients[initCommand.ClientId] = self
 			self.slock.clientsGlock.Unlock()
-			return self.Write(protocol.NewInitResultCommand(initCommand, protocol.RESULT_SUCCED, initType, self.slock.GetInitCommandState()))
+			return self.Write(protocol.NewInitResultCommand(initCommand, protocol.RESULT_SUCCED, initType|self.slock.GetInitCommandState()))
 
 		case protocol.COMMAND_STATE:
 			return self.slock.GetState(self, command.(*protocol.StateCommand))
