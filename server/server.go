@@ -396,7 +396,9 @@ func (self *Server) PushStateInitCommand() {
 	for currentStream != nil {
 		if currentStream.streamType == STREAM_TYPE_NORMAL && currentStream.protocol != nil {
 			if binaryServerProtocol, ok := currentStream.protocol.(*BinaryServerProtocol); ok {
-				binaryServerProtocols = append(binaryServerProtocols, binaryServerProtocol)
+				if binaryServerProtocol.inited {
+					binaryServerProtocols = append(binaryServerProtocols, binaryServerProtocol)
+				}
 			}
 		}
 		currentStream = currentStream.nextStream

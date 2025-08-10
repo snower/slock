@@ -146,6 +146,9 @@ func (self *TransparencyBinaryClientProtocol) processBinaryProcotol(command prot
 		if self.latestRequestId == initResultCommand.RequestId {
 			self.latestCommandType = 0xff
 		}
+		if self.initCommand == nil || self.initCommand.RequestId != initResultCommand.RequestId {
+			return nil
+		}
 		if self.initResultCommand != nil && self.initResultCommand.RequestId != initResultCommand.RequestId {
 			return nil
 		}
@@ -1576,9 +1579,11 @@ func (self *TransparencyManager) CloseClient(binaryClient *TransparencyBinaryCli
 
 func (self *TransparencyManager) processFinish(binaryClient *TransparencyBinaryClientProtocol) error {
 	if binaryClient.initResultCommand != nil && binaryClient.serverProtocol != nil && self.leaderAddress != binaryClient.leaderAddress {
-		initType := binaryClient.initResultCommand.InitType
-		binaryClient.initResultCommand.InitType = 0x02 | self.slock.GetInitCommandState()
+		result, initType := binaryClient.initResultCommand.Result, binaryClient.initResultCommand.InitType
+		binaryClient.initResultCommand.Result = protocol.RESULT_STATE_ERROR
+		binaryClient.initResultCommand.InitType = (initType & 0x01) | 0x02 | self.slock.GetInitCommandState()
 		_ = binaryClient.serverProtocol.Write(binaryClient.initResultCommand)
+		binaryClient.initResultCommand.Result = result
 		binaryClient.initResultCommand.InitType = initType
 	}
 
