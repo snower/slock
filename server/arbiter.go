@@ -1783,7 +1783,7 @@ func (self *ArbiterManager) updateStatus() error {
 		}
 	}
 
-	if self.ownMember == nil {
+	if self.ownMember == nil || self.ownMember.abstianed {
 		return nil
 	}
 

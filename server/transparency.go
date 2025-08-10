@@ -146,13 +146,19 @@ func (self *TransparencyBinaryClientProtocol) processBinaryProcotol(command prot
 		if self.latestRequestId == initResultCommand.RequestId {
 			self.latestCommandType = 0xff
 		}
-		initResultCommand.InitType = initResultCommand.InitType | 0x02 | self.manager.slock.GetInitCommandState()
+		if self.initResultCommand != nil && self.initResultCommand.RequestId != initResultCommand.RequestId {
+			return nil
+		}
+		initType := initResultCommand.InitType
+		initResultCommand.InitType = (initType & 0x01) | 0x02 | self.manager.slock.GetInitCommandState()
 		if initResultCommand.Result == 0 {
 			self.initResultCommand = initResultCommand
 		} else {
 			self.initResultCommand = nil
 		}
-		return serverProtocol.Write(initResultCommand)
+		err := serverProtocol.Write(initResultCommand)
+		initResultCommand.InitType = initType
+		return err
 	case *protocol.CallResultCommand:
 		callResultCommand := command.(*protocol.CallResultCommand)
 		if self.latestRequestId == callResultCommand.RequestId {
@@ -665,7 +671,7 @@ func (self *TransparencyBinaryServerProtocol) ProcessCommad(command protocol.ICo
 
 			err = clientProtocol.Write(lockCommand)
 			if err != nil {
-				err = self.serverProtocol.ProcessLockResultCommand(lockCommand, protocol.RESULT_STATE_ERROR, 0, 0, nil)
+				err = self.serverProtocol.ProcessLockResultCommand(lockCommand, protocol.RESULT_ERROR, 0, 0, nil)
 				_ = self.serverProtocol.FreeLockCommand(lockCommand)
 				return err
 			}
@@ -690,7 +696,7 @@ func (self *TransparencyBinaryServerProtocol) ProcessCommad(command protocol.ICo
 
 			err = clientProtocol.Write(lockCommand)
 			if err != nil {
-				err = self.serverProtocol.ProcessLockResultCommand(lockCommand, protocol.RESULT_STATE_ERROR, 0, 0, nil)
+				err = self.serverProtocol.ProcessLockResultCommand(lockCommand, protocol.RESULT_ERROR, 0, 0, nil)
 				_ = self.serverProtocol.FreeLockCommand(lockCommand)
 				return err
 			}
@@ -789,7 +795,7 @@ func (self *TransparencyBinaryServerProtocol) commandHandleListLockCommand(serve
 
 	clientProtocol, err := self.CheckClient()
 	if err != nil || clientProtocol == nil {
-		return protocol.NewCallResultCommand(command, protocol.RESULT_ERROR, "CLIENT_ERROR", nil), nil
+		return protocol.NewCallResultCommand(command, protocol.RESULT_STATE_ERROR, "CLIENT_ERROR", nil), nil
 	}
 
 	err = clientProtocol.Write(command)
@@ -806,7 +812,7 @@ func (self *TransparencyBinaryServerProtocol) commandHandleListLockedCommand(ser
 
 	clientProtocol, err := self.CheckClient()
 	if err != nil || clientProtocol == nil {
-		return protocol.NewCallResultCommand(command, protocol.RESULT_ERROR, "CLIENT_ERROR", nil), nil
+		return protocol.NewCallResultCommand(command, protocol.RESULT_STATE_ERROR, "CLIENT_ERROR", nil), nil
 	}
 
 	err = clientProtocol.Write(command)
@@ -823,7 +829,7 @@ func (self *TransparencyBinaryServerProtocol) commandHandleListWaitCommand(serve
 
 	clientProtocol, err := self.CheckClient()
 	if err != nil || clientProtocol == nil {
-		return protocol.NewCallResultCommand(command, protocol.RESULT_ERROR, "CLIENT_ERROR", nil), nil
+		return protocol.NewCallResultCommand(command, protocol.RESULT_STATE_ERROR, "CLIENT_ERROR", nil), nil
 	}
 
 	err = clientProtocol.Write(command)
@@ -1571,7 +1577,7 @@ func (self *TransparencyManager) CloseClient(binaryClient *TransparencyBinaryCli
 func (self *TransparencyManager) processFinish(binaryClient *TransparencyBinaryClientProtocol) error {
 	if binaryClient.initResultCommand != nil && binaryClient.serverProtocol != nil && self.leaderAddress != binaryClient.leaderAddress {
 		initType := binaryClient.initResultCommand.InitType
-		binaryClient.initResultCommand.InitType = 0x03 | self.slock.GetInitCommandState()
+		binaryClient.initResultCommand.InitType = 0x02 | self.slock.GetInitCommandState()
 		_ = binaryClient.serverProtocol.Write(binaryClient.initResultCommand)
 		binaryClient.initResultCommand.InitType = initType
 	}

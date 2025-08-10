@@ -52,6 +52,17 @@ func (self *Admin) Close() {
 }
 
 func (self *Admin) commandHandleShutdownCommand(serverProtocol *TextServerProtocol, _ []string) error {
+	if self.slock.arbiterManager != nil {
+		self.slock.arbiterManager.glock.Lock()
+		if self.slock.arbiterManager.ownMember != nil && self.slock.arbiterManager.ownMember.role == ARBITER_ROLE_LEADER && len(self.slock.arbiterManager.members) > 1 {
+			self.slock.arbiterManager.ownMember.abstianed = true
+			err := self.slock.arbiterManager.QuitLeader()
+			if err == nil {
+				time.Sleep(time.Second)
+			}
+		}
+		self.slock.arbiterManager.glock.Unlock()
+	}
 	err := serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(true, "OK", nil))
 	if err != nil {
 		return err
