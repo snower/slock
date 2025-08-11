@@ -40,11 +40,6 @@ type IClient interface {
 	GetDefaultExpriedFlag() uint16
 }
 
-type PendingRequest struct {
-	command      protocol.ICommand
-	clientWaiter chan *Client
-}
-
 type Client struct {
 	glock              *sync.Mutex
 	replset            *ReplsetClient
@@ -624,7 +619,7 @@ type ReplsetClient struct {
 	availableClients      []*Client
 	availableLeaderClient *Client
 	dbs                   []*Database
-	pendingRequests       []*PendingRequest
+	pendingRequests       []chan *Client
 	requestLock           *sync.Mutex
 	dbLock                *sync.Mutex
 	closed                bool
@@ -636,7 +631,7 @@ type ReplsetClient struct {
 
 func NewReplsetClient(hosts []string) *ReplsetClient {
 	replsetClient := &ReplsetClient{&sync.Mutex{}, make([]*Client, 0), make([]*Client, 0), nil,
-		make([]*Database, 256), make([]*PendingRequest, 0), &sync.Mutex{}, &sync.Mutex{}, false,
+		make([]*Database, 256), make([]chan *Client, 0), &sync.Mutex{}, &sync.Mutex{}, false,
 		make(chan bool, 1), nil, 0, 0}
 
 	for _, host := range hosts {
@@ -975,14 +970,13 @@ func (self *ReplsetClient) doPendingExecuteCommand(client *Client, command proto
 	}
 
 	self.requestLock.Lock()
-	pendingRequest := &PendingRequest{command: command, clientWaiter: make(chan *Client, 1)}
-	self.pendingRequests = append(self.pendingRequests, pendingRequest)
+	waiter := make(chan *Client, 1)
+	self.pendingRequests = append(self.pendingRequests, waiter)
 	self.requestLock.Unlock()
 
 	startTime := time.Now()
 	select {
-	case c := <-pendingRequest.clientWaiter:
-		close(pendingRequest.clientWaiter)
+	case c := <-waiter:
 		if c == nil {
 			return nil, errors.New("client not open")
 		}
@@ -994,7 +988,7 @@ func (self *ReplsetClient) doPendingExecuteCommand(client *Client, command proto
 	case <-time.After(time.Duration(timeout+1) * time.Second):
 		self.requestLock.Lock()
 		for i, v := range self.pendingRequests {
-			if v == pendingRequest {
+			if v == waiter {
 				self.pendingRequests = append(self.pendingRequests[:i], self.pendingRequests[i+1:]...)
 				break
 			}
@@ -1018,8 +1012,8 @@ func (self *ReplsetClient) doPendingSendCommand(client *Client, command protocol
 	}
 
 	self.requestLock.Lock()
-	pendingRequest := &PendingRequest{command: command, clientWaiter: make(chan *Client, 1)}
-	self.pendingRequests = append(self.pendingRequests, pendingRequest)
+	waiter := make(chan *Client, 1)
+	self.pendingRequests = append(self.pendingRequests, waiter)
 	self.requestLock.Unlock()
 	if timeout <= 0 {
 		return ClientWriteCommandError
@@ -1027,8 +1021,7 @@ func (self *ReplsetClient) doPendingSendCommand(client *Client, command protocol
 
 	startTime := time.Now()
 	select {
-	case c := <-pendingRequest.clientWaiter:
-		close(pendingRequest.clientWaiter)
+	case c := <-waiter:
 		if c == nil {
 			return errors.New("client not open")
 		}
@@ -1040,13 +1033,11 @@ func (self *ReplsetClient) doPendingSendCommand(client *Client, command protocol
 	case <-time.After(time.Duration(timeout+1) * time.Second):
 		self.requestLock.Lock()
 		for i, v := range self.pendingRequests {
-			if v == pendingRequest {
+			if v == waiter {
 				self.pendingRequests = append(self.pendingRequests[:i], self.pendingRequests[i+1:]...)
 				break
 			}
 		}
-		close(pendingRequest.clientWaiter)
-		pendingRequest.clientWaiter = nil
 		self.requestLock.Unlock()
 		return errors.New("timeout")
 	}
@@ -1059,19 +1050,12 @@ func (self *ReplsetClient) wakeupPendingSendCommands(client *Client) {
 		return
 	}
 	pendingRequests := self.pendingRequests
-	self.pendingRequests = make([]*PendingRequest, 0)
+	self.pendingRequests = make([]chan *Client, 0)
 	self.requestLock.Unlock()
 
 	go func() {
-		for _, pendingRequest := range pendingRequests {
-			self.requestLock.Lock()
-			if pendingRequest.clientWaiter != nil {
-				pendingRequest.clientWaiter <- client
-				self.requestLock.Unlock()
-				<-pendingRequest.clientWaiter
-			} else {
-				self.requestLock.Unlock()
-			}
+		for _, waiter := range pendingRequests {
+			waiter <- client
 		}
 	}()
 }
