@@ -59,10 +59,14 @@ func (self *Admin) commandHandleShutdownCommand(serverProtocol *TextServerProtoc
 			self.slock.arbiterManager.ownMember.abstianed = true
 			err := self.slock.arbiterManager.QuitLeader()
 			if err == nil {
+				self.slock.arbiterManager.glock.Unlock()
 				time.Sleep(time.Second)
+			} else {
+				self.slock.arbiterManager.glock.Unlock()
 			}
+		} else {
+			self.slock.arbiterManager.glock.Unlock()
 		}
-		self.slock.arbiterManager.glock.Unlock()
 	}
 	err := serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(true, "OK", nil))
 	if err != nil {
