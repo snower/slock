@@ -477,6 +477,12 @@ func (self *SLock) GetInitCommandState() uint8 {
 	} else if self.replicationManager != nil && self.replicationManager.leaderAddress != "" {
 		state = 0x08
 	}
+	if self.arbiterManager != nil && (self.arbiterManager.isClosing || self.arbiterManager.stoped) {
+		return state | 0x10
+	}
+	if self.state == STATE_CLOSE || (self.server != nil || self.server.stoped) {
+		return state | 0x10
+	}
 	return state
 }
 

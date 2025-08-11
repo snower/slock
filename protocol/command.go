@@ -314,9 +314,9 @@ var INIT_COMMAND_BLANK_BYTERS = [43]byte{}
 type InitResultCommand struct {
 	ResultCommand
 	/*
-	   |                  |    3     |    2    |      1        |      0      |
-	   |------------------|----------|---------|-------------- |-------------|
-	   |                  |has_leader|is_leader|is_transparency|has_client_id|
+	   |7                 |     4     |    3     |    2    |      1        |      0      |
+	   |------------------|-----------|----------|---------|-------------- |-------------|
+	   |                  |is_shutdown|has_leader|is_leader|is_transparency|has_client_id|
 	*/
 	InitType uint8
 	Blank    [43]byte

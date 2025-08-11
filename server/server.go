@@ -21,11 +21,12 @@ type Server struct {
 	connectingCount uint32
 	stoped          bool
 	stopedWaiter    chan bool
+	pushWaiter      chan bool
 }
 
 func NewServer(slock *SLock) *Server {
 	server := &Server{slock, nil, nil, &sync.Mutex{},
-		0, 0, false, make(chan bool, 1)}
+		0, 0, false, make(chan bool, 1), nil}
 	admin := slock.GetAdmin()
 	admin.server = server
 	return server
@@ -60,9 +61,13 @@ func (self *Server) Close() {
 		streams = append(streams, currentStream)
 		currentStream = currentStream.nextStream
 	}
+	pushWaiter := self.pushWaiter
 	self.glock.Unlock()
 
 	self.slock.PrepareClose()
+	if pushWaiter != nil {
+		<-pushWaiter
+	}
 	for _, stream := range streams {
 		if stream.streamType != STREAM_TYPE_NORMAL {
 			continue
@@ -386,11 +391,10 @@ func (self *Server) handle(stream *Stream) {
 }
 
 func (self *Server) PushStateInitCommand() {
-	self.glock.Lock()
-	if self.stoped {
-		self.glock.Unlock()
+	if self.slock.server == nil || self.streams == nil {
 		return
 	}
+	self.glock.Lock()
 	binaryServerProtocols := make([]*BinaryServerProtocol, 0)
 	currentStream := self.streams
 	for currentStream != nil {
@@ -403,9 +407,21 @@ func (self *Server) PushStateInitCommand() {
 		}
 		currentStream = currentStream.nextStream
 	}
-	self.glock.Unlock()
 	if len(binaryServerProtocols) == 0 {
+		self.glock.Unlock()
 		return
+	}
+	lastPushWaiter := self.pushWaiter
+	pushWaiter := make(chan bool, 1)
+	self.pushWaiter = pushWaiter
+	self.glock.Unlock()
+	if self.slock.server == nil {
+		return
+	}
+
+	self.slock.Log().Infof("Server push state InitResultCommand start %d", len(binaryServerProtocols))
+	if lastPushWaiter != nil {
+		<-lastPushWaiter
 	}
 	state := self.slock.GetInitCommandState()
 	for _, binaryServerProtocol := range binaryServerProtocols {
@@ -415,4 +431,9 @@ func (self *Server) PushStateInitCommand() {
 			_ = binaryServerProtocol.Write(protocol.BuildInitResultCommand(protocol.RESULT_SUCCED, 0|state))
 		}
 	}
+	close(pushWaiter)
+	if self.pushWaiter == pushWaiter {
+		self.pushWaiter = nil
+	}
+	self.slock.Log().Infof("Server push state %d InitResultCommand finish %d", state, len(binaryServerProtocols))
 }

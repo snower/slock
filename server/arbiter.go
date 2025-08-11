@@ -1424,6 +1424,8 @@ func (self *ArbiterManager) Close() error {
 	if self.ownMember.role == ARBITER_ROLE_LEADER && len(self.members) > 1 {
 		self.ownMember.abstianed = true
 		_ = self.QuitLeader()
+	} else if self.ownMember.role == ARBITER_ROLE_FOLLOWER && len(self.members) > 1 {
+		_ = self.QuitFollower()
 	}
 	self.stoped = true
 	self.glock.Unlock()
@@ -1642,6 +1644,27 @@ func (self *ArbiterManager) QuitLeader() error {
 	self.glock.Lock()
 	_ = self.slock.replicationManager.DoServerChannelQuit()
 	self.slock.Log().Infof("Arbiter quit leader finish")
+	return nil
+}
+
+func (self *ArbiterManager) QuitFollower() error {
+	if self.ownMember == nil || self.ownMember.role != ARBITER_ROLE_FOLLOWER {
+		return errors.New("not follower")
+	}
+	self.slock.Log().Infof("Arbiter quit follower start")
+	err := self.slock.replicationManager.transparencyManager.ChangeLeader("")
+	if err != nil {
+		self.slock.Log().Errorf("Arbiter quit follower change transparency address error %v", err)
+	}
+	err = self.slock.subscribeManager.ChangeLeader("")
+	if err != nil {
+		self.slock.Log().Errorf("Arbiter quit follower change subscribe address error %v", err)
+	}
+	err = self.slock.replicationManager.SuspendFollower()
+	if err != nil {
+		self.slock.Log().Errorf("Arbiter equit follower suspend follower error %v", err)
+	}
+	self.slock.Log().Infof("Arbiter quit follower finish")
 	return nil
 }
 
