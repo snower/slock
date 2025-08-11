@@ -1004,6 +1004,7 @@ type ReplicationServerState struct {
 
 type ReplicationServer struct {
 	manager        *ReplicationManager
+	glock          *sync.Mutex
 	stream         *Stream
 	protocol       *BinaryServerProtocol
 	aof            *Aof
@@ -1022,13 +1023,19 @@ type ReplicationServer struct {
 func NewReplicationServer(manager *ReplicationManager, serverProtocol *BinaryServerProtocol) *ReplicationServer {
 	waofLock := NewAofLock()
 	state := &ReplicationServerState{0, 0, 0, 0}
-	return &ReplicationServer{manager, serverProtocol.stream, serverProtocol,
+	return &ReplicationServer{manager, &sync.Mutex{}, serverProtocol.stream, serverProtocol,
 		manager.slock.GetAof(), NewAofLock(), waofLock, NewReplicationBufferQueueCursor(waofLock.buf),
 		state, 0, make(chan bool, 1), false, false, make(chan bool, 1), false}
 }
 
 func (self *ReplicationServer) Close() error {
+	self.glock.Lock()
+	if self.closed {
+		self.glock.Unlock()
+		return nil
+	}
 	self.closed = true
+	self.glock.Unlock()
 	if self.protocol != nil {
 		_ = self.protocol.Close()
 	}
@@ -1136,16 +1143,20 @@ func (self *ReplicationServer) sendFiles() error {
 			return false, nil
 		}
 
+		self.glock.Lock()
 		err = self.stream.WriteBytes(lock.buf)
 		if err != nil {
+			self.glock.Unlock()
 			return true, err
 		}
 		if lock.AofFlag&AOF_FLAG_CONTAINS_DATA != 0 {
 			err = self.stream.WriteBytes(lock.data)
 			if err != nil {
+				self.glock.Unlock()
 				return true, err
 			}
 		}
+		self.glock.Unlock()
 		self.state.pushCount++
 		return true, nil
 	})
@@ -1204,10 +1215,13 @@ func (self *ReplicationServer) sendFilesFinished() error {
 	if err != nil {
 		return err
 	}
+	self.glock.Lock()
 	err = self.stream.WriteBytes(aofLock.buf)
 	if err != nil {
+		self.glock.Unlock()
 		return err
 	}
+	self.glock.Unlock()
 	self.sendedFiles = true
 	return nil
 }
@@ -1227,19 +1241,23 @@ func (self *ReplicationServer) SendProcess() error {
 	bufferQueue := self.manager.bufferQueue
 	for !self.closed {
 		if !self.bufferCursor.writed {
+			self.glock.Lock()
 			err := self.stream.WriteBytes(self.bufferCursor.buf)
 			if err != nil {
+				self.glock.Unlock()
 				atomic.AddUint32(&self.manager.serverActiveCount, 0xffffffff)
 				return err
 			}
 			if self.bufferCursor.data != nil {
 				err = self.stream.WriteBytes(self.bufferCursor.data)
 				if err != nil {
+					self.glock.Unlock()
 					atomic.AddUint32(&self.manager.serverActiveCount, 0xffffffff)
 					return err
 				}
 				self.state.sendDataSize += uint64(len(self.bufferCursor.data))
 			}
+			self.glock.Unlock()
 			self.bufferCursor.writed = true
 			atomic.AddUint32(&self.bufferCursor.currentItem.pollIndex, 1)
 			self.state.pushCount++
@@ -1325,10 +1343,13 @@ func (self *ReplicationServer) SendQuit() error {
 	if err != nil {
 		return err
 	}
+	self.glock.Lock()
 	err = self.stream.WriteBytes(aofLock.buf)
 	if err != nil {
+		self.glock.Unlock()
 		return err
 	}
+	self.glock.Unlock()
 	return nil
 }
 
