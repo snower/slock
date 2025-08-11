@@ -9,6 +9,9 @@ import (
 	"time"
 )
 
+var ClientNotOpenError = errors.New("client is not opened")
+var ClientWriteCommandError = errors.New("client write command error")
+
 type IClient interface {
 	Open() error
 	Close() error
@@ -35,6 +38,11 @@ type IClient interface {
 	SetDefaultExpriedFlag(expriedFlag uint16)
 	GetDefaultTimeoutFlag() uint16
 	GetDefaultExpriedFlag() uint16
+}
+
+type PendingRequest struct {
+	command      protocol.ICommand
+	clientWaiter chan *Client
 }
 
 type Client struct {
@@ -254,6 +262,9 @@ func (self *Client) handleInitCommandResult(initResultCommand *protocol.InitResu
 		} else if self.initType&0x04 != 0 && initResultCommand.InitType&0x04 == 0 {
 			self.replset.removeAvailableLeaderClient(self)
 		}
+		if self.initType&0x08 == 0 && initResultCommand.InitType&0x08 != 0 {
+			self.replset.wakeupPendingSendCommands(self)
+		}
 	}
 	self.initType = initResultCommand.InitType
 	return nil
@@ -373,7 +384,12 @@ func (self *Client) ExecuteCommand(command protocol.ICommand, timeout int) (prot
 	self.glock.Lock()
 	if self.protocol == nil {
 		self.glock.Unlock()
-		return nil, errors.New("client is not opened")
+		self.requestLock.Lock()
+		if _, ok := self.requests[requestId]; ok {
+			delete(self.requests, requestId)
+		}
+		self.requestLock.Unlock()
+		return nil, ClientNotOpenError
 	}
 	err := self.protocol.Write(command)
 	self.glock.Unlock()
@@ -383,7 +399,7 @@ func (self *Client) ExecuteCommand(command protocol.ICommand, timeout int) (prot
 			delete(self.requests, requestId)
 		}
 		self.requestLock.Unlock()
-		return nil, err
+		return nil, ClientWriteCommandError
 	}
 
 	select {
@@ -406,11 +422,14 @@ func (self *Client) SendCommand(command protocol.ICommand) error {
 	self.glock.Lock()
 	if self.protocol == nil {
 		self.glock.Unlock()
-		return errors.New("client is not opened")
+		return ClientNotOpenError
 	}
 	err := self.protocol.Write(command)
 	self.glock.Unlock()
-	return err
+	if err != nil {
+		return ClientWriteCommandError
+	}
+	return nil
 }
 
 func (self *Client) Lock(lockKey [16]byte, timeout uint32, expried uint32) *Lock {
@@ -605,6 +624,8 @@ type ReplsetClient struct {
 	availableClients      []*Client
 	availableLeaderClient *Client
 	dbs                   []*Database
+	pendingRequests       []*PendingRequest
+	requestLock           *sync.Mutex
 	dbLock                *sync.Mutex
 	closed                bool
 	closedWaiter          chan bool
@@ -615,7 +636,8 @@ type ReplsetClient struct {
 
 func NewReplsetClient(hosts []string) *ReplsetClient {
 	replsetClient := &ReplsetClient{&sync.Mutex{}, make([]*Client, 0), make([]*Client, 0), nil,
-		make([]*Database, 256), &sync.Mutex{}, false, make(chan bool, 1), nil, 0, 0}
+		make([]*Database, 256), make([]*PendingRequest, 0), &sync.Mutex{}, &sync.Mutex{}, false,
+		make(chan bool, 1), nil, 0, 0}
 
 	for _, host := range hosts {
 		client := &Client{&sync.Mutex{}, replsetClient, nil, replsetClient.dbs,
@@ -655,6 +677,7 @@ func (self *ReplsetClient) Close() error {
 	}
 	self.closed = true
 	self.glock.Unlock()
+	self.wakeupPendingSendCommands(nil)
 	for _, client := range self.clients {
 		_ = client.Close()
 	}
@@ -683,6 +706,7 @@ func (self *ReplsetClient) addAvailableClient(client *Client, isLeader bool) {
 	}
 	self.availableClients = append(self.availableClients, client)
 	self.glock.Unlock()
+	self.wakeupPendingSendCommands(client)
 }
 
 func (self *ReplsetClient) removeAvailableClient(client *Client) {
@@ -710,6 +734,7 @@ func (self *ReplsetClient) addAvailableLeaderClient(client *Client) {
 	self.glock.Lock()
 	self.availableLeaderClient = client
 	self.glock.Unlock()
+	self.wakeupPendingSendCommands(client)
 }
 
 func (self *ReplsetClient) removeAvailableLeaderClient(client *Client) {
@@ -758,17 +783,41 @@ func (self *ReplsetClient) SelectDB(dbId uint8) *Database {
 func (self *ReplsetClient) ExecuteCommand(command protocol.ICommand, timeout int) (protocol.ICommand, error) {
 	client := self.GetClient()
 	if client == nil {
-		return nil, errors.New("Clients Unavailable")
+		return self.doPendingExecuteCommand(client, command, timeout)
 	}
-	return client.ExecuteCommand(command, timeout)
+	result, err := client.ExecuteCommand(command, timeout)
+	if err == nil {
+		if resultCommand, ok := result.(*protocol.LockResultCommand); ok {
+			if resultCommand.Result == protocol.RESULT_STATE_ERROR {
+				return self.doPendingExecuteCommand(client, command, timeout)
+			}
+		}
+	} else {
+		if err == ClientNotOpenError || err == ClientWriteCommandError {
+			if _, ok := command.(*protocol.LockCommand); ok {
+				return self.doPendingExecuteCommand(client, command, timeout)
+			}
+		}
+	}
+	return result, err
 }
 
 func (self *ReplsetClient) SendCommand(command protocol.ICommand) error {
 	client := self.GetClient()
 	if client == nil {
-		return errors.New("Clients Unavailable")
+		return self.doPendingSendCommand(client, command, 5)
 	}
-	return client.SendCommand(command)
+	err := client.SendCommand(command)
+	if err == nil {
+		return nil
+	} else {
+		if err == ClientNotOpenError || err == ClientWriteCommandError {
+			if _, ok := command.(*protocol.LockCommand); ok {
+				return self.doPendingSendCommand(client, command, 5)
+			}
+		}
+	}
+	return err
 }
 
 func (self *ReplsetClient) Lock(lockKey [16]byte, timeout uint32, expried uint32) *Lock {
@@ -904,4 +953,125 @@ func (self *ReplsetClient) GetDefaultTimeoutFlag() uint16 {
 
 func (self *ReplsetClient) GetDefaultExpriedFlag() uint16 {
 	return self.defaultExpriedFlag
+}
+
+func (self *ReplsetClient) doPendingExecuteCommand(client *Client, command protocol.ICommand, timeout int) (protocol.ICommand, error) {
+	currentClient := self.GetClient()
+	if currentClient != nil && currentClient != client {
+		result, err := currentClient.ExecuteCommand(command, timeout)
+		if err == nil {
+			if resultCommand, ok := result.(*protocol.ResultCommand); ok {
+				if resultCommand.Result != protocol.RESULT_STATE_ERROR {
+					return result, err
+				}
+			} else {
+				return result, err
+			}
+		} else {
+			if err != ClientNotOpenError && err != ClientWriteCommandError {
+				return result, err
+			}
+		}
+	}
+
+	self.requestLock.Lock()
+	pendingRequest := &PendingRequest{command: command, clientWaiter: make(chan *Client, 1)}
+	self.pendingRequests = append(self.pendingRequests, pendingRequest)
+	self.requestLock.Unlock()
+
+	startTime := time.Now()
+	select {
+	case c := <-pendingRequest.clientWaiter:
+		close(pendingRequest.clientWaiter)
+		if c == nil {
+			return nil, errors.New("client not open")
+		}
+		timeout -= int(time.Now().Sub(startTime).Seconds())
+		if timeout <= 0 {
+			return nil, errors.New("timeout")
+		}
+		return c.ExecuteCommand(command, timeout)
+	case <-time.After(time.Duration(timeout+1) * time.Second):
+		self.requestLock.Lock()
+		for i, v := range self.pendingRequests {
+			if v == pendingRequest {
+				self.pendingRequests = append(self.pendingRequests[:i], self.pendingRequests[i+1:]...)
+				break
+			}
+		}
+		self.requestLock.Unlock()
+		return nil, errors.New("timeout")
+	}
+}
+
+func (self *ReplsetClient) doPendingSendCommand(client *Client, command protocol.ICommand, timeout int) error {
+	currentClient := self.GetClient()
+	if currentClient != nil && currentClient != client {
+		err := currentClient.SendCommand(command)
+		if err == nil {
+			return nil
+		} else {
+			if err != ClientNotOpenError && err != ClientWriteCommandError {
+				return err
+			}
+		}
+	}
+
+	self.requestLock.Lock()
+	pendingRequest := &PendingRequest{command: command, clientWaiter: make(chan *Client, 1)}
+	self.pendingRequests = append(self.pendingRequests, pendingRequest)
+	self.requestLock.Unlock()
+	if timeout <= 0 {
+		return ClientWriteCommandError
+	}
+
+	startTime := time.Now()
+	select {
+	case c := <-pendingRequest.clientWaiter:
+		close(pendingRequest.clientWaiter)
+		if c == nil {
+			return errors.New("client not open")
+		}
+		timeout -= int(time.Now().Sub(startTime).Seconds())
+		if timeout <= 0 {
+			return errors.New("timeout")
+		}
+		return c.SendCommand(command)
+	case <-time.After(time.Duration(timeout+1) * time.Second):
+		self.requestLock.Lock()
+		for i, v := range self.pendingRequests {
+			if v == pendingRequest {
+				self.pendingRequests = append(self.pendingRequests[:i], self.pendingRequests[i+1:]...)
+				break
+			}
+		}
+		close(pendingRequest.clientWaiter)
+		pendingRequest.clientWaiter = nil
+		self.requestLock.Unlock()
+		return errors.New("timeout")
+	}
+}
+
+func (self *ReplsetClient) wakeupPendingSendCommands(client *Client) {
+	self.requestLock.Lock()
+	if len(self.pendingRequests) == 0 {
+		self.requestLock.Unlock()
+		return
+	}
+	pendingRequests := self.pendingRequests
+	self.pendingRequests = make([]*PendingRequest, 0)
+	self.requestLock.Unlock()
+
+	go func() {
+		for _, pendingRequest := range pendingRequests {
+			self.requestLock.Lock()
+			if pendingRequest.clientWaiter != nil {
+				pendingRequest.clientWaiter <- client
+				self.requestLock.Unlock()
+				<-pendingRequest.clientWaiter
+			} else {
+				self.requestLock.Unlock()
+			}
+		}
+	}()
 }
