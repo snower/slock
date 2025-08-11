@@ -340,12 +340,15 @@ func NewReplicationClient(manager *ReplicationManager) *ReplicationClient {
 }
 
 func (self *ReplicationClient) Open(addr string) error {
+	self.glock.Lock()
 	if self.protocol != nil {
+		self.glock.Unlock()
 		return errors.New("Client is Opened")
 	}
 
 	conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
 	if err != nil {
+		self.glock.Unlock()
 		return err
 	}
 	stream := client.NewStream(conn)
@@ -353,21 +356,29 @@ func (self *ReplicationClient) Open(addr string) error {
 	self.stream = stream
 	self.protocol = clientProtocol
 	self.closed = false
+	self.glock.Unlock()
 	return nil
 }
 
 func (self *ReplicationClient) Close() error {
+	self.glock.Lock()
 	self.closed = true
 	if self.protocol != nil {
 		_ = self.protocol.Close()
 	}
+	self.glock.Unlock()
 	_ = self.WakeupRetryConnect()
 	self.manager.slock.logger.Infof("Replication client %s close", self.manager.leaderAddress)
 	return nil
 }
 
 func (self *ReplicationClient) End() error {
+	self.glock.Lock()
 	self.closed = true
+	if !self.recvedFiles && self.protocol != nil {
+		_ = self.protocol.Close()
+	}
+	self.glock.Unlock()
 	_ = self.WakeupRetryConnect()
 	self.manager.slock.logger.Infof("Replication client %s end", self.manager.leaderAddress)
 	return nil
@@ -1035,10 +1046,10 @@ func (self *ReplicationServer) Close() error {
 		return nil
 	}
 	self.closed = true
-	self.glock.Unlock()
 	if self.protocol != nil {
 		_ = self.protocol.Close()
 	}
+	self.glock.Unlock()
 	self.manager.slock.Log().Infof("Replication server %s close", self.protocol.RemoteAddr().String())
 	return nil
 }
