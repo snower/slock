@@ -50,6 +50,7 @@ type Client struct {
 	subscribeLock      *sync.Mutex
 	serverAddress      string
 	clientId           [16]byte
+	initType           uint8
 	closed             bool
 	closedWaiter       chan bool
 	reconnectWaiter    chan bool
@@ -63,7 +64,7 @@ func NewClient(host string, port uint) *Client {
 	client := &Client{&sync.Mutex{}, nil, nil, make([]*Database, 256),
 		&sync.Mutex{}, make(map[[16]byte]chan protocol.ICommand, 4096), &sync.Mutex{},
 		make(map[uint32]*Subscriber, 4), make([]*Subscriber, 0), &sync.Mutex{}, address, protocol.GenClientId(),
-		false, make(chan bool, 1), nil, nil, 0, 0}
+		0, false, make(chan bool, 1), nil, nil, 0, 0}
 	return client
 }
 
@@ -165,7 +166,7 @@ func (self *Client) connect(host string, clientId [16]byte) error {
 
 	self.protocol = clientProtocol
 	if self.replset != nil {
-		self.replset.addAvailableClient(self)
+		self.replset.addAvailableClient(self, self.initType&0x04 != 0)
 	}
 	return nil
 }
@@ -227,14 +228,14 @@ func (self *Client) initProtocol(clientProtocol ClientProtocol, clientId [16]byt
 	}
 
 	if initResultCommand, ok := result.(*protocol.InitResultCommand); ok {
-		return self.handleInitCommandResult(initResultCommand)
+		return self.handleInitCommandResult(initResultCommand, true)
 	}
 	return errors.New("init fail")
 }
 
-func (self *Client) handleInitCommandResult(initResultCommand *protocol.InitResultCommand) error {
+func (self *Client) handleInitCommandResult(initResultCommand *protocol.InitResultCommand, isInitStep bool) error {
 	if initResultCommand.Result != protocol.RESULT_SUCCED {
-		return errors.New(fmt.Sprintf("init stream error: %d", initResultCommand.Result))
+		return errors.New(fmt.Sprintf("init command error: %d", initResultCommand.Result))
 	}
 
 	if initResultCommand.InitType&0x01 == 0 {
@@ -245,6 +246,16 @@ func (self *Client) handleInitCommandResult(initResultCommand *protocol.InitResu
 		}
 		self.requestLock.Unlock()
 	}
+	if !isInitStep && self.replset != nil {
+		if initResultCommand.Result&0x10 != 0 {
+			self.replset.removeAvailableClient(self)
+		} else if self.initType&0x04 == 0 && initResultCommand.InitType&0x04 != 0 {
+			self.replset.addAvailableLeaderClient(self)
+		} else if self.initType&0x04 != 0 && initResultCommand.InitType&0x04 == 0 {
+			self.replset.removeAvailableLeaderClient(self)
+		}
+	}
+	self.initType = initResultCommand.InitType
 	return nil
 }
 
@@ -310,7 +321,7 @@ func (self *Client) handleCommand(command protocol.ICommand) error {
 	switch command.GetCommandType() {
 	case protocol.COMMAND_INIT:
 		initCommand := command.(*protocol.InitResultCommand)
-		return self.handleInitCommandResult(initCommand)
+		return self.handleInitCommandResult(initCommand, false)
 	case protocol.COMMAND_PUBLISH:
 		lockCommand := command.(*protocol.LockResultCommand)
 		subscribeId := uint32(lockCommand.RequestId[12]) | uint32(lockCommand.RequestId[13])<<8 | uint32(lockCommand.RequestId[14])<<16 | uint32(lockCommand.RequestId[15])<<24
@@ -589,27 +600,28 @@ func (self *Client) GetDefaultExpriedFlag() uint16 {
 }
 
 type ReplsetClient struct {
-	glock              *sync.Mutex
-	clients            []*Client
-	availableClients   []*Client
-	dbs                []*Database
-	dbLock             *sync.Mutex
-	closed             bool
-	closedWaiter       chan bool
-	unavailableWaiter  chan bool
-	defaultTimeoutFlag uint16
-	defaultExpriedFlag uint16
+	glock                 *sync.Mutex
+	clients               []*Client
+	availableClients      []*Client
+	availableLeaderClient *Client
+	dbs                   []*Database
+	dbLock                *sync.Mutex
+	closed                bool
+	closedWaiter          chan bool
+	unavailableWaiter     chan bool
+	defaultTimeoutFlag    uint16
+	defaultExpriedFlag    uint16
 }
 
 func NewReplsetClient(hosts []string) *ReplsetClient {
-	replsetClient := &ReplsetClient{&sync.Mutex{}, make([]*Client, 0), make([]*Client, 0),
+	replsetClient := &ReplsetClient{&sync.Mutex{}, make([]*Client, 0), make([]*Client, 0), nil,
 		make([]*Database, 256), &sync.Mutex{}, false, make(chan bool, 1), nil, 0, 0}
 
 	for _, host := range hosts {
 		client := &Client{&sync.Mutex{}, replsetClient, nil, replsetClient.dbs,
 			replsetClient.dbLock, make(map[[16]byte]chan protocol.ICommand, 64), &sync.Mutex{},
 			make(map[uint32]*Subscriber, 4), make([]*Subscriber, 0), &sync.Mutex{}, host, protocol.GenClientId(),
-			false, make(chan bool, 1), nil, nil, 0, 0}
+			0, false, make(chan bool, 1), nil, nil, 0, 0}
 		replsetClient.clients = append(replsetClient.clients, client)
 	}
 	return replsetClient
@@ -664,14 +676,20 @@ func (self *ReplsetClient) Close() error {
 	return nil
 }
 
-func (self *ReplsetClient) addAvailableClient(client *Client) {
+func (self *ReplsetClient) addAvailableClient(client *Client, isLeader bool) {
 	self.glock.Lock()
+	if isLeader {
+		self.availableLeaderClient = client
+	}
 	self.availableClients = append(self.availableClients, client)
 	self.glock.Unlock()
 }
 
 func (self *ReplsetClient) removeAvailableClient(client *Client) {
 	self.glock.Lock()
+	if self.availableLeaderClient == client {
+		self.availableLeaderClient = nil
+	}
 	availableClients := make([]*Client, 0)
 	for _, c := range self.availableClients {
 		if c != client {
@@ -688,8 +706,27 @@ func (self *ReplsetClient) removeAvailableClient(client *Client) {
 	self.glock.Unlock()
 }
 
+func (self *ReplsetClient) addAvailableLeaderClient(client *Client) {
+	self.glock.Lock()
+	self.availableLeaderClient = client
+	self.glock.Unlock()
+}
+
+func (self *ReplsetClient) removeAvailableLeaderClient(client *Client) {
+	self.glock.Lock()
+	if self.availableLeaderClient == client {
+		self.availableLeaderClient = nil
+	}
+	self.glock.Unlock()
+}
+
 func (self *ReplsetClient) GetClient() *Client {
 	self.glock.Lock()
+	if self.availableLeaderClient != nil {
+		availableLeaderClient := self.availableLeaderClient
+		self.glock.Unlock()
+		return availableLeaderClient
+	}
 	if len(self.availableClients) > 0 {
 		client := self.availableClients[0]
 		self.glock.Unlock()
