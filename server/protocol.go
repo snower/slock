@@ -2893,7 +2893,7 @@ func (self *TextServerProtocol) commandHandlerScanCommand(_ *TextServerProtocol,
 					}
 					index++
 				}
-				if count >= 0 && index >= offset+count {
+				if index >= offset+count {
 					break
 				}
 			}
