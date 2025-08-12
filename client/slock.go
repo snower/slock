@@ -778,7 +778,7 @@ func (self *ReplsetClient) SelectDB(dbId uint8) *Database {
 func (self *ReplsetClient) ExecuteCommand(command protocol.ICommand, timeout int) (protocol.ICommand, error) {
 	client := self.GetClient()
 	if client == nil {
-		return self.doPendingExecuteCommand(client, command, timeout)
+		return nil, ClientNotOpenError
 	}
 	result, err := client.ExecuteCommand(command, timeout)
 	if err == nil {
@@ -800,7 +800,7 @@ func (self *ReplsetClient) ExecuteCommand(command protocol.ICommand, timeout int
 func (self *ReplsetClient) SendCommand(command protocol.ICommand) error {
 	client := self.GetClient()
 	if client == nil {
-		return self.doPendingSendCommand(client, command, 5)
+		return ClientNotOpenError
 	}
 	err := client.SendCommand(command)
 	if err == nil {
@@ -952,6 +952,19 @@ func (self *ReplsetClient) GetDefaultExpriedFlag() uint16 {
 
 func (self *ReplsetClient) doPendingExecuteCommand(client *Client, command protocol.ICommand, timeout int) (protocol.ICommand, error) {
 	currentClient := self.GetClient()
+	if currentClient == nil {
+		return nil, ClientNotOpenError
+	}
+	if currentClient == client {
+		self.glock.Lock()
+		for _, availableClient := range self.availableClients {
+			if availableClient != client {
+				currentClient = availableClient
+				break
+			}
+		}
+		self.glock.Unlock()
+	}
 	if currentClient != nil && currentClient != client {
 		result, err := currentClient.ExecuteCommand(command, timeout)
 		if err == nil {
@@ -1000,6 +1013,19 @@ func (self *ReplsetClient) doPendingExecuteCommand(client *Client, command proto
 
 func (self *ReplsetClient) doPendingSendCommand(client *Client, command protocol.ICommand, timeout int) error {
 	currentClient := self.GetClient()
+	if currentClient == nil {
+		return ClientNotOpenError
+	}
+	if currentClient == client {
+		self.glock.Lock()
+		for _, availableClient := range self.availableClients {
+			if availableClient != client {
+				currentClient = availableClient
+				break
+			}
+		}
+		self.glock.Unlock()
+	}
 	if currentClient != nil && currentClient != client {
 		err := currentClient.SendCommand(command)
 		if err == nil {
