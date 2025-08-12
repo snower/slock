@@ -3,10 +3,11 @@ package client
 import (
 	"errors"
 	"fmt"
-	"github.com/snower/slock/protocol"
 	"net"
 	"sync"
 	"time"
+
+	"github.com/snower/slock/protocol"
 )
 
 var ClientNotOpenError = errors.New("client is not opened")
@@ -241,7 +242,7 @@ func (self *Client) handleInitCommandResult(initResultCommand *protocol.InitResu
 		return errors.New(fmt.Sprintf("init command error: %d", initResultCommand.Result))
 	}
 
-	if initResultCommand.InitType&0x01 == 0 {
+	if isInitStep && initResultCommand.InitType&0x01 == 0 {
 		self.requestLock.Lock()
 		for requestId := range self.requests {
 			close(self.requests[requestId])
