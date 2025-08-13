@@ -1295,6 +1295,20 @@ func (self *LockDB) RemoveLockManager(lockManager *LockManager) {
 	atomic.AddUint32(&lockManager.state.KeyCount, 0xffffffff)
 }
 
+func (self *LockDB) downgradeLockManager(lockManager *LockManager) {
+	fastValue := lockManager.fastKeyValue
+	if fastValue == nil || atomic.LoadUint32(&fastValue.lock) != 2 {
+		return
+	}
+	if fastValue.manager != nil && lockManager == fastValue.manager {
+		self.mGlock.Lock()
+		self.locks[lockManager.lockKey] = lockManager
+		fastValue.manager = nil
+		atomic.StoreUint32(&fastValue.lock, 0)
+		self.mGlock.Unlock()
+	}
+}
+
 func (self *LockDB) AddTimeOut(lock *Lock) {
 	lock.timeouted = false
 	if lock.timeoutCheckedCount > TIMEOUT_QUEUE_MAX_WAIT {
@@ -1307,6 +1321,9 @@ func (self *LockDB) AddTimeOut(lock *Lock) {
 			_ = longLocks.Push(lock)
 		} else {
 			_ = longLocks.Push(lock)
+		}
+		if lock.manager.fastKeyValue != nil {
+			self.downgradeLockManager(lock.manager)
 		}
 	} else {
 		doTimeoutTime := self.checkTimeoutTime + int64(lock.timeoutCheckedCount)
@@ -1469,6 +1486,9 @@ func (self *LockDB) AddExpried(lock *Lock) {
 			_ = longLocks.Push(lock)
 		} else {
 			_ = longLocks.Push(lock)
+		}
+		if lock.manager.fastKeyValue != nil {
+			self.downgradeLockManager(lock.manager)
 		}
 	} else {
 		doExpriedTime := self.checkExpriedTime + int64(lock.expriedCheckedCount)
