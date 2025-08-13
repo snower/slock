@@ -2,12 +2,13 @@ package server
 
 import (
 	"errors"
-	"github.com/snower/slock/client"
-	"github.com/snower/slock/protocol"
 	"io"
 	"net"
 	"sync"
 	"time"
+
+	"github.com/snower/slock/client"
+	"github.com/snower/slock/protocol"
 )
 
 type TransparencyBinaryClientProtocol struct {
@@ -482,7 +483,7 @@ func (self *TransparencyBinaryServerProtocol) ProcessParse(buf []byte) error {
 
 		err = clientProtocol.Write(lockCommand)
 		if err != nil {
-			err = self.serverProtocol.ProcessLockResultCommand(lockCommand, protocol.RESULT_ERROR, 0, 0, nil)
+			err = self.serverProtocol.ProcessLockResultCommand(lockCommand, protocol.RESULT_STATE_ERROR, 0, 0, nil)
 			_ = self.serverProtocol.FreeLockCommand(lockCommand)
 			return err
 		}
@@ -551,7 +552,7 @@ func (self *TransparencyBinaryServerProtocol) ProcessParse(buf []byte) error {
 
 		err = clientProtocol.Write(lockCommand)
 		if err != nil {
-			err = self.serverProtocol.ProcessLockResultCommand(lockCommand, protocol.RESULT_ERROR, 0, 0, nil)
+			err = self.serverProtocol.ProcessLockResultCommand(lockCommand, protocol.RESULT_STATE_ERROR, 0, 0, nil)
 			_ = self.serverProtocol.FreeLockCommand(lockCommand)
 			return err
 		}
@@ -674,7 +675,7 @@ func (self *TransparencyBinaryServerProtocol) ProcessCommad(command protocol.ICo
 
 			err = clientProtocol.Write(lockCommand)
 			if err != nil {
-				err = self.serverProtocol.ProcessLockResultCommand(lockCommand, protocol.RESULT_ERROR, 0, 0, nil)
+				err = self.serverProtocol.ProcessLockResultCommand(lockCommand, protocol.RESULT_STATE_ERROR, 0, 0, nil)
 				_ = self.serverProtocol.FreeLockCommand(lockCommand)
 				return err
 			}
@@ -699,7 +700,7 @@ func (self *TransparencyBinaryServerProtocol) ProcessCommad(command protocol.ICo
 
 			err = clientProtocol.Write(lockCommand)
 			if err != nil {
-				err = self.serverProtocol.ProcessLockResultCommand(lockCommand, protocol.RESULT_ERROR, 0, 0, nil)
+				err = self.serverProtocol.ProcessLockResultCommand(lockCommand, protocol.RESULT_STATE_ERROR, 0, 0, nil)
 				_ = self.serverProtocol.FreeLockCommand(lockCommand)
 				return err
 			}
