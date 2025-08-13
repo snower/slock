@@ -1172,6 +1172,8 @@ func (self *LockDB) GetLockManager(command *protocol.LockCommand) *LockManager {
 		if atomic.LoadUint32(&fastValue.count) <= 1 {
 			return nil
 		}
+	} else if atomic.LoadUint32(&fastValue.count) == 0 {
+		return nil
 	}
 
 	self.mGlock.Lock()
