@@ -1,9 +1,13 @@
 package client
 
 import (
-	"github.com/snower/slock/protocol"
+	"fmt"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/snower/slock/protocol"
 )
 
 func TestLock_LockAndUnLock(t *testing.T) {
@@ -1570,6 +1574,40 @@ func TestLock_ProcessLockDataUpdate_Execute(t *testing.T) {
 		result, err = lock1.UnlockHead()
 		if err != nil || result.Result != protocol.RESULT_SUCCED {
 			t.Errorf("Lock LockWithData UnlockHead Check Fail %v %v", err, result)
+			return
+		}
+	})
+}
+
+func TestLock_Benchmark(t *testing.T) {
+	testWithClient(t, func(client *Client) {
+		waitGroup := sync.WaitGroup{}
+		count := uint32(0)
+		totalCount := uint32(400000)
+		var terr error = nil
+		for i := 0; i < 256; i++ {
+			waitGroup.Add(1)
+			go func() {
+				for atomic.LoadUint32(&count) < totalCount {
+					key := fmt.Sprintf("benchmark%d", atomic.LoadUint32(&count))
+					lock := client.Lock(testString2Key(key), 5, 10)
+					_, err := lock.Lock()
+					if err != nil {
+						terr = err
+					}
+					atomic.AddUint32(&count, 1)
+					_, err = lock.Unlock()
+					if err != nil {
+						terr = err
+					}
+					atomic.AddUint32(&count, 1)
+				}
+				waitGroup.Done()
+			}()
+		}
+		waitGroup.Wait()
+		if terr != nil {
+			t.Errorf("TestLock_Benchmark Fail %v", terr)
 			return
 		}
 	})

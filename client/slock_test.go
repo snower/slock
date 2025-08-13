@@ -1,17 +1,18 @@
 package client
 
 import (
-	"github.com/snower/slock/protocol"
 	"sync"
 	"testing"
+
+	"github.com/snower/slock/protocol"
 )
 
 var testClient *Client = nil
 var testGlock sync.Mutex
+var textCommandConverter = protocol.NewTextCommandConverter()
 
 func testString2Key(key string) [16]byte {
 	bkey := [16]byte{}
-	textCommandConverter := protocol.NewTextCommandConverter()
 	textCommandConverter.ConvertArgId2LockId(key, &bkey)
 	return bkey
 }
