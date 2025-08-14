@@ -4,10 +4,6 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
-	"github.com/snower/slock/client"
-	"github.com/snower/slock/protocol"
-	"github.com/snower/slock/protocol/protobuf"
-	"google.golang.org/protobuf/proto"
 	"io"
 	"math/big"
 	"net"
@@ -15,6 +11,11 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/snower/slock/client"
+	"github.com/snower/slock/protocol"
+	"github.com/snower/slock/protocol/protobuf"
+	"google.golang.org/protobuf/proto"
 )
 
 const ARBITER_ROLE_UNKNOWN = 0
@@ -753,7 +754,7 @@ func (self *ArbiterMember) DoVote() (*protobuf.ArbiterVoteResponse, error) {
 
 	self.aofId = self.manager.DecodeAofId(response.AofId)
 	self.role = uint8(response.Role)
-	self.manager.slock.Log().Infof("Arbiter member %s do vote succed", self.host)
+	self.manager.slock.Log().Infof("Arbiter member %s do vote load info succed", self.host)
 	return &response, nil
 }
 
@@ -798,6 +799,7 @@ func (self *ArbiterMember) DoSelfProposal(proposalId uint64, host string, aofId 
 		return nil, errors.New("except code ERR_PROPOSALID")
 	}
 	self.manager.voter.proposalId = proposalId
+	self.manager.slock.Log().Infof("Arbiter member self %s do proposal succed", self.host)
 	return &protobuf.ArbiterProposalResponse{ErrMessage: ""}, nil
 }
 
@@ -871,6 +873,7 @@ func (self *ArbiterMember) DoSelfCommit(proposalId uint64, host string) (*protob
 	self.manager.voter.proposalHost = host
 	self.manager.voter.proposalFromHost = self.host
 	self.manager.voter.commitId = proposalId
+	self.manager.slock.Log().Infof("Arbiter member self %s do commit succed", self.host)
 	return &protobuf.ArbiterCommitResponse{ErrMessage: ""}, nil
 }
 
@@ -1150,7 +1153,7 @@ func (self *ArbiterVoter) DoVote() error {
 	self.voteHost = selectVoteResponse.Host
 	self.voteAofId = self.manager.DecodeAofId(selectVoteResponse.AofId)
 	self.glock.Unlock()
-	self.manager.slock.Log().Infof("Arbier voter do vote succed,  host %s aofId %s proposalId %d", self.voteHost, FormatAofId(self.voteAofId), self.proposalId)
+	self.manager.slock.Log().Infof("Arbier voter do vote load info succed,  host %s aofId %s proposalId %d", self.voteHost, FormatAofId(self.voteAofId), self.proposalId)
 	return nil
 }
 
