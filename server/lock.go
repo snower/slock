@@ -1,9 +1,10 @@
 package server
 
 import (
-	"github.com/snower/slock/protocol"
 	"sync"
 	"sync/atomic"
+
+	"github.com/snower/slock/protocol"
 )
 
 type ILockManagerRingQueue interface {
@@ -495,6 +496,9 @@ func (self *LockManager) GetWaitLock() *Lock {
 }
 
 func (self *LockManager) PushLockAof(lock *Lock, aofFlag uint16) error {
+	if self.lockDb.status != STATE_LEADER {
+		return nil
+	}
 	if lock.command.Flag&protocol.LOCK_FLAG_FROM_AOF != 0 {
 		lock.isAof = true
 		return nil
@@ -512,16 +516,12 @@ func (self *LockManager) PushLockAof(lock *Lock, aofFlag uint16) error {
 }
 
 func (self *LockManager) PushUnLockAof(dbId uint8, lock *Lock, lockCommand *protocol.LockCommand, unLockCommand *protocol.LockCommand, isAof bool, aofFlag uint16) error {
-	if unLockCommand == nil {
-		if self.lockDb.status != STATE_LEADER {
-			lock.isAof = isAof
-			return nil
-		}
-	} else {
-		if unLockCommand.Flag&protocol.UNLOCK_FLAG_FROM_AOF != 0 {
-			lock.isAof = isAof
-			return nil
-		}
+	if self.lockDb.status != STATE_LEADER {
+		return nil
+	}
+	if unLockCommand != nil && unLockCommand.Flag&protocol.UNLOCK_FLAG_FROM_AOF != 0 {
+		lock.isAof = isAof
+		return nil
 	}
 
 	fastHash := (uint32(self.lockKey[0]) | uint32(self.lockKey[1])<<8 | uint32(self.lockKey[2])<<16 | uint32(self.lockKey[3])<<24) ^ (uint32(self.lockKey[4]) | uint32(self.lockKey[5])<<8 | uint32(self.lockKey[6])<<16 | uint32(self.lockKey[7])<<24) ^ (uint32(self.lockKey[8]) | uint32(self.lockKey[9])<<8 | uint32(self.lockKey[10])<<16 | uint32(self.lockKey[11])<<24) ^ (uint32(self.lockKey[12])<<24 | uint32(self.lockKey[13])<<16 | uint32(self.lockKey[14])<<8 | uint32(self.lockKey[15]))

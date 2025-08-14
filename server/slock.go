@@ -218,14 +218,14 @@ func (self *SLock) updateState(state uint8) {
 	if self.state == state {
 		return
 	}
-	var isRequiredFlush = false
+	var isQuitLeader = false
 	if self.state == STATE_LEADER && state != STATE_LEADER {
-		isRequiredFlush = true
+		isQuitLeader = true
 	}
 	self.state = state
 
 	for _, db := range self.dbs {
-		if db != nil && db.status != state && db.status != STATE_CLOSE && state != STATE_CLOSE {
+		if db != nil && db.status != state {
 			for i := uint16(0); i < db.managerMaxGlocks; i++ {
 				db.managerGlocks[i].LowPriorityLock()
 			}
@@ -236,7 +236,7 @@ func (self *SLock) updateState(state uint8) {
 		}
 	}
 
-	if isRequiredFlush {
+	if isQuitLeader {
 		_ = self.aof.WaitFlushAofChannel()
 		_ = self.replicationManager.WaitServerSynced()
 		_ = self.subscribeManager.WaitFlushSubscribeChannel()

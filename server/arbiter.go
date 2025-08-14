@@ -2193,7 +2193,7 @@ func (self *ArbiterManager) commandHandleProposalCommand(serverProtocol *BinaryS
 			voteFromMember = member
 		}
 
-		if self.CompareAofId(member.aofId, self.DecodeAofId(request.AofId)) > 0 {
+		if !member.abstianed && self.CompareAofId(member.aofId, self.DecodeAofId(request.AofId)) > 0 {
 			return protocol.NewCallResultCommand(command, 0, "ERR_AOFID", nil), nil
 		}
 	}
