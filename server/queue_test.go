@@ -1,10 +1,502 @@
 package server
 
 import (
-	"github.com/snower/slock/protocol"
 	"math/rand"
 	"testing"
+
+	"github.com/snower/slock/protocol"
 )
+
+func BenchmarkLockManagerQueue(b *testing.B) {
+	lockManager := &LockManager{}
+	queue := NewLockManagerQueue(4, 16, 4)
+	for i := 0; i < b.N; i++ {
+		for j := 0; j < 10000; j++ {
+			n := rand.Intn(1024)
+			for k := 0; k < n; k++ {
+				queue.Push(lockManager)
+			}
+			n = rand.Intn(1024)
+			for k := 0; k < n; k++ {
+				queue.Pop()
+			}
+		}
+	}
+}
+
+func TestLockManagerQueuePushPop(t *testing.T) {
+	head := &LockManager{}
+	tail := &LockManager{}
+
+	q := NewLockManagerQueue(1, 3, 4)
+	_ = q.Push(head)
+	_ = q.Push(tail)
+
+	if q.Pop() != head {
+		t.Error("LockManagerQueue Push Pop Test Fail")
+		return
+	}
+
+	q.Pop()
+	if q.Pop() != nil {
+		t.Error("LockManagerQueue Push Pop Test Nil Fail")
+		return
+	}
+}
+
+func TestLockManagerQueuePushPopRight(t *testing.T) {
+	head := &LockManager{}
+	tail := &LockManager{}
+
+	q := NewLockManagerQueue(1, 3, 4)
+	_ = q.Push(head)
+	_ = q.Push(tail)
+
+	if q.PopRight() != tail {
+		t.Error("LockManagerQueue Push PopRight Test Fail")
+		return
+	}
+
+	q.PopRight()
+	if q.PopRight() != nil {
+		t.Error("LockManagerQueue Push PopRight Test Nil Fail")
+		return
+	}
+}
+
+func TestLockManagerQueuePushLeftPop(t *testing.T) {
+	head := &LockManager{}
+	tail := &LockManager{}
+
+	q := NewLockManagerQueue(1, 3, 4)
+	_ = q.Push(head)
+	_ = q.PushLeft(tail)
+
+	if q.Pop() != head {
+		t.Error("LockManagerQueue PushLeft Pop Test Fail")
+		return
+	}
+
+	q.Pop()
+	if q.Pop() != nil {
+		t.Error("LockManagerQueue PushLeft Pop Test Nil Fail")
+		return
+	}
+}
+
+func TestLockManagerQueuePushLeftPopRight(t *testing.T) {
+	head := &LockManager{}
+	tail := &LockManager{}
+
+	q := NewLockManagerQueue(1, 3, 4)
+	_ = q.Push(head)
+	_ = q.PushLeft(tail)
+
+	if q.PopRight() != head {
+		t.Error("LockManagerQueue PushLeft PopRight Test Fail")
+		return
+	}
+
+	q.PopRight()
+	if q.PopRight() != nil {
+		t.Error("LockManagerQueue PushLeft Pop Test Nil Fail")
+		return
+	}
+}
+
+func TestLockManagerQueueHead(t *testing.T) {
+	head := &LockManager{}
+	tail := &LockManager{}
+
+	q := NewLockManagerQueue(1, 3, 4)
+	_ = q.Push(head)
+	_ = q.Push(tail)
+
+	if q.Head() != head {
+		t.Error("LockManagerQueue Head Test Fail")
+		return
+	}
+
+	q.Pop()
+	q.Pop()
+	if q.Head() != nil {
+		t.Error("LockManagerQueue Head Test Nil Fail")
+		return
+	}
+}
+
+func TestLockManagerQueueTail(t *testing.T) {
+	head := &LockManager{}
+	tail := &LockManager{}
+
+	q := NewLockManagerQueue(1, 3, 4)
+	_ = q.Push(head)
+	_ = q.Push(tail)
+
+	if q.Tail() != tail {
+		t.Error("LockManagerQueue Tail Test Fail")
+		return
+	}
+
+	q.Pop()
+	q.Pop()
+	if q.Tail() != nil {
+		t.Error("LockManagerQueue Tail Test Nil Fail")
+		return
+	}
+}
+
+func TestLockManagerQueueLen(t *testing.T) {
+	head := &LockManager{}
+	tail := &LockManager{}
+
+	q := NewLockManagerQueue(1, 3, 4)
+	_ = q.Push(head)
+	_ = q.Push(tail)
+
+	if q.Len() != 2 {
+		t.Error("LockManagerQueue Len Test Fail")
+		return
+	}
+
+	q.Pop()
+	q.Pop()
+	for i := 0; i < 10; i++ {
+		_ = q.Push(head)
+	}
+	if q.Len() != 10 {
+		t.Error("LockManagerQueue Len Test Many Fail")
+		return
+	}
+
+	for i := 0; i < 10; i++ {
+		q.Pop()
+	}
+	if q.Len() != 0 {
+		t.Error("LockManagerQueue Len Test Zero Fail")
+		return
+	}
+}
+
+func TestLockManagerQueueReset(t *testing.T) {
+	l := &LockManager{}
+	q := NewLockManagerQueue(2, 6, 4)
+	qlen := 0
+
+	for i := 0; i < 1000; i++ {
+		if rand.Intn(100) < 70 {
+			if q.Push(l) == nil {
+				qlen++
+			}
+		} else {
+			if q.Pop() != nil {
+				qlen--
+			}
+		}
+	}
+
+	if q.Len() != int32(qlen) {
+		t.Error("LockManagerQueue Len Fail")
+		return
+	}
+
+	for q.Pop() != nil {
+		qlen--
+	}
+
+	_ = q.Reset()
+	nodeSize := 0
+	for _, nodeQueue := range q.queues {
+		if nodeQueue == nil {
+			break
+		}
+		nodeSize++
+	}
+	if q.queueSize != q.baseQueueSize*int32(uint32(1)<<uint32(nodeSize-1)) {
+		t.Error("LockManagerQueue Reset queue_size Fail")
+		return
+	}
+	nodeIndex := 0
+	for i, node := range q.queues {
+		if node == nil {
+			break
+		}
+		nodeIndex = i
+	}
+	if nodeIndex != int(q.nodeIndex) {
+		t.Errorf("LockManagerQueue Empty Node_Index Fail %d %d", nodeIndex, q.nodeIndex)
+		return
+	}
+}
+
+func TestLockManagerQueueRellac(t *testing.T) {
+	l := &LockManager{}
+	q := NewLockManagerQueue(2, 6, 4)
+	qlen := 0
+
+	for i := 0; i < 1000; i++ {
+		if rand.Intn(100) < 70 {
+			if q.Push(l) == nil {
+				qlen++
+			}
+		} else {
+			if q.Pop() != nil {
+				qlen--
+			}
+		}
+	}
+
+	if q.Len() != int32(qlen) {
+		t.Error("LockManagerQueue Len Fail")
+		return
+	}
+
+	for q.Pop() != nil {
+		qlen--
+	}
+
+	rellacNodeIndex := q.nodeIndex
+	_ = q.Rellac()
+	nodeSize := 0
+	for _, nodeQueue := range q.queues {
+		if nodeQueue == nil {
+			break
+		}
+		nodeSize++
+	}
+	if q.queueSize != q.baseQueueSize*int32(uint32(1)<<uint32(nodeSize-1)) {
+		t.Error("LockManagerQueue Rellac queue_size Fail")
+		return
+	}
+	if q.nodeIndex != rellacNodeIndex {
+		t.Error("LockManagerQueue Rellac nodeIndex Fail")
+		return
+	}
+	nodeIndex := 0
+	for i, node := range q.queues {
+		if node == nil {
+			break
+		}
+		nodeIndex = i
+	}
+	if nodeIndex != int(q.nodeIndex) {
+		t.Errorf("LockManagerQueue Empty Node_Index Fail %d %d", nodeIndex, q.nodeIndex)
+		return
+	}
+
+	_ = q.Rellac()
+	if q.nodeIndex == rellacNodeIndex {
+		t.Errorf("LockManagerQueue Rellac nodeIndex Fail %d %d", q.nodeIndex, rellacNodeIndex)
+		return
+	}
+}
+
+func TestLockManagerQueueResize(t *testing.T) {
+	l := &LockManager{}
+	q := NewLockManagerQueue(2, 6, 4)
+	qlen := 0
+
+	for i := 0; i < 1000; i++ {
+		if rand.Intn(100) < 60 {
+			if q.Push(l) == nil {
+				qlen++
+			}
+		} else {
+			if q.Pop() != nil {
+				qlen--
+			}
+		}
+	}
+
+	if q.Len() != int32(qlen) {
+		t.Error("LockManagerQueue Len Fail")
+		return
+	}
+	ht := q.tailNodeIndex - q.headNodeIndex
+
+	_ = q.Resize()
+	if q.Len() != int32(qlen) {
+		t.Error("LockManagerQueue Len Fail")
+		return
+	}
+
+	if q.headNodeIndex != q.baseNodeSize || q.tailNodeIndex-q.headNodeIndex != ht {
+		t.Error("LockManagerQueue Node Index Fail")
+		return
+	}
+
+	nodeIndex := 0
+	for i, node := range q.queues {
+		if node == nil {
+			break
+		}
+		nodeIndex = i
+	}
+	if nodeIndex != int(q.nodeIndex) {
+		t.Errorf("LockManagerQueue Resize Node_Index Fail %d %d", nodeIndex, q.nodeIndex)
+		return
+	}
+
+	for q.Pop() != nil {
+		qlen--
+	}
+
+	_ = q.Resize()
+	if q.Len() != int32(qlen) {
+		t.Error("LockManagerQueue Len Fail")
+		return
+	}
+
+	if q.headNodeIndex != q.baseNodeSize || q.tailNodeIndex-q.headNodeIndex != 0 {
+		t.Error("LockManagerQueue Empty Node Index Fail")
+		return
+	}
+
+	nodeIndex = 0
+	for i, node := range q.queues {
+		if node == nil {
+			break
+		}
+		nodeIndex = i
+	}
+	if nodeIndex != int(q.nodeIndex) {
+		t.Errorf("LockManagerQueue Empty Node_Index Fail %d %d", nodeIndex, q.nodeIndex)
+		return
+	}
+
+	_ = q.Reset()
+	nodeSize := 0
+	for _, nodeQueue := range q.queues {
+		if nodeQueue == nil {
+			break
+		}
+		nodeSize++
+	}
+	if q.queueSize != q.baseQueueSize*int32(uint32(1)<<uint32(nodeSize-1)) {
+		t.Error("LockManagerQueue Resize queue_size Fail")
+		return
+	}
+}
+
+func TestLockManagerQueueRestructuring(t *testing.T) {
+	l := &LockManager{}
+	q := NewLockManagerQueue(2, 6, 4)
+	qlen := 0
+	rlen := 0
+
+	for i := 0; i < 1000; i++ {
+		if rand.Intn(100) < 70 {
+			if q.Push(l) == nil {
+				qlen++
+				rlen++
+			}
+		} else {
+			if q.tailQueueIndex > 0 && q.tailQueue[q.tailQueueIndex-1] != nil {
+				q.tailQueue[q.tailQueueIndex-1] = nil
+				rlen--
+			}
+		}
+	}
+
+	lastL := &LockManager{}
+	if q.Push(lastL) == nil {
+		qlen++
+		rlen++
+	}
+
+	if q.Len() != int32(qlen) {
+		t.Error("LockManagerQueue Len Fail")
+		return
+	}
+
+	_ = q.Restructuring()
+	if q.Len() != int32(rlen) {
+		t.Error("LockManagerQueue Restructuring Len Fail")
+		return
+	}
+
+	if q.PopRight() != lastL {
+		t.Error("LockManagerQueue Restructuring Value Fail")
+		return
+	}
+	rlen--
+
+	nodeSize := 0
+	nodeIndex := 0
+	for i, nodeQueue := range q.queues {
+		if nodeQueue == nil {
+			break
+		}
+		nodeSize++
+		nodeIndex = i
+	}
+	if q.queueSize != q.baseQueueSize*int32(uint32(1)<<uint32(nodeSize-1)) {
+		t.Errorf("LockManagerQueue Restructuring queue_size Fail %d %d", q.queueSize, q.baseQueueSize*int32(uint32(1)<<uint32(nodeSize-1)))
+		return
+	}
+	if nodeIndex != int(q.nodeIndex) {
+		t.Errorf("LockManagerQueue Empty Node_Index Fail %d %d", nodeSize, q.nodeIndex)
+		return
+	}
+
+	for q.Pop() != nil {
+		rlen--
+	}
+
+	if rlen != 0 {
+		t.Error("LockManagerQueue Restructuring Pop Empty Fail")
+		return
+	}
+}
+
+func TestLockManagerQueueIter(t *testing.T) {
+	q := NewLockManagerQueue(2, 6, 4)
+	for i := 0; i < 100; i++ {
+		_ = q.Push(&LockManager{})
+	}
+
+	for i := range q.IterNodes() {
+		nodeQueues := q.IterNodeQueues(int32(i))
+		if len(nodeQueues) == 0 {
+			t.Error("LockManagerQueue Pop After Iter Empty Fail")
+			return
+		}
+		for _, lockManager := range nodeQueues {
+			if lockManager == nil {
+				t.Error("LockManagerQueue Push After Iter Fail")
+				return
+			}
+		}
+	}
+
+	for i := 0; i < 50; i++ {
+		_ = q.Pop()
+	}
+	for i := range q.IterNodes() {
+		nodeQueues := q.IterNodeQueues(int32(i))
+		if len(nodeQueues) == 0 {
+			t.Error("LockManagerQueue Pop After Iter Empty Fail")
+			return
+		}
+		for _, lockManager := range nodeQueues {
+			if lockManager == nil {
+				t.Error("LockManagerQueue Pop After Iter Fail")
+				return
+			}
+		}
+	}
+
+	for i := 0; i < 50; i++ {
+		_ = q.Pop()
+	}
+	for i := range q.IterNodes() {
+		nodeQueues := q.IterNodeQueues(int32(i))
+		if len(nodeQueues) != 0 {
+			t.Error("LockManagerQueue Pop After Iter Not Empty Fail")
+			return
+		}
+	}
+}
 
 func BenchmarkLockQueue(b *testing.B) {
 	lock := &Lock{}

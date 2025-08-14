@@ -2,8 +2,314 @@ package server
 
 import (
 	"errors"
+
 	"github.com/snower/slock/protocol"
 )
+
+type LockManagerQueue struct {
+	headQueueIndex      int32
+	headQueueSize       int32
+	headQueue           []*LockManager
+	tailQueueIndex      int32
+	tailQueueSize       int32
+	tailQueue           []*LockManager
+	headNodeIndex       int32
+	tailNodeIndex       int32
+	queues              [][]*LockManager
+	nodeQueueSizes      []int32
+	baseNodeSize        int32
+	nodeIndex           int32
+	nodeSize            int32
+	shrinkNodeSize      int32
+	baseQueueSize       int32
+	queueSize           int32
+	rellacTailNodeIndex int32
+}
+
+func NewLockManagerQueue(baseNodeSize int32, nodeSize int32, queueSize int32) *LockManagerQueue {
+	queues := make([][]*LockManager, nodeSize)
+	nodeQueueSizes := make([]int32, nodeSize)
+
+	queues[0] = make([]*LockManager, queueSize, queueSize)
+	nodeQueueSizes[0] = queueSize
+
+	return &LockManagerQueue{0, queueSize, queues[0], 0,
+		queueSize, queues[0], 0, 0,
+		queues, nodeQueueSizes, baseNodeSize, 0, nodeSize,
+		0, queueSize, queueSize, 0}
+}
+
+func (self *LockManagerQueue) mallocQueue() {
+	self.tailNodeIndex++
+	self.tailQueueIndex = 0
+
+	if self.tailNodeIndex >= self.nodeSize {
+		self.queueSize = self.queueSize * 2
+		if self.queueSize > QUEUE_MAX_MALLOC_SIZE {
+			self.queueSize = QUEUE_MAX_MALLOC_SIZE
+		}
+
+		self.queues = append(self.queues, make([]*LockManager, self.queueSize, self.queueSize))
+		self.nodeQueueSizes = append(self.nodeQueueSizes, self.queueSize)
+		self.nodeIndex++
+		self.nodeSize++
+	} else if self.queues[self.tailNodeIndex] == nil {
+		self.queueSize = self.queueSize * 2
+		if self.queueSize > QUEUE_MAX_MALLOC_SIZE {
+			self.queueSize = QUEUE_MAX_MALLOC_SIZE
+		}
+
+		self.queues[self.tailNodeIndex] = make([]*LockManager, self.queueSize, self.queueSize)
+		self.nodeQueueSizes[self.tailNodeIndex] = self.queueSize
+		self.nodeIndex++
+	}
+
+	self.tailQueue = self.queues[self.tailNodeIndex]
+	self.tailQueueSize = self.nodeQueueSizes[self.tailNodeIndex]
+}
+
+func (self *LockManagerQueue) Push(lockManager *LockManager) error {
+	self.tailQueue[self.tailQueueIndex] = lockManager
+	self.tailQueueIndex++
+	if self.tailQueueIndex >= self.tailQueueSize {
+		self.mallocQueue()
+	}
+	return nil
+}
+
+func (self *LockManagerQueue) PushLeft(lockManager *LockManager) error {
+	if self.headNodeIndex <= 0 && self.headQueueIndex <= 0 {
+		return errors.New("full")
+	}
+
+	self.headQueueIndex--
+	if self.headQueueIndex < 0 {
+		self.headNodeIndex--
+		self.headQueueIndex = self.nodeQueueSizes[self.headNodeIndex] - 1
+		self.headQueue = self.queues[self.headNodeIndex]
+		self.headQueueSize = self.nodeQueueSizes[self.headNodeIndex]
+	}
+
+	self.headQueue[self.headQueueIndex] = lockManager
+
+	return nil
+}
+
+func (self *LockManagerQueue) Pop() *LockManager {
+	if self.tailQueueIndex <= self.headQueueIndex && self.tailNodeIndex <= self.headNodeIndex {
+		return nil
+	}
+
+	lockManager := self.headQueue[self.headQueueIndex]
+	self.headQueue[self.headQueueIndex] = nil
+	self.headQueueIndex++
+
+	if self.headQueueIndex >= self.headQueueSize {
+		self.headNodeIndex++
+		self.headQueueIndex = 0
+		self.headQueue = self.queues[self.headNodeIndex]
+		self.headQueueSize = self.nodeQueueSizes[self.headNodeIndex]
+	}
+	return lockManager
+}
+
+func (self *LockManagerQueue) PopRight() *LockManager {
+	if self.tailQueueIndex <= self.headQueueIndex && self.tailNodeIndex <= self.headNodeIndex {
+		return nil
+	}
+
+	self.tailQueueIndex--
+	if self.tailQueueIndex < 0 {
+		self.tailNodeIndex--
+		self.tailQueueIndex = self.nodeQueueSizes[self.tailNodeIndex] - 1
+		self.tailQueue = self.queues[self.tailNodeIndex]
+		self.tailQueueSize = self.nodeQueueSizes[self.tailNodeIndex]
+	}
+
+	lockManager := self.tailQueue[self.tailQueueIndex]
+	self.tailQueue[self.tailQueueIndex] = nil
+	return lockManager
+}
+
+func (self *LockManagerQueue) Head() *LockManager {
+	if self.tailQueueIndex <= self.headQueueIndex && self.tailNodeIndex <= self.headNodeIndex {
+		return nil
+	}
+
+	return self.headQueue[self.headQueueIndex]
+}
+
+func (self *LockManagerQueue) Tail() *LockManager {
+	if self.tailQueueIndex <= self.headQueueIndex && self.tailNodeIndex <= self.headNodeIndex {
+		return nil
+	}
+
+	return self.tailQueue[self.tailQueueIndex-1]
+}
+
+func (self *LockManagerQueue) Shrink(size int32) int32 {
+	if size == 0 {
+		size = self.nodeQueueSizes[self.headNodeIndex]
+	}
+
+	shrinkSize := int32(0)
+	for size >= self.nodeQueueSizes[self.headNodeIndex] {
+		if self.shrinkNodeSize >= self.nodeSize {
+			break
+		}
+
+		size -= self.nodeQueueSizes[self.headNodeIndex]
+		shrinkSize += self.nodeQueueSizes[self.headNodeIndex]
+		self.queues[self.shrinkNodeSize] = nil
+		self.nodeQueueSizes[self.headNodeIndex] = 0
+		self.shrinkNodeSize++
+	}
+	return shrinkSize
+}
+
+func (self *LockManagerQueue) Reset() error {
+	for self.nodeIndex >= self.baseNodeSize {
+		self.queues[self.nodeIndex] = nil
+		self.nodeQueueSizes[self.nodeIndex] = 0
+		self.nodeIndex--
+	}
+
+	self.queueSize = self.nodeQueueSizes[self.nodeIndex]
+	self.headNodeIndex = 0
+	self.headQueueIndex = 0
+	self.headQueue = self.queues[0]
+	self.tailQueue = self.queues[0]
+	self.tailNodeIndex = 0
+	self.tailQueueIndex = 0
+	self.headQueueSize = self.nodeQueueSizes[0]
+	self.tailQueueSize = self.nodeQueueSizes[0]
+	self.rellacTailNodeIndex = 0
+	return nil
+}
+
+func (self *LockManagerQueue) Rellac() error {
+	if self.rellacTailNodeIndex >= self.tailNodeIndex {
+		baseNodeSize := self.rellacTailNodeIndex + (self.nodeIndex-self.rellacTailNodeIndex)/2
+		if baseNodeSize < self.baseNodeSize {
+			baseNodeSize = self.baseNodeSize
+		}
+
+		for self.nodeIndex >= baseNodeSize {
+			self.queues[self.nodeIndex] = nil
+			self.nodeQueueSizes[self.nodeIndex] = 0
+			self.nodeIndex--
+		}
+		self.queueSize = self.nodeQueueSizes[self.nodeIndex]
+	}
+	self.rellacTailNodeIndex = self.tailNodeIndex
+
+	self.headNodeIndex = 0
+	self.headQueueIndex = 0
+	self.headQueue = self.queues[0]
+	self.tailQueue = self.queues[0]
+	self.tailNodeIndex = 0
+	self.tailQueueIndex = 0
+	self.headQueueSize = self.nodeQueueSizes[0]
+	self.tailQueueSize = self.nodeQueueSizes[0]
+	return nil
+}
+
+func (self *LockManagerQueue) Resize() error {
+	if self.headNodeIndex <= self.baseNodeSize {
+		return nil
+	}
+
+	for i := self.baseNodeSize; i < self.headNodeIndex; i++ {
+		self.queues[i] = nil
+		self.nodeQueueSizes[i] = 0
+	}
+
+	self.nodeIndex = self.baseNodeSize - 1
+	moveIndex := self.headNodeIndex - self.baseNodeSize
+	for i := self.headNodeIndex; i <= self.tailNodeIndex; i++ {
+		self.queues[i-moveIndex] = self.queues[i]
+		self.nodeQueueSizes[i-moveIndex] = self.nodeQueueSizes[i]
+		self.queues[i] = nil
+		self.nodeQueueSizes[i] = 0
+		self.nodeIndex++
+	}
+	self.queueSize = self.baseQueueSize * int32(uint32(1)<<uint32(self.tailNodeIndex))
+	self.headNodeIndex -= moveIndex
+	self.tailNodeIndex -= moveIndex
+	return nil
+}
+
+func (self *LockManagerQueue) Restructuring() error {
+	tailNodeIndex, tailQueueIndex := self.tailNodeIndex, self.tailQueueIndex
+	self.headNodeIndex = 0
+	self.headQueueIndex = 0
+	self.headQueue = self.queues[0]
+	self.tailQueue = self.queues[0]
+	self.tailNodeIndex = 0
+	self.tailQueueIndex = 0
+	self.headQueueSize = self.nodeQueueSizes[0]
+	self.tailQueueSize = self.nodeQueueSizes[0]
+
+	for j := int32(0); j < tailNodeIndex; j++ {
+		for k := int32(0); k < self.nodeQueueSizes[j]; k++ {
+			lock := self.queues[j][k]
+			if lock != nil {
+				self.queues[j][k] = nil
+				_ = self.Push(lock)
+			}
+		}
+	}
+
+	for k := int32(0); k < tailQueueIndex; k++ {
+		lock := self.queues[tailNodeIndex][k]
+		if lock != nil {
+			self.queues[tailNodeIndex][k] = nil
+			_ = self.Push(lock)
+		}
+	}
+
+	for tailNodeIndex > self.tailNodeIndex+1 {
+		self.queues[tailNodeIndex] = nil
+		self.nodeQueueSizes[tailNodeIndex] = 0
+		self.nodeIndex--
+		tailNodeIndex--
+	}
+	self.queueSize = self.nodeQueueSizes[self.nodeIndex]
+	self.rellacTailNodeIndex = 0
+	return nil
+}
+
+func (self *LockManagerQueue) Len() int32 {
+	if self.tailNodeIndex <= self.headNodeIndex {
+		return self.tailQueueIndex - self.headQueueIndex
+	}
+
+	queueLen := self.nodeQueueSizes[self.headNodeIndex] - self.headQueueIndex
+	for i := self.headNodeIndex + 1; i < self.tailNodeIndex; i++ {
+		queueLen += self.nodeQueueSizes[i]
+	}
+	queueLen += self.tailQueueIndex
+	return queueLen
+}
+
+func (self *LockManagerQueue) IterNodes() [][]*LockManager {
+	return self.queues[self.headNodeIndex : self.tailNodeIndex+1]
+}
+
+func (self *LockManagerQueue) IterNodeQueues(index int32) []*LockManager {
+	nodeIndex := self.headNodeIndex + index
+	if nodeIndex == self.headNodeIndex {
+		if nodeIndex == self.tailNodeIndex {
+			return self.queues[nodeIndex][self.headQueueIndex:self.tailQueueIndex]
+		}
+		return self.queues[nodeIndex][self.headQueueIndex:self.nodeQueueSizes[nodeIndex]]
+	}
+
+	if nodeIndex == self.tailNodeIndex {
+		return self.queues[nodeIndex][:self.tailQueueIndex]
+	}
+	return self.queues[nodeIndex][:self.nodeQueueSizes[nodeIndex]]
+}
 
 type LockQueue struct {
 	headQueueIndex      int32
