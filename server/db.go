@@ -2227,6 +2227,7 @@ func (self *LockDB) UnLock(serverProtocol ServerProtocol, command *protocol.Lock
 		//self.RemoveExpried(current_lock)
 		currentLock.expried = true
 		lockData := lockManager.GetLockData()
+		lockManager.locked--
 		if command.Flag&protocol.UNLOCK_FLAG_CONTAINS_DATA != 0 {
 			lockManager.ProcessLockData(command, currentLock, false)
 		}
@@ -2234,7 +2235,6 @@ func (self *LockDB) UnLock(serverProtocol ServerProtocol, command *protocol.Lock
 			lockManager.ProcessExecuteLockCommand(currentLock, protocol.LOCK_DATA_STAGE_UNLOCK)
 		}
 		if currentLock.longWaitIndex > 0 {
-			lockManager.locked--
 			self.RemoveLongExpried(currentLock, currentLock.expriedTime)
 			if currentLock.isAof {
 				_ = lockManager.PushUnLockAof(lockManager.dbId, currentLock, currentLockCommand, command, false, 0)
@@ -2248,7 +2248,6 @@ func (self *LockDB) UnLock(serverProtocol ServerProtocol, command *protocol.Lock
 				}
 			}
 		} else {
-			lockManager.locked--
 			if currentLock.isAof {
 				_ = lockManager.PushUnLockAof(lockManager.dbId, currentLock, currentLockCommand, command, false, 0)
 			}

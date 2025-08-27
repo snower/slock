@@ -528,6 +528,10 @@ func NewLockCommandDataUnsetData() *LockCommandData {
 	return &LockCommandData{[]byte{2, 0, 0, 0, LOCK_DATA_COMMAND_TYPE_UNSET, 0}, LOCK_DATA_STAGE_CURRENT, LOCK_DATA_COMMAND_TYPE_UNSET, 0}
 }
 
+func NewLockCommandDataUnsetDataWithFlag(dataFlag uint8) *LockCommandData {
+	return &LockCommandData{[]byte{2, 0, 0, 0, LOCK_DATA_COMMAND_TYPE_UNSET, dataFlag}, LOCK_DATA_STAGE_CURRENT, LOCK_DATA_COMMAND_TYPE_UNSET, dataFlag}
+}
+
 func NewLockCommandDataIncrData(incrValue int64) *LockCommandData {
 	return &LockCommandData{[]byte{10, 0, 0, 0, LOCK_DATA_COMMAND_TYPE_INCR, LOCK_DATA_FLAG_VALUE_TYPE_NUMBER,
 		byte(incrValue), byte(incrValue >> 8), byte(incrValue >> 16), byte(incrValue >> 24), byte(incrValue >> 32), byte(incrValue >> 40), byte(incrValue >> 48), byte(incrValue >> 56)},

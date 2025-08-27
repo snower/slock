@@ -627,9 +627,18 @@ func (self *LockManager) ProcessLockData(command *protocol.LockCommand, lock *Lo
 	currentLockData := self.currentData
 	lockCommandData := command.Data
 	if lockCommandData.CommandStage == protocol.LOCK_DATA_STAGE_CURRENT {
-		if lockCommandData.DataFlag&protocol.LOCK_DATA_FLAG_PROCESS_FIRST_OR_LAST != 0 && self.locked != 1 {
-			command.Data = nil
-			return
+		if lockCommandData.DataFlag&protocol.LOCK_DATA_FLAG_PROCESS_FIRST_OR_LAST != 0 {
+			if command.CommandType == protocol.COMMAND_UNLOCK {
+				if self.locked != 0 || self.waited {
+					command.Data = nil
+					return
+				}
+			} else {
+				if self.locked != 1 {
+					command.Data = nil
+					return
+				}
+			}
 		}
 	} else if lockCommandData.CommandType != protocol.LOCK_DATA_COMMAND_TYPE_EXECUTE {
 		command.Data = nil
@@ -1070,7 +1079,7 @@ func (self *LockManager) ProcessExecuteLockCommand(lock *Lock, commandStage uint
 		if lockCommandData.CommandStage != commandStage {
 			continue
 		}
-		if lockCommandData.DataFlag&protocol.LOCK_DATA_FLAG_PROCESS_FIRST_OR_LAST != 0 && self.locked != 1 {
+		if lockCommandData.DataFlag&protocol.LOCK_DATA_FLAG_PROCESS_FIRST_OR_LAST != 0 && (self.locked != 0 || self.waited) {
 			continue
 		}
 		lockCommand := lock.protocol.GetLockCommand()
