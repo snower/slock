@@ -29,6 +29,23 @@ It can be used for peak and current limiting, lock synchronization, event notifi
 go get github.com/snower/slock
 ```
 
+# Docker
+
+```bash 
+# pull image
+docker pull sujin190/slock
+# or use CN mirror pull image
+docker pull crpi-a5w6btg4h2cik4cz.cn-hangzhou.personal.cr.aliyuncs.com/snower/slock
+
+# run service
+docker run -d --name slock -p 5658:5658 slock
+```
+
+[docker build](docker/README.md)
+
+[https://hub.docker.com/repository/docker/sujin190/slock](https://hub.docker.com/repository/docker/sujin190/slock)
+
+
 # Quick Start Server
 
 ```bash
@@ -416,18 +433,6 @@ Java Client [jaslock](https://github.com/snower/jaslock)
 .NET Core Client [jaslock](https://github.com/snower/slock4net)
 
 openresty Client [slock-lua-nginx](https://github.com/snower/slock-lua-nginx)
-
-# docker
-
-[build](docker/README.md)
-
-[https://hub.docker.com/repository/docker/sujin190/slock](https://hub.docker.com/repository/docker/sujin190/slock)
-
-```bash 
-docker pull sujin190/slock
-
-docker run -d --name slock -p 5658:5658 slock
-```
 
 # License
 

@@ -27,6 +27,23 @@
 go get github.com/snower/slock
 ```
 
+# Docker
+
+```bash 
+# 下载镜像
+docker pull sujin190/slock
+# 或使用国内地址下载镜像
+docker pull crpi-a5w6btg4h2cik4cz.cn-hangzhou.personal.cr.aliyuncs.com/snower/slock
+
+# 启动服务
+docker run -d --name slock -p 5658:5658 slock
+```
+
+[Docker构建](docker/README.md)
+
+[https://hub.docker.com/repository/docker/sujin190/slock](https://hub.docker.com/repository/docker/sujin190/slock)
+
+
 # 快速启动服务器
 
 ```bash
@@ -415,18 +432,6 @@ Java Client [jaslock](https://github.com/snower/jaslock)
 .NET Core Client [jaslock](https://github.com/snower/slock4net)
 
 openresty Client [slock-lua-nginx](https://github.com/snower/slock-lua-nginx)
-
-# docker
-
-[构建](docker/README.md)
-
-[https://hub.docker.com/repository/docker/sujin190/slock](https://hub.docker.com/repository/docker/sujin190/slock)
-
-```bash 
-docker pull sujin190/slock
-
-docker run -d --name slock -p 5658:5658 slock
-```
 
 # License
 
