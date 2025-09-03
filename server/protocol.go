@@ -3,9 +3,6 @@ package server
 import (
 	"errors"
 	"fmt"
-	"github.com/snower/slock/protocol"
-	"github.com/snower/slock/protocol/protobuf"
-	"google.golang.org/protobuf/proto"
 	"io"
 	"net"
 	"regexp"
@@ -13,6 +10,10 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/snower/slock/protocol"
+	"github.com/snower/slock/protocol/protobuf"
+	"google.golang.org/protobuf/proto"
 )
 
 type ServerProtocol interface {
@@ -1639,7 +1640,7 @@ func (self *BinaryServerProtocol) commandHandleListLockCommand(_ *BinaryServerPr
 		}
 	}
 
-	db.mGlock.Lock()
+	db.mGlock.RLock()
 	for _, lockManager := range db.locks {
 		if lockManager.locked > 0 {
 			lockData := lockManager.GetLockData()
@@ -1650,7 +1651,7 @@ func (self *BinaryServerProtocol) commandHandleListLockCommand(_ *BinaryServerPr
 			locks = append(locks, &protobuf.LockDBLock{LockKey: lockManager.lockKey[:], LockedCount: lockManager.locked, LockData: lockDBLockData})
 		}
 	}
-	db.mGlock.Unlock()
+	db.mGlock.RUnlock()
 
 	response := protobuf.LockDBListLockResponse{Locks: locks}
 	data, err := proto.Marshal(&response)
@@ -2765,7 +2766,7 @@ func (self *TextServerProtocol) commandHandlerKeysCommand(_ *TextServerProtocol,
 			}
 		}
 
-		db.mGlock.Lock()
+		db.mGlock.RLock()
 		for _, lockManager := range db.locks {
 			if lockManager == nil || lockManager.locked == 0 {
 				continue
@@ -2791,7 +2792,7 @@ func (self *TextServerProtocol) commandHandlerKeysCommand(_ *TextServerProtocol,
 				keys = append(keys, key)
 			}
 		}
-		db.mGlock.Unlock()
+		db.mGlock.RUnlock()
 	}
 	return self.stream.WriteBytes(self.parser.BuildResponse(true, "", keys))
 }
@@ -2865,7 +2866,7 @@ func (self *TextServerProtocol) commandHandlerScanCommand(_ *TextServerProtocol,
 		}
 
 		if count >= 0 && index < offset+count {
-			db.mGlock.Lock()
+			db.mGlock.RLock()
 			for _, lockManager := range db.locks {
 				if lockManager == nil || lockManager.locked == 0 {
 					continue
@@ -2897,7 +2898,7 @@ func (self *TextServerProtocol) commandHandlerScanCommand(_ *TextServerProtocol,
 					break
 				}
 			}
-			db.mGlock.Unlock()
+			db.mGlock.RUnlock()
 		}
 	}
 

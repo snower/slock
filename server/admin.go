@@ -2,8 +2,6 @@ package server
 
 import (
 	"fmt"
-	"github.com/hhkbp2/go-logging"
-	"github.com/snower/slock/protocol"
 	"io"
 	"net"
 	"os"
@@ -12,6 +10,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/hhkbp2/go-logging"
+	"github.com/snower/slock/protocol"
 )
 
 var STATE_NAMES = []string{"initing", "leader", "follower", "syncing", "config", "vote", "close"}
@@ -586,13 +587,13 @@ func (self *Admin) commandHandleShowDBCommand(serverProtocol *TextServerProtocol
 		}
 	}
 
-	db.mGlock.Lock()
+	db.mGlock.RLock()
 	for _, lockManager := range db.locks {
 		if lockManager.locked > 0 {
 			lockManagers = append(lockManagers, lockManager)
 		}
 	}
-	db.mGlock.Unlock()
+	db.mGlock.RUnlock()
 
 	dbInfos := make([]string, 0)
 	for _, lockManager := range lockManagers {

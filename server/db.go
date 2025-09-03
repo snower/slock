@@ -279,7 +279,7 @@ type LockDB struct {
 	checkTimeoutTime          int64
 	checkExpriedTime          int64
 	glock                     *sync.Mutex
-	mGlock                    *sync.Mutex
+	mGlock                    *sync.RWMutex
 	managerGlocks             []*PriorityMutex
 	freeLockManagers          []*LockManager
 	freeLocks                 []*LockQueue
@@ -344,7 +344,7 @@ func NewLockDB(slock *SLock, dbId uint8) *LockDB {
 		checkTimeoutTime:          now,
 		checkExpriedTime:          now,
 		glock:                     &sync.Mutex{},
-		mGlock:                    &sync.Mutex{},
+		mGlock:                    &sync.RWMutex{},
 		managerGlocks:             managerGlocks,
 		freeLockManagers:          make([]*LockManager, maxFreeLockManagerCount),
 		freeLocks:                 freeLocks,
@@ -1161,13 +1161,13 @@ func (self *LockDB) GetOrNewLockManager(command *protocol.LockCommand) *LockMana
 
 	if atomic.CompareAndSwapUint32(&fastValue.lock, 0, 1) {
 		if atomic.LoadUint32(&fastValue.count) > 0 {
-			self.mGlock.Lock()
+			self.mGlock.RLock()
 			if lockManager, ok := self.locks[command.LockKey]; ok && atomic.LoadUint32(&lockManager.refCount) != 0xffffffff {
-				self.mGlock.Unlock()
+				self.mGlock.RUnlock()
 				atomic.CompareAndSwapUint32(&fastValue.lock, 1, 0)
 				return lockManager
 			}
-			self.mGlock.Unlock()
+			self.mGlock.RUnlock()
 		}
 
 		freeLockManagerTail := atomic.AddUint32(&self.freeLockManagerTail, 1) % self.maxFreeLockManagerCount
@@ -1283,12 +1283,12 @@ func (self *LockDB) GetLockManager(command *protocol.LockCommand) *LockManager {
 		return nil
 	}
 
-	self.mGlock.Lock()
+	self.mGlock.RLock()
 	if lockManager, ok := self.locks[command.LockKey]; ok && atomic.LoadUint32(&lockManager.refCount) != 0xffffffff {
-		self.mGlock.Unlock()
+		self.mGlock.RUnlock()
 		return lockManager
 	}
-	self.mGlock.Unlock()
+	self.mGlock.RUnlock()
 	return nil
 }
 
