@@ -1686,7 +1686,7 @@ func TestLock_OverWait(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 		lock3 := client.Lock(testString2Key("TestLock_OverWait"), 0, 10)
 		lock3.SetCount(0xffff)
-		_, err = lock3.Lock()
+		_, err = lock3.LockWithFlag(protocol.LOCK_FLAG_LOCK_TREE_LOCK)
 		if err != nil {
 			t.Errorf("Lock Fail %v", err)
 			return

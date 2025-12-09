@@ -170,8 +170,32 @@ func (self *Lock) Lock() (*protocol.LockResultCommand, error) {
 	return lockResultCommand, nil
 }
 
+func (self *Lock) LockWithFlag(flag uint8) (*protocol.LockResultCommand, error) {
+	lockResultCommand, err := self.doLock(flag, self.lockId, self.timeout, self.expried, self.count, self.rcount, nil)
+	if err != nil {
+		return lockResultCommand, &LockError{0x80, lockResultCommand, err}
+	}
+
+	if lockResultCommand.Result != 0 {
+		return lockResultCommand, &LockError{lockResultCommand.Result, lockResultCommand, err}
+	}
+	return lockResultCommand, nil
+}
+
 func (self *Lock) LockWithData(data *protocol.LockCommandData) (*protocol.LockResultCommand, error) {
 	lockResultCommand, err := self.doLock(0, self.lockId, self.timeout, self.expried, self.count, self.rcount, data)
+	if err != nil {
+		return lockResultCommand, &LockError{0x80, lockResultCommand, err}
+	}
+
+	if lockResultCommand.Result != 0 {
+		return lockResultCommand, &LockError{lockResultCommand.Result, lockResultCommand, err}
+	}
+	return lockResultCommand, nil
+}
+
+func (self *Lock) LockWithDataAndFlag(data *protocol.LockCommandData, flag uint8) (*protocol.LockResultCommand, error) {
+	lockResultCommand, err := self.doLock(flag, self.lockId, self.timeout, self.expried, self.count, self.rcount, data)
 	if err != nil {
 		return lockResultCommand, &LockError{0x80, lockResultCommand, err}
 	}
@@ -194,8 +218,32 @@ func (self *Lock) Unlock() (*protocol.LockResultCommand, error) {
 	return lockResultCommand, nil
 }
 
+func (self *Lock) UnlockWithFlag(flag uint8) (*protocol.LockResultCommand, error) {
+	lockResultCommand, err := self.doUnlock(flag, self.lockId, self.timeout, self.expried, self.count, self.rcount, nil)
+	if err != nil {
+		return lockResultCommand, &LockError{0x80, lockResultCommand, err}
+	}
+
+	if lockResultCommand.Result != 0 {
+		return lockResultCommand, &LockError{lockResultCommand.Result, lockResultCommand, err}
+	}
+	return lockResultCommand, nil
+}
+
 func (self *Lock) UnlockWithData(data *protocol.LockCommandData) (*protocol.LockResultCommand, error) {
 	lockResultCommand, err := self.doUnlock(0, self.lockId, self.timeout, self.expried, self.count, self.rcount, data)
+	if err != nil {
+		return lockResultCommand, &LockError{0x80, lockResultCommand, err}
+	}
+
+	if lockResultCommand.Result != 0 {
+		return lockResultCommand, &LockError{lockResultCommand.Result, lockResultCommand, err}
+	}
+	return lockResultCommand, nil
+}
+
+func (self *Lock) UnlockWithDataAndFlag(data *protocol.LockCommandData, flag uint8) (*protocol.LockResultCommand, error) {
+	lockResultCommand, err := self.doUnlock(flag, self.lockId, self.timeout, self.expried, self.count, self.rcount, data)
 	if err != nil {
 		return lockResultCommand, &LockError{0x80, lockResultCommand, err}
 	}

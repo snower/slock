@@ -1941,7 +1941,7 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 	}
 
 	lock := lockManager.GetOrNewLock(serverProtocol, command)
-	if (!waited || command.Count == 0xffff) && self.doLock(lockManager, lock) {
+	if (!waited || command.Flag&protocol.LOCK_FLAG_LOCK_TREE_LOCK != 0) && self.doLock(lockManager, lock) {
 		requireWakeup := lockManager.waited && lock.locked == 0
 		if command.Expried > 0 {
 			lockManager.AddLock(lock)
