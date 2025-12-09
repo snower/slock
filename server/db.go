@@ -1941,7 +1941,7 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 	}
 
 	lock := lockManager.GetOrNewLock(serverProtocol, command)
-	if (!waited || command.Flag&protocol.LOCK_FLAG_LOCK_TREE_LOCK != 0) && self.doLock(lockManager, lock) {
+	if (!waited || (command.TimeoutFlag&protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY != 0 && self.doCheckLockWaitPriority(lockManager, lock))) && self.doLock(lockManager, lock) {
 		requireWakeup := lockManager.waited && lock.locked == 0
 		if command.Expried > 0 {
 			lockManager.AddLock(lock)
@@ -2306,6 +2306,21 @@ func (self *LockDB) doLock(lockManager *LockManager, lock *Lock) bool {
 			}
 			return true
 		}
+	}
+	return false
+}
+
+func (self *LockDB) doCheckLockWaitPriority(lockManager *LockManager, lock *Lock) bool {
+	waitLocks := lockManager.waitLocks
+	if waitLocks == nil {
+		return true
+	}
+	waitLock := waitLocks.Head()
+	if waitLock == nil || waitLock.command.TimeoutFlag&protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY == 0 {
+		return true
+	}
+	if lock.command.Rcount > waitLock.command.Rcount {
+		return true
 	}
 	return false
 }
