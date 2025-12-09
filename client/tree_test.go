@@ -2,6 +2,7 @@ package client
 
 import (
 	"testing"
+	"time"
 )
 
 func checkChildTreeLock(t *testing.T, client *Client, rootLock *TreeLock, childLock *TreeLock, lock *TreeLeafLock, depth int) {
@@ -117,6 +118,10 @@ func TestTreeLock(t *testing.T) {
 			return
 		}
 
+		go func() {
+			_, _ = rootLock.Wait(10)
+		}()
+		time.Sleep(100 * time.Millisecond)
 		checkChildTreeLock(t, client, rootLock, rootLock.NewChild(), lock, 5)
 
 		_, err = rootLock.Wait(10)
