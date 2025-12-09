@@ -1664,6 +1664,46 @@ func TestLock_ProcessLockDataUpdate_Execute(t *testing.T) {
 	})
 }
 
+func TestLock_OverWait(t *testing.T) {
+	testWithClient(t, func(client *Client) {
+		lock1 := client.Lock(testString2Key("TestLock_OverWait"), 5, 10)
+		lock1.SetCount(0xffff)
+		_, err := lock1.Lock()
+		if err != nil {
+			t.Errorf("Lock Fail %v", err)
+			return
+		}
+
+		go func() {
+			lock2 := client.Lock(testString2Key("TestLock_OverWait"), 5, 0)
+			_, lerr := lock2.Lock()
+			if lerr != nil {
+				t.Errorf("Lock Fail %v", err)
+				return
+			}
+		}()
+
+		time.Sleep(100 * time.Millisecond)
+		lock3 := client.Lock(testString2Key("TestLock_OverWait"), 0, 10)
+		lock3.SetCount(0xffff)
+		_, err = lock3.Lock()
+		if err != nil {
+			t.Errorf("Lock Fail %v", err)
+			return
+		}
+		_, err = lock1.Unlock()
+		if err != nil {
+			t.Errorf("Lock Fail %v", err)
+			return
+		}
+		_, err = lock3.Unlock()
+		if err != nil {
+			t.Errorf("Lock Fail %v", err)
+			return
+		}
+	})
+}
+
 func TestLock_Benchmark(t *testing.T) {
 	testWithClient(t, func(client *Client) {
 		waitGroup := sync.WaitGroup{}

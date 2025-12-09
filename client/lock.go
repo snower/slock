@@ -3,6 +3,7 @@ package client
 import (
 	"errors"
 	"fmt"
+
 	"github.com/snower/slock/protocol"
 )
 
@@ -96,7 +97,11 @@ func (self *Lock) GetCount() uint16 {
 func (self *Lock) SetCount(count uint16) uint16 {
 	ocount := self.count
 	if count > 0 {
-		self.count = count - 1
+		if count == 0xffff {
+			self.count = 0xffff
+		} else {
+			self.count = count - 1
+		}
 	} else {
 		self.count = 0
 	}
@@ -110,7 +115,11 @@ func (self *Lock) GetRcount() uint8 {
 func (self *Lock) SetRcount(rcount uint8) uint8 {
 	orcount := self.rcount
 	if rcount > 0 {
-		self.rcount = rcount - 1
+		if rcount == 0xff {
+			self.rcount = 0xff
+		} else {
+			self.rcount = rcount - 1
+		}
 	} else {
 		self.rcount = 0
 	}
