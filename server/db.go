@@ -2156,7 +2156,7 @@ func (self *LockDB) UnLock(serverProtocol ServerProtocol, command *protocol.Lock
 
 	if currentLock.locked > 1 {
 		unlocked, lockLocked := false, currentLock.locked
-		if command.Rcount > 0 {
+		if command.Rcount > 0 && command.TimeoutFlag&protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY == 0 {
 			currentLock.locked--
 			lockManager.locked--
 			if currentLock.locked == 0 {
