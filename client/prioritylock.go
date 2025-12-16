@@ -45,13 +45,13 @@ func (self *PriorityLock) SetCount(count uint16) uint16 {
 }
 
 func (self *PriorityLock) Lock() (*protocol.LockResultCommand, error) {
-	self.lock = &Lock{self.db, self.db.GenLockId(), self.lockKey, self.timeout | protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY,
+	self.lock = &Lock{self.db, self.db.GenLockId(), self.lockKey, self.timeout | uint32(protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY)<<16,
 		self.expried, self.count, self.priority}
 	return self.lock.Lock()
 }
 
 func (self *PriorityLock) LockWithData(data *protocol.LockCommandData) (*protocol.LockResultCommand, error) {
-	self.lock = &Lock{self.db, self.db.GenLockId(), self.lockKey, self.timeout | protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY,
+	self.lock = &Lock{self.db, self.db.GenLockId(), self.lockKey, self.timeout | uint32(protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY)<<16,
 		self.expried, self.count, self.priority}
 	return self.lock.LockWithData(data)
 }

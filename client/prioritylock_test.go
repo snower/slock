@@ -1,35 +1,135 @@
 package client
 
 import (
-	"math/rand"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestPriorityLock_LockAndUnLock(t *testing.T) {
 	testWithClient(t, func(client *Client) {
-		waiter := sync.WaitGroup{}
-		locks := make([]*PriorityLock, 0)
-		for i := 0; i < 1000; i++ {
-			waiter.Add(1)
-			go func() {
-				lock := client.PriorityLock(testString2Key("TestPriorityLock"), uint8(rand.Intn(50)+1), 5, 10)
-				_, err := lock.Lock()
-				if err == nil {
-					locks = append(locks, lock)
-					_, _ = lock.Unlock()
-				}
-				waiter.Done()
-			}()
+		lock := client.PriorityLock(testString2Key("TestPriorityLock"), 0, 5, 10)
+		_, err := lock.Lock()
+		if err != nil {
+			t.Errorf("Lock Fail %v", err)
+			return
+		}
+		_, err = lock.Unlock()
+		if err != nil {
+			t.Errorf("Lock Fail %v", err)
+			return
 		}
 
-		waiter.Wait()
-		currentPriority := uint8(0)
-		for _, lock := range locks {
-			if lock.priority < currentPriority {
-				t.Errorf("TestPriorityLock priority fail")
+		lock = client.PriorityLock(testString2Key("TestPriorityLock"), 1, 5, 10)
+		_, err = lock.Lock()
+		if err != nil {
+			t.Errorf("Lock Fail %v", err)
+			return
+		}
+		_, err = lock.Unlock()
+		if err != nil {
+			t.Errorf("Lock Fail %v", err)
+			return
+		}
+
+		lock1 := client.PriorityLock(testString2Key("TestPriorityLock"), 0, 0, 10)
+		lock1.SetCount(10)
+		_, err = lock1.Lock()
+		if err != nil {
+			t.Errorf("Lock Fail %v", err)
+			return
+		}
+		lock2 := client.PriorityLock(testString2Key("TestPriorityLock"), 0, 0, 10)
+		_, err = lock2.Lock()
+		if err == nil {
+			t.Errorf("Lock Fail %v", err)
+			return
+		}
+		lock3 := client.PriorityLock(testString2Key("TestPriorityLock"), 1, 0, 10)
+		lock3.SetCount(10)
+		_, err = lock3.Lock()
+		if err != nil {
+			t.Errorf("Lock Fail %v", err)
+			return
+		}
+		_, err = lock1.Unlock()
+		if err != nil {
+			t.Errorf("Lock Fail %v", err)
+			return
+		}
+		_, err = lock3.Unlock()
+		if err != nil {
+			t.Errorf("Lock Fail %v", err)
+			return
+		}
+
+		wg := sync.WaitGroup{}
+		lockOrders := make([]int, 0)
+		lock = client.PriorityLock(testString2Key("TestPriorityLock"), 10, 5, 10)
+		_, err = lock.Lock()
+		if err != nil {
+			t.Errorf("Lock Fail %v", err)
+			return
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			lock1 = client.PriorityLock(testString2Key("TestPriorityLock"), 1, 5, 10)
+			_, err = lock1.Lock()
+			if err != nil {
+				t.Errorf("Lock Fail %v", err)
 				return
 			}
+			lockOrders = append(lockOrders, 1)
+			_, err = lock1.Unlock()
+			if err != nil {
+				t.Errorf("Lock Fail %v", err)
+				return
+			}
+		}()
+		time.Sleep(100 * time.Millisecond)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			lock2 = client.PriorityLock(testString2Key("TestPriorityLock"), 0, 5, 10)
+			_, err = lock2.Lock()
+			if err != nil {
+				t.Errorf("Lock Fail %v", err)
+				return
+			}
+			lockOrders = append(lockOrders, 2)
+			_, err = lock2.Unlock()
+			if err != nil {
+				t.Errorf("Lock Fail %v", err)
+				return
+			}
+		}()
+		time.Sleep(100 * time.Millisecond)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			lock3 = client.PriorityLock(testString2Key("TestPriorityLock"), 2, 5, 10)
+			_, err = lock3.Lock()
+			if err != nil {
+				t.Errorf("Lock Fail %v", err)
+				return
+			}
+			lockOrders = append(lockOrders, 3)
+			_, err = lock3.Unlock()
+			if err != nil {
+				t.Errorf("Lock Fail %v", err)
+				return
+			}
+		}()
+		time.Sleep(100 * time.Millisecond)
+		_, err = lock.Unlock()
+		if err != nil {
+			t.Errorf("Lock Fail %v", err)
+			return
+		}
+		wg.Wait()
+		if len(lockOrders) != 3 || lockOrders[0] != 3 || lockOrders[1] != 1 || lockOrders[2] != 2 {
+			t.Errorf("Lock Priority Fail %v", lockOrders)
 		}
 	})
 }

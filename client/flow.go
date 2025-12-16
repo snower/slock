@@ -1,10 +1,11 @@
 package client
 
 import (
-	"github.com/snower/slock/protocol"
 	"math"
 	"sync"
 	"time"
+
+	"github.com/snower/slock/protocol"
 )
 
 type MaxConcurrentFlow struct {
@@ -60,7 +61,7 @@ func (self *MaxConcurrentFlow) Acquire() (*protocol.LockResultCommand, error) {
 	if self.flowLock == nil {
 		timeout := self.timeout
 		if self.priority > 0 {
-			timeout |= protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY
+			timeout |= uint32(protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY) << 16
 		}
 		self.flowLock = &Lock{self.db, self.db.GenLockId(), self.flowKey, timeout, self.expried, self.count, self.priority}
 	}
@@ -73,7 +74,7 @@ func (self *MaxConcurrentFlow) Release() (*protocol.LockResultCommand, error) {
 	if self.flowLock == nil {
 		timeout := self.timeout
 		if self.priority > 0 {
-			timeout |= protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY
+			timeout |= uint32(protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY) << 16
 		}
 		self.flowLock = &Lock{self.db, self.db.GenLockId(), self.flowKey, timeout, self.expried, self.count, self.priority}
 	}
@@ -134,7 +135,7 @@ func (self *TokenBucketFlow) Acquire() (*protocol.LockResultCommand, error) {
 	self.glock.Lock()
 	timeout := self.timeout
 	if self.priority > 0 {
-		timeout |= protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY
+		timeout |= uint32(protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY) << 16
 	}
 	if self.period < 3 {
 		expried := uint32(math.Ceil(self.period*1000)) | 0x04000000
