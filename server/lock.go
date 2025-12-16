@@ -12,6 +12,7 @@ type ILockManagerRingQueue interface {
 	Pop() *Lock
 	Head() *Lock
 	IterNodes() [][]*Lock
+	MaxPriority() uint8
 }
 
 type LockManagerRingQueue struct {
@@ -60,6 +61,10 @@ func (self *LockManagerRingQueue) IterNodes() [][]*Lock {
 		return [][]*Lock{self.queue[self.index:]}
 	}
 	return make([][]*Lock, 0)
+}
+
+func (self *LockManagerRingQueue) MaxPriority() uint8 {
+	return 0
 }
 
 type LockManagerPriorityRingQueueNode struct {
@@ -120,6 +125,14 @@ func (self *LockManagerPriorityRingQueue) IterNodes() [][]*Lock {
 		iterNodes = append(iterNodes, node.ringQueue.IterNodes()...)
 	}
 	return make([][]*Lock, 0)
+}
+
+func (self *LockManagerPriorityRingQueue) MaxPriority() uint8 {
+	priorityNodesLength := len(self.priorityNodes)
+	if priorityNodesLength == 0 {
+		return 0
+	}
+	return self.priorityNodes[priorityNodesLength-1].priority
 }
 
 type LockManagerLockQueue struct {
@@ -220,6 +233,13 @@ func (self *LockManagerWaitQueue) IterNodes() [][]*Lock {
 		lockNodes = append(lockNodes, self.ringQueue.IterNodes()...)
 	}
 	return lockNodes
+}
+
+func (self *LockManagerWaitQueue) MaxPriority() uint8 {
+	if self.ringQueue == nil {
+		return 0
+	}
+	return self.ringQueue.MaxPriority()
 }
 
 type LockManager struct {
@@ -381,25 +401,38 @@ func (self *LockManager) GetLockedLock(command *protocol.LockCommand) *Lock {
 func (self *LockManager) CheckLockedEqual(lock *Lock, command *protocol.LockCommand) bool {
 	if command.ExpriedFlag&protocol.EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME != 0 {
 		if command.Expried == 0xffff {
-			return command.Count == lock.command.Count && command.Rcount == lock.command.Rcount
+			return self.checkLockedCountEqual(lock, command)
 		}
-		return lock.expriedTime == 0x7fffffffffffffff && command.Count == lock.command.Count && command.Rcount == lock.command.Rcount
+		return lock.expriedTime == 0x7fffffffffffffff && self.checkLockedCountEqual(lock, command)
 	}
 	if command.ExpriedFlag&protocol.EXPRIED_FLAG_MILLISECOND_TIME == 0 {
 		if command.ExpriedFlag&protocol.EXPRIED_FLAG_MINUTE_TIME != 0 {
 			expriedTime := self.lockDb.currentTime + int64(command.Expried)*60 + 1
 			if expriedTime > lock.expriedTime {
-				return expriedTime-lock.expriedTime <= 60 && command.Count == lock.command.Count && command.Rcount == lock.command.Rcount
+				return expriedTime-lock.expriedTime <= 60 && self.checkLockedCountEqual(lock, command)
 			}
-			return lock.expriedTime-expriedTime <= 60 && command.Count == lock.command.Count && command.Rcount == lock.command.Rcount
+			return lock.expriedTime-expriedTime <= 60 && self.checkLockedCountEqual(lock, command)
 		}
 		expriedTime := self.lockDb.currentTime + int64(command.Expried) + 1
 		if expriedTime > lock.expriedTime {
-			return expriedTime-lock.expriedTime <= 1 && command.Count == lock.command.Count && command.Rcount == lock.command.Rcount
+			return expriedTime-lock.expriedTime <= 1 && self.checkLockedCountEqual(lock, command)
 		}
-		return lock.expriedTime-expriedTime <= 1 && command.Count == lock.command.Count && command.Rcount == lock.command.Rcount
+		return lock.expriedTime-expriedTime <= 1 && self.checkLockedCountEqual(lock, command)
 	}
-	return command.Count == lock.command.Count && command.Rcount == lock.command.Rcount
+	return self.checkLockedCountEqual(lock, command)
+}
+
+func (self *LockManager) checkLockedCountEqual(lock *Lock, command *protocol.LockCommand) bool {
+	if command.Count != lock.command.Count {
+		return false
+	}
+	if command.Rcount != lock.command.Rcount {
+		return false
+	}
+	if command.TimeoutFlag&protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY != lock.command.TimeoutFlag&protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY {
+		return false
+	}
+	return true
 }
 
 func (self *LockManager) UpdateLockedLock(lock *Lock, command *protocol.LockCommand) *protocol.LockCommand {

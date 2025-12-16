@@ -1,10 +1,11 @@
 package server
 
 import (
-	"github.com/snower/slock/protocol"
 	"math/rand"
 	"testing"
 	"time"
+
+	"github.com/snower/slock/protocol"
 )
 
 func TestLockManagerRingQueue(t *testing.T) {
@@ -106,12 +107,16 @@ func TestLockManagerPriorityRingQueue(t *testing.T) {
 		t.Errorf("LockManagerPriorityRingQueue Push Pop fail")
 		return
 	}
+	if queue.MaxPriority() != 2 {
+		t.Errorf("LockManagerPriorityRingQueue MaxPriority fail")
+		return
+	}
 
 	for i := 0; i < 10000; i++ {
 		lock = &Lock{command: &protocol.LockCommand{TimeoutFlag: protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY, Rcount: uint8(rand.Intn(50) + 1)}}
 		queue.Push(lock)
 	}
-	currentPriority := uint8(0)
+	currentPriority, currentMaxPriority, queueMaxPriority := uint8(0), uint8(0), queue.MaxPriority()
 	for queue.Head() != nil {
 		lock = queue.Pop()
 		if lock == nil || lock.command.Rcount < currentPriority {
@@ -119,8 +124,20 @@ func TestLockManagerPriorityRingQueue(t *testing.T) {
 			return
 		}
 		currentPriority = lock.command.Rcount
+		if currentMaxPriority < currentPriority {
+			currentMaxPriority = currentPriority
+		}
 	}
-	currentPriority = uint8(0)
+	if currentMaxPriority != queueMaxPriority {
+		t.Errorf("LockManagerPriorityRingQueue MaxPriority fail")
+		return
+	}
+
+	for i := 0; i < 10000; i++ {
+		lock = &Lock{command: &protocol.LockCommand{TimeoutFlag: protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY, Rcount: uint8(rand.Intn(50) + 1)}}
+		queue.Push(lock)
+	}
+	currentPriority, currentMaxPriority, queueMaxPriority = uint8(0), uint8(0), queue.MaxPriority()
 	for _, node := range queue.priorityNodes {
 		if node.priority <= currentPriority {
 			t.Errorf("LockManagerPriorityRingQueue priorityNodes fail")
@@ -131,6 +148,13 @@ func TestLockManagerPriorityRingQueue(t *testing.T) {
 			return
 		}
 		currentPriority = node.priority
+		if currentMaxPriority < currentPriority {
+			currentMaxPriority = currentPriority
+		}
+	}
+	if currentMaxPriority != queueMaxPriority {
+		t.Errorf("LockManagerPriorityRingQueue MaxPriority fail")
+		return
 	}
 }
 

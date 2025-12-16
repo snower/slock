@@ -2129,7 +2129,9 @@ func (self *LockDB) UnLock(serverProtocol ServerProtocol, command *protocol.Lock
 
 			command.LockId = currentLock.command.LockId
 			command.Expried = currentLock.command.Expried
+			command.ExpriedFlag = currentLock.command.ExpriedFlag
 			command.Timeout = currentLock.command.Timeout
+			command.TimeoutFlag = currentLock.command.TimeoutFlag
 			command.Count = currentLock.command.Count
 			command.Rcount = currentLock.command.Rcount
 		} else if command.Flag&protocol.UNLOCK_FLAG_CANCEL_WAIT_LOCK_WHEN_UNLOCKED != 0 {
@@ -2315,11 +2317,8 @@ func (self *LockDB) doCheckLockWaitPriority(lockManager *LockManager, lock *Lock
 	if waitLocks == nil {
 		return true
 	}
-	waitLock := waitLocks.Head()
-	if waitLock == nil || waitLock.command.TimeoutFlag&protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY == 0 {
-		return true
-	}
-	if lock.command.Rcount > waitLock.command.Rcount {
+	maxPriority := waitLocks.MaxPriority()
+	if lock.command.Rcount > maxPriority {
 		return true
 	}
 	return false
