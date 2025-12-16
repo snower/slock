@@ -65,6 +65,13 @@ func (self *LockManagerRingQueue) IterNodes() [][]*Lock {
 }
 
 func (self *LockManagerRingQueue) MaxPriority() uint8 {
+	if self.index >= len(self.queue) {
+		return 0
+	}
+	command := self.queue[self.index].command
+	if command.TimeoutFlag&protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY != 0 {
+		return command.Rcount
+	}
 	return 0
 }
 
@@ -291,10 +298,17 @@ func (self *LockManagerWaitQueue) IterNodes() [][]*Lock {
 }
 
 func (self *LockManagerWaitQueue) MaxPriority() uint8 {
-	if self.ringQueue == nil {
+	if self.fastIndex < len(self.fastQueue) {
+		command := self.fastQueue[self.fastIndex].command
+		if command.TimeoutFlag&protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY != 0 {
+			return command.Rcount
+		}
 		return 0
 	}
-	return self.ringQueue.MaxPriority()
+	if self.ringQueue != nil {
+		return self.ringQueue.MaxPriority()
+	}
+	return 0
 }
 
 func (self *LockManagerWaitQueue) Len() int {
@@ -554,13 +568,9 @@ func (self *LockManager) UpdateLockedLock(lock *Lock, command *protocol.LockComm
 
 func (self *LockManager) AddWaitLock(lock *Lock) *Lock {
 	if self.waitLocks == nil {
-		if lock.command.TimeoutFlag&protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY != 0 {
-			self.waitLocks = NewLockManagerWaitQueue(true)
-		} else {
-			self.waitLocks = NewLockManagerWaitQueue(false)
-		}
+		self.waitLocks = NewLockManagerWaitQueue(false)
 	} else {
-		if lock.command.TimeoutFlag&protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY != 0 && !self.waitLocks.priorityQueue {
+		if lock.command.TimeoutFlag&protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY != 0 && !self.waitLocks.priorityQueue && lock.command.Rcount != self.waitLocks.MaxPriority() {
 			self.waitLocks.RePushPriorityRingQueue()
 		}
 	}

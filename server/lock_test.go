@@ -109,29 +109,39 @@ func TestLockManagerPriorityRingQueue(t *testing.T) {
 		t.Errorf("LockManagerPriorityRingQueue Push Priority fail")
 		return
 	}
-	lock4 := &Lock{command: &protocol.LockCommand{TimeoutFlag: protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY, Rcount: 4}}
+	lock4 := &Lock{command: &protocol.LockCommand{TimeoutFlag: protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY, Rcount: 8}}
 	queue.Push(lock4)
-	if len(queue.priorityNodes) != 4 || queue.priorityNodes[0].priority != 4 || queue.priorityNodes[1].priority != 3 || queue.priorityNodes[2].priority != 2 || queue.priorityNodes[3].priority != 1 {
+	if len(queue.priorityNodes) != 4 || queue.priorityNodes[0].priority != 8 || queue.priorityNodes[1].priority != 3 || queue.priorityNodes[2].priority != 2 || queue.priorityNodes[3].priority != 1 {
 		t.Errorf("LockManagerPriorityRingQueue Push Priority fail")
 		return
 	}
-	if queue.MaxPriority() != 4 {
+	lock5 := &Lock{command: &protocol.LockCommand{TimeoutFlag: protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY, Rcount: 5}}
+	queue.Push(lock5)
+	if len(queue.priorityNodes) != 5 || queue.priorityNodes[0].priority != 8 || queue.priorityNodes[1].priority != 5 || queue.priorityNodes[2].priority != 3 || queue.priorityNodes[3].priority != 2 || queue.priorityNodes[4].priority != 1 {
+		t.Errorf("LockManagerPriorityRingQueue Push Priority fail")
+		return
+	}
+	if queue.MaxPriority() != 8 {
 		t.Errorf("LockManagerPriorityRingQueue MaxPriority fail")
 		return
 	}
-	if queue.Head() != lock4 || queue.Pop() != lock4 || len(queue.priorityNodes) != 4 || queue.priorityNodes[0].priority != 4 || queue.priorityNodes[1].priority != 3 || queue.priorityNodes[2].priority != 2 || queue.priorityNodes[3].priority != 1 {
+	if queue.Head() != lock4 || queue.Pop() != lock4 || queue.priorityNodes[0].priority != 8 || queue.priorityNodes[1].priority != 5 || queue.priorityNodes[2].priority != 3 || queue.priorityNodes[3].priority != 2 || queue.priorityNodes[4].priority != 1 {
 		t.Errorf("LockManagerPriorityRingQueue Push Pop fail")
 		return
 	}
-	if queue.Head() != lock3 || queue.Pop() != lock3 || len(queue.priorityNodes) != 4 || queue.priorityNodes[0].priority != 4 || queue.priorityNodes[1].priority != 3 || queue.priorityNodes[2].priority != 2 || queue.priorityNodes[3].priority != 1 {
+	if queue.Head() != lock5 || queue.Pop() != lock5 || queue.priorityNodes[0].priority != 8 || queue.priorityNodes[1].priority != 5 || queue.priorityNodes[2].priority != 3 || queue.priorityNodes[3].priority != 2 || queue.priorityNodes[4].priority != 1 {
 		t.Errorf("LockManagerPriorityRingQueue Push Pop fail")
 		return
 	}
-	if queue.Head() != lock2 || queue.Pop() != lock2 || len(queue.priorityNodes) != 4 || queue.priorityNodes[0].priority != 4 || queue.priorityNodes[1].priority != 3 || queue.priorityNodes[2].priority != 2 || queue.priorityNodes[3].priority != 1 {
+	if queue.Head() != lock3 || queue.Pop() != lock3 || queue.priorityNodes[0].priority != 8 || queue.priorityNodes[1].priority != 5 || queue.priorityNodes[2].priority != 3 || queue.priorityNodes[3].priority != 2 || queue.priorityNodes[4].priority != 1 {
 		t.Errorf("LockManagerPriorityRingQueue Push Pop fail")
 		return
 	}
-	if queue.Head() != lock1 || queue.Pop() != lock1 || len(queue.priorityNodes) != 4 || queue.priorityNodes[0].priority != 4 || queue.priorityNodes[1].priority != 3 || queue.priorityNodes[2].priority != 2 || queue.priorityNodes[3].priority != 1 {
+	if queue.Head() != lock2 || queue.Pop() != lock2 || queue.priorityNodes[0].priority != 8 || queue.priorityNodes[1].priority != 5 || queue.priorityNodes[2].priority != 3 || queue.priorityNodes[3].priority != 2 || queue.priorityNodes[4].priority != 1 {
+		t.Errorf("LockManagerPriorityRingQueue Push Pop fail")
+		return
+	}
+	if queue.Head() != lock1 || queue.Pop() != lock1 || queue.priorityNodes[0].priority != 8 || queue.priorityNodes[1].priority != 5 || queue.priorityNodes[2].priority != 3 || queue.priorityNodes[3].priority != 2 || queue.priorityNodes[4].priority != 1 {
 		t.Errorf("LockManagerPriorityRingQueue Push Pop fail")
 		return
 	}
@@ -197,10 +207,18 @@ func TestLockManagerPriorityRingQueue(t *testing.T) {
 func TestLockManagerWaitQueue(t *testing.T) {
 	queue := NewLockManagerWaitQueue(false)
 
-	lock := &Lock{}
+	lock := &Lock{command: &protocol.LockCommand{TimeoutFlag: protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY, Rcount: 1}}
 	queue.Push(lock)
+	if queue.MaxPriority() != 1 {
+		t.Errorf("LockManagerWaitQueue MaxPriority fail")
+		return
+	}
 	if queue.Head() != lock || queue.Pop() != lock || queue.fastIndex != 0 {
 		t.Errorf("LockManagerWaitQueue Push Pop fail")
+		return
+	}
+	if queue.MaxPriority() != 0 {
+		t.Errorf("LockManagerWaitQueue MaxPriority fail")
 		return
 	}
 
