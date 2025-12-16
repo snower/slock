@@ -13,6 +13,7 @@ type ILockManagerRingQueue interface {
 	Head() *Lock
 	IterNodes() [][]*Lock
 	MaxPriority() uint8
+	Len() int
 }
 
 type LockManagerRingQueue struct {
@@ -67,6 +68,10 @@ func (self *LockManagerRingQueue) MaxPriority() uint8 {
 	return 0
 }
 
+func (self *LockManagerRingQueue) Len() int {
+	return len(self.queue) - self.index
+}
+
 type LockManagerPriorityRingQueueNode struct {
 	ringQueue *LockManagerRingQueue
 	priority  uint8
@@ -78,7 +83,7 @@ type LockManagerPriorityRingQueue struct {
 }
 
 func NewLockManagerPriorityRingQueue(size int) *LockManagerPriorityRingQueue {
-	return &LockManagerPriorityRingQueue{make([]*LockManagerPriorityRingQueueNode, 0), size}
+	return &LockManagerPriorityRingQueue{make([]*LockManagerPriorityRingQueueNode, 0, 2), size}
 }
 
 func (self *LockManagerPriorityRingQueue) Push(lock *Lock) {
@@ -88,13 +93,29 @@ func (self *LockManagerPriorityRingQueue) Push(lock *Lock) {
 			return
 		}
 	}
+
 	node := &LockManagerPriorityRingQueueNode{NewLockManagerRingQueue(self.size), lock.command.Rcount}
-	self.priorityNodes = append(self.priorityNodes, node)
-	for i := len(self.priorityNodes) - 2; i >= 0; i-- {
-		if self.priorityNodes[i].priority <= self.priorityNodes[i+1].priority {
-			break
+	if len(self.priorityNodes) == 0 {
+		self.priorityNodes = append(self.priorityNodes, node)
+	} else if len(self.priorityNodes) == 1 {
+		if self.priorityNodes[0].priority > node.priority {
+			self.priorityNodes = append(self.priorityNodes, node)
+		} else {
+			priorityNode := self.priorityNodes[0]
+			self.priorityNodes[0] = node
+			self.priorityNodes = append(self.priorityNodes, priorityNode)
 		}
-		self.priorityNodes[i], self.priorityNodes[i+1] = self.priorityNodes[i+1], self.priorityNodes[i]
+	} else {
+		priorityNodes := self.priorityNodes
+		self.priorityNodes = make([]*LockManagerPriorityRingQueueNode, 0, len(priorityNodes)+1)
+		for i, priorityNode := range priorityNodes {
+			if node.priority > priorityNode.priority {
+				self.priorityNodes = append(self.priorityNodes, node)
+				self.priorityNodes = append(self.priorityNodes, priorityNodes[i:]...)
+				break
+			}
+			self.priorityNodes = append(self.priorityNodes, priorityNode)
+		}
 	}
 	node.ringQueue.Push(lock)
 }
@@ -128,11 +149,24 @@ func (self *LockManagerPriorityRingQueue) IterNodes() [][]*Lock {
 }
 
 func (self *LockManagerPriorityRingQueue) MaxPriority() uint8 {
-	priorityNodesLength := len(self.priorityNodes)
-	if priorityNodesLength == 0 {
+	if len(self.priorityNodes) == 0 {
 		return 0
 	}
-	return self.priorityNodes[priorityNodesLength-1].priority
+	for _, node := range self.priorityNodes {
+		lock := node.ringQueue.Head()
+		if lock != nil {
+			return node.priority
+		}
+	}
+	return 0
+}
+
+func (self *LockManagerPriorityRingQueue) Len() int {
+	length := 0
+	for _, node := range self.priorityNodes {
+		length += node.ringQueue.Len()
+	}
+	return length
 }
 
 type LockManagerLockQueue struct {
@@ -160,16 +194,37 @@ func (self *LockManagerLockQueue) Head() *Lock {
 }
 
 type LockManagerWaitQueue struct {
-	fastQueue []*Lock
-	fastIndex int
-	ringQueue ILockManagerRingQueue
+	fastQueue     []*Lock
+	fastIndex     int
+	ringQueue     ILockManagerRingQueue
+	priorityQueue bool
 }
 
 func NewLockManagerWaitQueue(priorityQueue bool) *LockManagerWaitQueue {
 	if priorityQueue {
-		return &LockManagerWaitQueue{make([]*Lock, 0, 8), 0, NewLockManagerPriorityRingQueue(16)}
+		return &LockManagerWaitQueue{make([]*Lock, 0, 8), 0, NewLockManagerPriorityRingQueue(16), true}
 	}
-	return &LockManagerWaitQueue{make([]*Lock, 0, 8), 0, nil}
+	return &LockManagerWaitQueue{make([]*Lock, 0, 8), 0, nil, false}
+}
+
+func (self *LockManagerWaitQueue) RePushPriorityRingQueue() {
+	ringQueue := NewLockManagerPriorityRingQueue(16)
+	if self.fastIndex < len(self.fastQueue) {
+		for i := self.fastIndex; i < len(self.fastQueue); i++ {
+			ringQueue.Push(self.fastQueue[i])
+		}
+		self.fastQueue = self.fastQueue[:0]
+		self.fastIndex = 0
+	}
+	if self.ringQueue != nil {
+		lock := self.ringQueue.Pop()
+		for lock != nil {
+			ringQueue.Push(lock)
+			lock = self.ringQueue.Pop()
+		}
+	}
+	self.ringQueue = ringQueue
+	self.priorityQueue = true
 }
 
 func (self *LockManagerWaitQueue) Push(lock *Lock) {
@@ -240,6 +295,13 @@ func (self *LockManagerWaitQueue) MaxPriority() uint8 {
 		return 0
 	}
 	return self.ringQueue.MaxPriority()
+}
+
+func (self *LockManagerWaitQueue) Len() int {
+	if self.ringQueue == nil {
+		return len(self.fastQueue) - self.fastIndex
+	}
+	return len(self.fastQueue) - self.fastIndex + self.ringQueue.Len()
 }
 
 type LockManager struct {
@@ -498,8 +560,8 @@ func (self *LockManager) AddWaitLock(lock *Lock) *Lock {
 			self.waitLocks = NewLockManagerWaitQueue(false)
 		}
 	} else {
-		if lock.command.TimeoutFlag&protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY != 0 && self.waitLocks.ringQueue == nil {
-			self.waitLocks.ringQueue = NewLockManagerPriorityRingQueue(16)
+		if lock.command.TimeoutFlag&protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY != 0 && !self.waitLocks.priorityQueue {
+			self.waitLocks.RePushPriorityRingQueue()
 		}
 	}
 	self.waitLocks.Push(lock)
