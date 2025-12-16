@@ -570,8 +570,10 @@ func (self *LockManager) AddWaitLock(lock *Lock) *Lock {
 	if self.waitLocks == nil {
 		self.waitLocks = NewLockManagerWaitQueue(false)
 	} else {
-		if lock.command.TimeoutFlag&protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY != 0 && !self.waitLocks.priorityQueue && lock.command.Rcount != self.waitLocks.MaxPriority() {
-			self.waitLocks.RePushPriorityRingQueue()
+		if lock.command.TimeoutFlag&protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY != 0 && !self.waitLocks.priorityQueue {
+			if self.waitLocks.Head() != nil && lock.command.Rcount != self.waitLocks.MaxPriority() {
+				self.waitLocks.RePushPriorityRingQueue()
+			}
 		}
 	}
 	self.waitLocks.Push(lock)
