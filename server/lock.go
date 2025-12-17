@@ -288,6 +288,7 @@ func (self *LockManagerWaitQueue) Rellac() {
 	self.fastQueue = self.fastQueue[:0]
 	self.fastIndex = 0
 	self.ringQueue = nil
+	self.priorityQueue = false
 }
 
 func (self *LockManagerWaitQueue) IterNodes() [][]*Lock {
