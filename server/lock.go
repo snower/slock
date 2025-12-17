@@ -94,14 +94,18 @@ func NewLockManagerPriorityRingQueue(size int) *LockManagerPriorityRingQueue {
 }
 
 func (self *LockManagerPriorityRingQueue) Push(lock *Lock) {
+	lockPriority := uint8(0)
+	if lock.command.TimeoutFlag&protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY != 0 {
+		lockPriority = lock.command.Rcount
+	}
 	for _, node := range self.priorityNodes {
-		if node.priority == lock.command.Rcount {
+		if node.priority == lockPriority {
 			node.ringQueue.Push(lock)
 			return
 		}
 	}
 
-	node := &LockManagerPriorityRingQueueNode{NewLockManagerRingQueue(self.size), lock.command.Rcount}
+	node := &LockManagerPriorityRingQueueNode{NewLockManagerRingQueue(self.size), lockPriority}
 	if len(self.priorityNodes) == 0 {
 		self.priorityNodes = append(self.priorityNodes, node)
 	} else if len(self.priorityNodes) == 1 {

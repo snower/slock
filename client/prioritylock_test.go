@@ -122,13 +122,31 @@ func TestPriorityLock_LockAndUnLock(t *testing.T) {
 			}
 		}()
 		time.Sleep(100 * time.Millisecond)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			lock4 := client.Lock(testString2Key("TestPriorityLock"), 5, 10)
+			lock4.SetRcount(5)
+			_, err = lock4.Lock()
+			if err != nil {
+				t.Errorf("Lock Fail %v", err)
+				return
+			}
+			lockOrders = append(lockOrders, 4)
+			_, err = lock4.Unlock()
+			if err != nil {
+				t.Errorf("Lock Fail %v", err)
+				return
+			}
+		}()
+		time.Sleep(100 * time.Millisecond)
 		_, err = lock.Unlock()
 		if err != nil {
 			t.Errorf("Lock Fail %v", err)
 			return
 		}
 		wg.Wait()
-		if len(lockOrders) != 3 || lockOrders[0] != 3 || lockOrders[1] != 1 || lockOrders[2] != 2 {
+		if len(lockOrders) != 4 || lockOrders[0] != 3 || lockOrders[1] != 1 || lockOrders[2] != 2 || lockOrders[3] != 4 {
 			t.Errorf("Lock Priority Fail %v", lockOrders)
 		}
 	})
