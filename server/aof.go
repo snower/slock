@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"github.com/snower/slock/protocol"
 	"io"
 	"os"
 	"path/filepath"
@@ -14,6 +13,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/snower/slock/protocol"
 )
 
 const AOF_LOCK_TYPE_FILE = 0
@@ -27,6 +28,7 @@ const AOF_FLAG_REWRITED = 0x0001
 const AOF_FLAG_TIMEOUTED = 0x0002
 const AOF_FLAG_EXPRIED = 0x0004
 const AOF_FLAG_UPDATED = 0x0008
+const AOF_FLAG_RCOUNT_IS_PRIORITY = 0x0010
 const AOF_FLAG_REQUIRE_ACKED = 0x1000
 const AOF_FLAG_CONTAINS_DATA = 0x2000
 
@@ -767,6 +769,9 @@ func (self *AofChannel) Push(dbId uint8, lock *Lock, commandType uint8, lockComm
 	} else {
 		aofLock.lock = nil
 	}
+	if lockCommand.TimeoutFlag&protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY != 0 {
+		aofLock.AofFlag |= AOF_FLAG_RCOUNT_IS_PRIORITY
+	}
 	aofLock.HandleType = AOF_LOCK_TYPE_FILE
 	if lockData != nil {
 		aofLock.AofFlag |= AOF_FLAG_CONTAINS_DATA
@@ -967,6 +972,9 @@ func (self *AofChannel) HandleLoad(aofLock *AofLock) {
 	} else {
 		lockCommand.TimeoutFlag = 0
 	}
+	if aofLock.AofFlag&AOF_FLAG_RCOUNT_IS_PRIORITY != 0 {
+		lockCommand.TimeoutFlag |= protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY
+	}
 	lockCommand.Timeout = 0
 	lockCommand.ExpriedFlag = aofLock.ExpriedFlag
 	lockCommand.Expried = self.aof.GetLockCommandExpriedTime(self.lockDb, aofLock)
@@ -1010,6 +1018,9 @@ func (self *AofChannel) HandleReplay(aofLock *AofLock) {
 		lockCommand.TimeoutFlag = protocol.TIMEOUT_FLAG_REQUIRE_ACKED
 	} else {
 		lockCommand.TimeoutFlag = 0
+	}
+	if aofLock.AofFlag&AOF_FLAG_RCOUNT_IS_PRIORITY != 0 {
+		lockCommand.TimeoutFlag |= protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY
 	}
 	lockCommand.Timeout = 0
 	lockCommand.ExpriedFlag = aofLock.ExpriedFlag
