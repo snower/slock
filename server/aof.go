@@ -2145,7 +2145,7 @@ func (self *Aof) GetLockCommandExpriedTime(lockDb *LockDB, aofLock *AofLock) uin
 			if aofLock.ExpriedTime > uint16(expriedTimeMinutes) {
 				return aofLock.ExpriedTime - uint16(expriedTimeMinutes)
 			}
-			return 1
+			return 0
 		}
 		return aofLock.ExpriedTime
 	} else if aofLock.ExpriedTime > 0 {
@@ -2154,7 +2154,7 @@ func (self *Aof) GetLockCommandExpriedTime(lockDb *LockDB, aofLock *AofLock) uin
 			if aofLock.ExpriedTime > uint16(expriedTimeSeconds) {
 				return aofLock.ExpriedTime - uint16(expriedTimeSeconds)
 			}
-			return 1
+			return 0
 		}
 		return aofLock.ExpriedTime
 	}
@@ -2176,14 +2176,14 @@ func (self *Aof) GetAofLockExpriedTime(lockCommand *protocol.LockCommand, lock *
 		if expriedTimeSeconds > 0 {
 			return uint16(expriedTimeSeconds/60) + 1
 		}
-		return 1
+		return 0
 	}
 	if lock.expriedTime > 0 {
 		expriedTimeSeconds := lock.expriedTime - int64(aofLock.CommandTime)
 		if expriedTimeSeconds > 0 {
 			return uint16(expriedTimeSeconds)
 		}
-		return 1
+		return 0
 	}
 	return lockCommand.Expried
 }
