@@ -1471,19 +1471,17 @@ func (self *Aof) LoadAofFile(filename string, lock *AofLock, expriedTime int64, 
 			lock.data = nil
 		}
 
-		if lock.CommandType != protocol.COMMAND_LOCK || lock.Flag&protocol.LOCK_FLAG_UPDATE_WHEN_LOCKED == 0 {
-			if lock.ExpriedFlag&protocol.EXPRIED_FLAG_MILLISECOND_TIME != 0 {
-				if int64(lock.CommandTime+uint64(lock.ExpriedTime)/1000) <= expriedTime {
-					continue
-				}
-			} else if lock.ExpriedFlag&protocol.EXPRIED_FLAG_MINUTE_TIME != 0 {
-				if int64(lock.CommandTime+uint64(lock.ExpriedTime)*60) <= expriedTime {
-					continue
-				}
-			} else if lock.ExpriedFlag&protocol.EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME == 0 {
-				if lock.ExpriedTime > 0 && int64(lock.CommandTime+uint64(lock.ExpriedTime)) <= expriedTime {
-					continue
-				}
+		if lock.ExpriedFlag&protocol.EXPRIED_FLAG_MILLISECOND_TIME != 0 {
+			if int64(lock.CommandTime+uint64(lock.ExpriedTime)/1000) <= expriedTime {
+				continue
+			}
+		} else if lock.ExpriedFlag&protocol.EXPRIED_FLAG_MINUTE_TIME != 0 {
+			if int64(lock.CommandTime+uint64(lock.ExpriedTime)*60) <= expriedTime {
+				continue
+			}
+		} else if lock.ExpriedFlag&protocol.EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME == 0 {
+			if lock.ExpriedTime > 0 && int64(lock.CommandTime+uint64(lock.ExpriedTime)) <= expriedTime {
+				continue
 			}
 		}
 
