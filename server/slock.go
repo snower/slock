@@ -49,7 +49,10 @@ func NewSLock(config *ServerConfig, logger logging.Logger) *SLock {
 
 	aof := NewAof()
 	replicationManager := NewReplicationManager()
-	subscribeManager := NewSubscribeManager()
+	var subscribeManager *SubscribeManager = nil
+	if config.SubscribeEnabled {
+		subscribeManager = NewSubscribeManager()
+	}
 	admin := NewAdmin()
 	now := time.Now()
 	slock := &SLock{nil, make([]*LockDB, 256), &sync.Mutex{}, aof, replicationManager, nil, subscribeManager, admin, logger,
@@ -58,7 +61,9 @@ func NewSLock(config *ServerConfig, logger logging.Logger) *SLock {
 	aof.slock = slock
 	replicationManager.slock = slock
 	replicationManager.transparencyManager.slock = slock
-	subscribeManager.slock = slock
+	if subscribeManager != nil {
+		subscribeManager.slock = slock
+	}
 	admin.slock = slock
 	defaultServerProtocol = NewDefaultServerProtocol(slock)
 	return slock
@@ -140,8 +145,10 @@ func (self *SLock) initFollower(leaderAddress string) error {
 		self.logger.Errorf("Replication init error %v", err)
 		return err
 	}
-	_ = self.subscribeManager.ChangeLeader(leaderAddress)
-	self.logger.Infof("Slock init by follower")
+	if self.subscribeManager != nil {
+		_ = self.subscribeManager.ChangeLeader(leaderAddress)
+		self.logger.Infof("Slock init by follower")
+	}
 	return nil
 }
 
@@ -193,7 +200,9 @@ func (self *SLock) PrepareClose() {
 	time.Sleep(time.Second)
 	self.aof.Close()
 	self.replicationManager.Close()
-	self.subscribeManager.Close()
+	if self.subscribeManager != nil {
+		self.subscribeManager.Close()
+	}
 	self.admin.Close()
 }
 
@@ -239,7 +248,9 @@ func (self *SLock) updateState(state uint8) {
 	if isQuitLeader {
 		_ = self.aof.WaitFlushAofChannel()
 		_ = self.replicationManager.WaitServerSynced()
-		_ = self.subscribeManager.WaitFlushSubscribeChannel()
+		if self.subscribeManager != nil {
+			_ = self.subscribeManager.WaitFlushSubscribeChannel()
+		}
 	}
 }
 

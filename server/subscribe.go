@@ -3,13 +3,14 @@ package server
 import (
 	"errors"
 	"fmt"
-	"github.com/snower/slock/client"
-	"github.com/snower/slock/protocol"
 	"io"
 	"net"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/snower/slock/client"
+	"github.com/snower/slock/protocol"
 )
 
 var subscriberIdIndex uint32 = 0
@@ -349,10 +350,12 @@ func (self *SubscribeClient) Process() error {
 		if db == nil {
 			db = self.manager.slock.GetOrNewDB(self.publishLock.DbId)
 		}
-		publishId := uint64(buf[3]) | uint64(buf[4])<<8 | uint64(buf[5])<<16 | uint64(buf[6])<<24 | uint64(buf[7])<<32 | uint64(buf[8])<<40 | uint64(buf[9])<<48 | uint64(buf[10])<<56
-		err = db.subscribeChannels[publishId%uint64(db.managerMaxGlocks)].ClientPush(self.publishLock)
-		if err != nil {
-			return err
+		if db.subscribeChannels != nil {
+			publishId := uint64(buf[3]) | uint64(buf[4])<<8 | uint64(buf[5])<<16 | uint64(buf[6])<<24 | uint64(buf[7])<<32 | uint64(buf[8])<<40 | uint64(buf[9])<<48 | uint64(buf[10])<<56
+			err = db.subscribeChannels[publishId%uint64(db.managerMaxGlocks)].ClientPush(self.publishLock)
+			if err != nil {
+				return err
+			}
 		}
 	}
 	return io.EOF

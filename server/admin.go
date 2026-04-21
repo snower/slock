@@ -493,7 +493,7 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 		infos = append(infos, "")
 	}
 
-	if section == "" || section == "subscribe" {
+	if self.slock.subscribeManager != nil && (section == "" || section == "subscribe") {
 		infos = append(infos, "# Subscribe")
 		infos = append(infos, fmt.Sprintf("subscriber:%d", len(self.slock.subscribeManager.fastSubscribers)))
 		infos = append(infos, fmt.Sprintf("subscribe_channel_count:%d", self.slock.subscribeManager.channelCount))

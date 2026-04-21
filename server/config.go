@@ -55,13 +55,10 @@ type ServerConfig struct {
 	AofAckMode           uint    `toml:"aof_ack_mode" long:"aof_ack_mode" description:"slave ack mode (0 Mixed 1 Most 2 All)" default:"0"`
 	SlaveOf              string  `toml:"slaveof" long:"slaveof" description:"slave of to master sync" default:""`
 	ReplSet              string  `toml:"replset" long:"replset" description:"replset name, start replset mode when it set" default:""`
+	SubscribeEnabled     bool    `toml:"subscribe_enabled" long:"subscribe_enabled" description:"enable subscribe" default:"false"`
 }
 
 var Config *ServerConfig = nil
-
-func GetConfig() *ServerConfig {
-	return Config
-}
 
 func SetConfig(config *ServerConfig) {
 	Config = config
@@ -130,6 +127,9 @@ func ExtendConfig(config *ServerConfig, oconfig *ServerConfig) *ServerConfig {
 	}
 	if config.ReplSet == "" && oconfig.ReplSet != "" {
 		config.ReplSet = oconfig.ReplSet
+	}
+	if !config.SubscribeEnabled && oconfig.SubscribeEnabled {
+		config.SubscribeEnabled = oconfig.SubscribeEnabled
 	}
 	return config
 }

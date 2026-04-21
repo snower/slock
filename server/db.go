@@ -315,7 +315,10 @@ func NewLockDB(slock *SLock, dbId uint8) *LockDB {
 	freeLongWaitQueues := make([]*LongWaitLockFreeQueue, managerMaxGlocks)
 	freeMillisecondWaitQueues := make([]*MillisecondWaitLockFreeQueue, managerMaxGlocks)
 	aofChannels := make([]*AofChannel, managerMaxGlocks)
-	subscribeChannels := make([]*SubscribeChannel, managerMaxGlocks)
+	var subscribeChannels []*SubscribeChannel = nil
+	if slock.GetSubscribeManager() != nil {
+		subscribeChannels = make([]*SubscribeChannel, managerMaxGlocks)
+	}
 	exectors := make([]*LockDBExecutor, managerMaxGlocks)
 	states := make([]*protocol.LockDBState, managerMaxGlocks+1)
 	for i := uint16(0); i < managerMaxGlocks; i++ {
@@ -367,7 +370,9 @@ func NewLockDB(slock *SLock, dbId uint8) *LockDB {
 	}
 
 	db.resizeAofChannels()
-	db.resizeSubScribeChannels()
+	if subscribeChannels != nil {
+		db.resizeSubScribeChannels()
+	}
 	db.resizeTimeOut()
 	db.resizeExpried()
 	db.resizeWaitRemoveLockManagerQueue()
@@ -472,7 +477,9 @@ func (self *LockDB) Close() {
 		self.flushExpried(i, false)
 		self.flushWaitRemoveLockManagerQueue(i)
 		self.slock.GetAof().CloseAofChannel(self.aofChannels[i])
-		self.slock.GetSubscribeManager().CloseSubscribeChannel(self.subscribeChannels[i])
+		if self.subscribeChannels != nil {
+			self.slock.GetSubscribeManager().CloseSubscribeChannel(self.subscribeChannels[i])
+		}
 		self.managerGlocks[i].LowPriorityUnlock()
 	}
 	close(self.closeWaiter)
@@ -1486,7 +1493,7 @@ func (self *LockDB) doTimeOut(lock *Lock, forcedExpried bool, removeWaited bool)
 		if lock.isAof {
 			_ = lockManager.PushUnLockAof(lockManager.dbId, lock, lockCommand, nil, false, AOF_FLAG_TIMEOUTED)
 		}
-		if lock.command.TimeoutFlag&protocol.TIMEOUT_FLAG_PUSH_SUBSCRIBE != 0 {
+		if self.subscribeChannels != nil && lock.command.TimeoutFlag&protocol.TIMEOUT_FLAG_PUSH_SUBSCRIBE != 0 {
 			_ = self.subscribeChannels[lockManager.glockIndex].Push(lockCommand, protocol.RESULT_TIMEOUT, uint16(lockManager.locked), lock.locked, lockManager.GetLockData())
 		}
 		lockManager.RemoveLock(lock)
@@ -1497,7 +1504,7 @@ func (self *LockDB) doTimeOut(lock *Lock, forcedExpried bool, removeWaited bool)
 			lockManager.waited = false
 		}
 		lockManager.state.WaitCount--
-		if lock.command.TimeoutFlag&protocol.TIMEOUT_FLAG_PUSH_SUBSCRIBE != 0 {
+		if self.subscribeChannels != nil && lock.command.TimeoutFlag&protocol.TIMEOUT_FLAG_PUSH_SUBSCRIBE != 0 {
 			_ = self.subscribeChannels[lockManager.glockIndex].Push(lockCommand, protocol.RESULT_TIMEOUT, uint16(lockManager.locked), lock.locked, lockManager.GetLockData())
 		}
 	}
@@ -1671,7 +1678,7 @@ func (self *LockDB) doExpried(lock *Lock, forcedExpried bool, removeWaited bool)
 	if lock.isAof {
 		_ = lockManager.PushUnLockAof(lockManager.dbId, lock, lockCommand, nil, false, AOF_FLAG_EXPRIED)
 	}
-	if lockCommand.ExpriedFlag&protocol.EXPRIED_FLAG_PUSH_SUBSCRIBE != 0 {
+	if self.subscribeChannels != nil && lockCommand.ExpriedFlag&protocol.EXPRIED_FLAG_PUSH_SUBSCRIBE != 0 {
 		_ = self.subscribeChannels[lockManager.glockIndex].Push(lockCommand, protocol.RESULT_EXPRIED, uint16(lockManager.locked), lock.locked, lockManager.GetLockData())
 	}
 	lockManager.RemoveLock(lock)
@@ -1998,7 +2005,7 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 				_ = lockManager.PushLockAof(lock, 0)
 			}
 		}
-		if command.ExpriedFlag&protocol.EXPRIED_FLAG_PUSH_SUBSCRIBE != 0 {
+		if self.subscribeChannels != nil && command.ExpriedFlag&protocol.EXPRIED_FLAG_PUSH_SUBSCRIBE != 0 {
 			_ = self.subscribeChannels[lockManager.glockIndex].Push(command, protocol.RESULT_EXPRIED, uint16(lockManager.locked), lock.locked, lockManager.GetLockData())
 		}
 		lockManager.FreeLock(lock)
@@ -2049,7 +2056,7 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 		return nil
 	}
 
-	if lock.command.TimeoutFlag&protocol.TIMEOUT_FLAG_PUSH_SUBSCRIBE != 0 {
+	if self.subscribeChannels != nil && lock.command.TimeoutFlag&protocol.TIMEOUT_FLAG_PUSH_SUBSCRIBE != 0 {
 		_ = self.subscribeChannels[lockManager.glockIndex].Push(command, protocol.RESULT_TIMEOUT, uint16(lockManager.locked), lock.locked, lockManager.GetLockData())
 	}
 	lockManager.FreeLock(lock)
@@ -2415,7 +2422,7 @@ func (self *LockDB) wakeUpWaitLock(lockManager *LockManager, waitLock *Lock, ser
 	waitLockProtocol, waitLockCommand := waitLock.protocol, waitLock.command
 	lockManager.state.LockCount++
 	lockManager.state.WaitCount--
-	if waitLockCommand.ExpriedFlag&protocol.EXPRIED_FLAG_PUSH_SUBSCRIBE != 0 {
+	if self.subscribeChannels != nil && waitLockCommand.ExpriedFlag&protocol.EXPRIED_FLAG_PUSH_SUBSCRIBE != 0 {
 		_ = self.subscribeChannels[lockManager.glockIndex].Push(waitLockCommand, protocol.RESULT_EXPRIED, uint16(lockManager.locked), waitLock.locked, lockManager.GetLockData())
 	}
 	lockManager.glock.Unlock()
@@ -2516,7 +2523,7 @@ func (self *LockDB) addUnlockLockCommandToWaitLock(lockManager *LockManager, com
 		return
 	}
 
-	if command.TimeoutFlag&protocol.TIMEOUT_FLAG_PUSH_SUBSCRIBE != 0 {
+	if self.subscribeChannels != nil && command.TimeoutFlag&protocol.TIMEOUT_FLAG_PUSH_SUBSCRIBE != 0 {
 		_ = self.subscribeChannels[lockManager.glockIndex].Push(command, protocol.RESULT_TIMEOUT, uint16(lockManager.locked), 0, lockManager.GetLockData())
 	}
 	lockManager.glock.Unlock()

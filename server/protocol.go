@@ -1386,6 +1386,9 @@ func (self *BinaryServerProtocol) ProcessCommad(command protocol.ICommand) error
 			return self.Write(protocol.NewLeaderResultCommand(leaderCommand, protocol.RESULT_SUCCED, self.slock.replicationManager.transparencyManager.leaderAddress))
 		case protocol.COMMAND_SUBSCRIBE:
 			subscribeCommand := command.(*protocol.SubscribeCommand)
+			if self.slock.subscribeManager == nil {
+				return self.Write(protocol.NewSubscribeResultCommand(subscribeCommand, protocol.RESULT_ERROR, subscribeCommand.SubscribeId))
+			}
 			subscribeResultCommand, err := self.slock.subscribeManager.handleSubscribeCommand(self, subscribeCommand)
 			if err != nil {
 				return err
