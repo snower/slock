@@ -644,7 +644,7 @@ type BinaryServerProtocol struct {
 func NewBinaryServerProtocol(slock *SLock, stream *Stream) *BinaryServerProtocol {
 	proxy := &ProxyServerProtocol{[16]byte{}, nil}
 	serverProtocol := &BinaryServerProtocol{slock, &sync.Mutex{}, stream, nil, make([]*ProxyServerProtocol, 0), make([]*protocol.LockCommand, FREE_COMMAND_MAX_SIZE),
-		0, NewLockCommandQueue(4, 64, FREE_COMMAND_QUEUE_INIT_SIZE), nil, make([]byte, 64),
+		0, NewLockCommandQueue(4, 16, FREE_COMMAND_QUEUE_INIT_SIZE), nil, make([]byte, 64),
 		nil, nil, 0, false, false}
 	proxy.serverProtocol = serverProtocol
 	serverProtocol.InitLockCommand()
@@ -1824,7 +1824,7 @@ func NewTextServerProtocol(slock *SLock, stream *Stream) *TextServerProtocol {
 	proxy := &ProxyServerProtocol{[16]byte{}, nil}
 	parser := protocol.NewTextParser(make([]byte, 1024), make([]byte, 1024))
 	serverProtocol := &TextServerProtocol{slock, &sync.Mutex{}, stream, nil, make([]*ProxyServerProtocol, 0), make([]*protocol.LockCommand, FREE_COMMAND_MAX_SIZE),
-		0, NewLockCommandQueue(4, 64, FREE_COMMAND_QUEUE_INIT_SIZE), nil, parser, protocol.NewTextCommandConverter(),
+		0, NewLockCommandQueue(4, 16, FREE_COMMAND_QUEUE_INIT_SIZE), nil, parser, protocol.NewTextCommandConverter(),
 		nil, make(chan *protocol.LockResultCommand, 4), [16]byte{}, [16]byte{}, nil, 0, 15, 0, false}
 	proxy.serverProtocol = serverProtocol
 	serverProtocol.InitLockCommand()
