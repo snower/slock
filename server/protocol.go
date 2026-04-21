@@ -365,7 +365,7 @@ type MemWaiterServerProtocol struct {
 func NewMemWaiterServerProtocol(slock *SLock) *MemWaiterServerProtocol {
 	proxy := &ProxyServerProtocol{[16]byte{}, nil}
 	memWaiterServerProtocol := &MemWaiterServerProtocol{slock, &sync.Mutex{}, nil, make([]*ProxyServerProtocol, 0), make([]*protocol.LockCommand, FREE_COMMAND_MAX_SIZE),
-		0, NewLockCommandQueue(4, 64, FREE_COMMAND_QUEUE_INIT_SIZE),
+		0, NewLockCommandQueue(4, 16, FREE_COMMAND_QUEUE_INIT_SIZE),
 		make(map[[16]byte]chan *protocol.LockResultCommand, 4096), nil, 0, false}
 	proxy.serverProtocol = memWaiterServerProtocol
 	memWaiterServerProtocol.InitLockCommand()
