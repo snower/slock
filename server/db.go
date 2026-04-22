@@ -307,7 +307,7 @@ func NewLockDBFreeCollector() *LockDBFreeCollector {
 }
 
 func (self *LockDBFreeCollector) Collect(db *LockDB) error {
-	currentTime := db.currentTime
+	currentTime := time.Now().Unix()
 	lockCount := uint64(0)
 	for _, state := range db.states {
 		lockCount += state.LockCount
@@ -328,11 +328,11 @@ func (self *LockDBFreeCollector) Collect(db *LockDB) error {
 	minLockCount, minLongWaitQueueCount, minMillisecondWaitQueueCount := minLockManagerCount*2, 4, 8
 
 	if lockAvgCount <= self.lastLockAvgCount*2 {
-		if freeLockManagerCount > minLockManagerCount && freeLockManagerCount-self.lastFreeLockManagerCount < lockAvgCount*2 {
+		if freeLockManagerCount >= minLockManagerCount && freeLockManagerCount-self.lastFreeLockManagerCount <= lockAvgCount*2 {
 			db.deInitNewLockManager(freeLockManagerCount/20, minLockManagerCount)
 		}
 
-		if freeLockCount > minLockCount && freeLockCount-self.lastFreeLockCount < lockAvgCount*4 {
+		if freeLockCount >= minLockCount && freeLockCount-self.lastFreeLockCount <= lockAvgCount*4 {
 			freeCount := freeLockCount / 20 / int(db.managerMaxGlocks)
 			if freeCount > 0 {
 				for i := uint16(0); i < db.managerMaxGlocks; i++ {
@@ -345,7 +345,7 @@ func (self *LockDBFreeCollector) Collect(db *LockDB) error {
 			}
 		}
 
-		if freeLongWaitQueueCount > minLongWaitQueueCount && freeLongWaitQueueCount-self.lastFreeLongWaitQueueCount < lockAvgCount {
+		if freeLongWaitQueueCount >= minLongWaitQueueCount && freeLongWaitQueueCount-self.lastFreeLongWaitQueueCount <= lockAvgCount {
 			freeCount := freeLongWaitQueueCount / 20 / int(db.managerMaxGlocks)
 			if freeCount > 0 {
 				for i := uint16(0); i < db.managerMaxGlocks; i++ {
@@ -358,7 +358,7 @@ func (self *LockDBFreeCollector) Collect(db *LockDB) error {
 			}
 		}
 
-		if freeMillisecondWaitQueueCount > minMillisecondWaitQueueCount && freeMillisecondWaitQueueCount-self.lastFreeMillisecondWaitQueueCount < lockAvgCount {
+		if freeMillisecondWaitQueueCount >= minMillisecondWaitQueueCount && freeMillisecondWaitQueueCount-self.lastFreeMillisecondWaitQueueCount <= lockAvgCount {
 			freeCount := freeMillisecondWaitQueueCount / 20 / int(db.managerMaxGlocks)
 			if freeCount > 0 {
 				for i := uint16(0); i < db.managerMaxGlocks; i++ {

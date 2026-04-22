@@ -1,11 +1,12 @@
 package server
 
 import (
-	"github.com/jessevdk/go-flags"
-	"github.com/snower/slock/protocol"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/jessevdk/go-flags"
+	"github.com/snower/slock/protocol"
 )
 
 func testWithLockDB(t *testing.T, doTestFunc func(db *LockDB)) {
@@ -192,4 +193,63 @@ func TestLockDBExecutorFlushQueueDrainsAllTasks(t *testing.T) {
 			t.Fatalf("expected 2 tasks to be returned to free list, got %d", executor.freeTaskIndex)
 		}
 	})
+}
+
+func TestLockDBFreeCollectorCollectShrinksFreePools(t *testing.T) {
+	serverConfig := &ServerConfig{DBConcurrent: 1}
+	parse := flags.NewParser(serverConfig, flags.Default)
+	_, err := parse.ParseArgs([]string{})
+	if err != nil {
+		t.Fatalf("Init LockDB Fail %v", err)
+	}
+	logger, _ := InitLogger(serverConfig)
+	serverConfig.DBConcurrent = 1
+	slock := NewSLock(serverConfig, logger)
+	slock.state = STATE_LEADER
+	db := NewLockDB(slock, 0)
+	db.status = STATE_LEADER
+	defer func() {
+		db.status = STATE_CLOSE
+		db.Close()
+	}()
+
+	db.initNewLockManager(0, 0)
+	db.initNewLockManager(0, 0)
+	for i := 0; i < 100; i++ {
+		_ = db.freeLocks[0].Push(&Lock{})
+		db.freeLongWaitQueues[0].FreeLongWaitLockQueue(&LongWaitLockQueue{NewLockQueue(4, 64, LONG_LOCKS_QUEUE_INIT_SIZE), 0, 0, 0, 0})
+		db.freeMillisecondWaitQueues[0].FreeLockQueue(NewLockQueue(4, 64, LONG_LOCKS_QUEUE_INIT_SIZE))
+	}
+
+	lockCount := uint64(1)
+	db.states[0].LockCount = lockCount
+	db.currentTime = time.Now().Unix()
+	freeLongWaitQueueCount := db.freeLongWaitQueues[0].Len()
+	freeMillisecondWaitQueueCount := db.freeMillisecondWaitQueues[0].Len()
+
+	collector := &LockDBFreeCollector{
+		lastCollectTime:                   db.currentTime - 1,
+		lastLockCount:                     0,
+		lastLockAvgCount:                  10,
+		lastFreeLockManagerCount:          db.GetFreeLockManagerLen(),
+		lastFreeLockCount:                 int(db.freeLocks[0].Len()),
+		lastFreeLongWaitQueueCount:        freeLongWaitQueueCount,
+		lastFreeMillisecondWaitQueueCount: freeMillisecondWaitQueueCount,
+	}
+	if err := collector.Collect(db); err != nil {
+		t.Fatalf("collect failed: %v", err)
+	}
+
+	if db.GetFreeLockManagerLen() != 31 {
+		t.Fatalf("expected one free lock to be reclaimed, got %d", db.freeLocks[0].Len())
+	}
+	if db.freeLocks[0].Len() != 95 {
+		t.Fatalf("expected one free lock to be reclaimed, got %d", db.freeLocks[0].Len())
+	}
+	if db.freeLongWaitQueues[0].Len() != 95 {
+		t.Fatalf("expected one long-wait queue slot to be reclaimed, got %d", db.freeLongWaitQueues[0].Len())
+	}
+	if db.freeMillisecondWaitQueues[0].Len() != 95 {
+		t.Fatalf("expected one millisecond queue slot to be reclaimed, got %d", db.freeMillisecondWaitQueues[0].Len())
+	}
 }

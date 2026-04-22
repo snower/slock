@@ -39,7 +39,7 @@ func (self *ServerProtocolFreeCollector) Collect(slock *SLock, glock *sync.Mutex
 	}
 
 	if avgCommandCount <= self.lastAvgCommandCount*2 {
-		if freeLockCommandCount > minFreeLockCommandCount && freeLockCommandCount-self.lastFreeLockCommandCount < avgCommandCount*2 {
+		if freeLockCommandCount >= minFreeLockCommandCount && freeLockCommandCount-self.lastFreeLockCommandCount <= avgCommandCount*2 {
 			freeCount := freeLockCommandCount / 20
 			if freeCount > 0 {
 				glock.Lock()

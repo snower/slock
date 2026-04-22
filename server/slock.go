@@ -42,7 +42,7 @@ func (self *SLockFreeCollector) Collect(slock *SLock, totalCommandCount uint64) 
 	}
 
 	if avgCommandCount <= self.lastAvgCommandCount*2 {
-		if freeLockCommandCount > minFreeLockCommandCount && freeLockCommandCount-self.lastFreeLockCommandCount < avgCommandCount*2 {
+		if freeLockCommandCount >= minFreeLockCommandCount && freeLockCommandCount-self.lastFreeLockCommandCount <= avgCommandCount*2 {
 			freeCount := freeLockCommandCount / 20
 			if freeCount > 0 {
 				slock.freeLockCommandLock.Lock()
