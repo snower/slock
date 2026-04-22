@@ -203,7 +203,7 @@ func (self *ReplicationBufferQueue) Push(buf []byte, data []byte) error {
 	var queueItem *ReplicationBufferQueueItem = nil
 	if self.usedBufferSize >= self.bufferSize && self.tailItem != nil {
 		if self.tailItem.pollIndex < self.tailItem.pollCount && self.bufferSize < self.maxBufferSize {
-			if int(atomic.LoadUint32(&self.manager.serverActiveCount)) < len(self.manager.serverChannels) {
+			if self.manager != nil && int(atomic.LoadUint32(&self.manager.serverActiveCount)) < len(self.manager.serverChannels) {
 				self.glock.Wait(10 * time.Millisecond)
 			}
 			if self.usedBufferSize >= self.bufferSize && self.tailItem != nil {
