@@ -24,17 +24,26 @@ type ReplicationBufferMutex struct {
 }
 
 func NewReplicationBufferMutex() *ReplicationBufferMutex {
-	return &ReplicationBufferMutex{&sync.Mutex{}, &sync.RWMutex{}, make(chan struct{}), 0}
+	return &ReplicationBufferMutex{&sync.Mutex{}, &sync.RWMutex{}, make(chan struct{}, 1), 0}
 }
 
 func (self *ReplicationBufferMutex) Lock() {
-	self.lock.Lock()
 	self.rwlock.Lock()
+	if atomic.LoadUint32(&self.state) == 1 {
+		for {
+			self.rwlock.Unlock()
+			self.lock.Lock()
+			self.lock.Unlock()
+			self.rwlock.Lock()
+			if atomic.LoadUint32(&self.state) == 0 {
+				return
+			}
+		}
+	}
 }
 
 func (self *ReplicationBufferMutex) Unlock() {
 	self.rwlock.Unlock()
-	self.lock.Unlock()
 }
 
 func (self *ReplicationBufferMutex) RLock() {
@@ -46,22 +55,22 @@ func (self *ReplicationBufferMutex) RUnlock() {
 }
 
 func (self *ReplicationBufferMutex) Wait(duration time.Duration) {
+	self.lock.Lock()
 	if atomic.CompareAndSwapUint32(&self.state, 0, 1) {
 		self.rwlock.Unlock()
 		select {
 		case <-self.waiter:
 			time.Sleep(100 * time.Microsecond)
 			self.rwlock.Lock()
+			self.lock.Unlock()
 			return
 		case <-time.After(duration):
 			self.rwlock.Lock()
+			self.lock.Unlock()
 			return
 		}
-	} else {
-		self.rwlock.Unlock()
-		time.Sleep(duration)
-		self.rwlock.Lock()
 	}
+	self.lock.Unlock()
 }
 
 func (self *ReplicationBufferMutex) Wakeup() {
@@ -201,21 +210,28 @@ func (self *ReplicationBufferQueue) Close() error {
 func (self *ReplicationBufferQueue) Push(buf []byte, data []byte) error {
 	self.glock.Lock()
 	var queueItem *ReplicationBufferQueueItem = nil
-	if self.usedBufferSize >= self.bufferSize && self.tailItem != nil {
+	if (self.freeHeadItem == nil || self.usedBufferSize >= self.bufferSize) && self.tailItem != nil {
 		if self.tailItem.pollIndex < self.tailItem.pollCount && self.bufferSize < self.maxBufferSize {
 			if self.manager != nil && int(atomic.LoadUint32(&self.manager.serverActiveCount)) < len(self.manager.serverChannels) {
 				self.glock.Wait(10 * time.Millisecond)
-			}
-			if self.usedBufferSize >= self.bufferSize && self.tailItem != nil {
-				if self.tailItem.pollIndex < self.tailItem.pollCount && self.bufferSize < self.maxBufferSize {
-					self.InitFreeQueueItems(self.bufferSize / 64)
-					self.bufferSize = self.bufferSize * 2
-					self.dupCount++
-					if self.manager != nil {
-						self.manager.slock.logger.Infof("Replication ring buffer duplicate %d %d", self.bufferSize, self.dupCount)
+				if (self.freeHeadItem == nil || self.usedBufferSize >= self.bufferSize) && self.tailItem != nil {
+					if self.tailItem.pollIndex < self.tailItem.pollCount && self.bufferSize < self.maxBufferSize {
+						self.InitFreeQueueItems(self.bufferSize / 64)
+						self.bufferSize = self.bufferSize * 2
+						self.dupCount++
+						if self.manager != nil {
+							self.manager.slock.logger.Infof("Replication ring buffer duplicate %d %d", self.bufferSize, self.dupCount)
+						}
+					} else {
+						queueItem = self.ResetQueueItems()
 					}
-				} else {
-					queueItem = self.ResetQueueItems()
+				}
+			} else {
+				self.InitFreeQueueItems(self.bufferSize / 64)
+				self.bufferSize = self.bufferSize * 2
+				self.dupCount++
+				if self.manager != nil {
+					self.manager.slock.logger.Infof("Replication ring buffer duplicate %d %d", self.bufferSize, self.dupCount)
 				}
 			}
 		} else {
