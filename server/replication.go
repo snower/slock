@@ -386,11 +386,11 @@ type ReplicationClient struct {
 	aofQueue        chan *AofLock
 	pushQueue       chan *AofLock
 	state           *ReplicationClientState
-	appendWaiter    chan bool
-	replayWaiter    chan bool
-	pushWaiter      chan bool
-	wakeupSignal    chan bool
-	closedWaiter    chan bool
+	appendWaiter    chan struct{}
+	replayWaiter    chan struct{}
+	pushWaiter      chan struct{}
+	wakeupSignal    chan struct{}
+	closedWaiter    chan struct{}
 	closed          bool
 	connectedLeader bool
 	recvedFiles     bool
@@ -401,7 +401,7 @@ func NewReplicationClient(manager *ReplicationManager) *ReplicationClient {
 	channel := &ReplicationClient{manager, &sync.Mutex{}, nil, nil, manager.slock.GetAof(),
 		nil, [16]byte{}, 0, make([]*AofLock, 256), 0, make(chan *AofLock, 64),
 		make(chan *AofLock, 64), make(chan *AofLock, 64), state, nil, nil, nil,
-		nil, make(chan bool, 1), false, true, false}
+		nil, make(chan struct{}), false, true, false}
 	for i := 0; i < len(channel.rbufs); i++ {
 		channel.rbufs[i] = NewAofLock()
 	}
@@ -868,7 +868,7 @@ func (self *ReplicationClient) ProcessReplayLock() {
 	if self.replayWaiter != nil {
 		close(self.replayWaiter)
 	}
-	self.replayWaiter = make(chan bool)
+	self.replayWaiter = make(chan struct{})
 	self.glock.Unlock()
 	defer func() {
 		self.glock.Lock()
@@ -906,7 +906,7 @@ func (self *ReplicationClient) ProcessAofAppend() {
 	if self.appendWaiter != nil {
 		close(self.appendWaiter)
 	}
-	self.appendWaiter = make(chan bool)
+	self.appendWaiter = make(chan struct{})
 	self.glock.Unlock()
 	defer func() {
 		self.glock.Lock()
@@ -992,7 +992,7 @@ func (self *ReplicationClient) ProcessPushAofLock() {
 	if self.pushWaiter != nil {
 		close(self.pushWaiter)
 	}
-	self.pushWaiter = make(chan bool)
+	self.pushWaiter = make(chan struct{})
 	self.glock.Unlock()
 	defer func() {
 		self.glock.Lock()
@@ -1051,7 +1051,7 @@ func (self *ReplicationClient) HandleAcked(ackLock *ReplicationAckLock) error {
 
 func (self *ReplicationClient) sleepWhenRetryConnect() error {
 	self.glock.Lock()
-	self.wakeupSignal = make(chan bool, 1)
+	self.wakeupSignal = make(chan struct{})
 	self.glock.Unlock()
 
 	select {
@@ -1093,10 +1093,10 @@ type ReplicationServer struct {
 	bufferCursor   *ReplicationBufferQueueCursor
 	state          *ReplicationServerState
 	pulledState    uint32
-	pulledWaiter   chan bool
+	pulledWaiter   chan struct{}
 	wakeupedBuffer bool
 	closed         bool
-	closedWaiter   chan bool
+	closedWaiter   chan struct{}
 	sendedFiles    bool
 }
 
@@ -1105,7 +1105,7 @@ func NewReplicationServer(manager *ReplicationManager, serverProtocol *BinarySer
 	state := &ReplicationServerState{0, 0, 0, 0}
 	return &ReplicationServer{manager, &sync.Mutex{}, serverProtocol.stream, serverProtocol,
 		manager.slock.GetAof(), NewAofLock(), waofLock, NewReplicationBufferQueueCursor(waofLock.buf),
-		state, 0, make(chan bool, 1), false, false, make(chan bool, 1), false}
+		state, 0, make(chan struct{}, 1), false, false, make(chan struct{}), false}
 }
 
 func (self *ReplicationServer) Close() error {
@@ -1805,7 +1805,7 @@ type ReplicationManager struct {
 	leaderAddress       string
 	serverCount         uint32
 	serverActiveCount   uint32
-	serverFlushWaiter   chan bool
+	serverFlushWaiter   chan struct{}
 	initedWaters        []chan bool
 	closed              bool
 	isLeader            bool
@@ -1900,7 +1900,7 @@ func (self *ReplicationManager) WaitServerSynced() error {
 		}
 	}
 
-	serverFlushWaiter := make(chan bool, 1)
+	serverFlushWaiter := make(chan struct{})
 	go func() {
 		select {
 		case <-serverFlushWaiter:
@@ -2087,7 +2087,7 @@ func (self *ReplicationManager) WakeupServerChannel() error {
 	}
 	for _, channel := range self.serverChannels {
 		if atomic.CompareAndSwapUint32(&channel.pulledState, 2, 1) {
-			channel.pulledWaiter <- true
+			channel.pulledWaiter <- struct{}{}
 		}
 	}
 	return nil

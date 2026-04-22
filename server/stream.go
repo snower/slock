@@ -113,7 +113,7 @@ type Stream struct {
 	streamId     uint64
 	streamType   uint8
 	closed       bool
-	closedWaiter chan bool
+	closedWaiter chan struct{}
 	nextStream   *Stream
 	lastStream   *Stream
 }
@@ -122,7 +122,7 @@ func NewStream(conn net.Conn) *Stream {
 	now := time.Now()
 	stream := &Stream{conn, nil, NewStreamReaderBuffer(4096),
 		&now, atomic.AddUint64(&clientId, 1), STREAM_TYPE_NORMAL, false,
-		make(chan bool, 1), nil, nil}
+		make(chan struct{}), nil, nil}
 	return stream
 }
 

@@ -149,19 +149,19 @@ type LockDBExecutor struct {
 	runningCount      int
 	queueCount        int
 	executeCount      uint64
-	queueWaiter       chan bool
+	queueWaiter       chan struct{}
 	queueWaited       int
 	glockAcquiredSize int
 	glockAcquired     bool
-	closeWaiter       chan bool
+	closeWaiter       chan struct{}
 }
 
 func NewLockDBExecutor(db *LockDB, glock *PriorityMutex) *LockDBExecutor {
 	freeTaskMax := int(Config.AofQueueSize) / 64
 	executor := &LockDBExecutor{db, glock, &sync.Mutex{}, nil, nil,
 		make([]*LockDBExecutorTask, freeTaskMax), 0, freeTaskMax, 0, 0,
-		0, make(chan bool, 4), 0, freeTaskMax * 2, false,
-		make(chan bool)}
+		0, make(chan struct{}, 4), 0, freeTaskMax * 2, false,
+		make(chan struct{})}
 	go executor.Run()
 	go executor.Run()
 	return executor
@@ -249,7 +249,7 @@ func (self *LockDBExecutor) Push(serverProtocol ServerProtocol, lockCommand *pro
 		self.glockAcquired = self.glock.LowSetPriority()
 	}
 	if self.queueWaited > 0 {
-		self.queueWaiter <- true
+		self.queueWaiter <- struct{}{}
 		self.queueWaited--
 	}
 	self.queueLock.Unlock()
@@ -416,7 +416,7 @@ type LockDB struct {
 	dbId                      uint8
 	states                    []*protocol.LockDBState
 	freeCollector             *LockDBFreeCollector
-	closeWaiter               chan bool
+	closeWaiter               chan struct{}
 }
 
 func NewLockDB(slock *SLock, dbId uint8) *LockDB {
@@ -485,7 +485,7 @@ func NewLockDB(slock *SLock, dbId uint8) *LockDB {
 		dbId:                      dbId,
 		states:                    states,
 		freeCollector:             NewLockDBFreeCollector(),
-		closeWaiter:               make(chan bool),
+		closeWaiter:               make(chan struct{}),
 	}
 
 	db.resizeAofChannels()
@@ -629,19 +629,19 @@ func (self *LockDB) FreeCollect() error {
 }
 
 func (self *LockDB) startCheckLoop() {
-	timeoutWaiter, expriedWaiter, removeLockManagerWaiter := make(chan bool, 16), make(chan bool, 16), make(chan bool, 1)
+	timeoutWaiter, expriedWaiter, removeLockManagerWaiter := make(chan struct{}, 16), make(chan struct{}, 16), make(chan struct{}, 1)
 	go self.updateCurrentTime(timeoutWaiter, expriedWaiter, removeLockManagerWaiter)
 	go self.checkTimeOut(timeoutWaiter)
 	go self.checkExpried(expriedWaiter)
 	go self.checkWaitRemoveLockManager(removeLockManagerWaiter)
 }
 
-func (self *LockDB) updateCurrentTime(timeoutWaiter chan bool, expriedWaiter chan bool, removeLockManagerWaiter chan bool) {
+func (self *LockDB) updateCurrentTime(timeoutWaiter chan struct{}, expriedWaiter chan struct{}, removeLockManagerWaiter chan struct{}) {
 	priorityCheckTime := 100 * time.Millisecond
 	for self.status != STATE_CLOSE {
 		self.currentTime = time.Now().Unix()
-		timeoutWaiter <- true
-		expriedWaiter <- true
+		timeoutWaiter <- struct{}{}
+		expriedWaiter <- struct{}{}
 		time.Sleep(priorityCheckTime - time.Duration(time.Now().Nanosecond()))
 		for i := uint16(0); i < self.managerMaxGlocks; i++ {
 			if self.managerGlocks[i].highPriorityAcquireCount > 0 {
@@ -657,7 +657,7 @@ func (self *LockDB) updateCurrentTime(timeoutWaiter chan bool, expriedWaiter cha
 	close(removeLockManagerWaiter)
 }
 
-func (self *LockDB) checkTimeOut(waiter chan bool) {
+func (self *LockDB) checkTimeOut(waiter chan struct{}) {
 	doTimeoutLockQueues := make([][]*LockQueue, self.managerMaxGlocks)
 	for i := uint16(0); i < self.managerMaxGlocks; i++ {
 		doTimeoutLockQueues[i] = make([]*LockQueue, 5)
@@ -918,7 +918,7 @@ func (self *LockDB) flushTimeoutCheckLock(lock *Lock, doTimeoutLocks []*Lock) []
 	return doTimeoutLocks
 }
 
-func (self *LockDB) checkExpried(waiter chan bool) {
+func (self *LockDB) checkExpried(waiter chan struct{}) {
 	doExpriedLockQueues := make([][]*LockQueue, self.managerMaxGlocks)
 	for i := uint16(0); i < self.managerMaxGlocks; i++ {
 		doExpriedLockQueues[i] = make([]*LockQueue, 5)
@@ -1195,7 +1195,7 @@ func (self *LockDB) flushWaitRemoveLockManagerQueue(glockIndex uint16) {
 	}
 }
 
-func (self *LockDB) checkWaitRemoveLockManager(waiter chan bool) {
+func (self *LockDB) checkWaitRemoveLockManager(waiter chan struct{}) {
 	currentTime := time.Now().UnixMilli() + 500
 	for self.status != STATE_CLOSE {
 		select {

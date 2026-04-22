@@ -1352,14 +1352,14 @@ type TransparencyManager struct {
 	idleClients   *TransparencyBinaryClientProtocol
 	leaderAddress string
 	closed        bool
-	closedWaiter  chan bool
-	wakeupSignal  chan bool
-	arbiterWaiter chan bool
+	closedWaiter  chan struct{}
+	wakeupSignal  chan struct{}
+	arbiterWaiter chan struct{}
 }
 
 func NewTransparencyManager() *TransparencyManager {
 	manager := &TransparencyManager{nil, &sync.Mutex{}, nil, nil, "",
-		false, make(chan bool, 1), nil, nil}
+		false, make(chan struct{}), nil, nil}
 	go manager.Run()
 	return manager
 }
@@ -1395,7 +1395,7 @@ func (self *TransparencyManager) Run() {
 	timeout := 120
 	for !self.closed {
 		self.glock.Lock()
-		self.wakeupSignal = make(chan bool, 1)
+		self.wakeupSignal = make(chan struct{})
 		self.glock.Unlock()
 
 		select {
@@ -1429,7 +1429,7 @@ func (self *TransparencyManager) CheckArbiterWaiter() int {
 		self.arbiterWaiter = nil
 	}
 	if self.leaderAddress == "" && self.slock.state != STATE_LEADER && !self.closed {
-		self.arbiterWaiter = make(chan bool, 1)
+		self.arbiterWaiter = make(chan struct{})
 		return 2
 	}
 	return 120

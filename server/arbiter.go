@@ -232,13 +232,13 @@ type ArbiterClient struct {
 	protocol     *client.BinaryClientProtocol
 	rchannel     chan protocol.CommandDecode
 	closed       bool
-	closedWaiter chan bool
-	wakeupSignal chan bool
+	closedWaiter chan struct{}
+	wakeupSignal chan struct{}
 }
 
 func NewArbiterClient(member *ArbiterMember) *ArbiterClient {
 	return &ArbiterClient{member, &sync.Mutex{}, nil, nil,
-		make(chan protocol.CommandDecode, 8), false, make(chan bool, 1), nil}
+		make(chan protocol.CommandDecode, 8), false, make(chan struct{}), nil}
 }
 
 func (self *ArbiterClient) Open(addr string) error {
@@ -411,7 +411,7 @@ func (self *ArbiterClient) Request(command *protocol.CallCommand) (*protocol.Cal
 
 func (self *ArbiterClient) sleepWhenRetryConnect() error {
 	self.member.glock.Lock()
-	self.wakeupSignal = make(chan bool, 1)
+	self.wakeupSignal = make(chan struct{})
 	self.member.glock.Unlock()
 
 	select {
@@ -440,11 +440,11 @@ type ArbiterServer struct {
 	stream       *Stream
 	protocol     *BinaryServerProtocol
 	closed       bool
-	closedWaiter chan bool
+	closedWaiter chan struct{}
 }
 
 func NewArbiterServer(protocol *BinaryServerProtocol) *ArbiterServer {
-	return &ArbiterServer{nil, protocol.stream, protocol, false, make(chan bool, 1)}
+	return &ArbiterServer{nil, protocol.stream, protocol, false, make(chan struct{})}
 }
 
 func (self *ArbiterServer) Close() error {
@@ -537,14 +537,14 @@ type ArbiterMember struct {
 	isSelf       bool
 	abstianed    bool
 	closed       bool
-	closedWaiter chan bool
-	wakeupSignal chan bool
+	closedWaiter chan struct{}
+	wakeupSignal chan struct{}
 }
 
 func NewArbiterMember(manager *ArbiterManager, host string, weight uint32, arbiter uint32) *ArbiterMember {
 	return &ArbiterMember{manager, &sync.Mutex{}, nil, nil, host, weight, arbiter, ARBITER_ROLE_UNKNOWN,
 		ARBITER_MEMBER_STATUS_UNOPEN, 0, 0, 0, [16]byte{}, false,
-		false, false, make(chan bool, 1), nil}
+		false, false, make(chan struct{}), nil}
 }
 
 func (self *ArbiterMember) Open() error {
@@ -685,7 +685,7 @@ func (self *ArbiterMember) Run() {
 
 	for !self.closed {
 		self.glock.Lock()
-		self.wakeupSignal = make(chan bool, 1)
+		self.wakeupSignal = make(chan struct{})
 		self.glock.Unlock()
 
 		select {
@@ -974,15 +974,15 @@ type ArbiterVoter struct {
 	voteAofId        [16]byte
 	voting           bool
 	closed           bool
-	closedWaiter     chan bool
-	wakeupSignal     chan bool
+	closedWaiter     chan struct{}
+	wakeupSignal     chan struct{}
 	subscribers      []*ArbiterVoterSubscriber
 }
 
 func NewArbiterVoter() *ArbiterVoter {
 	return &ArbiterVoter{nil, &sync.Mutex{}, 0, 0, 0,
 		"", "", "", [16]byte{},
-		false, false, make(chan bool, 1), nil, nil}
+		false, false, make(chan struct{}), nil, nil}
 }
 
 func (self *ArbiterVoter) Close() error {
@@ -1080,7 +1080,7 @@ func (self *ArbiterVoter) StartVote() error {
 
 func (self *ArbiterVoter) DoRequests(name string, handler func(*ArbiterMember) (interface{}, error)) []interface{} {
 	members, finishCount := self.manager.members, 0
-	responses, requestWaiter := make([]interface{}, 0), make(chan bool, 1)
+	responses, requestWaiter := make([]interface{}, 0), make(chan struct{})
 	for _, member := range members {
 		go func(member *ArbiterMember) {
 			response, err := handler(member)
@@ -1312,7 +1312,7 @@ func (self *ArbiterVoter) checkSubscriberTimeout(timeout int64) {
 
 func (self *ArbiterVoter) sleepWhenRetryVote() error {
 	self.glock.Lock()
-	self.wakeupSignal = make(chan bool, 1)
+	self.wakeupSignal = make(chan struct{})
 	self.glock.Unlock()
 
 	delay_time := int64(5000)

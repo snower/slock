@@ -622,7 +622,7 @@ type AofChannel struct {
 	queueHead               *AofLockQueue
 	queueTail               *AofLockQueue
 	queueCount              int
-	queueWaiter             chan bool
+	queueWaiter             chan struct{}
 	queueGlock              *sync.Mutex
 	serverProtocol          ServerProtocol
 	freeLocks               []*AofLock
@@ -632,15 +632,15 @@ type AofChannel struct {
 	lockDbGlockAcquired     bool
 	queuePulled             bool
 	closed                  bool
-	closedWaiter            chan bool
+	closedWaiter            chan struct{}
 }
 
 func NewAofChannel(aof *Aof, lockDb *LockDB, lockDbGlockIndex uint16, lockDbGlock *PriorityMutex) *AofChannel {
 	freeLockMax := int(Config.AofQueueSize) / 64
 	return &AofChannel{aof, &sync.Mutex{}, lockDb, lockDbGlockIndex, lockDbGlock, nil, nil,
-		0, make(chan bool, 1), &sync.Mutex{}, nil, make([]*AofLock, freeLockMax),
+		0, make(chan struct{}, 1), &sync.Mutex{}, nil, make([]*AofLock, freeLockMax),
 		0, freeLockMax, freeLockMax * 2, false, false,
-		false, make(chan bool, 1)}
+		false, make(chan struct{})}
 }
 
 func (self *AofChannel) getAofLock() *AofLock {
@@ -685,7 +685,7 @@ func (self *AofChannel) pushAofLock(aofLock *AofLock) {
 		self.lockDbGlockAcquired = self.lockDbGlock.LowSetPriority()
 	}
 	if self.queuePulled {
-		self.queueWaiter <- true
+		self.queueWaiter <- struct{}{}
 		self.queuePulled = false
 	}
 }
@@ -1092,11 +1092,11 @@ type Aof struct {
 	channels           []*AofChannel
 	channelCount       uint32
 	channelActiveCount uint32
-	channelFlushWaiter chan bool
+	channelFlushWaiter chan struct{}
 	freeLockQueues     []*AofLockQueue
 	freeLockQueueGlock *sync.Mutex
 	freeLockQueueIndex int
-	rewritedWaiter     chan bool
+	rewritedWaiter     chan struct{}
 	rewriteSize        uint32
 	aofLockCount       uint64
 	isWaitRewite       bool
@@ -1538,7 +1538,7 @@ func (self *Aof) CloseAofChannel(aofChannel *AofChannel) *AofChannel {
 	aofChannel.queueGlock.Lock()
 	aofChannel.closed = true
 	if aofChannel.queuePulled {
-		aofChannel.queueWaiter <- false
+		aofChannel.queueWaiter <- struct{}{}
 		aofChannel.queuePulled = false
 	}
 	aofChannel.queueGlock.Unlock()
@@ -1594,10 +1594,10 @@ func (self *Aof) syncFileAofChannel(_ *AofChannel) {
 }
 
 func (self *Aof) WaitFlushAofChannel() error {
-	var channelFlushWaiter chan bool
+	var channelFlushWaiter chan struct{}
 	self.aofGlock.Lock()
 	if self.channelFlushWaiter == nil {
-		channelFlushWaiter = make(chan bool, 1)
+		channelFlushWaiter = make(chan struct{})
 		self.channelFlushWaiter = channelFlushWaiter
 	} else {
 		channelFlushWaiter = self.channelFlushWaiter
@@ -1904,7 +1904,7 @@ func (self *Aof) WaitRewriteAofFiles() error {
 
 	rewritedWaiter := self.rewritedWaiter
 	if rewritedWaiter == nil {
-		rewritedWaiter = make(chan bool, 1)
+		rewritedWaiter = make(chan struct{})
 		self.rewritedWaiter = rewritedWaiter
 	}
 	self.glock.Unlock()

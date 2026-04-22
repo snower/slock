@@ -119,14 +119,14 @@ type SubscribeClient struct {
 	protocol      *client.BinaryClientProtocol
 	publishLock   *PublishLock
 	closed        bool
-	closedWaiter  chan bool
-	wakeupSignal  chan bool
-	uninitWaiter  chan bool
+	closedWaiter  chan struct{}
+	wakeupSignal  chan struct{}
+	uninitWaiter  chan struct{}
 }
 
 func NewSubscribeClient(manager *SubscribeManager) *SubscribeClient {
 	return &SubscribeClient{manager, &sync.Mutex{}, "", 0, nil, nil,
-		NewPublishLock(), false, make(chan bool, 1), nil, nil}
+		NewPublishLock(), false, make(chan struct{}), nil, nil}
 }
 
 func (self *SubscribeClient) Open(leaderAddress string) error {
@@ -217,7 +217,7 @@ func (self *SubscribeClient) uninitSubscribe() error {
 	self.glock.Lock()
 	uninitWaiter := self.uninitWaiter
 	if uninitWaiter == nil {
-		self.uninitWaiter = make(chan bool, 1)
+		self.uninitWaiter = make(chan struct{})
 		uninitWaiter = self.uninitWaiter
 	}
 	self.glock.Unlock()
@@ -363,7 +363,7 @@ func (self *SubscribeClient) Process() error {
 
 func (self *SubscribeClient) sleepWhenRetryConnect() error {
 	self.glock.Lock()
-	self.wakeupSignal = make(chan bool, 1)
+	self.wakeupSignal = make(chan struct{})
 	self.glock.Unlock()
 
 	select {
@@ -398,20 +398,20 @@ type Subscriber struct {
 	bufferSize                 int
 	serverProtocol             ServerProtocol
 	serverProtocolClosedTime   int64
-	serverProtocolClosedWaiter chan bool
+	serverProtocolClosedWaiter chan struct{}
 	expriedTime                uint32
 	maxSize                    uint32
 	pulled                     bool
-	pullWaiter                 chan bool
+	pullWaiter                 chan struct{}
 	closed                     bool
-	closedWaiter               chan bool
+	closedWaiter               chan struct{}
 }
 
 func NewSubscriber(manager *SubscribeManager, serverProtocol ServerProtocol, clientId uint32, subscriberId uint32) *Subscriber {
 	subscriber := &Subscriber{manager, &sync.Mutex{}, clientId, subscriberId, make([][2]uint64, 0),
 		nil, nil, 0, serverProtocol, 0,
 		serverProtocol.GetStream().closedWaiter, 0, 0,
-		false, make(chan bool, 1), false, make(chan bool, 1)}
+		false, make(chan struct{}, 1), false, make(chan struct{})}
 	go subscriber.Run()
 	return subscriber
 }
@@ -573,7 +573,7 @@ func (self *Subscriber) processServerProcotolClose() {
 	}
 	self.serverProtocol = nil
 	self.serverProtocolClosedTime = time.Now().Unix()
-	self.serverProtocolClosedWaiter = make(chan bool, 1)
+	self.serverProtocolClosedWaiter = make(chan struct{})
 	if self.expriedTime == 0 {
 		go func() {
 			_ = self.Close()
@@ -624,7 +624,7 @@ func (self *Subscriber) Push(lock *PublishLock) error {
 		}
 
 		if self.pulled {
-			self.pullWaiter <- true
+			self.pullWaiter <- struct{}{}
 			self.pulled = false
 		}
 		self.glock.Unlock()
@@ -643,7 +643,7 @@ func (self *Subscriber) Update(serverProtocol ServerProtocol, subscriberType uin
 	self.serverProtocolClosedTime = 0
 	self.serverProtocolClosedWaiter = serverProtocol.GetStream().closedWaiter
 	if self.pulled {
-		self.pullWaiter <- true
+		self.pullWaiter <- struct{}{}
 		self.pulled = false
 	}
 
@@ -737,7 +737,7 @@ type SubscribeChannel struct {
 	lockDbGlockAcquired     bool
 	queuePulled             bool
 	closed                  bool
-	closedWaiter            chan bool
+	closedWaiter            chan struct{}
 }
 
 func NewSubscribeChannel(manager *SubscribeManager, lockDb *LockDB, lockDbGlockIndex uint16, lockDbGlock *PriorityMutex) *SubscribeChannel {
@@ -745,7 +745,7 @@ func NewSubscribeChannel(manager *SubscribeManager, lockDb *LockDB, lockDbGlockI
 	return &SubscribeChannel{manager, &sync.Mutex{}, lockDb, lockDbGlockIndex, lockDbGlock, nil, nil,
 		0, make(chan bool, 1), &sync.Mutex{}, make([]*PublishLock, freeLockMax),
 		0, freeLockMax, freeLockMax * 2, false, false,
-		false, make(chan bool, 1)}
+		false, make(chan struct{})}
 }
 
 func (self *SubscribeChannel) pushPublishLock(publishLock *PublishLock) {
@@ -940,7 +940,7 @@ type SubscribeManager struct {
 	channels           []*SubscribeChannel
 	channelCount       uint32
 	channelActiveCount uint32
-	channelFlushWaiter chan bool
+	channelFlushWaiter chan struct{}
 	subscribers        map[uint32]*Subscriber
 	fastSubscribers    []*Subscriber
 	leaderAddress      string
@@ -1039,10 +1039,10 @@ func (self *SubscribeManager) waitLockSubscribeChannel(_ *SubscribeChannel) {
 }
 
 func (self *SubscribeManager) WaitFlushSubscribeChannel() error {
-	var channelFlushWaiter chan bool
+	var channelFlushWaiter chan struct{}
 	self.glock.Lock()
 	if self.channelFlushWaiter == nil {
-		channelFlushWaiter = make(chan bool, 1)
+		channelFlushWaiter = make(chan struct{})
 		self.channelFlushWaiter = channelFlushWaiter
 	} else {
 		channelFlushWaiter = self.channelFlushWaiter
