@@ -22,6 +22,45 @@ const (
 	STATE_CLOSE
 )
 
+type SLockFreeCollector struct {
+	lastCollectTime          int64
+	lastTotalCommandCount    uint64
+	lastAvgCommandCount      int
+	lastFreeLockCommandCount int
+}
+
+func NewSLockFreeCollector() *SLockFreeCollector {
+	return &SLockFreeCollector{time.Now().Unix(), 0, 0, 0}
+}
+
+func (self *SLockFreeCollector) Collect(slock *SLock, totalCommandCount uint64) error {
+	currentTime := time.Now().Unix()
+	avgCommandCount := int((totalCommandCount - self.lastTotalCommandCount) / uint64(currentTime-self.lastCollectTime))
+	freeLockCommandCount, minFreeLockCommandCount := int(slock.freeLockCommandCount), avgCommandCount*10
+	if minFreeLockCommandCount < 16 {
+		minFreeLockCommandCount = 16
+	}
+
+	if avgCommandCount <= self.lastAvgCommandCount*2 {
+		if freeLockCommandCount > minFreeLockCommandCount && freeLockCommandCount-self.lastFreeLockCommandCount < avgCommandCount*2 {
+			freeCount := freeLockCommandCount / 20
+			if freeCount > 0 {
+				slock.freeLockCommandLock.Lock()
+				for i := 0; i < freeCount; i++ {
+					slock.freeLockCommandQueue.Pop()
+				}
+				slock.freeLockCommandLock.Unlock()
+			}
+		}
+	}
+
+	self.lastCollectTime = currentTime
+	self.lastTotalCommandCount = totalCommandCount
+	self.lastAvgCommandCount = avgCommandCount
+	self.lastFreeLockCommandCount = freeLockCommandCount
+	return nil
+}
+
 type SLock struct {
 	server                 *Server
 	dbs                    []*LockDB
@@ -39,6 +78,7 @@ type SLock struct {
 	uptime                 *time.Time
 	freeLockCommandQueue   *LockCommandQueue
 	freeLockCommandLock    *sync.Mutex
+	freeCollector          *SLockFreeCollector
 	freeLockCommandCount   int32
 	statsTotalCommandCount uint64
 	state                  uint8
@@ -57,7 +97,8 @@ func NewSLock(config *ServerConfig, logger logging.Logger) *SLock {
 	now := time.Now()
 	slock := &SLock{nil, make([]*LockDB, 256), &sync.Mutex{}, aof, replicationManager, nil, subscribeManager, admin, logger,
 		make(map[uint32]*ServerProtocolSession, STREAMS_INIT_COUNT), &sync.Mutex{}, make(map[[16]byte]ServerProtocol, STREAMS_INIT_COUNT), &sync.Mutex{}, &now,
-		NewLockCommandQueue(16, 64, FREE_COMMAND_QUEUE_INIT_SIZE*int32(Config.DBConcurrent)), &sync.Mutex{}, 0, 0, STATE_INIT}
+		NewLockCommandQueue(16, 64, FREE_COMMAND_QUEUE_INIT_SIZE*int32(Config.DBConcurrent)), &sync.Mutex{},
+		NewSLockFreeCollector(), 0, 0, STATE_INIT}
 	aof.slock = slock
 	replicationManager.slock = slock
 	replicationManager.transparencyManager.slock = slock
@@ -480,6 +521,23 @@ func (self *SLock) getLockCommands(count int32) []*protocol.LockCommand {
 	}
 	self.freeLockCommandLock.Unlock()
 	return commands
+}
+
+func (self *SLock) FreeCollect(totalCommandCount uint64) error {
+	err := self.freeCollector.Collect(self, totalCommandCount)
+	if err != nil {
+		self.Log().Errorf("Slock Error freeing collect %v", err)
+	}
+
+	for _, db := range self.dbs {
+		if db != nil {
+			err = db.FreeCollect()
+			if err != nil {
+				self.Log().Errorf("Slock Error DB freeing collect %v", err)
+			}
+		}
+	}
+	return nil
 }
 
 func (self *SLock) GetInitCommandState() uint8 {

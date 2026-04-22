@@ -81,6 +81,19 @@ func (self *LongWaitLockFreeQueue) FreeLongWaitLockQueue(longWaitLockQueue *Long
 	}
 }
 
+func (self *LongWaitLockFreeQueue) Pop() *LongWaitLockQueue {
+	if self.freeIndex < 0 {
+		return nil
+	}
+	longLocks := self.queues[self.freeIndex]
+	self.freeIndex--
+	return longLocks
+}
+
+func (self *LongWaitLockFreeQueue) Len() int {
+	return self.freeIndex + 1
+}
+
 type MillisecondWaitLockFreeQueue struct {
 	queues       []*LockQueue
 	freeIndex    int
@@ -102,6 +115,19 @@ func (self *MillisecondWaitLockFreeQueue) FreeLockQueue(lockQueue *LockQueue) {
 		self.freeIndex++
 		self.queues[self.freeIndex] = lockQueue
 	}
+}
+
+func (self *MillisecondWaitLockFreeQueue) Pop() *LockQueue {
+	if self.freeIndex < 0 {
+		return nil
+	}
+	lockQueue := self.queues[self.freeIndex]
+	self.freeIndex--
+	return lockQueue
+}
+
+func (self *MillisecondWaitLockFreeQueue) Len() int {
+	return self.freeIndex + 1
 }
 
 type LockDBExecutorTask struct {
@@ -264,6 +290,97 @@ func (self *LockDBExecutor) Close() {
 	<-self.closeWaiter
 }
 
+type LockDBFreeCollector struct {
+	lastCollectTime                   int64
+	lastLockCount                     uint64
+	lastLockAvgCount                  int
+	lastFreeLockManagerCount          int
+	lastFreeLockCount                 int
+	lastFreeLongWaitQueueCount        int
+	lastFreeMillisecondWaitQueueCount int
+}
+
+func NewLockDBFreeCollector() *LockDBFreeCollector {
+	return &LockDBFreeCollector{time.Now().Unix(), 0, 0, 0,
+		0, 0, 0}
+}
+
+func (self *LockDBFreeCollector) Collect(db *LockDB) error {
+	currentTime := db.currentTime
+	lockCount := uint64(0)
+	for _, state := range db.states {
+		lockCount += state.LockCount
+	}
+	lockAvgCount := int((lockCount - self.lastLockCount) / uint64(currentTime-self.lastCollectTime))
+	freeLockManagerCount, minLockManagerCount := db.GetFreeLockManagerLen(), lockAvgCount*10
+	if minLockManagerCount < 16 {
+		minLockManagerCount = 16
+	}
+	freeLockCount, freeLongWaitQueueCount, freeMillisecondWaitQueueCount := 0, 0, 0
+	for i := uint16(0); i < db.managerMaxGlocks; i++ {
+		db.managerGlocks[i].LowPriorityLock()
+		freeLockCount += int(db.freeLocks[i].Len())
+		freeLongWaitQueueCount += db.freeLongWaitQueues[i].Len()
+		freeMillisecondWaitQueueCount += db.freeMillisecondWaitQueues[i].Len()
+		db.managerGlocks[i].LowPriorityUnlock()
+	}
+	minLockCount, minLongWaitQueueCount, minMillisecondWaitQueueCount := minLockManagerCount*2, 4, 8
+
+	if lockAvgCount <= self.lastLockAvgCount*2 {
+		if freeLockManagerCount > minLockManagerCount && freeLockManagerCount-self.lastFreeLockManagerCount < lockAvgCount*2 {
+			db.deInitNewLockManager(freeLockManagerCount/20, minLockManagerCount)
+		}
+
+		if freeLockCount > minLockCount && freeLockCount-self.lastFreeLockCount < lockAvgCount*4 {
+			freeCount := freeLockCount / 20 / int(db.managerMaxGlocks)
+			if freeCount > 0 {
+				for i := uint16(0); i < db.managerMaxGlocks; i++ {
+					db.managerGlocks[i].LowPriorityLock()
+					for j := 0; j < freeCount; j++ {
+						db.freeLocks[i].Pop()
+					}
+					db.managerGlocks[i].LowPriorityUnlock()
+				}
+			}
+		}
+
+		if freeLongWaitQueueCount > minLongWaitQueueCount && freeLongWaitQueueCount-self.lastFreeLongWaitQueueCount < lockAvgCount {
+			freeCount := freeLongWaitQueueCount / 20 / int(db.managerMaxGlocks)
+			if freeCount > 0 {
+				for i := uint16(0); i < db.managerMaxGlocks; i++ {
+					db.managerGlocks[i].LowPriorityLock()
+					for j := 0; j < freeCount; j++ {
+						db.freeLongWaitQueues[i].Pop()
+					}
+					db.managerGlocks[i].LowPriorityUnlock()
+				}
+			}
+		}
+
+		if freeMillisecondWaitQueueCount > minMillisecondWaitQueueCount && freeMillisecondWaitQueueCount-self.lastFreeMillisecondWaitQueueCount < lockAvgCount {
+			freeCount := freeMillisecondWaitQueueCount / 20 / int(db.managerMaxGlocks)
+			if freeCount > 0 {
+				for i := uint16(0); i < db.managerMaxGlocks; i++ {
+					db.managerGlocks[i].LowPriorityLock()
+					for j := 0; j < freeCount; j++ {
+						db.freeMillisecondWaitQueues[i].Pop()
+					}
+					db.managerGlocks[i].LowPriorityUnlock()
+				}
+			}
+		}
+	}
+
+	self.lastCollectTime = currentTime
+	self.lastLockCount = lockCount
+	self.lastLockAvgCount = lockAvgCount
+	self.lastFreeLockManagerCount = freeLockManagerCount
+	self.lastFreeLockCount = freeLockCount
+	self.lastFreeLongWaitQueueCount = freeLongWaitQueueCount
+	self.lastFreeMillisecondWaitQueueCount = freeMillisecondWaitQueueCount
+	return nil
+}
+
 type LockDB struct {
 	slock                     *SLock
 	fastLocks                 []FastKeyValue
@@ -298,6 +415,7 @@ type LockDB struct {
 	status                    uint8
 	dbId                      uint8
 	states                    []*protocol.LockDBState
+	freeCollector             *LockDBFreeCollector
 	closeWaiter               chan bool
 }
 
@@ -366,6 +484,7 @@ func NewLockDB(slock *SLock, dbId uint8) *LockDB {
 		status:                    slock.state,
 		dbId:                      dbId,
 		states:                    states,
+		freeCollector:             NewLockDBFreeCollector(),
 		closeWaiter:               make(chan bool),
 	}
 
@@ -503,6 +622,10 @@ func (self *LockDB) FlushDB() error {
 		self.managerGlocks[i].LowPriorityUnlock()
 	}
 	return nil
+}
+
+func (self *LockDB) FreeCollect() error {
+	return self.freeCollector.Collect(self)
 }
 
 func (self *LockDB) startCheckLoop() {
@@ -1138,7 +1261,6 @@ func (self *LockDB) initNewLockManager(dbId uint8, freeLockManagerTail uint32) {
 		freeLockManagerHead := atomic.AddUint32(&self.freeLockManagerHead, 1) % self.maxFreeLockManagerCount
 		if self.freeLockManagers[freeLockManagerHead] != nil {
 			self.glock.Unlock()
-			atomic.AddUint32(&self.freeLockManagerHead, 0xffffffff)
 			return
 		}
 
@@ -1160,6 +1282,27 @@ func (self *LockDB) initNewLockManager(dbId uint8, freeLockManagerTail uint32) {
 		self.freeLockManagers[freeLockManagerHead] = &lockManagers[i]
 	}
 	self.glock.Unlock()
+}
+
+func (self *LockDB) deInitNewLockManager(count int, minSize int) {
+	for i := 0; i < count; i++ {
+		if self.GetFreeLockManagerLen() <= minSize {
+			return
+		}
+		freeLockManagerTail := atomic.AddUint32(&self.freeLockManagerTail, 1) % self.maxFreeLockManagerCount
+		lockManager := self.freeLockManagers[freeLockManagerTail]
+		if lockManager == nil {
+			return
+		}
+	}
+}
+
+func (self *LockDB) GetFreeLockManagerLen() int {
+	freeLockManagerHead, freeLockManagerTail := atomic.LoadUint32(&self.freeLockManagerHead)%self.maxFreeLockManagerCount, atomic.LoadUint32(&self.freeLockManagerTail)%self.maxFreeLockManagerCount
+	if freeLockManagerHead >= freeLockManagerTail {
+		return int(freeLockManagerHead - freeLockManagerTail)
+	}
+	return int(self.maxFreeLockManagerCount - freeLockManagerTail + freeLockManagerHead)
 }
 
 func (self *LockDB) GetOrNewLockManager(command *protocol.LockCommand) *LockManager {
@@ -1333,7 +1476,6 @@ func (self *LockDB) RemoveLockManager(lockManager *LockManager) {
 			atomic.AddUint32(&lockManager.state.KeyCount, 0xffffffff)
 			return
 		}
-		atomic.AddUint32(&self.freeLockManagerHead, 0xffffffff)
 
 		lockManager.currentLock = nil
 		lockManager.currentData = nil
@@ -1371,7 +1513,6 @@ func (self *LockDB) RemoveLockManager(lockManager *LockManager) {
 		atomic.AddUint32(&lockManager.state.KeyCount, 0xffffffff)
 		return
 	}
-	atomic.AddUint32(&self.freeLockManagerHead, 0xffffffff)
 
 	lockManager.currentLock = nil
 	lockManager.currentData = nil

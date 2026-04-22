@@ -354,7 +354,7 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 	if section == "" || section == "stats" {
 		dbCount := 0
 		freeLockManagerCount := 0
-		freeLockCount := 0
+		freeLockCount, freeLongWaitQueueCount, freeMillisecondWaitQueueCount := 0, 0, 0
 		freeLockCommandCount, cacheLockCommandCount := 0, 0
 		totalCommandCount := uint64(0)
 		longTimeoutQueueCount, longTimeoutLockCount, longExpriedQueueCount, longExpriedLockCount := 0, 0, 0, 0
@@ -362,17 +362,12 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 		for _, db := range self.slock.dbs {
 			if db != nil {
 				dbCount++
-				freeLockManagerHead, freeLockManagerTail := db.freeLockManagerHead, db.freeLockManagerTail
-				if freeLockManagerHead >= freeLockManagerTail {
-					freeLockManagerCount += int(freeLockManagerHead - freeLockManagerTail)
-				} else {
-					if freeLockManagerHead < 0x7fffffff && freeLockManagerTail > 0x7fffffff {
-						freeLockManagerCount += int(0xffffffff - freeLockManagerTail + freeLockManagerHead)
-					}
-				}
+				freeLockManagerCount = db.GetFreeLockManagerLen()
 				for i := uint16(0); i < db.managerMaxGlocks; i++ {
 					db.managerGlocks[i].LowPriorityLock()
 					freeLockCount += int(db.freeLocks[i].Len())
+					freeLongWaitQueueCount += db.freeLongWaitQueues[i].Len()
+					freeMillisecondWaitQueueCount += db.freeMillisecondWaitQueues[i].Len()
 					longTimeoutQueueCount += len(db.longTimeoutLocks[i])
 					for _, longLocks := range db.longTimeoutLocks[i] {
 						longTimeoutLockCount += int(longLocks.lockCount - longLocks.freeCount)
@@ -428,6 +423,8 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 		infos = append(infos, fmt.Sprintf("cache_command_count:%d", cacheLockCommandCount))
 		infos = append(infos, fmt.Sprintf("free_lock_manager_count:%d", freeLockManagerCount))
 		infos = append(infos, fmt.Sprintf("free_lock_count:%d", freeLockCount))
+		infos = append(infos, fmt.Sprintf("freeLongWaitQueueCount:%d", freeLongWaitQueueCount))
+		infos = append(infos, fmt.Sprintf("freeMillisecondWaitQueueCount:%d", freeMillisecondWaitQueueCount))
 		infos = append(infos, fmt.Sprintf("total_commands_processed:%d", totalCommandCount))
 		highPriorityLockActivatingCount, lowPriorityLockActivatingCount := uint64(0), uint64(0)
 		highPriorityLockPinningCount, lowPriorityLockPinningCount := uint64(0), uint64(0)

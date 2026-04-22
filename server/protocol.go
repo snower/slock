@@ -16,6 +16,56 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+type ServerProtocolFreeCollector struct {
+	lastCollectTime          int64
+	lastTotalCommandCount    uint64
+	lastAvgCommandCount      int
+	lastFreeLockCommandCount int
+}
+
+func NewServerProtocolFreeCollector() *ServerProtocolFreeCollector {
+	return &ServerProtocolFreeCollector{time.Now().Unix(), 0, 0, 0}
+}
+
+func (self *ServerProtocolFreeCollector) Collect(slock *SLock, glock *sync.Mutex, lockedFreeCommands *LockCommandQueue, totalCommandCount uint64) error {
+	currentTime := time.Now().Unix()
+	avgCommandCount := int((totalCommandCount - self.lastTotalCommandCount) / uint64(currentTime-self.lastCollectTime))
+	glock.Lock()
+	freeLockCommandCount := int(lockedFreeCommands.Len())
+	glock.Unlock()
+	freeLockCommandCount, minFreeLockCommandCount := int(lockedFreeCommands.Len()), avgCommandCount*10
+	if minFreeLockCommandCount < 0 {
+		minFreeLockCommandCount = 0
+	}
+
+	if avgCommandCount <= self.lastAvgCommandCount*2 {
+		if freeLockCommandCount > minFreeLockCommandCount && freeLockCommandCount-self.lastFreeLockCommandCount < avgCommandCount*2 {
+			freeCount := freeLockCommandCount / 20
+			if freeCount > 0 {
+				glock.Lock()
+				for i := 0; i < freeCount; i++ {
+					command := lockedFreeCommands.Pop()
+					if command != nil {
+						glock.Unlock()
+						slock.freeLockCommandLock.Lock()
+						_ = slock.freeLockCommandQueue.Push(command)
+						slock.freeLockCommandCount++
+						slock.freeLockCommandLock.Unlock()
+						glock.Lock()
+					}
+				}
+				glock.Unlock()
+			}
+		}
+	}
+
+	self.lastCollectTime = currentTime
+	self.lastTotalCommandCount = totalCommandCount
+	self.lastAvgCommandCount = avgCommandCount
+	self.lastFreeLockCommandCount = freeLockCommandCount
+	return nil
+}
+
 type ServerProtocol interface {
 	Init(clientId [16]byte) error
 	Lock()
@@ -40,6 +90,7 @@ type ServerProtocol interface {
 	GetLockCommandLocked() *protocol.LockCommand
 	FreeLockCommand(command *protocol.LockCommand) error
 	FreeLockCommandLocked(command *protocol.LockCommand) error
+	FreeCollect() error
 }
 
 var AGAIN = errors.New("AGAIN")
@@ -171,6 +222,10 @@ func (self *ProxyServerProtocol) FreeLockCommand(command *protocol.LockCommand) 
 
 func (self *ProxyServerProtocol) FreeLockCommandLocked(command *protocol.LockCommand) error {
 	return self.serverProtocol.FreeLockCommandLocked(command)
+}
+
+func (self *ProxyServerProtocol) FreeCollect() error {
+	return self.serverProtocol.FreeCollect()
 }
 
 type DefaultServerProtocol struct {
@@ -344,6 +399,10 @@ func (self *DefaultServerProtocol) FreeLockCommandLocked(command *protocol.LockC
 	return nil
 }
 
+func (self *DefaultServerProtocol) FreeCollect() error {
+	return self.protocolProxy.FreeCollect()
+}
+
 var defaultServerProtocol *DefaultServerProtocol = nil
 
 type MemWaiterServerProtocolResultCallback func(*MemWaiterServerProtocol, *protocol.LockCommand, uint8, uint16, uint8, []byte) error
@@ -356,6 +415,7 @@ type MemWaiterServerProtocol struct {
 	freeCommands       []*protocol.LockCommand
 	freeCommandIndex   int
 	lockedFreeCommands *LockCommandQueue
+	freeCollector      *ServerProtocolFreeCollector
 	waiters            map[[16]byte]chan *protocol.LockResultCommand
 	resultCallback     MemWaiterServerProtocolResultCallback
 	totalCommandCount  uint64
@@ -365,7 +425,7 @@ type MemWaiterServerProtocol struct {
 func NewMemWaiterServerProtocol(slock *SLock) *MemWaiterServerProtocol {
 	proxy := &ProxyServerProtocol{[16]byte{}, nil}
 	memWaiterServerProtocol := &MemWaiterServerProtocol{slock, &sync.Mutex{}, nil, make([]*ProxyServerProtocol, 0), make([]*protocol.LockCommand, FREE_COMMAND_MAX_SIZE),
-		0, NewLockCommandQueue(4, 16, FREE_COMMAND_QUEUE_INIT_SIZE),
+		0, NewLockCommandQueue(4, 16, FREE_COMMAND_QUEUE_INIT_SIZE), NewServerProtocolFreeCollector(),
 		make(map[[16]byte]chan *protocol.LockResultCommand, 4096), nil, 0, false}
 	proxy.serverProtocol = memWaiterServerProtocol
 	memWaiterServerProtocol.InitLockCommand()
@@ -597,6 +657,10 @@ func (self *MemWaiterServerProtocol) FreeLockCommandLocked(command *protocol.Loc
 	return nil
 }
 
+func (self *MemWaiterServerProtocol) FreeCollect() error {
+	return self.freeCollector.Collect(self.slock, self.glock, self.lockedFreeCommands, self.totalCommandCount)
+}
+
 func (self *MemWaiterServerProtocol) AddWaiter(command *protocol.LockCommand, waiter chan *protocol.LockResultCommand) error {
 	self.glock.Lock()
 	if owaiter, ok := self.waiters[command.RequestId]; ok {
@@ -632,6 +696,7 @@ type BinaryServerProtocol struct {
 	freeCommands       []*protocol.LockCommand
 	freeCommandIndex   int
 	lockedFreeCommands *LockCommandQueue
+	freeCollector      *ServerProtocolFreeCollector
 	rbuf               []byte
 	wbuf               []byte
 	callMethods        map[string]BinaryServerProtocolCallHandler
@@ -644,8 +709,8 @@ type BinaryServerProtocol struct {
 func NewBinaryServerProtocol(slock *SLock, stream *Stream) *BinaryServerProtocol {
 	proxy := &ProxyServerProtocol{[16]byte{}, nil}
 	serverProtocol := &BinaryServerProtocol{slock, &sync.Mutex{}, stream, nil, make([]*ProxyServerProtocol, 0), make([]*protocol.LockCommand, FREE_COMMAND_MAX_SIZE),
-		0, NewLockCommandQueue(4, 16, FREE_COMMAND_QUEUE_INIT_SIZE), nil, make([]byte, 64),
-		nil, nil, 0, false, false}
+		0, NewLockCommandQueue(4, 16, FREE_COMMAND_QUEUE_INIT_SIZE), NewServerProtocolFreeCollector(),
+		nil, make([]byte, 64), nil, nil, 0, false, false}
 	proxy.serverProtocol = serverProtocol
 	serverProtocol.InitLockCommand()
 	serverProtocol.session = slock.addServerProtocol(serverProtocol)
@@ -1614,6 +1679,10 @@ func (self *BinaryServerProtocol) FreeLockCommandLocked(command *protocol.LockCo
 	return nil
 }
 
+func (self *BinaryServerProtocol) FreeCollect() error {
+	return self.freeCollector.Collect(self.slock, self.glock, self.lockedFreeCommands, self.totalCommandCount)
+}
+
 func (self *BinaryServerProtocol) commandHandleListLockCommand(_ *BinaryServerProtocol, command *protocol.CallCommand) (*protocol.CallResultCommand, error) {
 	if self.slock.state != STATE_LEADER {
 		return protocol.NewCallResultCommand(command, protocol.RESULT_STATE_ERROR, "STATE_ERROR", nil), nil
@@ -1806,6 +1875,7 @@ type TextServerProtocol struct {
 	freeCommands       []*protocol.LockCommand
 	freeCommandIndex   int
 	lockedFreeCommands *LockCommandQueue
+	freeCollector      *ServerProtocolFreeCollector
 	freeCommandResult  *protocol.LockResultCommand
 	parser             *protocol.TextParser
 	commandConverter   *protocol.TextCommandConverter
@@ -1824,8 +1894,9 @@ func NewTextServerProtocol(slock *SLock, stream *Stream) *TextServerProtocol {
 	proxy := &ProxyServerProtocol{[16]byte{}, nil}
 	parser := protocol.NewTextParser(make([]byte, 1024), make([]byte, 1024))
 	serverProtocol := &TextServerProtocol{slock, &sync.Mutex{}, stream, nil, make([]*ProxyServerProtocol, 0), make([]*protocol.LockCommand, FREE_COMMAND_MAX_SIZE),
-		0, NewLockCommandQueue(4, 16, FREE_COMMAND_QUEUE_INIT_SIZE), nil, parser, protocol.NewTextCommandConverter(),
-		nil, make(chan *protocol.LockResultCommand, 4), [16]byte{}, [16]byte{}, nil, 0, 15, 0, false}
+		0, NewLockCommandQueue(4, 16, FREE_COMMAND_QUEUE_INIT_SIZE), NewServerProtocolFreeCollector(),
+		nil, parser, protocol.NewTextCommandConverter(), nil, make(chan *protocol.LockResultCommand, 4),
+		[16]byte{}, [16]byte{}, nil, 0, 15, 0, false}
 	proxy.serverProtocol = serverProtocol
 	serverProtocol.InitLockCommand()
 	serverProtocol.session = slock.addServerProtocol(serverProtocol)
@@ -2480,6 +2551,10 @@ func (self *TextServerProtocol) FreeLockCommandLocked(command *protocol.LockComm
 	_ = self.lockedFreeCommands.Push(command)
 	self.glock.Unlock()
 	return nil
+}
+
+func (self *TextServerProtocol) FreeCollect() error {
+	return self.freeCollector.Collect(self.slock, self.glock, self.lockedFreeCommands, self.totalCommandCount)
 }
 
 func (self *TextServerProtocol) commandHandlerUnknownCommand(_ *TextServerProtocol, _ []string) error {

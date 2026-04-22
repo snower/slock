@@ -2,7 +2,6 @@ package server
 
 import (
 	"fmt"
-	"github.com/snower/slock/protocol"
 	"io"
 	"net"
 	"os"
@@ -10,23 +9,28 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/snower/slock/protocol"
 )
 
 type Server struct {
-	slock           *SLock
-	server          net.Listener
-	streams         *Stream
-	glock           *sync.Mutex
-	connectedCount  uint32
-	connectingCount uint32
-	stoped          bool
-	stopedWaiter    chan bool
-	pushWaiter      chan bool
+	slock                   *SLock
+	server                  net.Listener
+	streams                 *Stream
+	glock                   *sync.Mutex
+	connectedCount          uint32
+	connectingCount         uint32
+	stoped                  bool
+	stopedWaiter            chan struct{}
+	pushWaiter              chan struct{}
+	freeCollectStopEvent    chan struct{}
+	freeCollectStopedWaiter chan struct{}
 }
 
 func NewServer(slock *SLock) *Server {
 	server := &Server{slock, nil, nil, &sync.Mutex{},
-		0, 0, false, make(chan bool, 1), nil}
+		0, 0, false, make(chan struct{}), nil,
+		make(chan struct{}), make(chan struct{})}
 	admin := slock.GetAdmin()
 	admin.server = server
 	return server
@@ -51,6 +55,7 @@ func (self *Server) Close() {
 		return
 	}
 	self.stoped = true
+	close(self.freeCollectStopEvent)
 	err := self.server.Close()
 	if err != nil {
 		self.slock.Log().Errorf("Server close error %v", err)
@@ -162,6 +167,7 @@ func (self *Server) Serve() {
 	self.slock.Log().Infof("Server start serve %s", fmt.Sprintf("%s:%d", Config.Bind, Config.Port))
 	go self.slock.Start()
 	go self.checkProtocolFreeCommandQueue()
+	go self.handleFreeCollect()
 	for !self.stoped {
 		conn, err := self.server.Accept()
 		if err != nil {
@@ -180,6 +186,7 @@ func (self *Server) Serve() {
 		}
 		go self.handle(stream)
 	}
+	<-self.freeCollectStopedWaiter
 	<-self.stopedWaiter
 	self.slock.Log().Infof("Server shutdown finish")
 }
@@ -390,6 +397,45 @@ func (self *Server) handle(stream *Stream) {
 	self.slock.Log().Infof("Server protocol connection closed %s", serverProtocol.RemoteAddr().String())
 }
 
+func (self *Server) handleFreeCollect() {
+	for {
+		select {
+		case <-self.freeCollectStopEvent:
+			close(self.freeCollectStopedWaiter)
+			return
+		case <-time.After(300 * time.Second):
+			streams := self.GetStreams()
+			totalCommandCount := self.slock.statsTotalCommandCount
+			for _, stream := range streams {
+				streamProtocol := stream.protocol
+				if streamProtocol == nil {
+					continue
+				}
+				err := streamProtocol.FreeCollect()
+				if err != nil {
+					self.slock.Log().Errorf("Server Error stream freeing collect %v", err)
+				}
+
+				switch streamProtocol.(type) {
+				case *MemWaiterServerProtocol:
+					memWaitProtocol := streamProtocol.(*MemWaiterServerProtocol)
+					totalCommandCount += memWaitProtocol.totalCommandCount
+				case *BinaryServerProtocol:
+					binaryProtocol := streamProtocol.(*BinaryServerProtocol)
+					totalCommandCount += binaryProtocol.totalCommandCount
+				case *TextServerProtocol:
+					textProtocol := streamProtocol.(*TextServerProtocol)
+					totalCommandCount += textProtocol.totalCommandCount
+				}
+			}
+			err := self.slock.FreeCollect(totalCommandCount)
+			if err != nil {
+				self.slock.Log().Errorf("Server Error slock freeing collect %v", err)
+			}
+		}
+	}
+}
+
 func (self *Server) PushStateInitCommand() {
 	if self.slock.server == nil || self.streams == nil {
 		return
@@ -412,7 +458,7 @@ func (self *Server) PushStateInitCommand() {
 		return
 	}
 	lastPushWaiter := self.pushWaiter
-	pushWaiter := make(chan bool, 1)
+	pushWaiter := make(chan struct{})
 	self.pushWaiter = pushWaiter
 	self.glock.Unlock()
 	if self.slock.server == nil {
