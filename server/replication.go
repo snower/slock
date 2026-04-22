@@ -192,6 +192,8 @@ func (self *ReplicationBufferQueue) RemovePoll(cursor *ReplicationBufferQueueCur
 }
 
 func (self *ReplicationBufferQueue) Close() error {
+	self.glock.Wakeup()
+	close(self.glock.waiter)
 	self.closed = true
 	return nil
 }
