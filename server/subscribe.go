@@ -665,7 +665,6 @@ func (self *Subscriber) Update(serverProtocol ServerProtocol, subscriberType uin
 		for _, mask := range self.lockKeyMasks {
 			if mask != lkm {
 				publishIds = append(publishIds, mask)
-				break
 			}
 		}
 		self.lockKeyMasks = publishIds

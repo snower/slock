@@ -3,6 +3,7 @@ package server
 import (
 	"github.com/jessevdk/go-flags"
 	"github.com/snower/slock/protocol"
+	"sync"
 	"testing"
 	"time"
 )
@@ -151,6 +152,44 @@ func TestLockDB_LockExpriedLongWait(t *testing.T) {
 		if longLocks, ok := db.longExpriedLocks[1][lockExpriedTime]; ok {
 			t.Errorf("longExpriedLocks Is Exist %v", longLocks.Len())
 			return
+		}
+	})
+}
+
+func TestLockDBExecutorFlushQueueDrainsAllTasks(t *testing.T) {
+	testWithLockDB(t, func(db *LockDB) {
+		executor := &LockDBExecutor{
+			db:            db,
+			glock:         db.managerGlocks[0],
+			queueLock:     &sync.Mutex{},
+			freeTasks:     make([]*LockDBExecutorTask, 4),
+			freeTaskMax:   4,
+			glockAcquired: true,
+			queueCount:    2,
+		}
+
+		lockManager1 := NewLockManager(db, &protocol.LockCommand{DbId: 0}, db.managerGlocks[0], 0, db.freeLocks[0], db.states[0])
+		lockManager2 := NewLockManager(db, &protocol.LockCommand{DbId: 0}, db.managerGlocks[0], 0, db.freeLocks[0], db.states[0])
+		lockManager1.refCount = 1
+		lockManager2.refCount = 1
+		lockManager1.glock.LowSetPriorityWithNotTraceCount()
+		lockManager2.glock.LowSetPriorityWithNotTraceCount()
+
+		task2 := &LockDBExecutorTask{serverProtocol: defaultServerProtocol, command: &protocol.LockCommand{}, lockManager: lockManager2}
+		task1 := &LockDBExecutorTask{next: task2, serverProtocol: defaultServerProtocol, command: &protocol.LockCommand{}, lockManager: lockManager1}
+		executor.queueTail = task1
+		executor.queueHead = task2
+
+		executor.FlushQueue()
+
+		if executor.queueTail != nil || executor.queueHead != nil {
+			t.Fatal("expected queue to be fully cleared")
+		}
+		if executor.queueCount != 0 {
+			t.Fatalf("expected queueCount to be 0, got %d", executor.queueCount)
+		}
+		if executor.freeTaskIndex != 2 {
+			t.Fatalf("expected 2 tasks to be returned to free list, got %d", executor.freeTaskIndex)
 		}
 	})
 }

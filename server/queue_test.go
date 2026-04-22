@@ -229,6 +229,25 @@ func TestLockManagerQueueReset(t *testing.T) {
 	}
 }
 
+func TestLockManagerPriorityRingQueueIterNodes(t *testing.T) {
+	lock1 := &Lock{command: &protocol.LockCommand{}}
+	lock2 := &Lock{command: &protocol.LockCommand{TimeoutFlag: protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY, Rcount: 2}}
+	lock3 := &Lock{command: &protocol.LockCommand{TimeoutFlag: protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY, Rcount: 3}}
+
+	q := NewLockManagerPriorityRingQueue(4)
+	q.Push(lock1)
+	q.Push(lock2)
+	q.Push(lock3)
+
+	iterNodes := q.IterNodes()
+	if len(iterNodes) != 3 {
+		t.Fatalf("expected 3 iter node groups, got %d", len(iterNodes))
+	}
+	if iterNodes[0][0] != lock3 || iterNodes[1][0] != lock2 || iterNodes[2][0] != lock1 {
+		t.Fatal("expected iter nodes to preserve priority order")
+	}
+}
+
 func TestLockManagerQueueRellac(t *testing.T) {
 	l := &LockManager{}
 	q := NewLockManagerQueue(2, 6, 4)

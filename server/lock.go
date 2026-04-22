@@ -156,7 +156,7 @@ func (self *LockManagerPriorityRingQueue) IterNodes() [][]*Lock {
 	for _, node := range self.priorityNodes {
 		iterNodes = append(iterNodes, node.ringQueue.IterNodes()...)
 	}
-	return make([][]*Lock, 0)
+	return iterNodes
 }
 
 func (self *LockManagerPriorityRingQueue) MaxPriority() uint8 {

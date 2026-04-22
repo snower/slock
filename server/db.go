@@ -259,6 +259,7 @@ func (self *LockDBExecutor) FlushQueue() {
 	self.queueLock.Lock()
 	executorTask := self.queueTail
 	for executorTask != nil {
+		nextTask := executorTask.next
 		executorTask.lockManager.glock.LowUnSetPriority()
 		if atomic.AddUint32(&executorTask.lockManager.refCount, 0xffffffff) == 0 {
 			self.db.RemoveLockManager(executorTask.lockManager)
@@ -273,7 +274,7 @@ func (self *LockDBExecutor) FlushQueue() {
 			self.freeTasks[self.freeTaskIndex] = executorTask
 			self.freeTaskIndex++
 		}
-		executorTask = executorTask.next
+		executorTask = nextTask
 	}
 	self.queueTail = nil
 	self.queueHead = nil

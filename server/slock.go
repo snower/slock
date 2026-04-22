@@ -373,7 +373,7 @@ func (self *SLock) addServerProtocol(serverProtocol ServerProtocol) *ServerProto
 	}
 	self.protocolSessions[session.sessionId] = session
 	self.protocolSessionsGlock.Unlock()
-	return nil
+	return session
 }
 
 func (self *SLock) removeServerProtocol(serverProtocolSession *ServerProtocolSession) error {
