@@ -1,11 +1,11 @@
 module github.com/snower/slock
 
-go 1.18
+go 1.19
 
 require (
 	github.com/hhkbp2/go-logging v0.3.7
 	github.com/jessevdk/go-flags v1.5.0
-	google.golang.org/protobuf v1.34.0
+	google.golang.org/protobuf v1.34.2
 )
 
 require (
