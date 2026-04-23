@@ -215,6 +215,8 @@ func TestLockDBFreeCollectorCollectShrinksFreePools(t *testing.T) {
 
 	db.initNewLockManager(0, 0)
 	db.initNewLockManager(0, 0)
+	db.initNewLockManager(0, 0)
+	db.initNewLockManager(0, 0)
 	for i := 0; i < 100; i++ {
 		_ = db.freeLocks[0].Push(&Lock{})
 		db.freeLongWaitQueues[0].FreeLongWaitLockQueue(&LongWaitLockQueue{NewLockQueue(4, 64, LONG_LOCKS_QUEUE_INIT_SIZE), 0, 0, 0, 0})
