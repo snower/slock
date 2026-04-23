@@ -7,6 +7,7 @@ import (
 	"os"
 	"reflect"
 	"runtime"
+	"runtime/metrics"
 	"strconv"
 	"strings"
 	"time"
@@ -17,6 +18,100 @@ import (
 
 var STATE_NAMES = []string{"initing", "leader", "follower", "syncing", "config", "vote", "close"}
 var ROLE_NAMES = []string{"unknown", "leader", "follower", "arbiter"}
+
+func getUint64RuntimeMetrics(names []string) map[string]uint64 {
+	samples := make([]metrics.Sample, len(names))
+	for i, name := range names {
+		samples[i].Name = name
+	}
+	metrics.Read(samples)
+
+	values := make(map[string]uint64, len(names))
+	for i, sample := range samples {
+		if sample.Value.Kind() == metrics.KindBad {
+			values[names[i]] = 0
+			continue
+		}
+		values[names[i]] = sample.Value.Uint64()
+	}
+	return values
+}
+
+func getFloat64HistogramRuntimeMetrics(names []string) map[string]*metrics.Float64Histogram {
+	samples := make([]metrics.Sample, len(names))
+	for i, name := range names {
+		samples[i].Name = name
+	}
+	metrics.Read(samples)
+
+	values := make(map[string]*metrics.Float64Histogram, len(names))
+	for i, sample := range samples {
+		if sample.Value.Kind() == metrics.KindBad {
+			values[names[i]] = nil
+			continue
+		}
+		values[names[i]] = sample.Value.Float64Histogram()
+	}
+	return values
+}
+
+func getFloat64RuntimeMetrics(names []string) map[string]float64 {
+	samples := make([]metrics.Sample, len(names))
+	for i, name := range names {
+		samples[i].Name = name
+	}
+	metrics.Read(samples)
+
+	values := make(map[string]float64, len(names))
+	for i, sample := range samples {
+		if sample.Value.Kind() == metrics.KindBad {
+			values[names[i]] = 0
+			continue
+		}
+		values[names[i]] = sample.Value.Float64()
+	}
+	return values
+}
+
+func getRuntimeMetricHistogramCount(histogram *metrics.Float64Histogram) uint64 {
+	if histogram == nil {
+		return 0
+	}
+	count := uint64(0)
+	for _, bucketCount := range histogram.Counts {
+		count += bucketCount
+	}
+	return count
+}
+
+func getRuntimeMetricHistogramPercentile(histogram *metrics.Float64Histogram, percentile float64) float64 {
+	if histogram == nil || len(histogram.Counts) == 0 || len(histogram.Buckets) == 0 {
+		return 0
+	}
+
+	totalCount := getRuntimeMetricHistogramCount(histogram)
+	if totalCount == 0 {
+		return 0
+	}
+
+	targetCount := uint64(float64(totalCount) * percentile)
+	if targetCount == 0 {
+		targetCount = 1
+	}
+
+	currentCount := uint64(0)
+	for i, bucketCount := range histogram.Counts {
+		currentCount += bucketCount
+		if currentCount >= targetCount {
+			if i < len(histogram.Buckets) {
+				return histogram.Buckets[i]
+			}
+			break
+		}
+	}
+
+	return histogram.Buckets[len(histogram.Buckets)-1]
+}
 
 type Admin struct {
 	slock  *SLock
@@ -216,28 +311,143 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 		infos = append(infos, "")
 	}
 
+	if section == "" || section == "cpu" {
+		float64Metrics := getFloat64RuntimeMetrics([]string{
+			"/cpu/classes/total:cpu-seconds",
+			"/cpu/classes/user:cpu-seconds",
+			"/cpu/classes/idle:cpu-seconds",
+			"/cpu/classes/gc/total:cpu-seconds",
+			"/cpu/classes/gc/pause:cpu-seconds",
+			"/cpu/classes/gc/mark/assist:cpu-seconds",
+			"/cpu/classes/gc/mark/dedicated:cpu-seconds",
+			"/cpu/classes/gc/mark/idle:cpu-seconds",
+			"/cpu/classes/scavenge/total:cpu-seconds",
+			"/cpu/classes/scavenge/assist:cpu-seconds",
+			"/cpu/classes/scavenge/background:cpu-seconds",
+		})
+		infos = append(infos, "# CPU")
+		infos = append(infos, fmt.Sprintf("cpu_total_seconds:%f", float64Metrics["/cpu/classes/total:cpu-seconds"]))
+		infos = append(infos, fmt.Sprintf("cpu_user_seconds:%f", float64Metrics["/cpu/classes/user:cpu-seconds"]))
+		infos = append(infos, fmt.Sprintf("cpu_idle_seconds:%f", float64Metrics["/cpu/classes/idle:cpu-seconds"]))
+		infos = append(infos, fmt.Sprintf("cpu_gc_total_seconds:%f", float64Metrics["/cpu/classes/gc/total:cpu-seconds"]))
+		infos = append(infos, fmt.Sprintf("cpu_gc_pause_seconds:%f", float64Metrics["/cpu/classes/gc/pause:cpu-seconds"]))
+		infos = append(infos, fmt.Sprintf("cpu_gc_mark_assist_seconds:%f", float64Metrics["/cpu/classes/gc/mark/assist:cpu-seconds"]))
+		infos = append(infos, fmt.Sprintf("cpu_gc_mark_dedicated_seconds:%f", float64Metrics["/cpu/classes/gc/mark/dedicated:cpu-seconds"]))
+		infos = append(infos, fmt.Sprintf("cpu_gc_mark_idle_seconds:%f", float64Metrics["/cpu/classes/gc/mark/idle:cpu-seconds"]))
+		infos = append(infos, fmt.Sprintf("cpu_scavenge_total_seconds:%f", float64Metrics["/cpu/classes/scavenge/total:cpu-seconds"]))
+		infos = append(infos, fmt.Sprintf("cpu_scavenge_assist_seconds:%f", float64Metrics["/cpu/classes/scavenge/assist:cpu-seconds"]))
+		infos = append(infos, fmt.Sprintf("cpu_scavenge_background_seconds:%f", float64Metrics["/cpu/classes/scavenge/background:cpu-seconds"]))
+		infos = append(infos, "")
+	}
+
+	if section == "" || section == "coroutine" {
+		uint64Metrics := getUint64RuntimeMetrics([]string{
+			"/sched/goroutines:goroutines",
+			"/sched/goroutines-created:goroutines",
+			"/sched/goroutines/runnable:goroutines",
+			"/sched/goroutines/running:goroutines",
+			"/sched/goroutines/waiting:goroutines",
+			"/sched/goroutines/not-in-go:goroutines",
+			"/sched/gomaxprocs:threads",
+			"/sched/threads/total:threads",
+		})
+		histogramMetrics := getFloat64HistogramRuntimeMetrics([]string{
+			"/sched/latencies:seconds",
+		})
+		schedLatencies := histogramMetrics["/sched/latencies:seconds"]
+		infos = append(infos, "# Coroutine")
+		infos = append(infos, fmt.Sprintf("sched_goroutines:%d", uint64Metrics["/sched/goroutines:goroutines"]))
+		infos = append(infos, fmt.Sprintf("sched_goroutines_created:%d", uint64Metrics["/sched/goroutines-created:goroutines"]))
+		infos = append(infos, fmt.Sprintf("sched_goroutines_runnable:%d", uint64Metrics["/sched/goroutines/runnable:goroutines"]))
+		infos = append(infos, fmt.Sprintf("sched_goroutines_running:%d", uint64Metrics["/sched/goroutines/running:goroutines"]))
+		infos = append(infos, fmt.Sprintf("sched_goroutines_waiting:%d", uint64Metrics["/sched/goroutines/waiting:goroutines"]))
+		infos = append(infos, fmt.Sprintf("sched_goroutines_not_in_go:%d", uint64Metrics["/sched/goroutines/not-in-go:goroutines"]))
+		infos = append(infos, fmt.Sprintf("sched_gomaxprocs:%d", uint64Metrics["/sched/gomaxprocs:threads"]))
+		infos = append(infos, fmt.Sprintf("sched_threads_total:%d", uint64Metrics["/sched/threads/total:threads"]))
+		infos = append(infos, fmt.Sprintf("sched_latency_samples:%d", getRuntimeMetricHistogramCount(schedLatencies)))
+		infos = append(infos, fmt.Sprintf("sched_latency_p50_seconds:%f", getRuntimeMetricHistogramPercentile(schedLatencies, 0.50)))
+		infos = append(infos, fmt.Sprintf("sched_latency_p90_seconds:%f", getRuntimeMetricHistogramPercentile(schedLatencies, 0.90)))
+		infos = append(infos, fmt.Sprintf("sched_latency_p99_seconds:%f", getRuntimeMetricHistogramPercentile(schedLatencies, 0.99)))
+		infos = append(infos, fmt.Sprintf("runtime_num_cpu:%d", runtime.NumCPU()))
+		infos = append(infos, "")
+	}
+
 	if section == "" || section == "memory" {
-		memoryStats := runtime.MemStats{}
-		runtime.ReadMemStats(&memoryStats)
+		uint64Metrics := getUint64RuntimeMetrics([]string{
+			"/memory/classes/total:bytes",
+			"/memory/classes/heap/objects:bytes",
+			"/memory/classes/heap/free:bytes",
+			"/memory/classes/heap/released:bytes",
+			"/memory/classes/heap/unused:bytes",
+			"/memory/classes/heap/stacks:bytes",
+			"/memory/classes/metadata/mcache/inuse:bytes",
+			"/memory/classes/metadata/mcache/free:bytes",
+			"/memory/classes/metadata/mspan/inuse:bytes",
+			"/memory/classes/metadata/mspan/free:bytes",
+			"/memory/classes/metadata/other:bytes",
+			"/memory/classes/os-stacks:bytes",
+			"/memory/classes/other:bytes",
+			"/memory/classes/profiling/buckets:bytes",
+			"/gc/heap/allocs:bytes",
+			"/gc/heap/frees:bytes",
+			"/gc/heap/allocs:objects",
+			"/gc/heap/frees:objects",
+			"/gc/heap/goal:bytes",
+			"/gc/heap/live:bytes",
+			"/gc/heap/objects:objects",
+			"/gc/cycles/automatic:gc-cycles",
+			"/gc/cycles/forced:gc-cycles",
+			"/gc/cycles/total:gc-cycles",
+		})
+		memoryTotal := uint64Metrics["/memory/classes/total:bytes"]
+		heapObjects := uint64Metrics["/memory/classes/heap/objects:bytes"]
+		heapFree := uint64Metrics["/memory/classes/heap/free:bytes"]
+		heapReleased := uint64Metrics["/memory/classes/heap/released:bytes"]
+		heapUnused := uint64Metrics["/memory/classes/heap/unused:bytes"]
+		heapStacks := uint64Metrics["/memory/classes/heap/stacks:bytes"]
+		metadataMCacheInuse := uint64Metrics["/memory/classes/metadata/mcache/inuse:bytes"]
+		metadataMCacheFree := uint64Metrics["/memory/classes/metadata/mcache/free:bytes"]
+		metadataMSpanInuse := uint64Metrics["/memory/classes/metadata/mspan/inuse:bytes"]
+		metadataMSpanFree := uint64Metrics["/memory/classes/metadata/mspan/free:bytes"]
+		metadataOther := uint64Metrics["/memory/classes/metadata/other:bytes"]
+		osStacks := uint64Metrics["/memory/classes/os-stacks:bytes"]
+		other := uint64Metrics["/memory/classes/other:bytes"]
+		profilingBuckets := uint64Metrics["/memory/classes/profiling/buckets:bytes"]
+
+		usedMemoryRSS := memoryTotal
+		if usedMemoryRSS >= heapReleased {
+			usedMemoryRSS -= heapReleased
+		}
+
 		infos = append(infos, "# Memory")
-		infos = append(infos, fmt.Sprintf("used_memory:%d", memoryStats.HeapAlloc))
-		infos = append(infos, fmt.Sprintf("used_memory_rss:%d", memoryStats.HeapSys))
-		infos = append(infos, fmt.Sprintf("memory_alloc:%d", memoryStats.Alloc))
-		infos = append(infos, fmt.Sprintf("memory_total_alloc:%d", memoryStats.TotalAlloc))
-		infos = append(infos, fmt.Sprintf("memory_sys:%d", memoryStats.Sys))
-		infos = append(infos, fmt.Sprintf("memory_mallocs:%d", memoryStats.Mallocs))
-		infos = append(infos, fmt.Sprintf("memory_frees:%d", memoryStats.Frees))
-		infos = append(infos, fmt.Sprintf("memory_heap_alloc:%d", memoryStats.HeapAlloc))
-		infos = append(infos, fmt.Sprintf("memory_heap_sys:%d", memoryStats.HeapSys))
-		infos = append(infos, fmt.Sprintf("memory_heap_idle:%d", memoryStats.HeapIdle))
-		infos = append(infos, fmt.Sprintf("memory_heap_released:%d", memoryStats.HeapReleased))
-		infos = append(infos, fmt.Sprintf("memory_heap_objects:%d", memoryStats.HeapObjects))
-		infos = append(infos, fmt.Sprintf("memory_gc_sys:%d", memoryStats.GCSys))
-		infos = append(infos, fmt.Sprintf("memory_gc_last:%d", memoryStats.LastGC))
-		infos = append(infos, fmt.Sprintf("memory_gc_next:%d", memoryStats.NextGC))
-		infos = append(infos, fmt.Sprintf("memory_gc_pause_totalns:%d", memoryStats.PauseTotalNs))
-		infos = append(infos, fmt.Sprintf("memory_gc_num:%d", memoryStats.NumGC))
-		infos = append(infos, fmt.Sprintf("memory_gc_num_forced:%d", memoryStats.NumForcedGC))
+		infos = append(infos, fmt.Sprintf("used_memory:%d", heapObjects))
+		infos = append(infos, fmt.Sprintf("used_memory_rss:%d", usedMemoryRSS))
+		infos = append(infos, fmt.Sprintf("memory_alloc:%d", heapObjects))
+		infos = append(infos, fmt.Sprintf("memory_total_alloc:%d", uint64Metrics["/gc/heap/allocs:bytes"]))
+		infos = append(infos, fmt.Sprintf("memory_sys:%d", memoryTotal))
+		infos = append(infos, fmt.Sprintf("memory_mallocs:%d", uint64Metrics["/gc/heap/allocs:objects"]))
+		infos = append(infos, fmt.Sprintf("memory_frees:%d", uint64Metrics["/gc/heap/frees:objects"]))
+		infos = append(infos, fmt.Sprintf("memory_heap_alloc:%d", heapObjects))
+		infos = append(infos, fmt.Sprintf("memory_heap_sys:%d", heapObjects+heapFree+heapReleased+heapUnused))
+		infos = append(infos, fmt.Sprintf("memory_heap_idle:%d", heapFree+heapReleased))
+		infos = append(infos, fmt.Sprintf("memory_heap_released:%d", heapReleased))
+		infos = append(infos, fmt.Sprintf("memory_heap_objects:%d", uint64Metrics["/gc/heap/objects:objects"]))
+		infos = append(infos, fmt.Sprintf("memory_heap_stacks:%d", heapStacks))
+		infos = append(infos, fmt.Sprintf("memory_gc_sys:%d", metadataMCacheInuse+metadataMCacheFree+metadataMSpanInuse+metadataMSpanFree+metadataOther+profilingBuckets))
+		infos = append(infos, fmt.Sprintf("memory_gc_heap_goal:%d", uint64Metrics["/gc/heap/goal:bytes"]))
+		infos = append(infos, fmt.Sprintf("memory_gc_heap_live:%d", uint64Metrics["/gc/heap/live:bytes"]))
+		infos = append(infos, fmt.Sprintf("memory_gc_cycles_automatic:%d", uint64Metrics["/gc/cycles/automatic:gc-cycles"]))
+		infos = append(infos, fmt.Sprintf("memory_gc_cycles_forced:%d", uint64Metrics["/gc/cycles/forced:gc-cycles"]))
+		infos = append(infos, fmt.Sprintf("memory_gc_cycles_total:%d", uint64Metrics["/gc/cycles/total:gc-cycles"]))
+		infos = append(infos, fmt.Sprintf("memory_metadata_mcache_inuse:%d", metadataMCacheInuse))
+		infos = append(infos, fmt.Sprintf("memory_metadata_mcache_free:%d", metadataMCacheFree))
+		infos = append(infos, fmt.Sprintf("memory_metadata_mspan_inuse:%d", metadataMSpanInuse))
+		infos = append(infos, fmt.Sprintf("memory_metadata_mspan_free:%d", metadataMSpanFree))
+		infos = append(infos, fmt.Sprintf("memory_metadata_other:%d", metadataOther))
+		infos = append(infos, fmt.Sprintf("memory_os_stacks:%d", osStacks))
+		infos = append(infos, fmt.Sprintf("memory_other:%d", other))
+		infos = append(infos, fmt.Sprintf("memory_profiling_buckets:%d", profilingBuckets))
+		infos = append(infos, fmt.Sprintf("memory_heap_frees_bytes:%d", uint64Metrics["/gc/heap/frees:bytes"]))
 		infos = append(infos, "")
 	}
 
