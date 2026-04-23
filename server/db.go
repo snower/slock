@@ -344,7 +344,10 @@ func (self *LockDBFreeCollector) Collect(db *LockDB) error {
 				for i := uint16(0); i < db.managerMaxGlocks; i++ {
 					db.managerGlocks[i].LowPriorityLock()
 					for j := 0; j < freeCount; j++ {
-						db.freeLocks[i].PopRight()
+						lock := db.freeLocks[i].PopRight()
+						if lock == nil {
+							break
+						}
 					}
 					db.freeLocks[i].freeQueue()
 					db.managerGlocks[i].LowPriorityUnlock()
@@ -358,7 +361,10 @@ func (self *LockDBFreeCollector) Collect(db *LockDB) error {
 				for i := uint16(0); i < db.managerMaxGlocks; i++ {
 					db.managerGlocks[i].LowPriorityLock()
 					for j := 0; j < freeCount; j++ {
-						db.freeLongWaitQueues[i].Pop()
+						queue := db.freeLongWaitQueues[i].Pop()
+						if queue == nil {
+							break
+						}
 					}
 					db.managerGlocks[i].LowPriorityUnlock()
 				}
@@ -371,7 +377,10 @@ func (self *LockDBFreeCollector) Collect(db *LockDB) error {
 				for i := uint16(0); i < db.managerMaxGlocks; i++ {
 					db.managerGlocks[i].LowPriorityLock()
 					for j := 0; j < freeCount; j++ {
-						db.freeMillisecondWaitQueues[i].Pop()
+						queue := db.freeMillisecondWaitQueues[i].Pop()
+						if queue == nil {
+							break
+						}
 					}
 					db.managerGlocks[i].LowPriorityUnlock()
 				}
