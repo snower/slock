@@ -36,7 +36,10 @@ func NewSLockFreeCollector() *SLockFreeCollector {
 func (self *SLockFreeCollector) Collect(slock *SLock, totalCommandCount uint64) error {
 	currentTime := time.Now().Unix()
 	avgCommandCount := int((totalCommandCount - self.lastTotalCommandCount) / uint64(currentTime-self.lastCollectTime))
-	freeLockCommandCount, minFreeLockCommandCount := int(slock.freeLockCommandCount), avgCommandCount*10
+	slock.freeLockCommandLock.Lock()
+	freeLockCommandCount := int(slock.freeLockCommandQueue.Len())
+	slock.freeLockCommandLock.Unlock()
+	minFreeLockCommandCount := avgCommandCount * 10
 	if minFreeLockCommandCount < 16 {
 		minFreeLockCommandCount = 16
 	}
@@ -51,7 +54,6 @@ func (self *SLockFreeCollector) Collect(slock *SLock, totalCommandCount uint64) 
 					if command == nil {
 						break
 					}
-					slock.freeLockCommandCount--
 				}
 				slock.freeLockCommandQueue.freeQueue()
 				slock.freeLockCommandLock.Unlock()
@@ -84,7 +86,6 @@ type SLock struct {
 	freeLockCommandQueue   *LockCommandQueue
 	freeLockCommandLock    *sync.Mutex
 	freeCollector          *SLockFreeCollector
-	freeLockCommandCount   int32
 	statsTotalCommandCount uint64
 	state                  uint8
 }
@@ -103,7 +104,7 @@ func NewSLock(config *ServerConfig, logger logging.Logger) *SLock {
 	slock := &SLock{nil, make([]*LockDB, 256), &sync.Mutex{}, aof, replicationManager, nil, subscribeManager, admin, logger,
 		make(map[uint32]*ServerProtocolSession, STREAMS_INIT_COUNT), &sync.Mutex{}, make(map[[16]byte]ServerProtocol, STREAMS_INIT_COUNT), &sync.Mutex{}, &now,
 		NewLockCommandQueue(16, 64, FREE_COMMAND_QUEUE_INIT_SIZE*int32(Config.DBConcurrent)), &sync.Mutex{},
-		NewSLockFreeCollector(), 0, 0, STATE_INIT}
+		NewSLockFreeCollector(), 0, STATE_INIT}
 	aof.slock = slock
 	replicationManager.slock = slock
 	replicationManager.transparencyManager.slock = slock
@@ -457,7 +458,6 @@ func (self *SLock) checkServerProtocolSession() error {
 func (self *SLock) freeLockCommand(command *protocol.LockCommand) *protocol.LockCommand {
 	self.freeLockCommandLock.Lock()
 	_ = self.freeLockCommandQueue.Push(command)
-	self.freeLockCommandCount++
 	self.freeLockCommandLock.Unlock()
 	return command
 }
@@ -465,9 +465,6 @@ func (self *SLock) freeLockCommand(command *protocol.LockCommand) *protocol.Lock
 func (self *SLock) getLockCommand() *protocol.LockCommand {
 	self.freeLockCommandLock.Lock()
 	command := self.freeLockCommandQueue.PopRight()
-	if command != nil {
-		self.freeLockCommandCount--
-	}
 	self.freeLockCommandLock.Unlock()
 	return command
 }
@@ -475,11 +472,7 @@ func (self *SLock) getLockCommand() *protocol.LockCommand {
 func (self *SLock) freeLockCommands(commands []*protocol.LockCommand) error {
 	self.freeLockCommandLock.Lock()
 	for _, command := range commands {
-		err := self.freeLockCommandQueue.Push(command)
-		if err != nil {
-			continue
-		}
-		self.freeLockCommandCount++
+		_ = self.freeLockCommandQueue.Push(command)
 	}
 	self.freeLockCommandLock.Unlock()
 	return nil
@@ -487,17 +480,13 @@ func (self *SLock) freeLockCommands(commands []*protocol.LockCommand) error {
 
 func (self *SLock) getLockCommands(count int32) []*protocol.LockCommand {
 	self.freeLockCommandLock.Lock()
-	if count > self.freeLockCommandCount {
-		count = self.freeLockCommandCount
-	}
-	commands := make([]*protocol.LockCommand, count)
+	commands := make([]*protocol.LockCommand, 0, count)
 	for i := int32(0); i < count; i++ {
 		command := self.freeLockCommandQueue.PopRight()
 		if command == nil {
 			break
 		}
-		commands[i] = command
-		self.freeLockCommandCount--
+		commands = append(commands, command)
 	}
 	self.freeLockCommandLock.Unlock()
 	return commands

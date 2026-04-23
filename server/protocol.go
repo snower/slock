@@ -51,7 +51,6 @@ func (self *ServerProtocolFreeCollector) Collect(slock *SLock, glock *sync.Mutex
 					}
 					slock.freeLockCommandLock.Lock()
 					_ = slock.freeLockCommandQueue.Push(command)
-					slock.freeLockCommandCount++
 					slock.freeLockCommandLock.Unlock()
 				}
 				glock.Lock()
@@ -379,7 +378,6 @@ func (self *DefaultServerProtocol) GetLockCommandLocked() *protocol.LockCommand 
 	self.slock.freeLockCommandLock.Lock()
 	lockCommand := self.slock.freeLockCommandQueue.PopRight()
 	if lockCommand != nil {
-		self.slock.freeLockCommandCount--
 		self.slock.freeLockCommandLock.Unlock()
 		return lockCommand
 	}
@@ -395,7 +393,6 @@ func (self *DefaultServerProtocol) FreeLockCommandLocked(command *protocol.LockC
 	command.Data = nil
 	self.slock.freeLockCommandLock.Lock()
 	_ = self.slock.freeLockCommandQueue.Push(command)
-	self.slock.freeLockCommandCount++
 	self.slock.freeLockCommandLock.Unlock()
 	return nil
 }
@@ -571,7 +568,6 @@ func (self *MemWaiterServerProtocol) InitLockCommand() {
 	self.slock.freeLockCommandLock.Lock()
 	lockCommand := self.slock.freeLockCommandQueue.PopRight()
 	if lockCommand != nil {
-		self.slock.freeLockCommandCount--
 		self.freeCommands[self.freeCommandIndex] = lockCommand
 		self.freeCommandIndex++
 	}
@@ -583,7 +579,6 @@ func (self *MemWaiterServerProtocol) UnInitLockCommand() {
 	for self.freeCommandIndex > 0 {
 		self.freeCommandIndex--
 		_ = self.slock.freeLockCommandQueue.Push(self.freeCommands[self.freeCommandIndex])
-		self.slock.freeLockCommandCount++
 	}
 
 	for {
@@ -592,7 +587,6 @@ func (self *MemWaiterServerProtocol) UnInitLockCommand() {
 			break
 		}
 		_ = self.slock.freeLockCommandQueue.Push(command)
-		self.slock.freeLockCommandCount++
 	}
 	self.slock.freeLockCommandLock.Unlock()
 }
@@ -611,7 +605,6 @@ func (self *MemWaiterServerProtocol) GetLockCommand() *protocol.LockCommand {
 	self.slock.freeLockCommandLock.Lock()
 	lockCommand = self.slock.freeLockCommandQueue.PopRight()
 	if lockCommand != nil {
-		self.slock.freeLockCommandCount--
 		self.slock.freeLockCommandLock.Unlock()
 		return lockCommand
 	}
@@ -623,7 +616,6 @@ func (self *MemWaiterServerProtocol) GetLockCommandLocked() *protocol.LockComman
 	self.slock.freeLockCommandLock.Lock()
 	lockCommand := self.slock.freeLockCommandQueue.PopRight()
 	if lockCommand != nil {
-		self.slock.freeLockCommandCount--
 		self.slock.freeLockCommandLock.Unlock()
 		return lockCommand
 	}
@@ -648,7 +640,6 @@ func (self *MemWaiterServerProtocol) FreeLockCommandLocked(command *protocol.Loc
 		self.glock.Unlock()
 		self.slock.freeLockCommandLock.Lock()
 		_ = self.slock.freeLockCommandQueue.Push(command)
-		self.slock.freeLockCommandCount++
 		self.slock.freeLockCommandLock.Unlock()
 		return nil
 	}
@@ -1599,7 +1590,6 @@ func (self *BinaryServerProtocol) InitLockCommand() {
 		if lockCommand == nil {
 			break
 		}
-		self.slock.freeLockCommandCount--
 		self.freeCommands[self.freeCommandIndex] = lockCommand
 		self.freeCommandIndex++
 	}
@@ -1612,7 +1602,6 @@ func (self *BinaryServerProtocol) UnInitLockCommand() {
 		self.freeCommandIndex--
 		command := self.freeCommands[self.freeCommandIndex]
 		_ = self.slock.freeLockCommandQueue.Push(command)
-		self.slock.freeLockCommandCount++
 	}
 
 	for {
@@ -1621,7 +1610,6 @@ func (self *BinaryServerProtocol) UnInitLockCommand() {
 			break
 		}
 		_ = self.slock.freeLockCommandQueue.Push(command)
-		self.slock.freeLockCommandCount++
 	}
 	self.slock.freeLockCommandLock.Unlock()
 }
@@ -1646,7 +1634,6 @@ func (self *BinaryServerProtocol) GetLockCommandLocked() *protocol.LockCommand {
 	self.slock.freeLockCommandLock.Lock()
 	lockCommand = self.slock.freeLockCommandQueue.PopRight()
 	if lockCommand != nil {
-		self.slock.freeLockCommandCount--
 		self.slock.freeLockCommandLock.Unlock()
 		return lockCommand
 	}
@@ -1671,7 +1658,6 @@ func (self *BinaryServerProtocol) FreeLockCommandLocked(command *protocol.LockCo
 		self.glock.Unlock()
 		self.slock.freeLockCommandLock.Lock()
 		_ = self.slock.freeLockCommandQueue.Push(command)
-		self.slock.freeLockCommandCount++
 		self.slock.freeLockCommandLock.Unlock()
 		return nil
 	}
@@ -2473,7 +2459,6 @@ func (self *TextServerProtocol) InitLockCommand() {
 	self.slock.freeLockCommandLock.Lock()
 	lockCommand := self.slock.freeLockCommandQueue.PopRight()
 	if lockCommand != nil {
-		self.slock.freeLockCommandCount--
 		self.freeCommands[self.freeCommandIndex] = lockCommand
 		self.freeCommandIndex++
 	}
@@ -2486,7 +2471,6 @@ func (self *TextServerProtocol) UnInitLockCommand() {
 		self.freeCommandIndex--
 		command := self.freeCommands[self.freeCommandIndex]
 		_ = self.slock.freeLockCommandQueue.Push(command)
-		self.slock.freeLockCommandCount++
 	}
 
 	for {
@@ -2495,7 +2479,6 @@ func (self *TextServerProtocol) UnInitLockCommand() {
 			break
 		}
 		_ = self.slock.freeLockCommandQueue.Push(command)
-		self.slock.freeLockCommandCount++
 	}
 	self.slock.freeLockCommandLock.Unlock()
 }
@@ -2520,7 +2503,6 @@ func (self *TextServerProtocol) GetLockCommandLocked() *protocol.LockCommand {
 	self.slock.freeLockCommandLock.Lock()
 	lockCommand = self.slock.freeLockCommandQueue.PopRight()
 	if lockCommand != nil {
-		self.slock.freeLockCommandCount--
 		self.slock.freeLockCommandLock.Unlock()
 		return lockCommand
 	}
@@ -2545,7 +2527,6 @@ func (self *TextServerProtocol) FreeLockCommandLocked(command *protocol.LockComm
 		self.glock.Unlock()
 		self.slock.freeLockCommandLock.Lock()
 		_ = self.slock.freeLockCommandQueue.Push(command)
-		self.slock.freeLockCommandCount++
 		self.slock.freeLockCommandLock.Unlock()
 		return nil
 	}

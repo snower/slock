@@ -36,7 +36,4 @@ func TestServerProtocolFreeCollectorCollectMovesCommandsToSLock(t *testing.T) {
 	if slock.freeLockCommandQueue.Len() != 3 {
 		t.Fatalf("expected one command to be moved into slock free queue, got %d", slock.freeLockCommandQueue.Len())
 	}
-	if slock.freeLockCommandCount != 3 {
-		t.Fatalf("expected slock free command count to increment to 1, got %d", slock.freeLockCommandCount)
-	}
 }

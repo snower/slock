@@ -30,7 +30,6 @@ func TestSLockFreeCollectorCollectShrinksFreeQueue(t *testing.T) {
 	slock := NewSLock(serverConfig, nil)
 	slock.freeLockCommandLock = &sync.Mutex{}
 	slock.freeLockCommandQueue = NewLockCommandQueue(4, 16, 32)
-	slock.freeLockCommandCount = 20
 	for i := 0; i < 20; i++ {
 		_ = slock.freeLockCommandQueue.Push(&protocol.LockCommand{})
 	}

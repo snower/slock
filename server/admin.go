@@ -392,7 +392,9 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 			}
 		}
 
-		freeLockCommandCount += int(self.slock.freeLockCommandCount)
+		self.slock.freeLockCommandLock.Lock()
+		freeLockCommandCount += int(self.slock.freeLockCommandQueue.Len())
+		self.slock.freeLockCommandLock.Unlock()
 		totalCommandCount += self.slock.statsTotalCommandCount
 		for _, stream := range self.server.GetStreams() {
 			streamProtocol := stream.protocol
