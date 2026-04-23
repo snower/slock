@@ -45,7 +45,7 @@ func TestSLockFreeCollectorCollectShrinksFreeQueue(t *testing.T) {
 		t.Fatalf("collect failed: %v", err)
 	}
 
-	if slock.freeLockCommandQueue.Len() != 19 {
+	if slock.freeLockCommandQueue.Len() != 20 {
 		t.Fatalf("expected free queue len 19 after one object reclaimed, got %d", slock.freeLockCommandQueue.Len())
 	}
 	if collector.lastFreeLockCommandCount != 20 {

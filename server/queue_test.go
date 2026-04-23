@@ -24,6 +24,91 @@ func BenchmarkLockManagerQueue(b *testing.B) {
 	}
 }
 
+func TestLockManagerQueueMallocFree(t *testing.T) {
+	q := NewLockManagerQueue(2, 2, 1)
+	if q.nodeIndex != 0 || len(q.queues) != 2 || q.tailNodeIndex != 0 {
+		t.Error("LockManagerQueue MallocQueue Test Fail")
+		return
+	}
+	_ = q.Push(&LockManager{})
+	_ = q.Push(&LockManager{})
+	if q.nodeIndex != 1 || len(q.queues) != 2 || q.tailNodeIndex != 1 {
+		t.Error("LockManagerQueue MallocQueue Test Fail")
+		return
+	}
+	_ = q.Push(&LockManager{})
+	_ = q.Push(&LockManager{})
+	if q.nodeIndex != 2 || len(q.queues) != 3 || q.tailNodeIndex != 2 {
+		t.Error("LockManagerQueue MallocQueue Test Fail")
+		return
+	}
+	_ = q.Push(&LockManager{})
+	_ = q.Push(&LockManager{})
+	if q.nodeIndex != 2 || len(q.queues) != 3 || q.tailNodeIndex != 2 {
+		t.Error("LockManagerQueue MallocQueue Test Fail")
+		return
+	}
+	_ = q.Push(&LockManager{})
+	_ = q.Push(&LockManager{})
+	if q.nodeIndex != 3 || len(q.queues) != 4 || q.tailNodeIndex != 3 {
+		t.Error("LockManagerQueue MallocQueue Test Fail")
+		return
+	}
+
+	q.freeQueue()
+	if q.nodeIndex != 3 || len(q.queues) != 4 || q.queues[3] == nil || q.tailNodeIndex != 3 {
+		t.Error("LockCommandQueue FreeQueue Test Fail")
+		return
+	}
+	q.PopRight()
+	q.freeQueue()
+	if q.nodeIndex != 3 || len(q.queues) != 4 || q.queues[3] == nil || q.tailNodeIndex != 3 {
+		t.Error("LockCommandQueue FreeQueue Test Fail")
+		return
+	}
+	q.PopRight()
+	q.freeQueue()
+	if q.nodeIndex != 2 || len(q.queues) != 4 || q.queues[3] != nil || q.tailNodeIndex != 2 {
+		t.Error("LockCommandQueue FreeQueue Test Fail")
+		return
+	}
+	q.PopRight()
+	q.PopRight()
+	q.PopRight()
+	q.freeQueue()
+	if q.nodeIndex != 2 || len(q.queues) != 4 || q.queues[3] != nil || q.queues[2] == nil || q.tailNodeIndex != 2 {
+		t.Error("LockCommandQueue FreeQueue Test Fail")
+		return
+	}
+	q.PopRight()
+	q.freeQueue()
+	if q.nodeIndex != 1 || len(q.queues) != 4 || q.queues[3] != nil || q.queues[2] != nil || q.tailNodeIndex != 1 {
+		t.Error("LockCommandQueue FreeQueue Test Fail")
+		return
+	}
+	q.PopRight()
+	q.freeQueue()
+	if q.nodeIndex != 1 || len(q.queues) != 4 || q.queues[3] != nil || q.queues[2] != nil || q.queues[1] == nil || q.tailNodeIndex != 1 {
+		t.Error("LockCommandQueue FreeQueue Test Fail")
+		return
+	}
+	q.PopRight()
+	q.freeQueue()
+	if q.nodeIndex != 1 || len(q.queues) != 4 || q.queues[3] != nil || q.queues[2] != nil || q.queues[1] == nil || q.queues[0] == nil || q.tailNodeIndex != 0 {
+		t.Error("LockCommandQueue FreeQueue Test Fail")
+		return
+	}
+	if q.PopRight() != nil {
+		t.Error("LockCommandQueue FreeQueue Test Fail")
+		return
+	}
+	q.freeQueue()
+	if q.nodeIndex != 1 || len(q.queues) != 4 || q.queues[3] != nil || q.queues[2] != nil || q.queues[1] == nil || q.queues[0] == nil || q.tailNodeIndex != 0 {
+		t.Error("LockCommandQueue FreeQueue Test Fail")
+		return
+	}
+}
+
 func TestLockManagerQueuePushPop(t *testing.T) {
 	head := &LockManager{}
 	tail := &LockManager{}
@@ -534,6 +619,91 @@ func BenchmarkLockQueue(b *testing.B) {
 	}
 }
 
+func TestLockQueueMallocFree(t *testing.T) {
+	q := NewLockQueue(2, 2, 1)
+	if q.nodeIndex != 0 || len(q.queues) != 2 || q.tailNodeIndex != 0 {
+		t.Error("LockQueue MallocQueue Test Fail")
+		return
+	}
+	_ = q.Push(&Lock{})
+	_ = q.Push(&Lock{})
+	if q.nodeIndex != 1 || len(q.queues) != 2 || q.tailNodeIndex != 1 {
+		t.Error("LockQueue MallocQueue Test Fail")
+		return
+	}
+	_ = q.Push(&Lock{})
+	_ = q.Push(&Lock{})
+	if q.nodeIndex != 2 || len(q.queues) != 3 || q.tailNodeIndex != 2 {
+		t.Error("LockQueue MallocQueue Test Fail")
+		return
+	}
+	_ = q.Push(&Lock{})
+	_ = q.Push(&Lock{})
+	if q.nodeIndex != 2 || len(q.queues) != 3 || q.tailNodeIndex != 2 {
+		t.Error("LockQueue MallocQueue Test Fail")
+		return
+	}
+	_ = q.Push(&Lock{})
+	_ = q.Push(&Lock{})
+	if q.nodeIndex != 3 || len(q.queues) != 4 || q.tailNodeIndex != 3 {
+		t.Error("LockQueue MallocQueue Test Fail")
+		return
+	}
+
+	q.freeQueue()
+	if q.nodeIndex != 3 || len(q.queues) != 4 || q.queues[3] == nil || q.tailNodeIndex != 3 {
+		t.Error("LockQueue FreeQueue Test Fail")
+		return
+	}
+	q.PopRight()
+	q.freeQueue()
+	if q.nodeIndex != 3 || len(q.queues) != 4 || q.queues[3] == nil || q.tailNodeIndex != 3 {
+		t.Error("LockQueue FreeQueue Test Fail")
+		return
+	}
+	q.PopRight()
+	q.freeQueue()
+	if q.nodeIndex != 2 || len(q.queues) != 4 || q.queues[3] != nil || q.tailNodeIndex != 2 {
+		t.Error("LockQueue FreeQueue Test Fail")
+		return
+	}
+	q.PopRight()
+	q.PopRight()
+	q.PopRight()
+	q.freeQueue()
+	if q.nodeIndex != 2 || len(q.queues) != 4 || q.queues[3] != nil || q.queues[2] == nil || q.tailNodeIndex != 2 {
+		t.Error("LockQueue FreeQueue Test Fail")
+		return
+	}
+	q.PopRight()
+	q.freeQueue()
+	if q.nodeIndex != 1 || len(q.queues) != 4 || q.queues[3] != nil || q.queues[2] != nil || q.tailNodeIndex != 1 {
+		t.Error("LockQueue FreeQueue Test Fail")
+		return
+	}
+	q.PopRight()
+	q.freeQueue()
+	if q.nodeIndex != 1 || len(q.queues) != 4 || q.queues[3] != nil || q.queues[2] != nil || q.queues[1] == nil || q.tailNodeIndex != 1 {
+		t.Error("LockQueue FreeQueue Test Fail")
+		return
+	}
+	q.PopRight()
+	q.freeQueue()
+	if q.nodeIndex != 1 || len(q.queues) != 4 || q.queues[3] != nil || q.queues[2] != nil || q.queues[1] == nil || q.queues[0] == nil || q.tailNodeIndex != 0 {
+		t.Error("LockQueue FreeQueue Test Fail")
+		return
+	}
+	if q.PopRight() != nil {
+		t.Error("LockQueue FreeQueue Test Fail")
+		return
+	}
+	q.freeQueue()
+	if q.nodeIndex != 1 || len(q.queues) != 4 || q.queues[3] != nil || q.queues[2] != nil || q.queues[1] == nil || q.queues[0] == nil || q.tailNodeIndex != 0 {
+		t.Error("LockQueue FreeQueue Test Fail")
+		return
+	}
+}
+
 func TestLockQueuePushPop(t *testing.T) {
 	head := &Lock{}
 	tail := &Lock{}
@@ -1022,6 +1192,91 @@ func BenchmarkLockCommandQueue(b *testing.B) {
 				queue.Pop()
 			}
 		}
+	}
+}
+
+func TestLockCommandQueueMallocFree(t *testing.T) {
+	q := NewLockCommandQueue(2, 2, 1)
+	if q.nodeIndex != 0 || len(q.queues) != 2 || q.tailNodeIndex != 0 {
+		t.Error("LockCommandQueue MallocQueue Test Fail")
+		return
+	}
+	_ = q.Push(&protocol.LockCommand{})
+	_ = q.Push(&protocol.LockCommand{})
+	if q.nodeIndex != 1 || len(q.queues) != 2 || q.tailNodeIndex != 1 {
+		t.Error("LockCommandQueue MallocQueue Test Fail")
+		return
+	}
+	_ = q.Push(&protocol.LockCommand{})
+	_ = q.Push(&protocol.LockCommand{})
+	if q.nodeIndex != 2 || len(q.queues) != 3 || q.tailNodeIndex != 2 {
+		t.Error("LockCommandQueue MallocQueue Test Fail")
+		return
+	}
+	_ = q.Push(&protocol.LockCommand{})
+	_ = q.Push(&protocol.LockCommand{})
+	if q.nodeIndex != 2 || len(q.queues) != 3 || q.tailNodeIndex != 2 {
+		t.Error("LockCommandQueue MallocQueue Test Fail")
+		return
+	}
+	_ = q.Push(&protocol.LockCommand{})
+	_ = q.Push(&protocol.LockCommand{})
+	if q.nodeIndex != 3 || len(q.queues) != 4 || q.tailNodeIndex != 3 {
+		t.Error("LockCommandQueue MallocQueue Test Fail")
+		return
+	}
+
+	q.freeQueue()
+	if q.nodeIndex != 3 || len(q.queues) != 4 || q.queues[3] == nil || q.tailNodeIndex != 3 {
+		t.Error("LockCommandQueue FreeQueue Test Fail")
+		return
+	}
+	q.PopRight()
+	q.freeQueue()
+	if q.nodeIndex != 3 || len(q.queues) != 4 || q.queues[3] == nil || q.tailNodeIndex != 3 {
+		t.Error("LockCommandQueue FreeQueue Test Fail")
+		return
+	}
+	q.PopRight()
+	q.freeQueue()
+	if q.nodeIndex != 2 || len(q.queues) != 4 || q.queues[3] != nil || q.tailNodeIndex != 2 {
+		t.Error("LockCommandQueue FreeQueue Test Fail")
+		return
+	}
+	q.PopRight()
+	q.PopRight()
+	q.PopRight()
+	q.freeQueue()
+	if q.nodeIndex != 2 || len(q.queues) != 4 || q.queues[3] != nil || q.queues[2] == nil || q.tailNodeIndex != 2 {
+		t.Error("LockCommandQueue FreeQueue Test Fail")
+		return
+	}
+	q.PopRight()
+	q.freeQueue()
+	if q.nodeIndex != 1 || len(q.queues) != 4 || q.queues[3] != nil || q.queues[2] != nil || q.tailNodeIndex != 1 {
+		t.Error("LockCommandQueue FreeQueue Test Fail")
+		return
+	}
+	q.PopRight()
+	q.freeQueue()
+	if q.nodeIndex != 1 || len(q.queues) != 4 || q.queues[3] != nil || q.queues[2] != nil || q.queues[1] == nil || q.tailNodeIndex != 1 {
+		t.Error("LockCommandQueue FreeQueue Test Fail")
+		return
+	}
+	q.PopRight()
+	q.freeQueue()
+	if q.nodeIndex != 1 || len(q.queues) != 4 || q.queues[3] != nil || q.queues[2] != nil || q.queues[1] == nil || q.queues[0] == nil || q.tailNodeIndex != 0 {
+		t.Error("LockCommandQueue FreeQueue Test Fail")
+		return
+	}
+	if q.PopRight() != nil {
+		t.Error("LockCommandQueue FreeQueue Test Fail")
+		return
+	}
+	q.freeQueue()
+	if q.nodeIndex != 1 || len(q.queues) != 4 || q.queues[3] != nil || q.queues[2] != nil || q.queues[1] == nil || q.queues[0] == nil || q.tailNodeIndex != 0 {
+		t.Error("LockCommandQueue FreeQueue Test Fail")
+		return
 	}
 }
 

@@ -346,6 +346,7 @@ func (self *LockDBFreeCollector) Collect(db *LockDB) error {
 					for j := 0; j < freeCount; j++ {
 						db.freeLocks[i].PopRight()
 					}
+					db.freeLocks[i].freeQueue()
 					db.managerGlocks[i].LowPriorityUnlock()
 				}
 			}

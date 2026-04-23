@@ -68,6 +68,22 @@ func (self *LockManagerQueue) mallocQueue() {
 	self.tailQueueSize = self.nodeQueueSizes[self.tailNodeIndex]
 }
 
+func (self *LockManagerQueue) freeQueue() {
+	if self.nodeSize <= self.baseNodeSize {
+		return
+	}
+	tailNodeIndex := self.tailNodeIndex
+	if tailNodeIndex < self.baseNodeSize-1 {
+		tailNodeIndex = self.baseNodeSize - 1
+	}
+	for self.nodeIndex > tailNodeIndex {
+		self.queueSize = self.nodeQueueSizes[self.nodeIndex]
+		self.queues[self.nodeIndex] = nil
+		self.nodeQueueSizes[self.nodeIndex] = 0
+		self.nodeIndex--
+	}
+}
+
 func (self *LockManagerQueue) Push(lockManager *LockManager) error {
 	self.tailQueue[self.tailQueueIndex] = lockManager
 	self.tailQueueIndex++
@@ -373,6 +389,22 @@ func (self *LockQueue) mallocQueue() {
 	self.tailQueueSize = self.nodeQueueSizes[self.tailNodeIndex]
 }
 
+func (self *LockQueue) freeQueue() {
+	if self.nodeSize <= self.baseNodeSize {
+		return
+	}
+	tailNodeIndex := self.tailNodeIndex
+	if tailNodeIndex < self.baseNodeSize-1 {
+		tailNodeIndex = self.baseNodeSize - 1
+	}
+	for self.nodeIndex > tailNodeIndex {
+		self.queueSize = self.nodeQueueSizes[self.nodeIndex]
+		self.queues[self.nodeIndex] = nil
+		self.nodeQueueSizes[self.nodeIndex] = 0
+		self.nodeIndex--
+	}
+}
+
 func (self *LockQueue) Push(lock *Lock) error {
 	self.tailQueue[self.tailQueueIndex] = lock
 	self.tailQueueIndex++
@@ -674,6 +706,22 @@ func (self *LockCommandQueue) mallocQueue() {
 
 	self.tailQueue = self.queues[self.tailNodeIndex]
 	self.tailQueueSize = self.nodeQueueSizes[self.tailNodeIndex]
+}
+
+func (self *LockCommandQueue) freeQueue() {
+	if self.nodeSize <= self.baseNodeSize {
+		return
+	}
+	tailNodeIndex := self.tailNodeIndex
+	if tailNodeIndex < self.baseNodeSize-1 {
+		tailNodeIndex = self.baseNodeSize - 1
+	}
+	for self.nodeIndex > tailNodeIndex {
+		self.queueSize = self.nodeQueueSizes[self.nodeIndex]
+		self.queues[self.nodeIndex] = nil
+		self.nodeQueueSizes[self.nodeIndex] = 0
+		self.nodeIndex--
+	}
 }
 
 func (self *LockCommandQueue) Push(lock *protocol.LockCommand) error {

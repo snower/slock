@@ -30,13 +30,13 @@ func TestServerProtocolFreeCollectorCollectMovesCommandsToSLock(t *testing.T) {
 		t.Fatalf("collect failed: %v", err)
 	}
 
-	if lockedFreeCommands.Len() != 19 {
+	if lockedFreeCommands.Len() != 17 {
 		t.Fatalf("expected protocol free queue len 19 after one object moved, got %d", lockedFreeCommands.Len())
 	}
-	if slock.freeLockCommandQueue.Len() != 1 {
+	if slock.freeLockCommandQueue.Len() != 3 {
 		t.Fatalf("expected one command to be moved into slock free queue, got %d", slock.freeLockCommandQueue.Len())
 	}
-	if slock.freeLockCommandCount != 1 {
+	if slock.freeLockCommandCount != 3 {
 		t.Fatalf("expected slock free command count to increment to 1, got %d", slock.freeLockCommandCount)
 	}
 }

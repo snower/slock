@@ -49,6 +49,7 @@ func (self *SLockFreeCollector) Collect(slock *SLock, totalCommandCount uint64) 
 				for i := 0; i < freeCount; i++ {
 					slock.freeLockCommandQueue.PopRight()
 				}
+				slock.freeLockCommandQueue.freeQueue()
 				slock.freeLockCommandLock.Unlock()
 			}
 		}

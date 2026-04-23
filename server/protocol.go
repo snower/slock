@@ -54,6 +54,9 @@ func (self *ServerProtocolFreeCollector) Collect(slock *SLock, glock *sync.Mutex
 					slock.freeLockCommandCount++
 					slock.freeLockCommandLock.Unlock()
 				}
+				glock.Lock()
+				lockedFreeCommands.freeQueue()
+				glock.Unlock()
 			}
 		}
 	}
