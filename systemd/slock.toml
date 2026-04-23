@@ -62,3 +62,6 @@ slaveof=
 
 #集群名称，配置值表示启用集权模式，此时忽略主从模式配置
 replset=
+
+#是否启用事件订阅支持
+subscribe_enabled=false
