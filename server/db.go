@@ -1273,8 +1273,8 @@ func (self *LockDB) initNewLockManager(dbId uint8, freeLockManagerTail uint32) {
 		return
 	}
 
-	lockManagers := make([]LockManager, 16)
-	for i := 0; i < 16; i++ {
+	lockManagers := make([]LockManager, 8)
+	for i := 0; i < 8; i++ {
 		freeLockManagerHead := atomic.AddUint32(&self.freeLockManagerHead, 1) % self.maxFreeLockManagerCount
 		if self.freeLockManagers[freeLockManagerHead] != nil {
 			self.glock.Unlock()
