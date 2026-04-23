@@ -14,7 +14,7 @@ const EXPRIED_QUEUE_MAX_WAIT uint8 = 0x08
 const EXPRIED_WAIT_LEADER_MAX_TIME int64 = 300
 const MILLISECOND_QUEUE_LENGTH = 3000
 
-const MANAGER_MAX_GLOCKS_INIT_SIZE = 262144
+const MANAGER_MAX_GLOCKS_INIT_SIZE = 131072
 const TIMEOUT_LOCKS_QUEUE_INIT_SIZE = 4096
 const EXPRIED_LOCKS_QUEUE_INIT_SIZE = 4096
 const WAIT_REMOVE_LOCK_MANAGER_INIT_SIZE = 512
@@ -43,7 +43,7 @@ type ServerConfig struct {
 	LogBufferSize        uint    `toml:"log_buffer_size" long:"log_buffer_size" description:"log buffer byte size" default:"0"`
 	LogBufferFlushTime   uint    `toml:"log_buffer_flush_time" long:"log_buffer_flush_time" description:"log buffer flush seconds time" default:"1"`
 	DataDir              string  `toml:"data_dir" long:"data_dir" description:"data dir" default:"./data/"`
-	DBFastKeyCount       uint    `toml:"db_fast_key_count" long:"db_fast_key_count" description:"db fast key count" default:"4194304"`
+	DBFastKeyCount       uint    `toml:"db_fast_key_count" long:"db_fast_key_count" description:"db fast key count" default:"1048576"`
 	DBConcurrent         uint    `toml:"db_concurrent" long:"db_concurrent" description:"db concurrent count" default:"8"`
 	DBLockAofTime        uint    `toml:"db_lock_aof_time" long:"db_lock_aof_time" description:"db lock aof time" default:"1"`
 	DBLockAofParcentTime float64 `toml:"db_lock_aof_parcent_time" long:"db_lock_aof_parcent_time" description:"db lock aof parcent expried time" default:"0.3"`

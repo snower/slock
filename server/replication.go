@@ -60,11 +60,21 @@ func (self *ReplicationBufferMutex) Wait(duration time.Duration) {
 		self.rwlock.Unlock()
 		select {
 		case <-self.waiter:
+			atomic.StoreUint32(&self.state, 0)
 			time.Sleep(100 * time.Microsecond)
 			self.rwlock.Lock()
 			self.lock.Unlock()
 			return
 		case <-time.After(duration):
+			for {
+				if atomic.CompareAndSwapUint32(&self.state, 1, 0) {
+					break
+				}
+				if atomic.CompareAndSwapUint32(&self.state, 2, 0) {
+					<-self.waiter
+					break
+				}
+			}
 			self.rwlock.Lock()
 			self.lock.Unlock()
 			return
@@ -74,7 +84,7 @@ func (self *ReplicationBufferMutex) Wait(duration time.Duration) {
 }
 
 func (self *ReplicationBufferMutex) Wakeup() {
-	if atomic.CompareAndSwapUint32(&self.state, 1, 0) {
+	if atomic.CompareAndSwapUint32(&self.state, 1, 2) {
 		self.waiter <- struct{}{}
 	}
 }

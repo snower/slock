@@ -34,27 +34,26 @@ func (self *ServerProtocolFreeCollector) Collect(slock *SLock, glock *sync.Mutex
 	freeLockCommandCount := int(lockedFreeCommands.Len())
 	glock.Unlock()
 	freeLockCommandCount, minFreeLockCommandCount := int(lockedFreeCommands.Len()), avgCommandCount*10
-	if minFreeLockCommandCount < 0 {
-		minFreeLockCommandCount = 0
+	if minFreeLockCommandCount < 8 {
+		minFreeLockCommandCount = 8
 	}
 
 	if avgCommandCount <= self.lastAvgCommandCount*2 {
 		if freeLockCommandCount >= minFreeLockCommandCount && freeLockCommandCount-self.lastFreeLockCommandCount <= avgCommandCount*2 {
-			freeCount := freeLockCommandCount / 20
+			freeCount := (freeLockCommandCount - avgCommandCount) / 5
 			if freeCount > 0 {
-				glock.Lock()
 				for i := 0; i < freeCount; i++ {
-					command := lockedFreeCommands.Pop()
-					if command != nil {
-						glock.Unlock()
-						slock.freeLockCommandLock.Lock()
-						_ = slock.freeLockCommandQueue.Push(command)
-						slock.freeLockCommandCount++
-						slock.freeLockCommandLock.Unlock()
-						glock.Lock()
+					glock.Lock()
+					command := lockedFreeCommands.PopRight()
+					glock.Unlock()
+					if command == nil {
+						break
 					}
+					slock.freeLockCommandLock.Lock()
+					_ = slock.freeLockCommandQueue.Push(command)
+					slock.freeLockCommandCount++
+					slock.freeLockCommandLock.Unlock()
 				}
-				glock.Unlock()
 			}
 		}
 	}
@@ -97,9 +96,8 @@ var AGAIN = errors.New("AGAIN")
 var serverProtocolSessionIdIndex uint32 = 0
 
 type ServerProtocolSession struct {
-	sessionId         uint32
-	serverProtocol    ServerProtocol
-	totalCommandCount uint64
+	sessionId      uint32
+	serverProtocol ServerProtocol
 }
 
 type ProxyServerProtocol struct {
