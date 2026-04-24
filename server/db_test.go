@@ -213,30 +213,26 @@ func TestLockDBFreeCollectorCollectShrinksFreePools(t *testing.T) {
 		db.Close()
 	}()
 
+	lockCount := uint64(1)
+	db.states[0].LockCount = lockCount
+	db.currentTime = time.Now().Unix()
+
 	db.initNewLockManager(0, 0)
 	db.initNewLockManager(0, 0)
 	db.initNewLockManager(0, 0)
 	db.initNewLockManager(0, 0)
 	for i := 0; i < 100; i++ {
 		_ = db.freeLocks[0].Push(&Lock{})
-		db.freeLongWaitQueues[0].FreeLongWaitLockQueue(&LongWaitLockQueue{NewLockQueue(4, 64, LONG_LOCKS_QUEUE_INIT_SIZE), 0, 0, 0, 0})
-		db.freeMillisecondWaitQueues[0].FreeLockQueue(NewLockQueue(4, 64, LONG_LOCKS_QUEUE_INIT_SIZE))
+		db.freeLongWaitQueues[0].FreeLongWaitLockQueue(NewLongWaitLockQueue(4, 64, LONG_LOCKS_QUEUE_INIT_SIZE, 0, 0), db.currentTime-2)
+		db.freeMillisecondWaitQueues[0].FreeLockQueue(NewMillisecondWaitLockQueue(4, 64, LONG_LOCKS_QUEUE_INIT_SIZE), db.currentTime-2)
 	}
 
-	lockCount := uint64(1)
-	db.states[0].LockCount = lockCount
-	db.currentTime = time.Now().Unix()
-	freeLongWaitQueueCount := db.freeLongWaitQueues[0].Len()
-	freeMillisecondWaitQueueCount := db.freeMillisecondWaitQueues[0].Len()
-
 	collector := &LockDBFreeCollector{
-		lastCollectTime:                   db.currentTime - 1,
-		lastLockCount:                     0,
-		lastLockAvgCount:                  10,
-		lastFreeLockManagerCount:          db.GetFreeLockManagerLen(),
-		lastFreeLockCount:                 int(db.freeLocks[0].Len()),
-		lastFreeLongWaitQueueCount:        freeLongWaitQueueCount,
-		lastFreeMillisecondWaitQueueCount: freeMillisecondWaitQueueCount,
+		lastCollectTime:          db.currentTime - 1,
+		lastLockCount:            0,
+		lastLockAvgCount:         10,
+		lastFreeLockManagerCount: db.GetFreeLockManagerLen(),
+		lastFreeLockCount:        int(db.freeLocks[0].Len()),
 	}
 	if err := collector.Collect(db); err != nil {
 		t.Fatalf("collect failed: %v", err)
@@ -248,10 +244,10 @@ func TestLockDBFreeCollectorCollectShrinksFreePools(t *testing.T) {
 	if db.freeLocks[0].Len() != 95 {
 		t.Fatalf("expected one free lock to be reclaimed, got %d", db.freeLocks[0].Len())
 	}
-	if db.freeLongWaitQueues[0].Len() != 95 {
+	if db.freeLongWaitQueues[0].Len() != 90 {
 		t.Fatalf("expected one long-wait queue slot to be reclaimed, got %d", db.freeLongWaitQueues[0].Len())
 	}
-	if db.freeMillisecondWaitQueues[0].Len() != 95 {
+	if db.freeMillisecondWaitQueues[0].Len() != 90 {
 		t.Fatalf("expected one millisecond queue slot to be reclaimed, got %d", db.freeMillisecondWaitQueues[0].Len())
 	}
 }
