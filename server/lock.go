@@ -182,15 +182,52 @@ func (self *LockManagerPriorityRingQueue) Len() int {
 }
 
 type LockManagerLockQueue struct {
-	queue *LockQueue
-	maps  map[[16]byte]*Lock
+	fastQueue []*Lock
+	fastIndex int
+	queue     *LockQueue
+	maps      map[[16]byte]*Lock
 }
 
 func NewLockManagerLockQueue() *LockManagerLockQueue {
-	return &LockManagerLockQueue{NewLockQueue(4, 8, 4), make(map[[16]byte]*Lock)}
+	return &LockManagerLockQueue{nil, 0, nil, nil}
 }
 
 func (self *LockManagerLockQueue) Push(lock *Lock) {
+	if self.queue != nil {
+		err := self.queue.Push(lock)
+		if err == nil {
+			self.maps[lock.command.LockId] = lock
+		}
+		return
+	}
+
+	if self.fastQueue == nil {
+		self.fastQueue = make([]*Lock, 0, 4)
+	}
+	if len(self.fastQueue) < cap(self.fastQueue) {
+		self.fastQueue = append(self.fastQueue, lock)
+		return
+	}
+	if self.fastIndex > 0 {
+		if self.fastIndex >= len(self.fastQueue) {
+			self.fastQueue = self.fastQueue[:0]
+			self.fastIndex = 0
+			self.fastQueue = append(self.fastQueue, lock)
+			return
+		}
+		copy(self.fastQueue, self.fastQueue[self.fastIndex:])
+		self.fastQueue = self.fastQueue[:len(self.fastQueue)-self.fastIndex]
+		self.fastIndex = 0
+		self.fastQueue = append(self.fastQueue, lock)
+		return
+	}
+	if cap(self.fastQueue) < 256 {
+		self.fastQueue = append(self.fastQueue, lock)
+		return
+	}
+
+	self.queue = NewLockQueue(1, 8, 256)
+	self.maps = make(map[[16]byte]*Lock)
 	err := self.queue.Push(lock)
 	if err == nil {
 		self.maps[lock.command.LockId] = lock
@@ -198,11 +235,71 @@ func (self *LockManagerLockQueue) Push(lock *Lock) {
 }
 
 func (self *LockManagerLockQueue) Pop() *Lock {
+	if self.fastQueue != nil && self.fastIndex < len(self.fastQueue) {
+		lock := self.fastQueue[self.fastIndex]
+		self.fastQueue[self.fastIndex] = nil
+		self.fastIndex++
+		return lock
+	}
 	return self.queue.Pop()
 }
 
 func (self *LockManagerLockQueue) Head() *Lock {
+	if self.fastQueue != nil && self.fastIndex < len(self.fastQueue) {
+		return self.fastQueue[self.fastIndex]
+	}
 	return self.queue.Head()
+}
+
+func (self *LockManagerLockQueue) GetLock(command *protocol.LockCommand) *Lock {
+	if self.fastQueue != nil {
+		for i := self.fastIndex; i < len(self.fastQueue); i++ {
+			lock := self.fastQueue[i]
+			if lock.locked > 0 && lock.command.LockId == command.LockId {
+				return lock
+			}
+		}
+	}
+	if self.maps != nil {
+		lockedLock, ok := self.maps[command.LockId]
+		if ok {
+			return lockedLock
+		}
+		return nil
+	}
+	return nil
+}
+
+func (self *LockManagerLockQueue) RemoveLock(command *protocol.LockCommand) {
+	if self.maps != nil {
+		delete(self.maps, command.LockId)
+	}
+}
+
+func (self *LockManagerLockQueue) Reset() {
+	if self.fastQueue != nil {
+		if cap(self.fastQueue) > 8 {
+			self.fastQueue = nil
+		} else if len(self.fastQueue) > 0 {
+			self.fastQueue = self.fastQueue[:0]
+		}
+		self.fastIndex = 0
+	}
+	self.queue = nil
+	self.maps = nil
+}
+
+func (self *LockManagerLockQueue) Len() int {
+	if self.queue == nil {
+		if self.fastQueue == nil {
+			return 0
+		}
+		return len(self.fastQueue) - self.fastIndex
+	}
+	if self.fastQueue == nil {
+		return int(self.queue.Len())
+	}
+	return len(self.fastQueue) - self.fastIndex + int(self.queue.Len())
 }
 
 type LockManagerWaitQueue struct {
@@ -214,14 +311,14 @@ type LockManagerWaitQueue struct {
 
 func NewLockManagerWaitQueue(priorityQueue bool) *LockManagerWaitQueue {
 	if priorityQueue {
-		return &LockManagerWaitQueue{make([]*Lock, 0, 8), 0, NewLockManagerPriorityRingQueue(16), true}
+		return &LockManagerWaitQueue{nil, 0, NewLockManagerPriorityRingQueue(16), true}
 	}
-	return &LockManagerWaitQueue{make([]*Lock, 0, 8), 0, nil, false}
+	return &LockManagerWaitQueue{nil, 0, nil, false}
 }
 
 func (self *LockManagerWaitQueue) RePushPriorityRingQueue() {
 	ringQueue := NewLockManagerPriorityRingQueue(16)
-	if self.fastIndex < len(self.fastQueue) {
+	if self.fastQueue != nil && self.fastIndex < len(self.fastQueue) {
 		for i := self.fastIndex; i < len(self.fastQueue); i++ {
 			ringQueue.Push(self.fastQueue[i])
 		}
@@ -244,29 +341,41 @@ func (self *LockManagerWaitQueue) Push(lock *Lock) {
 		self.ringQueue.Push(lock)
 		return
 	}
-	if len(self.fastQueue) == cap(self.fastQueue) {
-		if self.fastIndex > len(self.fastQueue)/2 {
-			copy(self.fastQueue, self.fastQueue[self.fastIndex:])
-			self.fastQueue = self.fastQueue[:len(self.fastQueue)-self.fastIndex]
-			self.fastIndex = 0
-		} else {
-			self.ringQueue = NewLockManagerRingQueue(64)
-			self.ringQueue.Push(lock)
-			return
-		}
-	}
-	self.fastQueue = append(self.fastQueue, lock)
-}
 
-func (self *LockManagerWaitQueue) Pop() *Lock {
-	if self.fastIndex < len(self.fastQueue) {
-		lock := self.fastQueue[self.fastIndex]
-		self.fastQueue[self.fastIndex] = nil
-		self.fastIndex++
+	if self.fastQueue == nil {
+		self.fastQueue = make([]*Lock, 0, 8)
+	}
+	if len(self.fastQueue) < cap(self.fastQueue) {
+		self.fastQueue = append(self.fastQueue, lock)
+		return
+	}
+	if self.fastIndex > 0 {
 		if self.fastIndex >= len(self.fastQueue) {
 			self.fastQueue = self.fastQueue[:0]
 			self.fastIndex = 0
+			self.fastQueue = append(self.fastQueue, lock)
+			return
 		}
+		copy(self.fastQueue, self.fastQueue[self.fastIndex:])
+		self.fastQueue = self.fastQueue[:len(self.fastQueue)-self.fastIndex]
+		self.fastIndex = 0
+		self.fastQueue = append(self.fastQueue, lock)
+		return
+	}
+	if cap(self.fastQueue) < 256 {
+		self.fastQueue = append(self.fastQueue, lock)
+		return
+	}
+
+	self.ringQueue = NewLockManagerRingQueue(64)
+	self.ringQueue.Push(lock)
+}
+
+func (self *LockManagerWaitQueue) Pop() *Lock {
+	if self.fastQueue != nil && self.fastIndex < len(self.fastQueue) {
+		lock := self.fastQueue[self.fastIndex]
+		self.fastQueue[self.fastIndex] = nil
+		self.fastIndex++
 		return lock
 	}
 	if self.ringQueue != nil {
@@ -276,7 +385,7 @@ func (self *LockManagerWaitQueue) Pop() *Lock {
 }
 
 func (self *LockManagerWaitQueue) Head() *Lock {
-	if self.fastIndex < len(self.fastQueue) {
+	if self.fastQueue != nil && self.fastIndex < len(self.fastQueue) {
 		return self.fastQueue[self.fastIndex]
 	}
 	if self.ringQueue != nil {
@@ -285,16 +394,22 @@ func (self *LockManagerWaitQueue) Head() *Lock {
 	return nil
 }
 
-func (self *LockManagerWaitQueue) Rellac() {
-	self.fastQueue = self.fastQueue[:0]
-	self.fastIndex = 0
+func (self *LockManagerWaitQueue) Reset() {
+	if self.fastQueue != nil {
+		if cap(self.fastQueue) > 8 {
+			self.fastQueue = nil
+		} else if len(self.fastQueue) > 0 {
+			self.fastQueue = self.fastQueue[:0]
+		}
+		self.fastIndex = 0
+	}
 	self.ringQueue = nil
 	self.priorityQueue = false
 }
 
 func (self *LockManagerWaitQueue) IterNodes() [][]*Lock {
 	lockNodes := make([][]*Lock, 0)
-	if self.fastIndex < len(self.fastQueue) {
+	if self.fastQueue != nil && self.fastIndex < len(self.fastQueue) {
 		lockNodes = append(lockNodes, self.fastQueue[self.fastIndex:])
 	}
 	if self.ringQueue != nil {
@@ -304,7 +419,7 @@ func (self *LockManagerWaitQueue) IterNodes() [][]*Lock {
 }
 
 func (self *LockManagerWaitQueue) MaxPriority() uint8 {
-	if self.fastIndex < len(self.fastQueue) {
+	if self.fastQueue != nil && self.fastIndex < len(self.fastQueue) {
 		command := self.fastQueue[self.fastIndex].command
 		if command.TimeoutFlag&protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY != 0 {
 			return command.Rcount
@@ -319,7 +434,13 @@ func (self *LockManagerWaitQueue) MaxPriority() uint8 {
 
 func (self *LockManagerWaitQueue) Len() int {
 	if self.ringQueue == nil {
+		if self.fastQueue == nil {
+			return 0
+		}
 		return len(self.fastQueue) - self.fastIndex
+	}
+	if self.fastQueue == nil {
+		return self.ringQueue.Len()
 	}
 	return len(self.fastQueue) - self.fastIndex + self.ringQueue.Len()
 }
@@ -424,7 +545,7 @@ func (self *LockManager) RemoveLock(lock *Lock) *Lock {
 		lockedLock := self.locks.Pop()
 		for lockedLock != nil {
 			if lockedLock.locked > 0 {
-				delete(self.locks.maps, lockedLock.command.LockId)
+				self.locks.RemoveLock(lockedLock.command)
 				self.currentLock = lockedLock
 				break
 			}
@@ -445,7 +566,7 @@ func (self *LockManager) RemoveLock(lock *Lock) *Lock {
 	if self.locks == nil {
 		return lock
 	}
-	delete(self.locks.maps, lock.command.LockId)
+	self.locks.RemoveLock(lock.command)
 	lockedLock := self.locks.Head()
 	for lockedLock != nil {
 		if lockedLock.locked > 0 {
@@ -473,11 +594,7 @@ func (self *LockManager) GetLockedLock(command *protocol.LockCommand) *Lock {
 	if self.locks == nil {
 		return nil
 	}
-	lockedLock, ok := self.locks.maps[command.LockId]
-	if ok {
-		return lockedLock
-	}
-	return nil
+	return self.locks.GetLock(command)
 }
 
 func (self *LockManager) CheckLockedEqual(lock *Lock, command *protocol.LockCommand) bool {

@@ -369,11 +369,11 @@ func TestLockManagerQueueRellac(t *testing.T) {
 		nodeSize++
 	}
 	if q.queueSize != q.baseQueueSize*int32(uint32(1)<<uint32(nodeSize-1)) {
-		t.Error("LockManagerQueue Rellac queue_size Fail")
+		t.Error("LockManagerQueue Reset queue_size Fail")
 		return
 	}
 	if q.nodeIndex != rellacNodeIndex {
-		t.Error("LockManagerQueue Rellac nodeIndex Fail")
+		t.Error("LockManagerQueue Reset nodeIndex Fail")
 		return
 	}
 	nodeIndex := 0
@@ -390,7 +390,7 @@ func TestLockManagerQueueRellac(t *testing.T) {
 
 	_ = q.Rellac()
 	if q.nodeIndex == rellacNodeIndex {
-		t.Errorf("LockManagerQueue Rellac nodeIndex Fail %d %d", q.nodeIndex, rellacNodeIndex)
+		t.Errorf("LockManagerQueue Reset nodeIndex Fail %d %d", q.nodeIndex, rellacNodeIndex)
 		return
 	}
 }
@@ -945,11 +945,11 @@ func TestLockQueueRellac(t *testing.T) {
 		nodeSize++
 	}
 	if q.queueSize != q.baseQueueSize*int32(uint32(1)<<uint32(nodeSize-1)) {
-		t.Error("LockQueue Rellac queue_size Fail")
+		t.Error("LockQueue Reset queue_size Fail")
 		return
 	}
 	if q.nodeIndex != rellacNodeIndex {
-		t.Error("LockQueue Rellac nodeIndex Fail")
+		t.Error("LockQueue Reset nodeIndex Fail")
 		return
 	}
 	nodeIndex := 0
@@ -966,7 +966,7 @@ func TestLockQueueRellac(t *testing.T) {
 
 	_ = q.Rellac()
 	if q.nodeIndex == rellacNodeIndex {
-		t.Errorf("LockQueue Rellac nodeIndex Fail %d %d", q.nodeIndex, rellacNodeIndex)
+		t.Errorf("LockQueue Reset nodeIndex Fail %d %d", q.nodeIndex, rellacNodeIndex)
 		return
 	}
 }
@@ -1522,11 +1522,11 @@ func TestLockCommandQueueRellac(t *testing.T) {
 		nodeSize++
 	}
 	if q.queueSize != q.baseQueueSize*int32(uint32(1)<<uint32(nodeSize-1)) {
-		t.Error("LockCommandQueue Rellac queue_size Fail")
+		t.Error("LockCommandQueue Reset queue_size Fail")
 		return
 	}
 	if q.nodeIndex != rellacNodeIndex {
-		t.Error("LockCommandQueue Rellac nodeIndex Fail")
+		t.Error("LockCommandQueue Reset nodeIndex Fail")
 		return
 	}
 	nodeIndex := 0
@@ -1543,7 +1543,7 @@ func TestLockCommandQueueRellac(t *testing.T) {
 
 	_ = q.Rellac()
 	if q.nodeIndex == rellacNodeIndex {
-		t.Errorf("LockCommandQueue Rellac nodeIndex Fail %d %d", q.nodeIndex, rellacNodeIndex)
+		t.Errorf("LockCommandQueue Reset nodeIndex Fail %d %d", q.nodeIndex, rellacNodeIndex)
 		return
 	}
 }
