@@ -173,6 +173,7 @@ func (self *ReplicationBufferQueue) ResetQueueItems() *ReplicationBufferQueueIte
 			queueItem.pollCount = 0xffffffff
 			queueItem.pollIndex = 0
 			queueItem.seq = 0
+			queueItem.nextItem = nil
 			if self.freeHeadItem == nil {
 				self.freeTailItem = queueItem
 				self.freeHeadItem = queueItem
