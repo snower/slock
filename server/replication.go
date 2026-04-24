@@ -339,7 +339,7 @@ func (self *ReplicationBufferQueue) Head(cursor *ReplicationBufferQueueCursor) e
 		cursor.currentAofId[8], cursor.currentAofId[9], cursor.currentAofId[10], cursor.currentAofId[11], cursor.currentAofId[12], cursor.currentAofId[13], cursor.currentAofId[14], cursor.currentAofId[15] = buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
 		buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18]
 	cursor.seq = currentItem.seq
-	cursor.writed = true
+	cursor.writed = false
 	self.glock.RUnlock()
 	return nil
 }
@@ -1246,7 +1246,7 @@ func (self *ReplicationServer) sendFiles() error {
 	}
 	aofFilenames = append(aofFilenames, appendFiles...)
 	err, laofLock := self.aof.LoadAofFiles(aofFilenames, time.Now().Unix(), func(filename string, aofFile *AofFile, lock *AofLock, firstLock bool) (bool, error) {
-		if lock.AofIndex > self.waofLock.AofIndex && lock.AofOffset > self.waofLock.AofOffset {
+		if lock.AofIndex >= self.waofLock.AofIndex || (lock.AofIndex == self.waofLock.AofIndex && lock.AofOffset >= self.waofLock.AofOffset) {
 			return false, nil
 		}
 
