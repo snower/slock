@@ -327,24 +327,24 @@ func (self *LockManagerWaitQueue) Len() int {
 type LockManager struct {
 	lockDb       *LockDB
 	lockKey      [16]byte
+	glock        *PriorityMutex
+	refCount     uint32
+	locked       uint32
+	state        *protocol.LockDBState
 	currentLock  *Lock
 	currentData  *LockManagerData
 	locks        *LockManagerLockQueue
 	waitLocks    *LockManagerWaitQueue
-	glock        *PriorityMutex
 	freeLocks    *LockQueue
 	fastKeyValue *FastKeyValue
-	state        *protocol.LockDBState
-	refCount     uint32
-	locked       uint32
 	glockIndex   uint16
 	dbId         uint8
 	waited       bool
 }
 
 func NewLockManager(lockDb *LockDB, command *protocol.LockCommand, glock *PriorityMutex, glockIndex uint16, freeLocks *LockQueue, state *protocol.LockDBState) *LockManager {
-	return &LockManager{lockDb, command.LockKey, nil, nil, nil, nil,
-		glock, freeLocks, nil, state, 0, 0,
+	return &LockManager{lockDb, command.LockKey, glock, 0, 0, state,
+		nil, nil, nil, nil, freeLocks, nil,
 		glockIndex, command.DbId, false}
 }
 

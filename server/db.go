@@ -11,9 +11,9 @@ import (
 )
 
 type FastKeyValue struct {
-	manager *LockManager
 	lock    uint32
 	count   uint32
+	manager *LockManager
 }
 
 type LongWaitLockQueue struct {
