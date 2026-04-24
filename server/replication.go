@@ -1637,7 +1637,7 @@ func (self *ReplicationAckDB) ProcessLeaderAofed(glockIndex uint16, aofLock *Aof
 		if aofLock.Result != 0 || lock.ackCount == 0xff {
 			delete(self.aofLocks[glockIndex], aofId)
 			if _, ok = self.commandAofs[glockIndex][lock.command.RequestId]; ok {
-				delete(self.aofLocks[glockIndex], lock.command.RequestId)
+				delete(self.commandAofs[glockIndex], lock.command.RequestId)
 			}
 			self.ackGlocks[glockIndex].Unlock()
 
@@ -1927,19 +1927,24 @@ func (self *ReplicationManager) WaitServerSynced() error {
 		}
 	}
 
-	serverFlushWaiter := make(chan struct{})
+	serverFlushWaiter := self.serverFlushWaiter
+	if serverFlushWaiter == nil {
+		serverFlushWaiter = make(chan struct{})
+		self.serverFlushWaiter = serverFlushWaiter
+	}
 	go func() {
 		select {
 		case <-serverFlushWaiter:
 			return
 		case <-time.After(120 * time.Second):
-			self.serverFlushWaiter = nil
-			close(serverFlushWaiter)
+			if self.serverFlushWaiter != nil {
+				close(self.serverFlushWaiter)
+				self.serverFlushWaiter = nil
+			}
 		}
 	}()
-	self.serverFlushWaiter = serverFlushWaiter
 	self.glock.Unlock()
-	<-self.serverFlushWaiter
+	<-serverFlushWaiter
 	return nil
 }
 
