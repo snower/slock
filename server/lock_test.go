@@ -204,6 +204,39 @@ func TestLockManagerPriorityRingQueue(t *testing.T) {
 	}
 }
 
+func TestLockManagerPriorityRingQueuePushLowestPriority(t *testing.T) {
+	queue := NewLockManagerPriorityRingQueue(4)
+
+	lock8 := &Lock{command: &protocol.LockCommand{TimeoutFlag: protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY, Rcount: 8}}
+	lock5 := &Lock{command: &protocol.LockCommand{TimeoutFlag: protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY, Rcount: 5}}
+	lock1 := &Lock{command: &protocol.LockCommand{TimeoutFlag: protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY, Rcount: 1}}
+
+	queue.Push(lock8)
+	queue.Push(lock5)
+	queue.Push(lock1)
+
+	if len(queue.priorityNodes) != 3 || queue.priorityNodes[0].priority != 8 || queue.priorityNodes[1].priority != 5 || queue.priorityNodes[2].priority != 1 {
+		t.Errorf("LockManagerPriorityRingQueue Push Lowest Priority fail")
+		return
+	}
+	if queue.Len() != 3 {
+		t.Errorf("LockManagerPriorityRingQueue Len fail")
+		return
+	}
+	if queue.Head() != lock8 || queue.Pop() != lock8 {
+		t.Errorf("LockManagerPriorityRingQueue Pop Highest Priority fail")
+		return
+	}
+	if queue.Head() != lock5 || queue.Pop() != lock5 {
+		t.Errorf("LockManagerPriorityRingQueue Pop Middle Priority fail")
+		return
+	}
+	if queue.Head() != lock1 || queue.Pop() != lock1 || queue.Head() != nil {
+		t.Errorf("LockManagerPriorityRingQueue Pop Lowest Priority fail")
+		return
+	}
+}
+
 func TestLockManagerLockQueue(t *testing.T) {
 	queue := NewLockManagerLockQueue()
 

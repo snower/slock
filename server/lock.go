@@ -120,13 +120,18 @@ func (self *LockManagerPriorityRingQueue) Push(lock *Lock) {
 	} else {
 		priorityNodes := self.priorityNodes
 		self.priorityNodes = make([]*LockManagerPriorityRingQueueNode, 0, len(priorityNodes)+1)
+		inserted := false
 		for i, priorityNode := range priorityNodes {
 			if node.priority > priorityNode.priority {
 				self.priorityNodes = append(self.priorityNodes, node)
 				self.priorityNodes = append(self.priorityNodes, priorityNodes[i:]...)
+				inserted = true
 				break
 			}
 			self.priorityNodes = append(self.priorityNodes, priorityNode)
+		}
+		if !inserted {
+			self.priorityNodes = append(self.priorityNodes, node)
 		}
 	}
 	node.ringQueue.Push(lock)
