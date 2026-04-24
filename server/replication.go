@@ -125,6 +125,7 @@ type ReplicationBufferQueue struct {
 	headItem       *ReplicationBufferQueueItem
 	tailItem       *ReplicationBufferQueueItem
 	freeHeadItem   *ReplicationBufferQueueItem
+	freeTailItem   *ReplicationBufferQueueItem
 	seq            uint64
 	usedBufferSize uint64
 	bufferSize     uint64
@@ -136,7 +137,7 @@ type ReplicationBufferQueue struct {
 
 func NewReplicationBufferQueue(manager *ReplicationManager, bufSize uint64, maxSize uint64) *ReplicationBufferQueue {
 	queue := &ReplicationBufferQueue{manager, ReplicationBufferMutex{&sync.Mutex{}, &sync.RWMutex{}, make(chan struct{}, 1), 0}, nil,
-		nil, nil, 0, 0, bufSize, maxSize,
+		nil, nil, nil, 0, 0, bufSize, maxSize,
 		0, 0, false}
 	queue.InitFreeQueueItems(bufSize / 64)
 	return queue
@@ -148,10 +149,13 @@ func (self *ReplicationBufferQueue) InitFreeQueueItems(count uint64) {
 	for i := uint64(0); i < count; i++ {
 		queueItem := &queueItems[i]
 		queueItem.Init(queueItemBuf[i*64 : (i+1)*64])
-		if self.freeHeadItem != nil {
-			queueItem.nextItem = self.freeHeadItem
+		if self.freeHeadItem == nil {
+			self.freeTailItem = queueItem
+			self.freeHeadItem = queueItem
+		} else {
+			self.freeHeadItem.nextItem = queueItem
+			self.freeHeadItem = queueItem
 		}
-		self.freeHeadItem = queueItem
 	}
 }
 
@@ -169,8 +173,13 @@ func (self *ReplicationBufferQueue) ResetQueueItems() *ReplicationBufferQueueIte
 			queueItem.pollCount = 0xffffffff
 			queueItem.pollIndex = 0
 			queueItem.seq = 0
-			queueItem.nextItem = self.freeHeadItem
-			self.freeHeadItem = queueItem
+			if self.freeHeadItem == nil {
+				self.freeTailItem = queueItem
+				self.freeHeadItem = queueItem
+			} else {
+				self.freeHeadItem.nextItem = queueItem
+				self.freeHeadItem = queueItem
+			}
 
 			queueItem = self.tailItem
 			self.tailItem = self.tailItem.nextItem
@@ -216,11 +225,11 @@ func (self *ReplicationBufferQueue) Close() error {
 func (self *ReplicationBufferQueue) Push(buf []byte, data []byte) error {
 	self.glock.Lock()
 	var queueItem *ReplicationBufferQueueItem = nil
-	if (self.freeHeadItem == nil || self.usedBufferSize >= self.bufferSize) && self.tailItem != nil {
+	if (self.freeTailItem == nil || self.usedBufferSize >= self.bufferSize) && self.tailItem != nil {
 		if self.tailItem.pollIndex < self.tailItem.pollCount && self.bufferSize < self.maxBufferSize {
 			if self.manager != nil && int(atomic.LoadUint32(&self.manager.serverActiveCount)) < len(self.manager.serverChannels) {
 				self.glock.Wait(10 * time.Millisecond)
-				if (self.freeHeadItem == nil || self.usedBufferSize >= self.bufferSize) && self.tailItem != nil {
+				if (self.freeTailItem == nil || self.usedBufferSize >= self.bufferSize) && self.tailItem != nil {
 					if self.tailItem.pollIndex < self.tailItem.pollCount && self.bufferSize < self.maxBufferSize {
 						self.InitFreeQueueItems(self.bufferSize / 64)
 						self.bufferSize = self.bufferSize * 2
@@ -245,9 +254,12 @@ func (self *ReplicationBufferQueue) Push(buf []byte, data []byte) error {
 		}
 	}
 	if queueItem == nil {
-		if self.freeHeadItem != nil {
-			queueItem = self.freeHeadItem
-			self.freeHeadItem = self.freeHeadItem.nextItem
+		if self.freeTailItem != nil {
+			queueItem = self.freeTailItem
+			self.freeTailItem = queueItem.nextItem
+			if self.freeTailItem == nil {
+				self.freeHeadItem = nil
+			}
 		} else {
 			queueItem = NewReplicationBufferQueueItem()
 		}
