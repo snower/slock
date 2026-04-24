@@ -756,7 +756,7 @@ func (self *LockManager) GetWaitLock() *Lock {
 	}
 	lock := self.waitLocks.Head()
 	for lock != nil {
-		if lock.timeouted {
+		if lock.timeouted || lock.ackCount != 0xff {
 			self.waitLocks.Pop()
 			lock.refCount--
 			if lock.refCount == 0 {
