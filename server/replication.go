@@ -158,7 +158,7 @@ func (self *ReplicationBufferQueue) InitFreeQueueItems(count uint64) {
 func (self *ReplicationBufferQueue) ResetQueueItems() *ReplicationBufferQueueItem {
 	queueItem := self.tailItem
 	self.tailItem = self.tailItem.nextItem
-	if queueItem.data != nil {
+	if queueItem.data == nil {
 		self.usedBufferSize -= 64
 	} else {
 		self.usedBufferSize -= uint64(64 + len(queueItem.data))
@@ -174,7 +174,7 @@ func (self *ReplicationBufferQueue) ResetQueueItems() *ReplicationBufferQueueIte
 
 			queueItem = self.tailItem
 			self.tailItem = self.tailItem.nextItem
-			if queueItem.data != nil {
+			if queueItem.data == nil {
 				self.usedBufferSize -= 64
 			} else {
 				self.usedBufferSize -= uint64(64 + len(queueItem.data))
@@ -266,7 +266,7 @@ func (self *ReplicationBufferQueue) Push(buf []byte, data []byte) error {
 		self.headItem.nextItem = queueItem
 		self.headItem = queueItem
 	}
-	if data != nil {
+	if data == nil {
 		self.usedBufferSize += 64
 	} else {
 		self.usedBufferSize += uint64(64 + len(data))
