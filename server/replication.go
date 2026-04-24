@@ -1246,7 +1246,7 @@ func (self *ReplicationServer) sendFiles() error {
 	}
 	aofFilenames = append(aofFilenames, appendFiles...)
 	err, laofLock := self.aof.LoadAofFiles(aofFilenames, time.Now().Unix(), func(filename string, aofFile *AofFile, lock *AofLock, firstLock bool) (bool, error) {
-		if lock.AofIndex >= self.waofLock.AofIndex || (lock.AofIndex == self.waofLock.AofIndex && lock.AofOffset >= self.waofLock.AofOffset) {
+		if lock.AofIndex > self.waofLock.AofIndex || (lock.AofIndex == self.waofLock.AofIndex && lock.AofOffset >= self.waofLock.AofOffset) {
 			return false, nil
 		}
 
