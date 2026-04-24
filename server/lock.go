@@ -241,14 +241,20 @@ func (self *LockManagerLockQueue) Pop() *Lock {
 		self.fastIndex++
 		return lock
 	}
-	return self.queue.Pop()
+	if self.queue != nil {
+		return self.queue.Pop()
+	}
+	return nil
 }
 
 func (self *LockManagerLockQueue) Head() *Lock {
 	if self.fastQueue != nil && self.fastIndex < len(self.fastQueue) {
 		return self.fastQueue[self.fastIndex]
 	}
-	return self.queue.Head()
+	if self.queue != nil {
+		return self.queue.Head()
+	}
+	return nil
 }
 
 func (self *LockManagerLockQueue) GetLock(command *protocol.LockCommand) *Lock {
