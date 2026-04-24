@@ -23,10 +23,6 @@ type ReplicationBufferMutex struct {
 	state  uint32
 }
 
-func NewReplicationBufferMutex() *ReplicationBufferMutex {
-	return &ReplicationBufferMutex{&sync.Mutex{}, &sync.RWMutex{}, make(chan struct{}, 1), 0}
-}
-
 func (self *ReplicationBufferMutex) Lock() {
 	self.rwlock.Lock()
 	if atomic.LoadUint32(&self.state) == 1 {
@@ -125,7 +121,7 @@ func NewReplicationBufferQueueCursor(buf []byte) *ReplicationBufferQueueCursor {
 
 type ReplicationBufferQueue struct {
 	manager        *ReplicationManager
-	glock          *ReplicationBufferMutex
+	glock          ReplicationBufferMutex
 	headItem       *ReplicationBufferQueueItem
 	tailItem       *ReplicationBufferQueueItem
 	freeHeadItem   *ReplicationBufferQueueItem
@@ -139,7 +135,7 @@ type ReplicationBufferQueue struct {
 }
 
 func NewReplicationBufferQueue(manager *ReplicationManager, bufSize uint64, maxSize uint64) *ReplicationBufferQueue {
-	queue := &ReplicationBufferQueue{manager, NewReplicationBufferMutex(), nil,
+	queue := &ReplicationBufferQueue{manager, ReplicationBufferMutex{&sync.Mutex{}, &sync.RWMutex{}, make(chan struct{}, 1), 0}, nil,
 		nil, nil, 0, 0, bufSize, maxSize,
 		0, 0, false}
 	queue.InitFreeQueueItems(bufSize / 64)
