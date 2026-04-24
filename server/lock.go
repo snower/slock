@@ -186,22 +186,30 @@ func (self *LockManagerPriorityRingQueue) Len() int {
 	return length
 }
 
+type LockManagerScaleLockQueue struct {
+	LockQueue
+	maps map[[16]byte]*Lock
+}
+
+func NewLockManagerScaleLockQueue(baseNodeSize int32, nodeSize int32, queueSize int32) *LockManagerScaleLockQueue {
+	return &LockManagerScaleLockQueue{*NewLockQueue(baseNodeSize, nodeSize, queueSize), make(map[[16]byte]*Lock)}
+}
+
 type LockManagerLockQueue struct {
-	fastQueue []*Lock
-	fastIndex int
-	queue     *LockQueue
-	maps      map[[16]byte]*Lock
+	fastQueue  []*Lock
+	fastIndex  int
+	scaleQueue *LockManagerScaleLockQueue
 }
 
 func NewLockManagerLockQueue() *LockManagerLockQueue {
-	return &LockManagerLockQueue{nil, 0, nil, nil}
+	return &LockManagerLockQueue{nil, 0, nil}
 }
 
 func (self *LockManagerLockQueue) Push(lock *Lock) {
-	if self.queue != nil {
-		err := self.queue.Push(lock)
+	if self.scaleQueue != nil {
+		err := self.scaleQueue.Push(lock)
 		if err == nil {
-			self.maps[lock.command.LockId] = lock
+			self.scaleQueue.maps[lock.command.LockId] = lock
 		}
 		return
 	}
@@ -215,15 +223,32 @@ func (self *LockManagerLockQueue) Push(lock *Lock) {
 		self.fastQueue = append(self.fastQueue, lock)
 		return
 	}
-	if self.fastIndex > 0 {
-		if self.fastIndex >= len(self.fastQueue) {
-			self.fastQueue = self.fastQueue[:0]
-			self.fastIndex = 0
-			self.fastQueue = append(self.fastQueue, lock)
-			return
+	if self.fastIndex >= len(self.fastQueue) {
+		self.fastQueue = self.fastQueue[:0]
+		self.fastIndex = 0
+		self.fastQueue = append(self.fastQueue, lock)
+		return
+	}
+	currentIndex := 0
+	for i := self.fastIndex; i < len(self.fastQueue); i++ {
+		queuedLock := self.fastQueue[i]
+		if queuedLock != nil {
+			if queuedLock.locked > 0 {
+				if currentIndex < i {
+					self.fastQueue[currentIndex] = queuedLock
+					self.fastQueue[i] = nil
+				}
+				currentIndex++
+			} else {
+				queuedLock.refCount--
+				if queuedLock.refCount == 0 {
+					queuedLock.manager.FreeLock(queuedLock)
+				}
+			}
 		}
-		copy(self.fastQueue, self.fastQueue[self.fastIndex:])
-		self.fastQueue = self.fastQueue[:len(self.fastQueue)-self.fastIndex]
+	}
+	if currentIndex < len(self.fastQueue) {
+		self.fastQueue = self.fastQueue[:currentIndex]
 		self.fastIndex = 0
 		self.fastQueue = append(self.fastQueue, lock)
 		return
@@ -233,11 +258,10 @@ func (self *LockManagerLockQueue) Push(lock *Lock) {
 		return
 	}
 
-	self.queue = NewLockQueue(1, 8, 256)
-	self.maps = make(map[[16]byte]*Lock)
-	err := self.queue.Push(lock)
+	self.scaleQueue = NewLockManagerScaleLockQueue(1, 8, 256)
+	err := self.scaleQueue.Push(lock)
 	if err == nil {
-		self.maps[lock.command.LockId] = lock
+		self.scaleQueue.maps[lock.command.LockId] = lock
 	}
 }
 
@@ -248,8 +272,8 @@ func (self *LockManagerLockQueue) Pop() *Lock {
 		self.fastIndex++
 		return lock
 	}
-	if self.queue != nil {
-		return self.queue.Pop()
+	if self.scaleQueue != nil {
+		return self.scaleQueue.Pop()
 	}
 	return nil
 }
@@ -258,8 +282,8 @@ func (self *LockManagerLockQueue) Head() *Lock {
 	if self.fastQueue != nil && self.fastIndex < len(self.fastQueue) {
 		return self.fastQueue[self.fastIndex]
 	}
-	if self.queue != nil {
-		return self.queue.Head()
+	if self.scaleQueue != nil {
+		return self.scaleQueue.Head()
 	}
 	return nil
 }
@@ -273,8 +297,8 @@ func (self *LockManagerLockQueue) GetLock(command *protocol.LockCommand) *Lock {
 			}
 		}
 	}
-	if self.maps != nil {
-		lockedLock, ok := self.maps[command.LockId]
+	if self.scaleQueue != nil {
+		lockedLock, ok := self.scaleQueue.maps[command.LockId]
 		if ok {
 			return lockedLock
 		}
@@ -284,8 +308,8 @@ func (self *LockManagerLockQueue) GetLock(command *protocol.LockCommand) *Lock {
 }
 
 func (self *LockManagerLockQueue) RemoveLock(command *protocol.LockCommand) {
-	if self.maps != nil {
-		delete(self.maps, command.LockId)
+	if self.scaleQueue != nil {
+		delete(self.scaleQueue.maps, command.LockId)
 	}
 }
 
@@ -293,11 +317,11 @@ func (self *LockManagerLockQueue) IterNodes() [][]*Lock {
 	lockNodes := make([][]*Lock, 0)
 	if self.fastQueue != nil && self.fastIndex < len(self.fastQueue) {
 		lockNodes = append(lockNodes, self.fastQueue[self.fastIndex:])
-	} else if self.queue != nil {
+	} else if self.scaleQueue != nil {
 		lockNodes = append(lockNodes, make([]*Lock, 0))
 	}
-	if self.queue != nil {
-		lockNodes = append(lockNodes, self.queue.IterNodes()...)
+	if self.scaleQueue != nil {
+		lockNodes = append(lockNodes, self.scaleQueue.IterNodes()...)
 	}
 	return lockNodes
 }
@@ -309,15 +333,15 @@ func (self *LockManagerLockQueue) IterNodeQueues(index int32) []*Lock {
 		}
 		return make([]*Lock, 0)
 	}
-	if self.queue == nil {
+	if self.scaleQueue == nil {
 		return make([]*Lock, 0)
 	}
-	return self.queue.IterNodeQueues(index - 1)
+	return self.scaleQueue.IterNodeQueues(index - 1)
 }
 
 func (self *LockManagerLockQueue) Resize() {
-	if self.queue != nil && self.queue.headNodeIndex >= 8 {
-		_ = self.queue.Resize()
+	if self.scaleQueue != nil && self.scaleQueue.headNodeIndex >= 8 {
+		_ = self.scaleQueue.Resize()
 	}
 }
 
@@ -330,21 +354,20 @@ func (self *LockManagerLockQueue) Reset() {
 		}
 		self.fastIndex = 0
 	}
-	self.queue = nil
-	self.maps = nil
+	self.scaleQueue = nil
 }
 
 func (self *LockManagerLockQueue) Len() int {
-	if self.queue == nil {
+	if self.scaleQueue == nil {
 		if self.fastQueue == nil {
 			return 0
 		}
 		return len(self.fastQueue) - self.fastIndex
 	}
 	if self.fastQueue == nil {
-		return int(self.queue.Len())
+		return int(self.scaleQueue.Len())
 	}
-	return len(self.fastQueue) - self.fastIndex + int(self.queue.Len())
+	return len(self.fastQueue) - self.fastIndex + int(self.scaleQueue.Len())
 }
 
 type LockManagerWaitQueue struct {
@@ -396,15 +419,32 @@ func (self *LockManagerWaitQueue) Push(lock *Lock) {
 		self.fastQueue = append(self.fastQueue, lock)
 		return
 	}
-	if self.fastIndex > 0 {
-		if self.fastIndex >= len(self.fastQueue) {
-			self.fastQueue = self.fastQueue[:0]
-			self.fastIndex = 0
-			self.fastQueue = append(self.fastQueue, lock)
-			return
+	if self.fastIndex >= len(self.fastQueue) {
+		self.fastQueue = self.fastQueue[:0]
+		self.fastIndex = 0
+		self.fastQueue = append(self.fastQueue, lock)
+		return
+	}
+	currentIndex := 0
+	for i := self.fastIndex; i < len(self.fastQueue); i++ {
+		queuedLock := self.fastQueue[i]
+		if queuedLock != nil {
+			if queuedLock.timeouted || queuedLock.ackCount != 0xff {
+				queuedLock.refCount--
+				if queuedLock.refCount == 0 {
+					queuedLock.manager.FreeLock(queuedLock)
+				}
+			} else {
+				if currentIndex < i {
+					self.fastQueue[currentIndex] = queuedLock
+					self.fastQueue[i] = nil
+				}
+				currentIndex++
+			}
 		}
-		copy(self.fastQueue, self.fastQueue[self.fastIndex:])
-		self.fastQueue = self.fastQueue[:len(self.fastQueue)-self.fastIndex]
+	}
+	if currentIndex < len(self.fastQueue) {
+		self.fastQueue = self.fastQueue[:currentIndex]
 		self.fastIndex = 0
 		self.fastQueue = append(self.fastQueue, lock)
 		return

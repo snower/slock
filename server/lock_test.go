@@ -241,7 +241,7 @@ func TestLockManagerLockQueue(t *testing.T) {
 	queue := NewLockManagerLockQueue()
 
 	qlock := &Lock{command: &protocol.LockCommand{TimeoutFlag: protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY, Rcount: 1, LockId: [16]byte{1, 3}}, locked: 1}
-	lock := &Lock{command: &protocol.LockCommand{TimeoutFlag: protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY, Rcount: 1}}
+	lock := &Lock{command: &protocol.LockCommand{TimeoutFlag: protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY, Rcount: 1}, locked: 1}
 	queue.Push(lock)
 	if queue.Head() != lock || queue.Pop() != lock || queue.fastIndex != 1 {
 		t.Errorf("LockManagerWaitQueue Push Pop fail")
@@ -300,7 +300,7 @@ func TestLockManagerLockQueue(t *testing.T) {
 	length := queue.Len()
 	for i := 0; i < 1024; i++ {
 		queue.Push(lock)
-		if queue.queue == nil || int(queue.queue.Len()) != i+1 {
+		if queue.scaleQueue == nil || int(queue.scaleQueue.Len()) != i+1 {
 			t.Errorf("LockManagerWaitQueue Push Size fail")
 			return
 		}
@@ -331,7 +331,17 @@ func TestLockManagerLockQueue(t *testing.T) {
 		return
 	}
 	queue.Reset()
-	if queue.fastIndex != 0 || len(queue.fastQueue) != 0 || cap(queue.fastQueue) != 0 || queue.queue != nil {
+	if queue.fastIndex != 0 || len(queue.fastQueue) != 0 || cap(queue.fastQueue) != 0 || queue.scaleQueue != nil {
+		t.Errorf("LockManagerWaitQueue Reset fail")
+		return
+	}
+
+	for i := 0; i < 4; i++ {
+		queue.Push(&Lock{command: &protocol.LockCommand{TimeoutFlag: protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY, Rcount: 1}, locked: 1})
+	}
+	queue.fastQueue[1].locked = 0
+	queue.Push(&Lock{command: &protocol.LockCommand{TimeoutFlag: protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY, Rcount: 1}, locked: 1})
+	if queue.fastIndex != 0 || len(queue.fastQueue) != 4 || cap(queue.fastQueue) != 4 || queue.scaleQueue != nil {
 		t.Errorf("LockManagerWaitQueue Reset fail")
 		return
 	}
@@ -340,7 +350,7 @@ func TestLockManagerLockQueue(t *testing.T) {
 func TestLockManagerWaitQueue(t *testing.T) {
 	queue := NewLockManagerWaitQueue(false)
 
-	lock := &Lock{command: &protocol.LockCommand{TimeoutFlag: protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY, Rcount: 1}}
+	lock := &Lock{command: &protocol.LockCommand{TimeoutFlag: protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY, Rcount: 1}, ackCount: 0xff}
 	queue.Push(lock)
 	if queue.MaxPriority() != 1 {
 		t.Errorf("LockManagerWaitQueue MaxPriority fail")
@@ -412,6 +422,17 @@ func TestLockManagerWaitQueue(t *testing.T) {
 	}
 	queue.Reset()
 	if queue.fastIndex != 0 || len(queue.fastQueue) != 0 || cap(queue.fastQueue) != 0 || queue.ringQueue != nil {
+		t.Errorf("LockManagerWaitQueue Reset fail")
+		return
+	}
+
+	for i := 0; i < 8; i++ {
+		queue.Push(&Lock{command: &protocol.LockCommand{TimeoutFlag: protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY, Rcount: 1}, ackCount: 0xff})
+	}
+	queue.fastQueue[3].timeouted = true
+	queue.fastQueue[5].ackCount = 0
+	queue.Push(&Lock{command: &protocol.LockCommand{TimeoutFlag: protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY, Rcount: 1}, ackCount: 0xff})
+	if queue.fastIndex != 0 || len(queue.fastQueue) != 7 || cap(queue.fastQueue) != 8 || queue.ringQueue != nil {
 		t.Errorf("LockManagerWaitQueue Reset fail")
 		return
 	}
