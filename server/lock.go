@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"sync"
 	"sync/atomic"
 
@@ -1339,7 +1340,7 @@ func (self *LockManagerData) Equal(lockData []byte) bool {
 		if lockData == nil {
 			return false
 		}
-		return len(self.data) == len(lockData) && string(self.data) == string(lockData)
+		return len(self.data) == len(lockData) && bytes.Equal(self.data, lockData)
 	}
 }
 
