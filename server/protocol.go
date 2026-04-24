@@ -1760,8 +1760,8 @@ func (self *BinaryServerProtocol) commandHandleListLockedCommand(_ *BinaryServer
 	}
 
 	if lockManager.locks != nil {
-		for i := range lockManager.locks.queue.IterNodes() {
-			nodeQueues := lockManager.locks.queue.IterNodeQueues(int32(i))
+		for i := range lockManager.locks.IterNodes() {
+			nodeQueues := lockManager.locks.IterNodeQueues(int32(i))
 			for _, lock := range nodeQueues {
 				if lock.locked == 0 {
 					continue

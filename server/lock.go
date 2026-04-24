@@ -276,6 +276,38 @@ func (self *LockManagerLockQueue) RemoveLock(command *protocol.LockCommand) {
 	}
 }
 
+func (self *LockManagerLockQueue) IterNodes() [][]*Lock {
+	lockNodes := make([][]*Lock, 0)
+	if self.fastQueue != nil && self.fastIndex < len(self.fastQueue) {
+		lockNodes = append(lockNodes, self.fastQueue[self.fastIndex:])
+	} else if self.queue != nil {
+		lockNodes = append(lockNodes, make([]*Lock, 0))
+	}
+	if self.queue != nil {
+		lockNodes = append(lockNodes, self.queue.IterNodes()...)
+	}
+	return lockNodes
+}
+
+func (self *LockManagerLockQueue) IterNodeQueues(index int32) []*Lock {
+	if index == 0 {
+		if self.fastQueue != nil && self.fastIndex < len(self.fastQueue) {
+			return self.fastQueue[self.fastIndex:]
+		}
+		return make([]*Lock, 0)
+	}
+	if self.queue == nil {
+		return make([]*Lock, 0)
+	}
+	return self.queue.IterNodeQueues(index - 1)
+}
+
+func (self *LockManagerLockQueue) Resize() {
+	if self.queue != nil && self.queue.headNodeIndex >= 8 {
+		_ = self.queue.Resize()
+	}
+}
+
 func (self *LockManagerLockQueue) Reset() {
 	if self.fastQueue != nil {
 		if cap(self.fastQueue) > 8 {
@@ -556,10 +588,7 @@ func (self *LockManager) RemoveLock(lock *Lock) *Lock {
 			}
 			lockedLock = self.locks.Pop()
 		}
-
-		if self.locks.queue.headNodeIndex >= 8 {
-			_ = self.locks.queue.Resize()
-		}
+		self.locks.Resize()
 		return lock
 	}
 
@@ -580,10 +609,7 @@ func (self *LockManager) RemoveLock(lock *Lock) *Lock {
 		}
 		lockedLock = self.locks.Head()
 	}
-
-	if self.locks.queue.headNodeIndex >= 8 {
-		_ = self.locks.queue.Resize()
-	}
+	self.locks.Resize()
 	return lock
 }
 
