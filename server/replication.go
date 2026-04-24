@@ -43,11 +43,11 @@ func (self *ReplicationBufferMutex) Unlock() {
 }
 
 func (self *ReplicationBufferMutex) RLock() {
-	self.rwlock.Lock()
+	self.rwlock.RLock()
 }
 
 func (self *ReplicationBufferMutex) RUnlock() {
-	self.rwlock.Unlock()
+	self.rwlock.RUnlock()
 }
 
 func (self *ReplicationBufferMutex) Wait(duration time.Duration) {
