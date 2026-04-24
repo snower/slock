@@ -192,15 +192,18 @@ func (self *Server) Serve() {
 }
 
 func (self *Server) checkProtocolFreeCommandQueue() {
+	timer := time.NewTimer(120 * time.Second)
+	defer stopAndDrainTimer(timer)
 	for !self.stoped {
 		select {
 		case <-self.stopedWaiter:
 			return
-		case <-time.After(120 * time.Second):
+		case <-timer.C:
 			if self.slock != nil {
 				_ = self.slock.checkServerProtocolSession()
 			}
 		}
+		resetTimer(timer, 120*time.Second)
 	}
 }
 
@@ -398,12 +401,14 @@ func (self *Server) handle(stream *Stream) {
 }
 
 func (self *Server) handleFreeCollect() {
+	timer := time.NewTimer(300 * time.Second)
+	defer stopAndDrainTimer(timer)
 	for {
 		select {
 		case <-self.freeCollectStopEvent:
 			close(self.freeCollectStopedWaiter)
 			return
-		case <-time.After(300 * time.Second):
+		case <-timer.C:
 			streams := self.GetStreams()
 			totalCommandCount := self.slock.statsTotalCommandCount
 			for _, stream := range streams {
@@ -433,6 +438,7 @@ func (self *Server) handleFreeCollect() {
 				self.slock.Log().Errorf("Server Error slock freeing collect %v", err)
 			}
 		}
+		resetTimer(timer, 300*time.Second)
 	}
 }
 

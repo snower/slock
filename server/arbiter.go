@@ -683,15 +683,18 @@ func (self *ArbiterMember) Run() {
 		self.lastUpdated = time.Now().UnixNano()
 	}
 
+	timer := time.NewTimer(2 * time.Second)
+	defer stopAndDrainTimer(timer)
 	for !self.closed {
 		self.glock.Lock()
 		self.wakeupSignal = make(chan struct{})
 		self.glock.Unlock()
 
+		resetTimer(timer, 2*time.Second)
 		select {
 		case <-self.wakeupSignal:
 			continue
-		case <-time.After(2 * time.Second):
+		case <-timer.C:
 			self.glock.Lock()
 			self.wakeupSignal = nil
 			self.glock.Unlock()
@@ -1275,10 +1278,13 @@ func (self *ArbiterVoter) wakeupSubscriber() {
 }
 
 func (self *ArbiterVoter) checkSubscriberTimeout(timeout int64) {
+	timer := time.NewTimer(time.Duration(timeout) * time.Second)
+	defer stopAndDrainTimer(timer)
 	for timeout > 0 {
+		resetTimer(timer, time.Duration(timeout)*time.Second)
 		select {
 		case <-self.closedWaiter:
-		case <-time.After(time.Duration(timeout) * time.Second):
+		case <-timer.C:
 		}
 		self.glock.Lock()
 		if self.subscribers == nil {

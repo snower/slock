@@ -458,6 +458,8 @@ func (self *Subscriber) Close() error {
 }
 
 func (self *Subscriber) Run() {
+	timer := time.NewTimer(120 * time.Second)
+	defer stopAndDrainTimer(timer)
 	for !self.closed {
 		self.glock.Lock()
 		self.pulled = true
@@ -467,6 +469,7 @@ func (self *Subscriber) Run() {
 		if self.expriedTime > 0 && timeout > int(self.expriedTime) {
 			timeout = int(self.expriedTime)
 		}
+		resetTimer(timer, time.Duration(timeout)*time.Second)
 		select {
 		case <-self.pullWaiter:
 			self.glock.Lock()
@@ -476,7 +479,7 @@ func (self *Subscriber) Run() {
 				self.processLock()
 			}
 			self.glock.Unlock()
-		case <-time.After(time.Duration(timeout) * time.Second):
+		case <-timer.C:
 			self.glock.Lock()
 			if !self.pulled {
 				<-self.pullWaiter

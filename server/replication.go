@@ -944,6 +944,8 @@ func (self *ReplicationClient) ProcessAofAppend() {
 	aof := self.aof
 	aofId := [16]byte{self.currentAofId[0], self.currentAofId[1], self.currentAofId[2], self.currentAofId[3], self.currentAofId[4], self.currentAofId[5], self.currentAofId[6], self.currentAofId[7],
 		self.currentAofId[8], self.currentAofId[9], self.currentAofId[10], self.currentAofId[11], self.currentAofId[12], self.currentAofId[13], self.currentAofId[14], self.currentAofId[15]}
+	flushTimer := time.NewTimer(200 * time.Millisecond)
+	defer stopAndDrainTimer(flushTimer)
 	aofLock := <-self.aofQueue
 	for !self.closed {
 		if aofLock == nil {
@@ -994,10 +996,11 @@ func (self *ReplicationClient) ProcessAofAppend() {
 					aofId[8], aofId[9], aofId[10], aofId[11], aofId[12], aofId[13], aofId[14], aofId[15]
 			}
 
+			resetTimer(flushTimer, 200*time.Millisecond)
 			select {
 			case aofLock = <-self.aofQueue:
 				continue
-			case <-time.After(200 * time.Millisecond):
+			case <-flushTimer.C:
 				aof.FlushWithLocked()
 				self.currentAofId[0], self.currentAofId[1], self.currentAofId[2], self.currentAofId[3], self.currentAofId[4], self.currentAofId[5], self.currentAofId[6], self.currentAofId[7],
 					self.currentAofId[8], self.currentAofId[9], self.currentAofId[10], self.currentAofId[11], self.currentAofId[12], self.currentAofId[13], self.currentAofId[14], self.currentAofId[15] = aofId[0], aofId[1], aofId[2], aofId[3], aofId[4], aofId[5], aofId[6], aofId[7],

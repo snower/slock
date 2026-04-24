@@ -874,6 +874,8 @@ func (self *AofChannel) Acked(commandResult *protocol.LockResultCommand) error {
 
 func (self *AofChannel) Run() {
 	self.aof.handeLockAofChannel(self)
+	timer := time.NewTimer(200 * time.Millisecond)
+	defer stopAndDrainTimer(timer)
 	for {
 		self.queueGlock.Lock()
 		aofLock := self.pullAofLock()
@@ -902,10 +904,11 @@ func (self *AofChannel) Run() {
 			return
 		}
 
+		resetTimer(timer, 200*time.Millisecond)
 		select {
 		case <-self.queueWaiter:
 			self.aof.handeLockAofChannel(self)
-		case <-time.After(200 * time.Millisecond):
+		case <-timer.C:
 			self.aof.syncFileAofChannel(self)
 			<-self.queueWaiter
 			self.aof.handeLockAofChannel(self)

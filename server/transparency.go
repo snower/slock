@@ -1393,17 +1393,20 @@ func (self *TransparencyManager) Close() error {
 
 func (self *TransparencyManager) Run() {
 	timeout := 120
+	timer := time.NewTimer(time.Duration(timeout) * time.Second)
+	defer stopAndDrainTimer(timer)
 	for !self.closed {
 		self.glock.Lock()
 		self.wakeupSignal = make(chan struct{})
 		self.glock.Unlock()
 
+		resetTimer(timer, time.Duration(timeout)*time.Second)
 		select {
 		case <-self.wakeupSignal:
 			self.glock.Lock()
 			timeout = self.CheckArbiterWaiter()
 			self.glock.Unlock()
-		case <-time.After(time.Duration(timeout) * time.Second):
+		case <-timer.C:
 			self.glock.Lock()
 			self.wakeupSignal = nil
 			timeout = self.CheckArbiterWaiter()

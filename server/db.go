@@ -1230,11 +1230,12 @@ func (self *LockDB) flushWaitRemoveLockManagerQueue(glockIndex uint16) {
 
 func (self *LockDB) checkWaitRemoveLockManager(waiter chan struct{}) {
 	currentTime := time.Now().UnixMilli() + 500
+	timer := time.NewTimer(time.Millisecond * time.Duration(currentTime-time.Now().UnixMilli()))
+	defer stopAndDrainTimer(timer)
 	for self.status != STATE_CLOSE {
 		select {
 		case <-waiter:
-			continue
-		case <-time.After(time.Millisecond * time.Duration(currentTime-time.Now().UnixMilli())):
+		case <-timer.C:
 			if self.status == STATE_CLOSE {
 				return
 			}
@@ -1249,6 +1250,9 @@ func (self *LockDB) checkWaitRemoveLockManager(waiter chan struct{}) {
 				}
 			}
 			currentTime += 500
+		}
+		if self.status != STATE_CLOSE {
+			resetTimer(timer, time.Millisecond*time.Duration(currentTime-time.Now().UnixMilli()))
 		}
 	}
 }
