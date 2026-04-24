@@ -820,6 +820,8 @@ func (self *LockManager) FreeLock(lock *Lock) *Lock {
 	lock.protocol = nil
 	lock.command = nil
 	lock.data = nil
+	lock.isAof = false
+	lock.aofTime = 0
 	_ = self.freeLocks.Push(lock)
 	return lock
 }
