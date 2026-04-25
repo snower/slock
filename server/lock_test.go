@@ -438,6 +438,41 @@ func TestLockManagerWaitQueue(t *testing.T) {
 	}
 }
 
+func TestLockManagerWaitQueueRePushPriorityRingQueueSwitchesMode(t *testing.T) {
+	queue := NewLockManagerWaitQueue(false)
+
+	lowPriorityLock := &Lock{command: &protocol.LockCommand{TimeoutFlag: protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY, Rcount: 1}, ackCount: 0xff}
+	highPriorityLock := &Lock{command: &protocol.LockCommand{TimeoutFlag: protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY, Rcount: 5}, ackCount: 0xff}
+	middlePriorityLock := &Lock{command: &protocol.LockCommand{TimeoutFlag: protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY, Rcount: 3}, ackCount: 0xff}
+
+	queue.Push(lowPriorityLock)
+	queue.Push(highPriorityLock)
+	queue.Push(middlePriorityLock)
+	queue.RePushPriorityRingQueue()
+
+	if queue.fastIndex != -1 {
+		t.Errorf("LockManagerWaitQueue RePushPriorityRingQueue fastIndex fail %d", queue.fastIndex)
+		return
+	}
+	if queue.fastQueue == nil || len(queue.fastQueue) != 0 || queue.ringQueue == nil {
+		t.Errorf("LockManagerWaitQueue RePushPriorityRingQueue state fail")
+		return
+	}
+	if queue.Len() != 3 || queue.MaxPriority() != 5 {
+		t.Errorf("LockManagerWaitQueue RePushPriorityRingQueue priority fail")
+		return
+	}
+	if queue.Pop() != highPriorityLock || queue.Pop() != middlePriorityLock || queue.Pop() != lowPriorityLock || queue.Pop() != nil {
+		t.Errorf("LockManagerWaitQueue RePushPriorityRingQueue pop fail")
+		return
+	}
+	queue.Reset()
+	if queue.fastIndex != 0 || queue.ringQueue != nil {
+		t.Errorf("LockManagerWaitQueue RePushPriorityRingQueue reset fail")
+		return
+	}
+}
+
 func BenchmarkLockManagerWaitQueue(b *testing.B) {
 	lock := &Lock{}
 	queue := NewLockManagerWaitQueue(false)
