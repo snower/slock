@@ -1435,6 +1435,7 @@ func (self *LockDB) GetOrNewLockManager(command *protocol.LockCommand) *LockMana
 	self.mGlock.Unlock()
 	atomic.AddUint32(&lockManager.refCount, 1)
 	atomic.AddUint32(&lockManager.state.KeyCount, 1)
+	atomic.AddUint64(&lockManager.state.SlowKeyCount, 1)
 	return lockManager
 }
 
@@ -2942,6 +2943,7 @@ func (self *LockDB) GetState() *protocol.LockDBState {
 		state.TimeoutedCount += s.TimeoutedCount
 		state.ExpriedCount += s.ExpriedCount
 		state.UnlockErrorCount += s.UnlockErrorCount
+		state.SlowKeyCount += s.SlowKeyCount
 	}
 	return &state
 }

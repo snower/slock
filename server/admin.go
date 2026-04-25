@@ -758,6 +758,7 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 				} else {
 					dbInfos = append(dbInfos, "wait_ack_count=0")
 				}
+				dbInfos = append(dbInfos, fmt.Sprintf("slow_key_count=%d", dbState.SlowKeyCount))
 				infos = append(infos, fmt.Sprintf("db%d:%s", dbId, strings.Join(dbInfos, ",")))
 			}
 		}

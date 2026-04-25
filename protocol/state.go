@@ -9,4 +9,5 @@ type LockDBState struct {
 	TimeoutedCount   uint32
 	ExpriedCount     uint32
 	UnlockErrorCount uint32
+	SlowKeyCount     uint64
 }
