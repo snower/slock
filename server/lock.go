@@ -371,22 +371,24 @@ func (self *LockManagerLockQueue) Len() int {
 }
 
 type LockManagerWaitQueue struct {
-	fastQueue     []*Lock
-	fastIndex     int
-	ringQueue     ILockManagerRingQueue
-	priorityQueue bool
+	fastQueue []*Lock
+	fastIndex int
+	ringQueue ILockManagerRingQueue
 }
 
 func NewLockManagerWaitQueue(priorityQueue bool) *LockManagerWaitQueue {
 	if priorityQueue {
-		return &LockManagerWaitQueue{nil, 0, NewLockManagerPriorityRingQueue(16), true}
+		return &LockManagerWaitQueue{nil, -1, NewLockManagerPriorityRingQueue(16)}
 	}
-	return &LockManagerWaitQueue{nil, 0, nil, false}
+	return &LockManagerWaitQueue{nil, 0, nil}
 }
 
 func (self *LockManagerWaitQueue) RePushPriorityRingQueue() {
+	if self.fastIndex < 0 {
+		return
+	}
 	ringQueue := NewLockManagerPriorityRingQueue(16)
-	if self.fastQueue != nil && self.fastIndex < len(self.fastQueue) {
+	if self.fastQueue != nil && self.fastIndex < len(self.fastQueue) && self.fastIndex >= 0 {
 		for i := self.fastIndex; i < len(self.fastQueue); i++ {
 			ringQueue.Push(self.fastQueue[i])
 		}
@@ -401,7 +403,7 @@ func (self *LockManagerWaitQueue) RePushPriorityRingQueue() {
 		}
 	}
 	self.ringQueue = ringQueue
-	self.priorityQueue = true
+	self.fastIndex = -1
 }
 
 func (self *LockManagerWaitQueue) Push(lock *Lock) {
@@ -459,7 +461,7 @@ func (self *LockManagerWaitQueue) Push(lock *Lock) {
 }
 
 func (self *LockManagerWaitQueue) Pop() *Lock {
-	if self.fastQueue != nil && self.fastIndex < len(self.fastQueue) {
+	if self.fastQueue != nil && self.fastIndex < len(self.fastQueue) && self.fastIndex >= 0 {
 		lock := self.fastQueue[self.fastIndex]
 		self.fastQueue[self.fastIndex] = nil
 		self.fastIndex++
@@ -472,7 +474,7 @@ func (self *LockManagerWaitQueue) Pop() *Lock {
 }
 
 func (self *LockManagerWaitQueue) Head() *Lock {
-	if self.fastQueue != nil && self.fastIndex < len(self.fastQueue) {
+	if self.fastQueue != nil && self.fastIndex < len(self.fastQueue) && self.fastIndex >= 0 {
 		return self.fastQueue[self.fastIndex]
 	}
 	if self.ringQueue != nil {
@@ -488,15 +490,14 @@ func (self *LockManagerWaitQueue) Reset() {
 		} else if len(self.fastQueue) > 0 {
 			self.fastQueue = self.fastQueue[:0]
 		}
-		self.fastIndex = 0
 	}
 	self.ringQueue = nil
-	self.priorityQueue = false
+	self.fastIndex = 0
 }
 
 func (self *LockManagerWaitQueue) IterNodes() [][]*Lock {
 	lockNodes := make([][]*Lock, 0)
-	if self.fastQueue != nil && self.fastIndex < len(self.fastQueue) {
+	if self.fastQueue != nil && self.fastIndex < len(self.fastQueue) && self.fastIndex >= 0 {
 		lockNodes = append(lockNodes, self.fastQueue[self.fastIndex:])
 	}
 	if self.ringQueue != nil {
@@ -506,7 +507,7 @@ func (self *LockManagerWaitQueue) IterNodes() [][]*Lock {
 }
 
 func (self *LockManagerWaitQueue) MaxPriority() uint8 {
-	if self.fastQueue != nil && self.fastIndex < len(self.fastQueue) {
+	if self.fastQueue != nil && self.fastIndex < len(self.fastQueue) && self.fastIndex >= 0 {
 		command := self.fastQueue[self.fastIndex].command
 		if command.TimeoutFlag&protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY != 0 {
 			return command.Rcount
@@ -521,12 +522,12 @@ func (self *LockManagerWaitQueue) MaxPriority() uint8 {
 
 func (self *LockManagerWaitQueue) Len() int {
 	if self.ringQueue == nil {
-		if self.fastQueue == nil {
+		if self.fastQueue == nil || self.fastIndex < 0 {
 			return 0
 		}
 		return len(self.fastQueue) - self.fastIndex
 	}
-	if self.fastQueue == nil {
+	if self.fastQueue == nil || self.fastIndex < 0 {
 		return self.ringQueue.Len()
 	}
 	return len(self.fastQueue) - self.fastIndex + self.ringQueue.Len()
@@ -774,7 +775,7 @@ func (self *LockManager) AddWaitLock(lock *Lock) *Lock {
 	if self.waitLocks == nil {
 		self.waitLocks = NewLockManagerWaitQueue(false)
 	} else {
-		if self.waited && !self.waitLocks.priorityQueue {
+		if self.waited && self.waitLocks.fastIndex >= 0 {
 			lockPriority := uint8(0)
 			if lock.command.TimeoutFlag&protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY != 0 {
 				lockPriority = lock.command.Rcount
