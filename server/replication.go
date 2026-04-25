@@ -1959,10 +1959,12 @@ func (self *ReplicationManager) WaitServerSynced() error {
 		case <-serverFlushWaiter:
 			return
 		case <-time.After(120 * time.Second):
+			self.glock.Lock()
 			if self.serverFlushWaiter != nil {
 				close(self.serverFlushWaiter)
 				self.serverFlushWaiter = nil
 			}
+			self.glock.Unlock()
 		}
 	}()
 	self.glock.Unlock()
