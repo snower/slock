@@ -162,6 +162,9 @@ func (self *ReplicationBufferQueue) InitFreeQueueItems(count uint64) {
 func (self *ReplicationBufferQueue) ResetQueueItems() *ReplicationBufferQueueItem {
 	queueItem := self.tailItem
 	self.tailItem = self.tailItem.nextItem
+	if self.tailItem == nil {
+		self.headItem = nil
+	}
 	if queueItem.data == nil {
 		self.usedBufferSize -= 64
 	} else {
@@ -184,6 +187,9 @@ func (self *ReplicationBufferQueue) ResetQueueItems() *ReplicationBufferQueueIte
 
 			queueItem = self.tailItem
 			self.tailItem = self.tailItem.nextItem
+			if self.tailItem == nil {
+				self.headItem = nil
+			}
 			if queueItem.data == nil {
 				self.usedBufferSize -= 64
 			} else {
@@ -337,7 +343,7 @@ func (self *ReplicationBufferQueue) Head(cursor *ReplicationBufferQueueCursor) e
 	currentItem := self.headItem
 	if currentItem == nil {
 		self.glock.RUnlock()
-		return errors.New("buffer is empty")
+		return io.EOF
 	}
 
 	buf := currentItem.buf
@@ -1177,8 +1183,11 @@ func (self *ReplicationServer) handleInitSync(command *protocol.CallCommand) (*p
 	if request.AofId == "" {
 		err = self.manager.bufferQueue.Head(self.bufferCursor)
 		if err != nil {
+			if err != io.EOF {
+				return protocol.NewCallResultCommand(command, 0, "ERR_STATE", nil), nil
+			}
 			self.waofLock.AofIndex = self.aof.aofFileIndex
-			self.waofLock.AofOffset = self.aof.aofFileOffset
+			self.waofLock.AofOffset = self.aof.aofFileOffset + 1
 		} else {
 			self.waofLock.buf = self.bufferCursor.buf
 			err = self.waofLock.Decode()
@@ -1291,7 +1300,7 @@ func (self *ReplicationServer) sendFiles() error {
 	if laofLock != nil {
 		self.bufferCursor.currentAofId = laofLock.GetAofId()
 	}
-	if laofLock != nil && laofLock.AofIndex >= self.waofLock.AofIndex && laofLock.AofOffset >= self.waofLock.AofOffset && laofLock.CommandTime >= self.waofLock.CommandTime {
+	if laofLock != nil && (laofLock.AofIndex > self.waofLock.AofIndex || (laofLock.AofIndex == self.waofLock.AofIndex && laofLock.AofOffset >= self.waofLock.AofOffset)) {
 		self.manager.slock.logger.Infof("Replication server handle client %s send file finish, send queue by aofId %s",
 			self.protocol.RemoteAddr().String(), FormatAofId(self.bufferCursor.currentAofId))
 	} else {
