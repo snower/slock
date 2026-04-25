@@ -215,7 +215,7 @@ func (self *LockManagerLockQueue) Push(lock *Lock) {
 	}
 
 	if self.fastQueue == nil {
-		self.fastQueue = make([]*Lock, 0, 4)
+		self.fastQueue = make([]*Lock, 0, 6)
 		self.fastQueue = append(self.fastQueue, lock)
 		return
 	}
@@ -253,7 +253,7 @@ func (self *LockManagerLockQueue) Push(lock *Lock) {
 		self.fastQueue = append(self.fastQueue, lock)
 		return
 	}
-	if cap(self.fastQueue) < 256 {
+	if cap(self.fastQueue) <= 128 {
 		self.fastQueue = append(self.fastQueue, lock)
 		return
 	}
@@ -347,7 +347,7 @@ func (self *LockManagerLockQueue) Resize() {
 
 func (self *LockManagerLockQueue) Reset() {
 	if self.fastQueue != nil {
-		if cap(self.fastQueue) > 8 {
+		if cap(self.fastQueue) > 6 {
 			self.fastQueue = nil
 		} else if len(self.fastQueue) > 0 {
 			self.fastQueue = self.fastQueue[:0]
@@ -451,7 +451,7 @@ func (self *LockManagerWaitQueue) Push(lock *Lock) {
 		self.fastQueue = append(self.fastQueue, lock)
 		return
 	}
-	if cap(self.fastQueue) < 256 {
+	if cap(self.fastQueue) <= 128 {
 		self.fastQueue = append(self.fastQueue, lock)
 		return
 	}
