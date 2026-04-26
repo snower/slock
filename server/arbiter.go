@@ -1088,7 +1088,9 @@ func (self *ArbiterVoter) DoRequests(name string, handler func(*ArbiterMember) (
 		go func(member *ArbiterMember) {
 			response, err := handler(member)
 			if err == nil {
+				self.glock.Lock()
 				responses = append(responses, response)
+				self.glock.Unlock()
 			} else {
 				self.manager.slock.Log().Errorf("Arbier voter member %s request %s error %v", member.host, name, err)
 			}
@@ -1749,6 +1751,7 @@ func (self *ArbiterManager) voteSucced() error {
 	self.slock.Log().Infof("Arbiter election succed, current leader %s", self.voter.proposalHost)
 	self.glock.Lock()
 	if self.stoped {
+		self.glock.Unlock()
 		return nil
 	}
 	proposalHost := self.voter.proposalHost
