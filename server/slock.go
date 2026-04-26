@@ -506,6 +506,17 @@ func (self *SLock) FreeCollect(totalCommandCount uint64) error {
 			}
 		}
 	}
+
+	err = self.aof.FreeCollect()
+	if err != nil {
+		self.Log().Errorf("Slock Error Aof freeing collect %v", err)
+	}
+	if self.subscribeManager != nil {
+		err = self.subscribeManager.FreeCollect()
+		if err != nil {
+			self.Log().Errorf("Slock Error Subscribe freeing collect %v", err)
+		}
+	}
 	return nil
 }
 

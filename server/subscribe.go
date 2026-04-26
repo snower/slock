@@ -721,6 +721,38 @@ type SubscribePublishLockQueue struct {
 	next   *SubscribePublishLockQueue
 }
 
+type SubscribeChannelFreeCollector struct {
+	lastCollectTime          int64
+	lastFreeLockCommandCount int
+}
+
+func NewSubscribeChannelFreeCollector() *SubscribeChannelFreeCollector {
+	return &SubscribeChannelFreeCollector{time.Now().Unix(), 0}
+}
+
+func (self *SubscribeChannelFreeCollector) Collect(subscribeChannel *SubscribeChannel) error {
+	currentTime := time.Now().Unix()
+	freeLockCount, minFreeLockCount := subscribeChannel.freeLockIndex, 8
+	if freeLockCount >= minFreeLockCount && float64(freeLockCount) < float64(self.lastFreeLockCommandCount)*1.5 {
+		freeCount := freeLockCount / 20
+		if freeCount > 0 && subscribeChannel.freeLockIndex > 0 {
+			subscribeChannel.glock.Lock()
+			for i := 0; i < freeCount; i++ {
+				if subscribeChannel.freeLockIndex <= 0 {
+					break
+				}
+				subscribeChannel.freeLockIndex--
+				subscribeChannel.freeLocks[subscribeChannel.freeLockIndex] = nil
+			}
+			subscribeChannel.glock.Unlock()
+		}
+	}
+
+	self.lastCollectTime = currentTime
+	self.lastFreeLockCommandCount = freeLockCount
+	return nil
+}
+
 type SubscribeChannel struct {
 	manager                 *SubscribeManager
 	glock                   *sync.Mutex
@@ -735,6 +767,7 @@ type SubscribeChannel struct {
 	freeLocks               []*PublishLock
 	freeLockIndex           int
 	freeLockMax             int
+	freeCollector           *SubscribeChannelFreeCollector
 	lockDbGlockAcquiredSize int
 	lockDbGlockAcquired     bool
 	queuePulled             bool
@@ -746,8 +779,8 @@ func NewSubscribeChannel(manager *SubscribeManager, lockDb *LockDB, lockDbGlockI
 	freeLockMax := int(Config.AofQueueSize) / 64
 	return &SubscribeChannel{manager, &sync.Mutex{}, lockDb, lockDbGlockIndex, lockDbGlock, nil, nil,
 		0, make(chan bool, 1), &sync.Mutex{}, make([]*PublishLock, freeLockMax),
-		0, freeLockMax, freeLockMax * 2, false, false,
-		false, make(chan struct{})}
+		0, freeLockMax, NewSubscribeChannelFreeCollector(), freeLockMax * 2,
+		false, false, false, make(chan struct{})}
 }
 
 func (self *SubscribeChannel) pushPublishLock(publishLock *PublishLock) {
@@ -817,6 +850,7 @@ func (self *SubscribeChannel) Push(command *protocol.LockCommand, result uint8, 
 	if self.freeLockIndex > 0 {
 		self.freeLockIndex--
 		publishLock = self.freeLocks[self.freeLockIndex]
+		self.freeLocks[self.freeLockIndex] = nil
 		self.glock.Unlock()
 	} else {
 		self.glock.Unlock()
@@ -859,6 +893,7 @@ func (self *SubscribeChannel) ClientPush(lock *PublishLock) error {
 	if self.freeLockIndex > 0 {
 		self.freeLockIndex--
 		publishLock = self.freeLocks[self.freeLockIndex]
+		self.freeLocks[self.freeLockIndex] = nil
 		self.glock.Unlock()
 	} else {
 		self.glock.Unlock()
@@ -985,6 +1020,16 @@ func (self *SubscribeManager) Close() {
 	}
 	self.freeBuffers = nil
 	self.slock.logger.Infof("Subscribe closed")
+}
+
+func (self *SubscribeManager) FreeCollect() error {
+	self.glock.Lock()
+	channels := self.channels
+	self.glock.Unlock()
+	for _, aofChannel := range channels {
+		_ = aofChannel.freeCollector.Collect(aofChannel)
+	}
+	return nil
 }
 
 func (self *SubscribeManager) NewSubscribeChannel(lockDb *LockDB, lockDbGlockIndex uint16, lockDbGlock *PriorityMutex) *SubscribeChannel {

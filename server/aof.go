@@ -613,6 +613,38 @@ type AofLockQueue struct {
 	next   *AofLockQueue
 }
 
+type AofChannelFreeCollector struct {
+	lastCollectTime          int64
+	lastFreeLockCommandCount int
+}
+
+func NewAofChannelFreeCollector() *AofChannelFreeCollector {
+	return &AofChannelFreeCollector{time.Now().Unix(), 0}
+}
+
+func (self *AofChannelFreeCollector) Collect(aofChannel *AofChannel) error {
+	currentTime := time.Now().Unix()
+	freeLockCount, minFreeLockCount := aofChannel.freeLockIndex, 8
+	if freeLockCount >= minFreeLockCount && float64(freeLockCount) < float64(self.lastFreeLockCommandCount)*1.5 {
+		freeCount := freeLockCount / 20
+		if freeCount > 0 && aofChannel.freeLockIndex > 0 {
+			aofChannel.glock.Lock()
+			for i := 0; i < freeCount; i++ {
+				if aofChannel.freeLockIndex <= 0 {
+					break
+				}
+				aofChannel.freeLockIndex--
+				aofChannel.freeLocks[aofChannel.freeLockIndex] = nil
+			}
+			aofChannel.glock.Unlock()
+		}
+	}
+
+	self.lastCollectTime = currentTime
+	self.lastFreeLockCommandCount = freeLockCount
+	return nil
+}
+
 type AofChannel struct {
 	aof                     *Aof
 	glock                   *sync.Mutex
@@ -628,6 +660,7 @@ type AofChannel struct {
 	freeLocks               []*AofLock
 	freeLockIndex           int
 	freeLockMax             int
+	freeCollector           *AofChannelFreeCollector
 	lockDbGlockAcquiredSize int
 	lockDbGlockAcquired     bool
 	queuePulled             bool
@@ -639,8 +672,8 @@ func NewAofChannel(aof *Aof, lockDb *LockDB, lockDbGlockIndex uint16, lockDbGloc
 	freeLockMax := int(Config.AofQueueSize) / 64
 	return &AofChannel{aof, &sync.Mutex{}, lockDb, lockDbGlockIndex, lockDbGlock, nil, nil,
 		0, make(chan struct{}, 1), &sync.Mutex{}, nil, make([]*AofLock, freeLockMax),
-		0, freeLockMax, freeLockMax * 2, false, false,
-		false, make(chan struct{})}
+		0, freeLockMax, NewAofChannelFreeCollector(), freeLockMax * 2,
+		false, false, false, make(chan struct{})}
 }
 
 func (self *AofChannel) getAofLock() *AofLock {
@@ -649,6 +682,7 @@ func (self *AofChannel) getAofLock() *AofLock {
 		if self.freeLockIndex > 0 {
 			self.freeLockIndex--
 			aofLock := self.freeLocks[self.freeLockIndex]
+			self.freeLocks[self.freeLockIndex] = nil
 			self.glock.Unlock()
 			return aofLock
 		}
@@ -1520,6 +1554,16 @@ func (self *Aof) Close() {
 	}
 	self.aofGlock.Unlock()
 	self.slock.logger.Infof("Aof closed")
+}
+
+func (self *Aof) FreeCollect() error {
+	self.glock.Lock()
+	channels := self.channels
+	self.glock.Unlock()
+	for _, aofChannel := range channels {
+		_ = aofChannel.freeCollector.Collect(aofChannel)
+	}
+	return nil
 }
 
 func (self *Aof) NewAofChannel(lockDb *LockDB, lockDbGlockIndex uint16, lockDbGlock *PriorityMutex) *AofChannel {
