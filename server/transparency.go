@@ -1446,6 +1446,7 @@ func (self *TransparencyManager) checkIdleTimeout() {
 	currentClient := self.idleClients
 	self.idleClients = nil
 	for currentClient != nil {
+		nextClient := currentClient.nextClient
 		if now.Unix()-currentClient.idleTime.Unix() > 900 || idleCount > 5 {
 			if currentClient.clientProtocol != nil {
 				_ = currentClient.clientProtocol.Close()
@@ -1455,7 +1456,7 @@ func (self *TransparencyManager) checkIdleTimeout() {
 			self.idleClients = currentClient
 			idleCount++
 		}
-		currentClient = currentClient.nextClient
+		currentClient = nextClient
 	}
 }
 
