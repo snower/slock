@@ -1296,7 +1296,7 @@ func (self *LockDB) initNewLockManager(dbId uint8, freeLockManagerTail uint32) {
 	lockManagers := make([]LockManager, 8)
 	for i := 0; i < 8; i++ {
 		freeLockManagerHead := atomic.AddUint32(&self.freeLockManagerHead, 1) % self.maxFreeLockManagerCount
-		if self.freeLockManagers[freeLockManagerHead] != nil {
+		if self.freeLockManagers[freeLockManagerHead] != nil && self.freeLockManagers[freeLockManagerTail] != nil {
 			self.glock.Unlock()
 			return
 		}
@@ -1316,6 +1316,11 @@ func (self *LockDB) initNewLockManager(dbId uint8, freeLockManagerTail uint32) {
 		if self.managerGlockIndex >= self.managerMaxGlocks {
 			self.managerGlockIndex = 0
 		}
+		if self.freeLockManagers[freeLockManagerHead] != nil {
+			self.freeLockManagers[freeLockManagerTail] = &lockManagers[i]
+			self.glock.Unlock()
+			return
+		}
 		self.freeLockManagers[freeLockManagerHead] = &lockManagers[i]
 	}
 	self.glock.Unlock()
@@ -1331,6 +1336,7 @@ func (self *LockDB) deInitNewLockManager(count int, minSize int) {
 		if lockManager == nil {
 			return
 		}
+		self.freeLockManagers[freeLockManagerTail] = nil
 	}
 }
 

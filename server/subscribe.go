@@ -1026,8 +1026,8 @@ func (self *SubscribeManager) FreeCollect() error {
 	self.glock.Lock()
 	channels := self.channels
 	self.glock.Unlock()
-	for _, aofChannel := range channels {
-		_ = aofChannel.freeCollector.Collect(aofChannel)
+	for _, subscribeChannel := range channels {
+		_ = subscribeChannel.freeCollector.Collect(subscribeChannel)
 	}
 	return nil
 }

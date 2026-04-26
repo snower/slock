@@ -682,11 +682,13 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 		infos = append(infos, "# Persistence")
 		infos = append(infos, fmt.Sprintf("aof_channel_count:%d", aof.channelCount))
 		infos = append(infos, fmt.Sprintf("aof_channel_active_count:%d", aof.channelActiveCount))
-		channelHandingCount := 0
+		channelHandingCount, freeLockCount := 0, 0
 		for _, channel := range aof.channels {
 			channelHandingCount += channel.queueCount
+			freeLockCount += channel.freeLockIndex
 		}
 		infos = append(infos, fmt.Sprintf("aof_channel_handing_count:%d", channelHandingCount))
+		infos = append(infos, fmt.Sprintf("aof_channel_free_lock_count:%d", freeLockCount))
 		infos = append(infos, fmt.Sprintf("aof_count:%d", aof.aofLockCount))
 		infos = append(infos, fmt.Sprintf("aof_ring_buffer_duplicate_count:%d", self.slock.replicationManager.bufferQueue.dupCount))
 		if aof.aofFile != nil {
@@ -707,11 +709,13 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 		infos = append(infos, fmt.Sprintf("subscriber:%d", len(self.slock.subscribeManager.fastSubscribers)))
 		infos = append(infos, fmt.Sprintf("subscribe_channel_count:%d", self.slock.subscribeManager.channelCount))
 		infos = append(infos, fmt.Sprintf("subscribe_channel_active_count:%d", self.slock.subscribeManager.channelActiveCount))
-		channelHandingCount := 0
+		channelHandingCount, freeLockCount := 0, 0
 		for _, channel := range self.slock.subscribeManager.channels {
 			channelHandingCount += channel.queueCount
+			freeLockCount += channel.freeLockIndex
 		}
 		infos = append(infos, fmt.Sprintf("subscribe_channel_handing_count:%d", channelHandingCount))
+		infos = append(infos, fmt.Sprintf("subscribe_channel_free_lock_count:%d", freeLockCount))
 		infos = append(infos, "")
 	}
 
