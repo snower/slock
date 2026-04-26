@@ -290,7 +290,7 @@ func TestLockManagerLockQueue(t *testing.T) {
 		t.Errorf("LockManagerWaitQueue Push Size fail")
 		return
 	}
-	for i := 0; len(queue.fastQueue) < cap(queue.fastQueue) || cap(queue.fastQueue) < 128; i++ {
+	for i := 0; len(queue.fastQueue) < cap(queue.fastQueue) || cap(queue.fastQueue) <= 128; i++ {
 		queue.Push(lock)
 		if len(queue.fastQueue) != i+3 {
 			t.Errorf("LockManagerWaitQueue Push Size fail")
@@ -384,7 +384,7 @@ func TestLockManagerWaitQueue(t *testing.T) {
 		t.Errorf("LockManagerWaitQueue Push Size fail")
 		return
 	}
-	for i := 0; len(queue.fastQueue) < cap(queue.fastQueue) || cap(queue.fastQueue) < 128; i++ {
+	for i := 0; len(queue.fastQueue) < cap(queue.fastQueue) || cap(queue.fastQueue) <= 128; i++ {
 		queue.Push(lock)
 		if len(queue.fastQueue) != i+3 {
 			t.Errorf("LockManagerWaitQueue Push Size fail")
