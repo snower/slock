@@ -1441,17 +1441,16 @@ func (self *TransparencyManager) checkIdleTimeout() {
 	defer self.glock.Unlock()
 	self.glock.Lock()
 
-	now, idleCount := time.Now(), uint(0)
+	now := time.Now()
 	currentClient := self.idleClients
 	self.idleClients = nil
 	for currentClient != nil {
 		nextClient := currentClient.nextClient
-		if now.Unix()-currentClient.idleTime.Unix() > 900 || idleCount > 5 {
+		if now.Unix()-currentClient.idleTime.Unix() > 900 {
 			_ = currentClient.Close()
 		} else {
 			currentClient.nextClient = self.idleClients
 			self.idleClients = currentClient
-			idleCount++
 		}
 		currentClient = nextClient
 	}
