@@ -73,6 +73,7 @@ func (self *TransparencyBinaryClientProtocol) RetryOpen(leaderAddress string) er
 func (self *TransparencyBinaryClientProtocol) Close() error {
 	if self.clientProtocol != nil {
 		_ = self.clientProtocol.Close()
+		self.clientProtocol = nil
 	}
 
 	self.closed = true
@@ -287,6 +288,7 @@ func (self *TransparencyBinaryServerProtocol) Close() error {
 
 	if self.clientProtocol != nil {
 		_ = self.clientProtocol.Close()
+		self.clientProtocol = nil
 	}
 	err := self.serverProtocol.Close()
 	self.glock.Unlock()
@@ -1373,17 +1375,13 @@ func (self *TransparencyManager) Close() error {
 	self.closed = true
 	currentClient := self.clients
 	for currentClient != nil {
-		if currentClient.clientProtocol != nil {
-			_ = currentClient.clientProtocol.Close()
-		}
+		_ = currentClient.Close()
 		currentClient = currentClient.nextClient
 	}
 
 	currentClient = self.idleClients
 	for currentClient != nil {
-		if currentClient.clientProtocol != nil {
-			_ = currentClient.clientProtocol.Close()
-		}
+		_ = currentClient.Close()
 		currentClient = currentClient.nextClient
 	}
 	self.glock.Unlock()
@@ -1448,9 +1446,7 @@ func (self *TransparencyManager) checkIdleTimeout() {
 	for currentClient != nil {
 		nextClient := currentClient.nextClient
 		if now.Unix()-currentClient.idleTime.Unix() > 900 || idleCount > 5 {
-			if currentClient.clientProtocol != nil {
-				_ = currentClient.clientProtocol.Close()
-			}
+			_ = currentClient.Close()
 		} else {
 			currentClient.nextClient = self.idleClients
 			self.idleClients = currentClient
