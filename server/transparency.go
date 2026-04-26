@@ -71,13 +71,14 @@ func (self *TransparencyBinaryClientProtocol) RetryOpen(leaderAddress string) er
 }
 
 func (self *TransparencyBinaryClientProtocol) Close() error {
+	if self.closed {
+		return nil
+	}
+	self.closed = true
 	if self.clientProtocol != nil {
 		_ = self.clientProtocol.Close()
 		self.clientProtocol = nil
 	}
-
-	self.closed = true
-	self.manager.slock.Log().Infof("Transparency client close %s, leader %s", self.localAddress, self.leaderAddress)
 	return nil
 }
 
