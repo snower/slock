@@ -170,8 +170,8 @@ func (self *ReplicationBufferQueue) ResetQueueItems() *ReplicationBufferQueueIte
 	} else {
 		self.usedBufferSize -= uint64(64 + len(queueItem.data))
 	}
-	if self.usedBufferSize >= self.bufferSize && self.tailItem != nil {
-		for self.usedBufferSize >= self.bufferSize && self.tailItem != nil {
+	if self.usedBufferSize >= self.bufferSize && self.tailItem != nil && self.tailItem.pollIndex >= self.tailItem.pollCount {
+		for self.usedBufferSize >= self.bufferSize && self.tailItem != nil && self.tailItem.pollIndex >= self.tailItem.pollCount {
 			queueItem.data = nil
 			queueItem.pollCount = 0xffffffff
 			queueItem.pollIndex = 0
