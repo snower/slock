@@ -1389,6 +1389,7 @@ func (self *ReplicationServer) SendProcess() error {
 					}
 					windex = 0
 					self.state.sendDataSize += uint64(wdataSize)
+					wdataSize = 0
 				}
 				if 64+len(self.bufferCursor.data) > 4096 {
 					err := self.stream.WriteBytes(self.bufferCursor.buf)
@@ -1424,6 +1425,7 @@ func (self *ReplicationServer) SendProcess() error {
 				}
 				windex = 0
 				self.state.sendDataSize += uint64(wdataSize)
+				wdataSize = 0
 			}
 			self.glock.Unlock()
 			self.bufferCursor.writed = true
@@ -1444,6 +1446,7 @@ func (self *ReplicationServer) SendProcess() error {
 				}
 				windex = 0
 				self.state.sendDataSize += uint64(wdataSize)
+				wdataSize = 0
 				self.glock.Unlock()
 			}
 			if err != io.EOF {
