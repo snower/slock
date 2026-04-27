@@ -182,21 +182,21 @@ func (self *Admin) commandHandleBgRewritAaofCommand(serverProtocol *TextServerPr
 	if self.slock.state != STATE_LEADER {
 		return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(false, "State Error", nil))
 	}
-	self.slock.aof.aofGlock.Lock()
+	self.slock.aof.glock.Lock()
 	if self.slock.aof.isRewriting || self.slock.aof.isWaitRewite {
-		self.slock.aof.aofGlock.Unlock()
+		self.slock.aof.glock.Unlock()
 		return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(false, "Already Rewriting", nil))
 	}
 	err := serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(true, "OK", nil))
 	if err != nil {
-		self.slock.aof.aofGlock.Unlock()
+		self.slock.aof.glock.Unlock()
 		return err
 	}
 
 	go func() {
 		self.slock.Log().Infof("Admin command execute aof files rewrite")
 		_ = self.slock.GetAof().RewriteAofFile(true)
-		self.slock.aof.aofGlock.Unlock()
+		self.slock.aof.glock.Unlock()
 	}()
 	return nil
 }
@@ -205,13 +205,13 @@ func (self *Admin) commandHandleRewriteAofCommand(serverProtocol *TextServerProt
 	if self.slock.state != STATE_LEADER {
 		return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(false, "State Error", nil))
 	}
-	self.slock.aof.aofGlock.Lock()
+	self.slock.aof.glock.Lock()
 	if self.slock.aof.isRewriting || self.slock.aof.isWaitRewite {
-		self.slock.aof.aofGlock.Unlock()
+		self.slock.aof.glock.Unlock()
 		return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(false, "Already Rewriting", nil))
 	}
 	_ = self.slock.GetAof().RewriteAofFile(true)
-	self.slock.aof.aofGlock.Unlock()
+	self.slock.aof.glock.Unlock()
 	return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(true, "OK", nil))
 }
 
@@ -252,9 +252,11 @@ func (self *Admin) commandHandleFlushAllCommand(serverProtocol *TextServerProtoc
 	self.slock.glock.Lock()
 
 	for dbId, db := range self.slock.dbs {
-		err := db.FlushDB()
-		if err != nil {
-			return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(false, fmt.Sprintf("ERR Flush DB %d Error %s", dbId, err.Error()), nil))
+		if db != nil {
+			err := db.FlushDB()
+			if err != nil {
+				return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(false, fmt.Sprintf("ERR Flush DB %d Error %s", dbId, err.Error()), nil))
+			}
 		}
 	}
 
@@ -1014,7 +1016,7 @@ func (self *Admin) commandHandleConfigSetCommand(serverProtocol *TextServerProto
 		if err != nil {
 			return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(false, "ERR Parameter Value Error", nil))
 		}
-		Config.DBLockAofTime = uint(aofFileRewriteSize)
+		Config.AofFileRewriteSize = uint(aofFileRewriteSize)
 		self.slock.GetAof().rewriteSize = uint32(aofFileRewriteSize)
 	case "LOG_LEVEL":
 		logger := self.slock.Log()
@@ -1116,6 +1118,10 @@ func (self *Admin) commandHandleClientSlaveOfCommand(serverProtocol *TextServerP
 		return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(true, "OK", nil))
 	} else if len(args) >= 3 && args[1] != "" && args[2] != "" {
 		if self.slock.state == STATE_FOLLOWER || self.slock.state == STATE_SYNC {
+			leaderAddress := fmt.Sprintf("%s:%s", args[1], args[2])
+			if self.slock.replicationManager.leaderAddress != leaderAddress {
+				return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(true, "ERR State Conflict", nil))
+			}
 			return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(true, "OK", nil))
 		}
 
@@ -1130,7 +1136,7 @@ func (self *Admin) commandHandleClientSlaveOfCommand(serverProtocol *TextServerP
 }
 
 func (self *Admin) commandHandleReplsetCommand(serverProtocol *TextServerProtocol, args []string) error {
-	if len(args) < 1 {
+	if len(args) < 2 {
 		return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(false, "ERR Command Arguments Error", nil))
 	}
 
