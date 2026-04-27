@@ -1499,6 +1499,38 @@ func NewReplicationAckLock() *ReplicationAckLock {
 	return &ReplicationAckLock{make([]byte, 64), lockResult, 0, false, false}
 }
 
+type ReplicationAckDBFreeCollector struct {
+	lastCollectTime          int64
+	lastFreeLockCommandCount int
+}
+
+func NewReplicationAckDBFreeCollector() *ReplicationAckDBFreeCollector {
+	return &ReplicationAckDBFreeCollector{time.Now().Unix(), 0}
+}
+
+func (self *ReplicationAckDBFreeCollector) Collect(replicationAckDB *ReplicationAckDB) error {
+	currentTime := time.Now().Unix()
+	freeLockCount, minFreeLockCount := replicationAckDB.freeAckLocksIndex, 8
+	if freeLockCount >= minFreeLockCount && float64(freeLockCount) < float64(self.lastFreeLockCommandCount)*1.5 {
+		freeCount := freeLockCount / 20
+		if freeCount > 0 && replicationAckDB.freeAckLocksIndex > 0 {
+			replicationAckDB.glock.Lock()
+			for i := 0; i < freeCount; i++ {
+				if replicationAckDB.freeAckLocksIndex <= 0 {
+					break
+				}
+				replicationAckDB.freeAckLocksIndex--
+				replicationAckDB.freeAckLocks[replicationAckDB.freeAckLocksIndex] = nil
+			}
+			replicationAckDB.glock.Unlock()
+		}
+	}
+
+	self.lastCollectTime = currentTime
+	self.lastFreeLockCommandCount = freeLockCount
+	return nil
+}
+
 type ReplicationAckDB struct {
 	manager           *ReplicationManager
 	glock             *sync.Mutex
@@ -1507,8 +1539,9 @@ type ReplicationAckDB struct {
 	aofLocks          []map[[16]byte]*Lock
 	ackLocks          []map[[16]byte]*ReplicationAckLock
 	freeAckLocks      []*ReplicationAckLock
-	freeAckLocksIndex uint32
-	freeAckLocksMax   uint32
+	freeAckLocksIndex int
+	freeAckLocksMax   int
+	freeCollector     *ReplicationAckDBFreeCollector
 	ackMaxGlocks      uint16
 	ackCount          uint8
 	closed            bool
@@ -1531,7 +1564,8 @@ func NewReplicationAckDB(manager *ReplicationManager) *ReplicationAckDB {
 	}
 	return &ReplicationAckDB{manager, &sync.Mutex{}, ackGlocks,
 		commandAofs, aofLocks, ackLocks, make([]*ReplicationAckLock, REPLICATION_MAX_FREE_ACK_LOCK_QUEUE_SIZE*int(ackMaxGlocks)),
-		0, uint32(REPLICATION_MAX_FREE_ACK_LOCK_QUEUE_SIZE * int(ackMaxGlocks)), ackMaxGlocks, 1, false}
+		0, REPLICATION_MAX_FREE_ACK_LOCK_QUEUE_SIZE * int(ackMaxGlocks), NewReplicationAckDBFreeCollector(),
+		ackMaxGlocks, 1, false}
 }
 
 func (self *ReplicationAckDB) getAckLock() *ReplicationAckLock {
@@ -1540,6 +1574,7 @@ func (self *ReplicationAckDB) getAckLock() *ReplicationAckLock {
 		if self.freeAckLocksIndex > 0 {
 			self.freeAckLocksIndex--
 			ackLock := self.freeAckLocks[self.freeAckLocksIndex]
+			self.freeAckLocks[self.freeAckLocksIndex] = nil
 			self.glock.Unlock()
 			ackLock.locked = false
 			ackLock.aofed = false
@@ -1932,6 +1967,15 @@ func (self *ReplicationManager) Close() {
 	_ = self.transparencyManager.Close()
 	<-self.transparencyManager.closedWaiter
 	self.slock.logger.Infof("Replication closed")
+}
+
+func (self *ReplicationManager) FreeCollect() error {
+	for _, ackDb := range self.ackDbs {
+		if ackDb != nil {
+			_ = ackDb.freeCollector.Collect(ackDb)
+		}
+	}
+	return nil
 }
 
 func (self *ReplicationManager) WaitServerSynced() error {
