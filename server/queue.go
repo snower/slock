@@ -182,7 +182,7 @@ func (self *LockManagerQueue) Shrink(size int32) int32 {
 
 		size -= self.nodeQueueSizes[self.headNodeIndex]
 		shrinkSize += self.nodeQueueSizes[self.headNodeIndex]
-		self.queues[self.shrinkNodeSize] = nil
+		self.queues[self.headNodeIndex] = nil
 		self.nodeQueueSizes[self.headNodeIndex] = 0
 		self.shrinkNodeSize++
 		if self.headNodeIndex == 0 {
@@ -513,7 +513,7 @@ func (self *LockQueue) Shrink(size int32) int32 {
 
 		size -= self.nodeQueueSizes[self.headNodeIndex]
 		shrinkSize += self.nodeQueueSizes[self.headNodeIndex]
-		self.queues[self.shrinkNodeSize] = nil
+		self.queues[self.headNodeIndex] = nil
 		self.nodeQueueSizes[self.headNodeIndex] = 0
 		self.shrinkNodeSize++
 		if self.headNodeIndex == 0 {
@@ -842,7 +842,7 @@ func (self *LockCommandQueue) Shrink(size int32) int32 {
 
 		size -= self.nodeQueueSizes[self.headNodeIndex]
 		shrinkSize += self.nodeQueueSizes[self.headNodeIndex]
-		self.queues[self.shrinkNodeSize] = nil
+		self.queues[self.headNodeIndex] = nil
 		self.nodeQueueSizes[self.headNodeIndex] = 0
 		self.shrinkNodeSize++
 		if self.headNodeIndex == 0 {
