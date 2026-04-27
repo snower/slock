@@ -119,6 +119,13 @@ func NewReplicationBufferQueueCursor(buf []byte) *ReplicationBufferQueueCursor {
 	return &ReplicationBufferQueueCursor{nil, [16]byte{}, buf, nil, 0xffffffffffffffff, true}
 }
 
+func (self *ReplicationBufferQueueCursor) Len() int {
+	if self.data == nil {
+		return len(self.buf)
+	}
+	return len(self.buf) + len(self.data)
+}
+
 type ReplicationBufferQueue struct {
 	manager        *ReplicationManager
 	glock          ReplicationBufferMutex
@@ -1367,24 +1374,56 @@ func (self *ReplicationServer) SendProcess() error {
 		}
 	}
 
+	wbuf, windex, wdataSize := make([]byte, 4096), 0, 0
 	bufferQueue := self.manager.bufferQueue
 	for !self.closed {
 		if !self.bufferCursor.writed {
 			self.glock.Lock()
-			err := self.stream.WriteBytes(self.bufferCursor.buf)
-			if err != nil {
-				self.glock.Unlock()
-				atomic.AddUint32(&self.manager.serverActiveCount, 0xffffffff)
-				return err
-			}
 			if self.bufferCursor.data != nil {
-				err = self.stream.WriteBytes(self.bufferCursor.data)
+				if windex+64+len(self.bufferCursor.data) > 4096 {
+					err := self.stream.WriteBytes(wbuf[:windex])
+					if err != nil {
+						self.glock.Unlock()
+						atomic.AddUint32(&self.manager.serverActiveCount, 0xffffffff)
+						return err
+					}
+					windex = 0
+					self.state.sendDataSize += uint64(wdataSize)
+				}
+				if 64+len(self.bufferCursor.data) > 4096 {
+					err := self.stream.WriteBytes(self.bufferCursor.buf)
+					if err != nil {
+						self.glock.Unlock()
+						atomic.AddUint32(&self.manager.serverActiveCount, 0xffffffff)
+						return err
+					}
+					err = self.stream.WriteBytes(self.bufferCursor.data)
+					if err != nil {
+						self.glock.Unlock()
+						atomic.AddUint32(&self.manager.serverActiveCount, 0xffffffff)
+						return err
+					}
+					self.state.sendDataSize += uint64(len(self.bufferCursor.data))
+				} else {
+					copy(wbuf[windex:], self.bufferCursor.buf)
+					windex += 64
+					copy(wbuf[windex:], self.bufferCursor.data)
+					windex += len(self.bufferCursor.data)
+					wdataSize += len(self.bufferCursor.data)
+				}
+			} else {
+				copy(wbuf[windex:], self.bufferCursor.buf)
+				windex += 64
+			}
+			if windex > 4032 {
+				err := self.stream.WriteBytes(wbuf[:windex])
 				if err != nil {
 					self.glock.Unlock()
 					atomic.AddUint32(&self.manager.serverActiveCount, 0xffffffff)
 					return err
 				}
-				self.state.sendDataSize += uint64(len(self.bufferCursor.data))
+				windex = 0
+				self.state.sendDataSize += uint64(wdataSize)
 			}
 			self.glock.Unlock()
 			self.bufferCursor.writed = true
@@ -1395,6 +1434,18 @@ func (self *ReplicationServer) SendProcess() error {
 
 		err := bufferQueue.Pop(self.bufferCursor)
 		if err != nil {
+			if windex > 0 {
+				self.glock.Lock()
+				werr := self.stream.WriteBytes(wbuf[:windex])
+				if werr != nil {
+					self.glock.Unlock()
+					atomic.AddUint32(&self.manager.serverActiveCount, 0xffffffff)
+					return werr
+				}
+				windex = 0
+				self.state.sendDataSize += uint64(wdataSize)
+				self.glock.Unlock()
+			}
 			if err != io.EOF {
 				atomic.AddUint32(&self.manager.serverActiveCount, 0xffffffff)
 				return err
