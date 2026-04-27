@@ -1909,7 +1909,7 @@ func (self *Aof) Reset(aofFileIndex uint32, aofFileOffset uint32) error {
 	return nil
 }
 
-func (self *Aof) RewriteAofFile(startRewite bool) error {
+func (self *Aof) RewriteAofFile(startReWrite bool) error {
 	if self.aofFile != nil {
 		self.Flush()
 		err := self.aofFile.Close()
@@ -1934,7 +1934,7 @@ func (self *Aof) RewriteAofFile(startRewite bool) error {
 	self.aofFileOffset = 0
 	self.slock.Log().Infof("Aof create current file %s.%d", "append.aof", aofFileIndex)
 
-	if startRewite {
+	if startReWrite {
 		go self.rewriteAofFiles()
 	} else {
 		self.isWaitRewite = true

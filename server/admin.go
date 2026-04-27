@@ -127,7 +127,7 @@ func NewAdmin() *Admin {
 func (self *Admin) GetHandlers() map[string]TextServerProtocolCommandHandler {
 	handlers := make(map[string]TextServerProtocolCommandHandler, 64)
 	handlers["SHUTDOWN"] = self.commandHandleShutdownCommand
-	handlers["BGREWRITEAOF"] = self.commandHandleBgRewritAaofCommand
+	handlers["BGREWRITEAOF"] = self.commandHandleBgReWriteAofCommand
 	handlers["REWRITEAOF"] = self.commandHandleRewriteAofCommand
 	handlers["ECHO"] = self.commandHandleEchoCommand
 	handlers["PING"] = self.commandHandlePingCommand
@@ -178,7 +178,7 @@ func (self *Admin) commandHandleShutdownCommand(serverProtocol *TextServerProtoc
 	return io.EOF
 }
 
-func (self *Admin) commandHandleBgRewritAaofCommand(serverProtocol *TextServerProtocol, _ []string) error {
+func (self *Admin) commandHandleBgReWriteAofCommand(serverProtocol *TextServerProtocol, _ []string) error {
 	if self.slock.state != STATE_LEADER {
 		return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(false, "State Error", nil))
 	}
@@ -187,18 +187,16 @@ func (self *Admin) commandHandleBgRewritAaofCommand(serverProtocol *TextServerPr
 		self.slock.aof.glock.Unlock()
 		return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(false, "Already Rewriting", nil))
 	}
-	err := serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(true, "OK", nil))
-	if err != nil {
-		self.slock.aof.glock.Unlock()
-		return err
-	}
+	self.slock.aof.glock.Unlock()
 
-	go func() {
-		self.slock.Log().Infof("Admin command execute aof files rewrite")
-		_ = self.slock.GetAof().RewriteAofFile(true)
-		self.slock.aof.glock.Unlock()
-	}()
-	return nil
+	self.slock.aof.aofGlock.Lock()
+	err := self.slock.aof.RewriteAofFile(true)
+	if err != nil {
+		self.slock.aof.aofGlock.Unlock()
+		return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(false, "Rewrite Error", nil))
+	}
+	self.slock.aof.aofGlock.Unlock()
+	return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(true, "OK", nil))
 }
 
 func (self *Admin) commandHandleRewriteAofCommand(serverProtocol *TextServerProtocol, _ []string) error {
@@ -210,8 +208,19 @@ func (self *Admin) commandHandleRewriteAofCommand(serverProtocol *TextServerProt
 		self.slock.aof.glock.Unlock()
 		return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(false, "Already Rewriting", nil))
 	}
-	_ = self.slock.GetAof().RewriteAofFile(true)
 	self.slock.aof.glock.Unlock()
+
+	self.slock.aof.aofGlock.Lock()
+	err := self.slock.aof.RewriteAofFile(true)
+	if err != nil {
+		self.slock.aof.aofGlock.Unlock()
+		return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(false, "Rewrite Error", nil))
+	}
+	self.slock.aof.aofGlock.Unlock()
+	err = self.slock.aof.WaitRewriteAofFiles()
+	if err != nil {
+		return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(false, "Rewrite Wait Error", nil))
+	}
 	return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(true, "OK", nil))
 }
 
