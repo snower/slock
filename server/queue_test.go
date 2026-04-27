@@ -229,6 +229,36 @@ func TestLockManagerQueueTail(t *testing.T) {
 		t.Error("LockManagerQueue Tail Test Nil Fail")
 		return
 	}
+
+	q = NewLockManagerQueue(1, 3, 4)
+	for i := 0; i < 4; i++ {
+		_ = q.Push(head)
+	}
+	if q.Tail() != head {
+		t.Error("LockManagerQueue Tail Test Fail")
+		return
+	}
+	for i := 0; i < 4; i++ {
+		_ = q.Push(tail)
+	}
+	if q.Tail() != tail {
+		t.Error("LockManagerQueue Tail Test Fail")
+		return
+	}
+	for i := 0; i < 4; i++ {
+		_ = q.PopRight()
+	}
+	if q.Tail() != head {
+		t.Error("LockManagerQueue Tail Test Fail")
+		return
+	}
+	for i := 0; i < 4; i++ {
+		_ = q.PopRight()
+	}
+	if q.Tail() != nil {
+		t.Error("LockManagerQueue Tail Test Nil Fail")
+		return
+	}
 }
 
 func TestLockManagerQueueLen(t *testing.T) {
@@ -824,6 +854,36 @@ func TestLockQueueTail(t *testing.T) {
 		t.Error("LockQueue Tail Test Nil Fail")
 		return
 	}
+
+	q = NewLockQueue(1, 3, 4)
+	for i := 0; i < 4; i++ {
+		_ = q.Push(head)
+	}
+	if q.Tail() != head {
+		t.Error("LockQueue Tail Test Fail")
+		return
+	}
+	for i := 0; i < 4; i++ {
+		_ = q.Push(tail)
+	}
+	if q.Tail() != tail {
+		t.Error("LockQueue Tail Test Fail")
+		return
+	}
+	for i := 0; i < 4; i++ {
+		_ = q.PopRight()
+	}
+	if q.Tail() != head {
+		t.Error("LockQueue Tail Test Fail")
+		return
+	}
+	for i := 0; i < 4; i++ {
+		_ = q.PopRight()
+	}
+	if q.Tail() != nil {
+		t.Error("LockQueue Tail Test Nil Fail")
+		return
+	}
 }
 
 func TestLockQueueLen(t *testing.T) {
@@ -1396,6 +1456,36 @@ func TestLockCommandQueueTail(t *testing.T) {
 
 	q.Pop()
 	q.Pop()
+	if q.Tail() != nil {
+		t.Error("LockCommandQueue Tail Test Nil Fail")
+		return
+	}
+
+	q = NewLockCommandQueue(1, 3, 4)
+	for i := 0; i < 4; i++ {
+		_ = q.Push(head)
+	}
+	if q.Tail() != head {
+		t.Error("LockCommandQueue Tail Test Fail")
+		return
+	}
+	for i := 0; i < 4; i++ {
+		_ = q.Push(tail)
+	}
+	if q.Tail() != tail {
+		t.Error("LockCommandQueue Tail Test Fail")
+		return
+	}
+	for i := 0; i < 4; i++ {
+		_ = q.PopRight()
+	}
+	if q.Tail() != head {
+		t.Error("LockCommandQueue Tail Test Fail")
+		return
+	}
+	for i := 0; i < 4; i++ {
+		_ = q.PopRight()
+	}
 	if q.Tail() != nil {
 		t.Error("LockCommandQueue Tail Test Nil Fail")
 		return

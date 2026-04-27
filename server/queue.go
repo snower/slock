@@ -77,10 +77,10 @@ func (self *LockManagerQueue) freeQueue() {
 		tailNodeIndex = self.baseNodeSize - 1
 	}
 	for self.nodeIndex > tailNodeIndex {
-		self.queueSize = self.nodeQueueSizes[self.nodeIndex]
 		self.queues[self.nodeIndex] = nil
 		self.nodeQueueSizes[self.nodeIndex] = 0
 		self.nodeIndex--
+		self.queueSize = self.nodeQueueSizes[self.nodeIndex]
 	}
 }
 
@@ -160,6 +160,12 @@ func (self *LockManagerQueue) Tail() *LockManager {
 		return nil
 	}
 
+	if self.tailQueueIndex == 0 {
+		if self.tailNodeIndex == 0 {
+			return nil
+		}
+		return self.queues[self.tailNodeIndex-1][self.nodeQueueSizes[self.tailNodeIndex-1]-1]
+	}
 	return self.tailQueue[self.tailQueueIndex-1]
 }
 
@@ -179,6 +185,10 @@ func (self *LockManagerQueue) Shrink(size int32) int32 {
 		self.queues[self.shrinkNodeSize] = nil
 		self.nodeQueueSizes[self.headNodeIndex] = 0
 		self.shrinkNodeSize++
+		if self.headNodeIndex == 0 {
+			break
+		}
+		self.headNodeIndex--
 	}
 	return shrinkSize
 }
@@ -398,10 +408,10 @@ func (self *LockQueue) freeQueue() {
 		tailNodeIndex = self.baseNodeSize - 1
 	}
 	for self.nodeIndex > tailNodeIndex {
-		self.queueSize = self.nodeQueueSizes[self.nodeIndex]
 		self.queues[self.nodeIndex] = nil
 		self.nodeQueueSizes[self.nodeIndex] = 0
 		self.nodeIndex--
+		self.queueSize = self.nodeQueueSizes[self.nodeIndex]
 	}
 }
 
@@ -481,6 +491,12 @@ func (self *LockQueue) Tail() *Lock {
 		return nil
 	}
 
+	if self.tailQueueIndex == 0 {
+		if self.tailNodeIndex == 0 {
+			return nil
+		}
+		return self.queues[self.tailNodeIndex-1][self.nodeQueueSizes[self.tailNodeIndex-1]-1]
+	}
 	return self.tailQueue[self.tailQueueIndex-1]
 }
 
@@ -500,6 +516,10 @@ func (self *LockQueue) Shrink(size int32) int32 {
 		self.queues[self.shrinkNodeSize] = nil
 		self.nodeQueueSizes[self.headNodeIndex] = 0
 		self.shrinkNodeSize++
+		if self.headNodeIndex == 0 {
+			break
+		}
+		self.headNodeIndex--
 	}
 	return shrinkSize
 }
@@ -717,10 +737,10 @@ func (self *LockCommandQueue) freeQueue() {
 		tailNodeIndex = self.baseNodeSize - 1
 	}
 	for self.nodeIndex > tailNodeIndex {
-		self.queueSize = self.nodeQueueSizes[self.nodeIndex]
 		self.queues[self.nodeIndex] = nil
 		self.nodeQueueSizes[self.nodeIndex] = 0
 		self.nodeIndex--
+		self.queueSize = self.nodeQueueSizes[self.nodeIndex]
 	}
 }
 
@@ -800,6 +820,12 @@ func (self *LockCommandQueue) Tail() *protocol.LockCommand {
 		return nil
 	}
 
+	if self.tailQueueIndex == 0 {
+		if self.tailNodeIndex == 0 {
+			return nil
+		}
+		return self.queues[self.tailNodeIndex-1][self.nodeQueueSizes[self.tailNodeIndex-1]-1]
+	}
 	return self.tailQueue[self.tailQueueIndex-1]
 }
 
@@ -819,6 +845,10 @@ func (self *LockCommandQueue) Shrink(size int32) int32 {
 		self.queues[self.shrinkNodeSize] = nil
 		self.nodeQueueSizes[self.headNodeIndex] = 0
 		self.shrinkNodeSize++
+		if self.headNodeIndex == 0 {
+			break
+		}
+		self.headNodeIndex--
 	}
 	return shrinkSize
 }
