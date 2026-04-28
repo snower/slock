@@ -611,7 +611,9 @@ func (self *TransparencyBinaryServerProtocol) ProcessParse(buf []byte) error {
 			if err != nil {
 				return err
 			}
-
+			if callCommand.ContentLen > CONTENT_DATA_MAX_LENGTH {
+				return errors.New("ContentLen over max size error")
+			}
 			callCommand.Data = make([]byte, callCommand.ContentLen)
 			if callCommand.ContentLen > 0 {
 				_, derr := self.stream.ReadBytes(callCommand.Data)

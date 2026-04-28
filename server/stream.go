@@ -277,6 +277,9 @@ func (self *Stream) ReadBytesFrame() ([]byte, error) {
 		}
 		frameLen = int(uint32(buf[0]) | uint32(buf[1])<<8 | uint32(buf[2])<<16 | uint32(buf[3])<<24)
 	}
+	if frameLen > CONTENT_DATA_MAX_LENGTH {
+		return nil, errors.New("read buf over max size error")
+	}
 
 	buf := make([]byte, frameLen+4)
 	buf[0], buf[1], buf[2], buf[3] = byte(frameLen), byte(frameLen>>8), byte(frameLen>>16), byte(frameLen>>24)

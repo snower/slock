@@ -923,6 +923,9 @@ func (self *BinaryServerProtocol) ReadParse(buf []byte) (protocol.CommandDecode,
 			if err != nil {
 				return nil, err
 			}
+			if callCommand.ContentLen > CONTENT_DATA_MAX_LENGTH {
+				return nil, errors.New("ContentLen over max size error")
+			}
 			callCommand.Data = make([]byte, callCommand.ContentLen)
 			if callCommand.ContentLen > 0 {
 				_, derr := self.stream.ReadBytes(callCommand.Data)
@@ -1107,10 +1110,13 @@ func (self *BinaryServerProtocol) ProcessFlush() error {
 	if !atomic.CompareAndSwapUint32(&self.buffered, 1, 0) {
 		self.glock.Lock()
 		if atomic.CompareAndSwapUint32(&self.buffered, 2, 0) {
-			err := self.stream.Flush()
-			if err != nil {
-				self.glock.Unlock()
-				return err
+			writerBuffer := self.stream.writerBuffer
+			if writerBuffer.index > 0 {
+				err := writerBuffer.WriteToConn(self.stream.conn)
+				if err != nil {
+					self.glock.Unlock()
+					return err
+				}
 			}
 		} else {
 			atomic.CompareAndSwapUint32(&self.buffered, 1, 0)
@@ -1278,6 +1284,9 @@ func (self *BinaryServerProtocol) ProcessParse(buf []byte) error {
 			err := callCommand.Decode(buf)
 			if err != nil {
 				return err
+			}
+			if callCommand.ContentLen > CONTENT_DATA_MAX_LENGTH {
+				return errors.New("ContentLen over max size error")
 			}
 			callCommand.Data = make([]byte, callCommand.ContentLen)
 			if callCommand.ContentLen > 0 {

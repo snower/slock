@@ -32,6 +32,8 @@ const STREAMS_INIT_COUNT = 256
 const REPLICATION_ACK_DB_INIT_SIZE = 256
 const REPLICATION_MAX_FREE_ACK_LOCK_QUEUE_SIZE = 4096
 
+const CONTENT_DATA_MAX_LENGTH = 1048576
+
 type ServerConfig struct {
 	Conf                 string  `toml:"conf" long:"conf" description:"toml conf filename" default:""`
 	Bind                 string  `toml:"bind" long:"bind" description:"bind address" default:"127.0.0.1"`
