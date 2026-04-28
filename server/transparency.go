@@ -366,13 +366,24 @@ func (self *TransparencyBinaryServerProtocol) Process() error {
 			self.serverProtocol.rbuf = buf
 			return AGAIN
 		}
+		buffered := false
 		readerBuffer := self.stream.readerBuffer
 		if readerBuffer.GetSize() >= 64 {
-			atomic.CompareAndSwapUint32(&self.serverProtocol.buffered, 0, 1)
+			if atomic.CompareAndSwapUint32(&self.serverProtocol.buffered, 0, 1) {
+				buffered = true
+			} else {
+				err = self.serverProtocol.ProcessFlush()
+				if err != nil {
+					return err
+				}
+				if atomic.CompareAndSwapUint32(&self.serverProtocol.buffered, 0, 1) {
+					buffered = true
+				}
+			}
 		}
 		err = self.ProcessParse(buf)
 		if err != nil {
-			if atomic.LoadUint32(&self.serverProtocol.buffered) > 0 {
+			if buffered {
 				_ = self.serverProtocol.ProcessFlush()
 			}
 			return err
@@ -385,20 +396,20 @@ func (self *TransparencyBinaryServerProtocol) Process() error {
 
 			if self.slock.state == STATE_LEADER {
 				self.serverProtocol.rbuf = buf
-				if atomic.LoadUint32(&self.serverProtocol.buffered) > 0 {
+				if buffered {
 					_ = self.serverProtocol.ProcessFlush()
 				}
 				return AGAIN
 			}
 			err = self.ProcessParse(buf)
 			if err != nil {
-				if atomic.LoadUint32(&self.serverProtocol.buffered) > 0 {
+				if buffered {
 					_ = self.serverProtocol.ProcessFlush()
 				}
 				return err
 			}
 		}
-		if atomic.LoadUint32(&self.serverProtocol.buffered) > 0 {
+		if buffered {
 			err = self.serverProtocol.ProcessFlush()
 			if err != nil {
 				return err
