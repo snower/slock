@@ -372,6 +372,9 @@ func (self *TransparencyBinaryServerProtocol) Process() error {
 		}
 		err = self.ProcessParse(buf)
 		if err != nil {
+			if atomic.LoadUint32(&self.serverProtocol.buffered) > 0 {
+				_ = self.serverProtocol.ProcessFlush()
+			}
 			return err
 		}
 
@@ -382,23 +385,24 @@ func (self *TransparencyBinaryServerProtocol) Process() error {
 
 			if self.slock.state == STATE_LEADER {
 				self.serverProtocol.rbuf = buf
+				if atomic.LoadUint32(&self.serverProtocol.buffered) > 0 {
+					_ = self.serverProtocol.ProcessFlush()
+				}
 				return AGAIN
 			}
 			err = self.ProcessParse(buf)
 			if err != nil {
+				if atomic.LoadUint32(&self.serverProtocol.buffered) > 0 {
+					_ = self.serverProtocol.ProcessFlush()
+				}
 				return err
 			}
 		}
-		if self.serverProtocol.buffered > 0 && !atomic.CompareAndSwapUint32(&self.serverProtocol.buffered, 1, 0) {
-			self.serverProtocol.glock.Lock()
-			if atomic.CompareAndSwapUint32(&self.serverProtocol.buffered, 2, 0) {
-				err = self.stream.Flush()
-				if err != nil {
-					self.serverProtocol.glock.Unlock()
-					return err
-				}
+		if atomic.LoadUint32(&self.serverProtocol.buffered) > 0 {
+			err = self.serverProtocol.ProcessFlush()
+			if err != nil {
+				return err
 			}
-			self.serverProtocol.glock.Unlock()
 		}
 	}
 	return io.EOF
