@@ -5,6 +5,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/snower/slock/client"
@@ -352,6 +353,7 @@ func (self *TransparencyBinaryServerProtocol) CheckClient() (*TransparencyBinary
 }
 
 func (self *TransparencyBinaryServerProtocol) Process() error {
+	self.stream.EnsureWriterBuffer()
 	for !self.closed {
 		buf, err := self.stream.ReadBytesSize(64)
 		if err != nil {
@@ -364,12 +366,15 @@ func (self *TransparencyBinaryServerProtocol) Process() error {
 			self.serverProtocol.rbuf = buf
 			return AGAIN
 		}
+		readerBuffer := self.stream.readerBuffer
+		if readerBuffer.GetSize() >= 64 {
+			atomic.CompareAndSwapUint32(&self.serverProtocol.buffered, 0, 1)
+		}
 		err = self.ProcessParse(buf)
 		if err != nil {
 			return err
 		}
 
-		readerBuffer := self.stream.readerBuffer
 		for readerBuffer.GetSize() >= 64 {
 			index := readerBuffer.index + 64
 			buf = readerBuffer.buf[readerBuffer.index:index]
@@ -383,6 +388,17 @@ func (self *TransparencyBinaryServerProtocol) Process() error {
 			if err != nil {
 				return err
 			}
+		}
+		if self.serverProtocol.buffered > 0 && !atomic.CompareAndSwapUint32(&self.serverProtocol.buffered, 1, 0) {
+			self.serverProtocol.glock.Lock()
+			if atomic.CompareAndSwapUint32(&self.serverProtocol.buffered, 2, 0) {
+				err = self.stream.Flush()
+				if err != nil {
+					self.serverProtocol.glock.Unlock()
+					return err
+				}
+			}
+			self.serverProtocol.glock.Unlock()
 		}
 	}
 	return io.EOF

@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/snower/slock/protocol"
@@ -694,6 +695,7 @@ type BinaryServerProtocol struct {
 	callMethods        map[string]BinaryServerProtocolCallHandler
 	willCommands       *LockCommandQueue
 	totalCommandCount  uint64
+	buffered           uint32
 	inited             bool
 	closed             bool
 }
@@ -702,7 +704,7 @@ func NewBinaryServerProtocol(slock *SLock, stream *Stream) *BinaryServerProtocol
 	proxy := &ProxyServerProtocol{[16]byte{}, nil}
 	serverProtocol := &BinaryServerProtocol{slock, &sync.Mutex{}, stream, nil, make([]*ProxyServerProtocol, 0), make([]*protocol.LockCommand, FREE_COMMAND_MAX_SIZE),
 		0, NewLockCommandQueue(4, 16, FREE_COMMAND_QUEUE_INIT_SIZE), NewServerProtocolFreeCollector(),
-		nil, make([]byte, 64), nil, nil, 0, false, false}
+		nil, make([]byte, 64), nil, nil, 0, 0, false, false}
 	proxy.serverProtocol = serverProtocol
 	serverProtocol.InitLockCommand()
 	serverProtocol.session = slock.addServerProtocol(serverProtocol)
@@ -1035,6 +1037,7 @@ func (self *BinaryServerProtocol) WriteCommand(result protocol.CommandEncode) er
 }
 
 func (self *BinaryServerProtocol) Process() error {
+	self.stream.EnsureWriterBuffer()
 	for !self.closed {
 		buf, err := self.stream.ReadBytesSize(64)
 		if err != nil {
@@ -1047,12 +1050,15 @@ func (self *BinaryServerProtocol) Process() error {
 			self.rbuf = buf
 			return AGAIN
 		}
+		readerBuffer := self.stream.readerBuffer
+		if readerBuffer.GetSize() >= 64 {
+			atomic.CompareAndSwapUint32(&self.buffered, 0, 1)
+		}
 		err = self.ProcessParse(buf)
 		if err != nil {
 			return err
 		}
 
-		readerBuffer := self.stream.readerBuffer
 		for readerBuffer.GetSize() >= 64 {
 			index := readerBuffer.index + 64
 			buf = readerBuffer.buf[readerBuffer.index:index]
@@ -1066,6 +1072,17 @@ func (self *BinaryServerProtocol) Process() error {
 			if err != nil {
 				return err
 			}
+		}
+		if self.buffered > 0 && !atomic.CompareAndSwapUint32(&self.buffered, 1, 0) {
+			self.glock.Lock()
+			if atomic.CompareAndSwapUint32(&self.buffered, 2, 0) {
+				err = self.stream.Flush()
+				if err != nil {
+					self.glock.Unlock()
+					return err
+				}
+			}
+			self.glock.Unlock()
 		}
 	}
 	return io.EOF
@@ -1526,6 +1543,40 @@ func (self *BinaryServerProtocol) ProcessLockResultCommand(command *protocol.Loc
 
 	buf[54], buf[55], buf[56], buf[57], buf[58], buf[59], buf[60], buf[61] = byte(lcount), byte(lcount>>8), byte(command.Count), byte(command.Count>>8), byte(lrcount), byte(command.Rcount), 0x00, 0x00
 	buf[62], buf[63] = 0x00, 0x00
+
+	writerBuffer := self.stream.writerBuffer
+	if writerBuffer != nil && (data == nil || len(data)+128 < len(self.stream.writerBuffer.buf)) {
+		buffered := atomic.LoadUint32(&self.buffered)
+		if buffered > 0 {
+			if buffered == 2 || atomic.CompareAndSwapUint32(&self.buffered, 1, 2) {
+				if data != nil {
+					if writerBuffer.index+64+len(data) > len(writerBuffer.buf) {
+						err := writerBuffer.WriteToConn(self.stream.conn)
+						if err != nil {
+							self.glock.Unlock()
+							return err
+						}
+					}
+					copy(writerBuffer.buf[writerBuffer.index:], buf)
+					writerBuffer.index += 64
+					copy(writerBuffer.buf[writerBuffer.index:], data)
+					writerBuffer.index += len(data)
+				} else {
+					copy(writerBuffer.buf[writerBuffer.index:], buf)
+					writerBuffer.index += 64
+				}
+				if writerBuffer.index+64 > len(writerBuffer.buf) {
+					err := writerBuffer.WriteToConn(self.stream.conn)
+					if err != nil {
+						self.glock.Unlock()
+						return err
+					}
+				}
+				self.glock.Unlock()
+				return nil
+			}
+		}
+	}
 
 	n, err := self.stream.conn.Write(buf)
 	if err != nil {
