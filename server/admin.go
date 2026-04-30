@@ -578,8 +578,8 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 		freeLockCount, freeLongWaitQueueCount, freeMillisecondWaitQueueCount := 0, 0, 0
 		freeLockCommandCount, cacheLockCommandCount := 0, 0
 		totalCommandCount := uint64(0)
-		longTimeoutQueueCount, longTimeoutLockCount, longExpriedQueueCount, longExpriedLockCount := 0, 0, 0, 0
-		exectorCount, exectorRunningCount, exectorCoroutineCount, exectorCoroutineRunningCount, exectorQueueCount, exectorExecuteCount := 0, 0, 0, 0, 0, uint64(0)
+		longTimeoutQueueCount, longTimeoutLockCount, longExpiredQueueCount, longExpiredLockCount := 0, 0, 0, 0
+		executorCount, executorRunningCount, executorCoroutineCount, executorCoroutineRunningCount, executorQueueCount, executorExecuteCount := 0, 0, 0, 0, 0, uint64(0)
 		for _, db := range self.slock.dbs {
 			if db != nil {
 				dbCount++
@@ -593,20 +593,20 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 					for _, longLocks := range db.longTimeoutLocks[i] {
 						longTimeoutLockCount += int(longLocks.lockCount - longLocks.freeCount)
 					}
-					longExpriedQueueCount += len(db.longExpriedLocks[i])
+					longExpiredQueueCount += len(db.longExpriedLocks[i])
 					for _, longLocks := range db.longExpriedLocks[i] {
-						longExpriedLockCount += int(longLocks.lockCount - longLocks.freeCount)
+						longExpiredLockCount += int(longLocks.lockCount - longLocks.freeCount)
 					}
-					exector := db.exectors[i]
-					if exector != nil {
-						exectorCount++
-						if exector.queueWaited < exector.runningCount {
-							exectorRunningCount++
+					executor := db.executors[i]
+					if executor != nil {
+						executorCount++
+						if executor.queueWaited < executor.runningCount {
+							executorRunningCount++
 						}
-						exectorCoroutineCount += exector.runningCount
-						exectorCoroutineRunningCount += exector.runningCount - exector.queueWaited
-						exectorQueueCount += exector.queueCount
-						exectorExecuteCount += exector.executeCount
+						executorCoroutineCount += executor.runningCount
+						executorCoroutineRunningCount += executor.runningCount - executor.queueWaited
+						executorQueueCount += executor.queueCount
+						executorExecuteCount += executor.executeCount
 					}
 					db.managerGlocks[i].LowPriorityUnlock()
 				}
@@ -677,14 +677,14 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 		infos = append(infos, fmt.Sprintf("low_priority_lock_activated_count:%d", lowPriorityLockActivatedCount))
 		infos = append(infos, fmt.Sprintf("long_timeout_queue_count:%d", longTimeoutQueueCount))
 		infos = append(infos, fmt.Sprintf("long_timeout_lock_count:%d", longTimeoutLockCount))
-		infos = append(infos, fmt.Sprintf("long_expried_queue_count:%d", longExpriedQueueCount))
-		infos = append(infos, fmt.Sprintf("long_expried_lock_count:%d", longExpriedLockCount))
-		infos = append(infos, fmt.Sprintf("exector_count:%d", exectorCount))
-		infos = append(infos, fmt.Sprintf("exector_running_count:%d", exectorRunningCount))
-		infos = append(infos, fmt.Sprintf("exector_coroutine_count:%d", exectorCoroutineCount))
-		infos = append(infos, fmt.Sprintf("exector_coroutine_running_count:%d", exectorCoroutineRunningCount))
-		infos = append(infos, fmt.Sprintf("exector_queue_count:%d", exectorQueueCount))
-		infos = append(infos, fmt.Sprintf("exector_execute_count:%d", exectorExecuteCount))
+		infos = append(infos, fmt.Sprintf("long_expired_queue_count:%d", longExpiredQueueCount))
+		infos = append(infos, fmt.Sprintf("long_expired_lock_count:%d", longExpiredLockCount))
+		infos = append(infos, fmt.Sprintf("executor_count:%d", executorCount))
+		infos = append(infos, fmt.Sprintf("executor_running_count:%d", executorRunningCount))
+		infos = append(infos, fmt.Sprintf("executor_coroutine_count:%d", executorCoroutineCount))
+		infos = append(infos, fmt.Sprintf("executor_coroutine_running_count:%d", executorCoroutineRunningCount))
+		infos = append(infos, fmt.Sprintf("executor_queue_count:%d", executorQueueCount))
+		infos = append(infos, fmt.Sprintf("executor_execute_count:%d", executorExecuteCount))
 		infos = append(infos, "")
 	}
 
@@ -741,7 +741,7 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 				dbInfos = append(dbInfos, fmt.Sprintf("locked_count=%d", dbState.LockedCount))
 				dbInfos = append(dbInfos, fmt.Sprintf("wait_count=%d", dbState.WaitCount))
 				dbInfos = append(dbInfos, fmt.Sprintf("timeouted_count=%d", dbState.TimeoutedCount))
-				dbInfos = append(dbInfos, fmt.Sprintf("expried_count=%d", dbState.ExpriedCount))
+				dbInfos = append(dbInfos, fmt.Sprintf("expired_count=%d", dbState.ExpriedCount))
 				dbInfos = append(dbInfos, fmt.Sprintf("unlock_error_count=%d", dbState.UnlockErrorCount))
 				dbInfos = append(dbInfos, fmt.Sprintf("key_count=%d", dbState.KeyCount))
 				if self.slock.state == STATE_LEADER {

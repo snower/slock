@@ -70,6 +70,7 @@ func (self *LongWaitLockFreeQueue) GetLongWaitLockQueue(glockIndex uint16, lockE
 		return NewLongWaitLockQueue(4, 64, LONG_LOCKS_QUEUE_INIT_SIZE, glockIndex, lockExpriedTime)
 	}
 	longLocks := self.queues[self.freeIndex]
+	self.queues[self.freeIndex] = nil
 	self.freeIndex--
 	longLocks.lockTime = lockExpriedTime
 	longLocks.lockCount = 0
@@ -93,6 +94,7 @@ func (self *LongWaitLockFreeQueue) Pop() *LongWaitLockQueue {
 		return nil
 	}
 	longLocks := self.queues[self.freeIndex]
+	self.queues[self.freeIndex] = nil
 	self.freeIndex--
 	return longLocks
 }
@@ -121,6 +123,7 @@ func (self *MillisecondWaitLockFreeQueue) GetLockQueue() *MillisecondWaitLockQue
 		return NewMillisecondWaitLockQueue(4, 64, MILLISECOND_LOCKS_QUEUE_INIT_SIZE)
 	}
 	lockQueue := self.queues[self.freeIndex]
+	self.queues[self.freeIndex] = nil
 	self.freeIndex--
 	return lockQueue
 }
@@ -139,6 +142,7 @@ func (self *MillisecondWaitLockFreeQueue) Pop() *MillisecondWaitLockQueue {
 		return nil
 	}
 	lockQueue := self.queues[self.freeIndex]
+	self.queues[self.freeIndex] = nil
 	self.freeIndex--
 	return lockQueue
 }
@@ -247,6 +251,7 @@ func (self *LockDBExecutor) Push(serverProtocol ServerProtocol, lockCommand *pro
 	if self.freeTaskIndex > 0 {
 		self.freeTaskIndex--
 		executorTask = self.freeTasks[self.freeTaskIndex]
+		self.freeTasks[self.freeTaskIndex] = nil
 		executorTask.serverProtocol = serverProtocol
 		executorTask.command = lockCommand
 		executorTask.lockManager = lockManager
@@ -302,6 +307,19 @@ func (self *LockDBExecutor) FlushQueue() {
 	self.queueLock.Unlock()
 }
 
+func (self *LockDBExecutor) PopFreeTask() {
+	self.queueLock.Lock()
+	if self.freeTaskIndex > 0 {
+		self.freeTaskIndex--
+		self.freeTasks[self.freeTaskIndex] = nil
+	}
+	self.queueLock.Unlock()
+}
+
+func (self *LockDBExecutor) FreeTaskLen() int {
+	return self.freeTaskIndex
+}
+
 func (self *LockDBExecutor) Close() {
 	close(self.queueWaiter)
 	self.queueWaited = 0
@@ -309,15 +327,16 @@ func (self *LockDBExecutor) Close() {
 }
 
 type LockDBFreeCollector struct {
-	lastCollectTime          int64
-	lastLockCount            uint64
-	lastLockAvgCount         int
-	lastFreeLockManagerCount int
-	lastFreeLockCount        int
+	lastCollectTime           int64
+	lastLockCount             uint64
+	lastLockAvgCount          int
+	lastFreeLockManagerCount  int
+	lastFreeLockCount         int
+	lastExecutorFreeTaskCount int
 }
 
 func NewLockDBFreeCollector() *LockDBFreeCollector {
-	return &LockDBFreeCollector{time.Now().Unix(), 0, 0, 0, 0}
+	return &LockDBFreeCollector{time.Now().Unix(), 0, 0, 0, 0, 0}
 }
 
 func (self *LockDBFreeCollector) Collect(db *LockDB) error {
@@ -332,10 +351,14 @@ func (self *LockDBFreeCollector) Collect(db *LockDB) error {
 	if minLockManagerCount < 16 {
 		minLockManagerCount = 16
 	}
-	freeLockCount, minLockCount := 0, minLockManagerCount*2
+	freeLockCount, minLockCount, executorFreeTaskCount, executorMinTaskCount := 0, minLockManagerCount*2, 0, minLockManagerCount*2
 	for i := uint16(0); i < db.managerMaxGlocks; i++ {
 		db.managerGlocks[i].LowPriorityLock()
 		freeLockCount += int(db.freeLocks[i].Len())
+		executor := db.executors[i]
+		if executor != nil {
+			executorFreeTaskCount += executor.FreeTaskLen()
+		}
 		db.managerGlocks[i].LowPriorityUnlock()
 	}
 
@@ -404,6 +427,22 @@ func (self *LockDBFreeCollector) Collect(db *LockDB) error {
 				db.managerGlocks[i].LowPriorityUnlock()
 			}
 		}
+
+		if executorFreeTaskCount >= executorMinTaskCount && executorFreeTaskCount-self.lastExecutorFreeTaskCount <= lockAvgCount*4 {
+			freeCount := executorFreeTaskCount / 20 / int(db.managerMaxGlocks)
+			if freeCount > 0 {
+				for i := uint16(0); i < db.managerMaxGlocks; i++ {
+					db.managerGlocks[i].LowPriorityLock()
+					executor := db.executors[i]
+					if executor != nil {
+						for j := 0; j < freeCount; j++ {
+							executor.PopFreeTask()
+						}
+					}
+					db.managerGlocks[i].LowPriorityUnlock()
+				}
+			}
+		}
 	}
 
 	self.lastCollectTime = currentTime
@@ -411,6 +450,7 @@ func (self *LockDBFreeCollector) Collect(db *LockDB) error {
 	self.lastLockAvgCount = lockAvgCount
 	self.lastFreeLockManagerCount = freeLockManagerCount
 	self.lastFreeLockCount = freeLockCount
+	self.lastExecutorFreeTaskCount = executorFreeTaskCount
 	return nil
 }
 
@@ -437,7 +477,7 @@ type LockDB struct {
 	freeMillisecondWaitQueues []*MillisecondWaitLockFreeQueue
 	aofChannels               []*AofChannel
 	subscribeChannels         []*SubscribeChannel
-	exectors                  []*LockDBExecutor
+	executors                 []*LockDBExecutor
 	fastKeyCount              uint32
 	freeLockManagerHead       uint32
 	freeLockManagerTail       uint32
@@ -470,7 +510,7 @@ func NewLockDB(slock *SLock, dbId uint8) *LockDB {
 	if slock.GetSubscribeManager() != nil {
 		subscribeChannels = make([]*SubscribeChannel, managerMaxGlocks)
 	}
-	exectors := make([]*LockDBExecutor, managerMaxGlocks)
+	executors := make([]*LockDBExecutor, managerMaxGlocks)
 	states := make([]*protocol.LockDBState, managerMaxGlocks+1)
 	for i := uint16(0); i < managerMaxGlocks; i++ {
 		managerGlocks[i] = NewPriorityMutex()
@@ -506,7 +546,7 @@ func NewLockDB(slock *SLock, dbId uint8) *LockDB {
 		freeMillisecondWaitQueues: freeMillisecondWaitQueues,
 		aofChannels:               aofChannels,
 		subscribeChannels:         subscribeChannels,
-		exectors:                  exectors,
+		executors:                 executors,
 		fastKeyCount:              uint32(Config.DBFastKeyCount),
 		freeLockManagerHead:       0,
 		freeLockManagerTail:       0,
@@ -585,8 +625,8 @@ func (self *LockDB) PushExecutorLockCommand(serverProtocol ServerProtocol, lockC
 	if self.status != STATE_LEADER {
 		return nil
 	}
-	if self.exectors == nil {
-		return errors.New("No exectors")
+	if self.executors == nil {
+		return errors.New("No executors")
 	}
 
 	lockManager := self.GetOrNewLockManager(lockCommand)
@@ -595,13 +635,13 @@ func (self *LockDB) PushExecutorLockCommand(serverProtocol ServerProtocol, lockC
 		lockManager = self.GetOrNewLockManager(lockCommand)
 	}
 
-	executor := self.exectors[lockManager.glockIndex]
+	executor := self.executors[lockManager.glockIndex]
 	if executor == nil {
 		self.glock.Lock()
-		executor = self.exectors[lockManager.glockIndex]
+		executor = self.executors[lockManager.glockIndex]
 		if executor == nil {
 			executor = NewLockDBExecutor(self, self.managerGlocks[lockManager.glockIndex])
-			self.exectors[lockManager.glockIndex] = executor
+			self.executors[lockManager.glockIndex] = executor
 		}
 		self.glock.Unlock()
 	}
@@ -621,9 +661,9 @@ func (self *LockDB) Close() {
 
 	for i := uint16(0); i < self.managerMaxGlocks; i++ {
 		self.managerGlocks[i].LowPriorityLock()
-		if self.exectors[i] != nil {
-			self.exectors[i].Close()
-			self.exectors[i] = nil
+		if self.executors[i] != nil {
+			self.executors[i].Close()
+			self.executors[i] = nil
 		}
 		self.flushTimeOut(i, true)
 		self.flushExpried(i, false)
@@ -643,8 +683,8 @@ func (self *LockDB) FlushDB() error {
 	}
 
 	for i := uint16(0); i < self.managerMaxGlocks; i++ {
-		if self.exectors[i] != nil {
-			self.exectors[i].FlushQueue()
+		if self.executors[i] != nil {
+			self.executors[i].FlushQueue()
 		}
 		self.flushTimeOut(i, true)
 		self.flushExpried(i, true)
