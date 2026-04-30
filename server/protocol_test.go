@@ -19,14 +19,14 @@ func TestServerProtocolFreeCollectorCollectMovesCommandsToSLock(t *testing.T) {
 		_ = lockedFreeCommands.Push(&protocol.LockCommand{})
 	}
 
+	lastCollectTime := time.Now().Unix() - 1
 	collector := &ServerProtocolFreeCollector{
-		lastCollectTime:          time.Now().Unix() - 1,
 		lastTotalCommandCount:    0,
 		lastAvgCommandCount:      10,
 		lastFreeLockCommandCount: 19,
 	}
 	glock := &sync.Mutex{}
-	if err := collector.Collect(slock, glock, lockedFreeCommands, 1); err != nil {
+	if err := collector.Collect(lastCollectTime, slock, glock, lockedFreeCommands, 1); err != nil {
 		t.Fatalf("collect failed: %v", err)
 	}
 

@@ -34,13 +34,13 @@ func TestSLockFreeCollectorCollectShrinksFreeQueue(t *testing.T) {
 		_ = slock.freeLockCommandQueue.Push(&protocol.LockCommand{})
 	}
 
+	lastCollectTime := time.Now().Unix() - 1
 	collector := &SLockFreeCollector{
-		lastCollectTime:          time.Now().Unix() - 1,
 		lastTotalCommandCount:    0,
 		lastAvgCommandCount:      10,
 		lastFreeLockCommandCount: 19,
 	}
-	if err := collector.Collect(slock, 1); err != nil {
+	if err := collector.Collect(lastCollectTime, slock, 1); err != nil {
 		t.Fatalf("collect failed: %v", err)
 	}
 

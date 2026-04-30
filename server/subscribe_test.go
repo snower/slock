@@ -61,7 +61,7 @@ func (self *testSubscribeServerProtocol) FreeLockCommand(*protocol.LockCommand) 
 func (self *testSubscribeServerProtocol) FreeLockCommandLocked(*protocol.LockCommand) error {
 	return nil
 }
-func (self *testSubscribeServerProtocol) FreeCollect() error { return nil }
+func (self *testSubscribeServerProtocol) FreeCollect(_ int64) error { return nil }
 
 func TestSubscriberUpdateRemoveMaskKeepsOtherMasks(t *testing.T) {
 	serverProtocol := newTestSubscribeServerProtocol()

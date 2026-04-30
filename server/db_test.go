@@ -227,14 +227,14 @@ func TestLockDBFreeCollectorCollectShrinksFreePools(t *testing.T) {
 		db.freeMillisecondWaitQueues[0].FreeLockQueue(NewMillisecondWaitLockQueue(4, 64, LONG_LOCKS_QUEUE_INIT_SIZE), db.currentTime-2)
 	}
 
+	lastCollectTime := time.Now().Unix() - 1
 	collector := &LockDBFreeCollector{
-		lastCollectTime:          db.currentTime - 1,
 		lastLockCount:            0,
 		lastLockAvgCount:         10,
 		lastFreeLockManagerCount: db.GetFreeLockManagerLen(),
 		lastFreeLockCount:        int(db.freeLocks[0].Len()),
 	}
-	if err := collector.Collect(db); err != nil {
+	if err := collector.Collect(lastCollectTime, db); err != nil {
 		t.Fatalf("collect failed: %v", err)
 	}
 

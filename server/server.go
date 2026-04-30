@@ -401,6 +401,7 @@ func (self *Server) handle(stream *Stream) {
 }
 
 func (self *Server) handleFreeCollect() {
+	lastCollectTime := time.Now().Unix()
 	timer := time.NewTimer(300 * time.Second)
 	defer stopAndDrainTimer(timer)
 	for {
@@ -416,7 +417,7 @@ func (self *Server) handleFreeCollect() {
 				if streamProtocol == nil {
 					continue
 				}
-				err := streamProtocol.FreeCollect()
+				err := streamProtocol.FreeCollect(lastCollectTime)
 				if err != nil {
 					self.slock.Log().Errorf("Server Error stream freeing collect %v", err)
 				}
@@ -433,10 +434,11 @@ func (self *Server) handleFreeCollect() {
 					totalCommandCount += textProtocol.totalCommandCount
 				}
 			}
-			err := self.slock.FreeCollect(totalCommandCount)
+			err := self.slock.FreeCollect(lastCollectTime, totalCommandCount)
 			if err != nil {
 				self.slock.Log().Errorf("Server Error slock freeing collect %v", err)
 			}
+			lastCollectTime = time.Now().Unix()
 		}
 		resetTimer(timer, 300*time.Second)
 	}

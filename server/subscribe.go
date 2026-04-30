@@ -722,16 +722,14 @@ type SubscribePublishLockQueue struct {
 }
 
 type SubscribeChannelFreeCollector struct {
-	lastCollectTime          int64
 	lastFreeLockCommandCount int
 }
 
 func NewSubscribeChannelFreeCollector() *SubscribeChannelFreeCollector {
-	return &SubscribeChannelFreeCollector{time.Now().Unix(), 0}
+	return &SubscribeChannelFreeCollector{0}
 }
 
-func (self *SubscribeChannelFreeCollector) Collect(subscribeChannel *SubscribeChannel) error {
-	currentTime := time.Now().Unix()
+func (self *SubscribeChannelFreeCollector) Collect(_ int64, subscribeChannel *SubscribeChannel) error {
 	freeLockCount, minFreeLockCount := subscribeChannel.freeLockIndex, 8
 	if freeLockCount >= minFreeLockCount && float64(freeLockCount) < float64(self.lastFreeLockCommandCount)*1.5 {
 		freeCount := freeLockCount / 20
@@ -748,7 +746,6 @@ func (self *SubscribeChannelFreeCollector) Collect(subscribeChannel *SubscribeCh
 		}
 	}
 
-	self.lastCollectTime = currentTime
 	self.lastFreeLockCommandCount = freeLockCount
 	return nil
 }
@@ -1022,12 +1019,12 @@ func (self *SubscribeManager) Close() {
 	self.slock.logger.Infof("Subscribe closed")
 }
 
-func (self *SubscribeManager) FreeCollect() error {
+func (self *SubscribeManager) FreeCollect(lastCollectTime int64) error {
 	self.glock.Lock()
 	channels := self.channels
 	self.glock.Unlock()
 	for _, subscribeChannel := range channels {
-		_ = subscribeChannel.freeCollector.Collect(subscribeChannel)
+		_ = subscribeChannel.freeCollector.Collect(lastCollectTime, subscribeChannel)
 	}
 	return nil
 }
@@ -1198,6 +1195,7 @@ func (self *SubscribeManager) getBuffer() *SubscribeBuffer {
 	if self.freeBufferIndex > 0 {
 		self.freeBufferIndex--
 		buffer := self.freeBuffers[self.freeBufferIndex]
+		self.freeBuffers[self.freeBufferIndex] = nil
 		self.freeBufferGlock.Unlock()
 		return buffer
 	}
@@ -1224,6 +1222,7 @@ func (self *SubscribeManager) getLockQueue() *SubscribePublishLockQueue {
 	if self.freeLockQueueIndex > 0 {
 		self.freeLockQueueIndex--
 		queue := self.freeLockQueues[self.freeLockQueueIndex]
+		self.freeLockQueues[self.freeLockQueueIndex] = nil
 		self.freeLockQueueGlock.Unlock()
 		return queue
 	}

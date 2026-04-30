@@ -1554,16 +1554,14 @@ func NewReplicationAckLock() *ReplicationAckLock {
 }
 
 type ReplicationAckDBFreeCollector struct {
-	lastCollectTime          int64
 	lastFreeLockCommandCount int
 }
 
 func NewReplicationAckDBFreeCollector() *ReplicationAckDBFreeCollector {
-	return &ReplicationAckDBFreeCollector{time.Now().Unix(), 0}
+	return &ReplicationAckDBFreeCollector{0}
 }
 
-func (self *ReplicationAckDBFreeCollector) Collect(replicationAckDB *ReplicationAckDB) error {
-	currentTime := time.Now().Unix()
+func (self *ReplicationAckDBFreeCollector) Collect(_ int64, replicationAckDB *ReplicationAckDB) error {
 	freeLockCount, minFreeLockCount := replicationAckDB.freeAckLocksIndex, 8
 	if freeLockCount >= minFreeLockCount && float64(freeLockCount) < float64(self.lastFreeLockCommandCount)*1.5 {
 		freeCount := freeLockCount / 20
@@ -1580,7 +1578,6 @@ func (self *ReplicationAckDBFreeCollector) Collect(replicationAckDB *Replication
 		}
 	}
 
-	self.lastCollectTime = currentTime
 	self.lastFreeLockCommandCount = freeLockCount
 	return nil
 }
@@ -2023,10 +2020,10 @@ func (self *ReplicationManager) Close() {
 	self.slock.logger.Infof("Replication closed")
 }
 
-func (self *ReplicationManager) FreeCollect() error {
+func (self *ReplicationManager) FreeCollect(lastCollectTime int64) error {
 	for _, ackDb := range self.ackDbs {
 		if ackDb != nil {
-			_ = ackDb.freeCollector.Collect(ackDb)
+			_ = ackDb.freeCollector.Collect(lastCollectTime, ackDb)
 		}
 	}
 	return nil

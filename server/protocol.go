@@ -18,19 +18,18 @@ import (
 )
 
 type ServerProtocolFreeCollector struct {
-	lastCollectTime          int64
 	lastTotalCommandCount    uint64
 	lastAvgCommandCount      int
 	lastFreeLockCommandCount int
 }
 
 func NewServerProtocolFreeCollector() *ServerProtocolFreeCollector {
-	return &ServerProtocolFreeCollector{time.Now().Unix(), 0, 0, 0}
+	return &ServerProtocolFreeCollector{0, 0, 0}
 }
 
-func (self *ServerProtocolFreeCollector) Collect(slock *SLock, glock *sync.Mutex, lockedFreeCommands *LockCommandQueue, totalCommandCount uint64) error {
+func (self *ServerProtocolFreeCollector) Collect(lastCollectTime int64, slock *SLock, glock *sync.Mutex, lockedFreeCommands *LockCommandQueue, totalCommandCount uint64) error {
 	currentTime := time.Now().Unix()
-	avgCommandCount := int((totalCommandCount - self.lastTotalCommandCount) / uint64(currentTime-self.lastCollectTime))
+	avgCommandCount := int((totalCommandCount - self.lastTotalCommandCount) / uint64(currentTime-lastCollectTime))
 	glock.Lock()
 	freeLockCommandCount := int(lockedFreeCommands.Len())
 	glock.Unlock()
@@ -61,7 +60,6 @@ func (self *ServerProtocolFreeCollector) Collect(slock *SLock, glock *sync.Mutex
 		}
 	}
 
-	self.lastCollectTime = currentTime
 	self.lastTotalCommandCount = totalCommandCount
 	self.lastAvgCommandCount = avgCommandCount
 	self.lastFreeLockCommandCount = freeLockCommandCount
@@ -92,7 +90,7 @@ type ServerProtocol interface {
 	GetLockCommandLocked() *protocol.LockCommand
 	FreeLockCommand(command *protocol.LockCommand) error
 	FreeLockCommandLocked(command *protocol.LockCommand) error
-	FreeCollect() error
+	FreeCollect(lastCollectTime int64) error
 }
 
 var AGAIN = errors.New("AGAIN")
@@ -225,8 +223,8 @@ func (self *ProxyServerProtocol) FreeLockCommandLocked(command *protocol.LockCom
 	return self.serverProtocol.FreeLockCommandLocked(command)
 }
 
-func (self *ProxyServerProtocol) FreeCollect() error {
-	return self.serverProtocol.FreeCollect()
+func (self *ProxyServerProtocol) FreeCollect(lastCollectTime int64) error {
+	return self.serverProtocol.FreeCollect(lastCollectTime)
 }
 
 type DefaultServerProtocol struct {
@@ -398,8 +396,8 @@ func (self *DefaultServerProtocol) FreeLockCommandLocked(command *protocol.LockC
 	return nil
 }
 
-func (self *DefaultServerProtocol) FreeCollect() error {
-	return self.protocolProxy.FreeCollect()
+func (self *DefaultServerProtocol) FreeCollect(lastCollectTime int64) error {
+	return self.protocolProxy.FreeCollect(lastCollectTime)
 }
 
 var defaultServerProtocol *DefaultServerProtocol = nil
@@ -650,8 +648,8 @@ func (self *MemWaiterServerProtocol) FreeLockCommandLocked(command *protocol.Loc
 	return nil
 }
 
-func (self *MemWaiterServerProtocol) FreeCollect() error {
-	return self.freeCollector.Collect(self.slock, self.glock, self.lockedFreeCommands, self.totalCommandCount)
+func (self *MemWaiterServerProtocol) FreeCollect(lastCollectTime int64) error {
+	return self.freeCollector.Collect(lastCollectTime, self.slock, self.glock, self.lockedFreeCommands, self.totalCommandCount)
 }
 
 func (self *MemWaiterServerProtocol) AddWaiter(command *protocol.LockCommand, waiter chan *protocol.LockResultCommand) error {
@@ -1162,6 +1160,7 @@ func (self *BinaryServerProtocol) ProcessParse(buf []byte) error {
 		if self.freeCommandIndex > 0 {
 			self.freeCommandIndex--
 			lockCommand = self.freeCommands[self.freeCommandIndex]
+			self.freeCommands[self.freeCommandIndex] = nil
 		} else {
 			lockCommand = self.GetLockCommandLocked()
 		}
@@ -1215,6 +1214,7 @@ func (self *BinaryServerProtocol) ProcessParse(buf []byte) error {
 		if self.freeCommandIndex > 0 {
 			self.freeCommandIndex--
 			lockCommand = self.freeCommands[self.freeCommandIndex]
+			self.freeCommands[self.freeCommandIndex] = nil
 		} else {
 			lockCommand = self.GetLockCommandLocked()
 		}
@@ -1693,6 +1693,7 @@ func (self *BinaryServerProtocol) UnInitLockCommand() {
 	for self.freeCommandIndex > 0 {
 		self.freeCommandIndex--
 		command := self.freeCommands[self.freeCommandIndex]
+		self.freeCommands[self.freeCommandIndex] = nil
 		_ = self.slock.freeLockCommandQueue.Push(command)
 	}
 
@@ -1758,8 +1759,8 @@ func (self *BinaryServerProtocol) FreeLockCommandLocked(command *protocol.LockCo
 	return nil
 }
 
-func (self *BinaryServerProtocol) FreeCollect() error {
-	return self.freeCollector.Collect(self.slock, self.glock, self.lockedFreeCommands, self.totalCommandCount)
+func (self *BinaryServerProtocol) FreeCollect(lastCollectTime int64) error {
+	return self.freeCollector.Collect(lastCollectTime, self.slock, self.glock, self.lockedFreeCommands, self.totalCommandCount)
 }
 
 func (self *BinaryServerProtocol) commandHandleListLockCommand(_ *BinaryServerProtocol, command *protocol.CallCommand) (*protocol.CallResultCommand, error) {
@@ -2562,6 +2563,7 @@ func (self *TextServerProtocol) UnInitLockCommand() {
 	for self.freeCommandIndex > 0 {
 		self.freeCommandIndex--
 		command := self.freeCommands[self.freeCommandIndex]
+		self.freeCommands[self.freeCommandIndex] = nil
 		_ = self.slock.freeLockCommandQueue.Push(command)
 	}
 
@@ -2627,8 +2629,8 @@ func (self *TextServerProtocol) FreeLockCommandLocked(command *protocol.LockComm
 	return nil
 }
 
-func (self *TextServerProtocol) FreeCollect() error {
-	return self.freeCollector.Collect(self.slock, self.glock, self.lockedFreeCommands, self.totalCommandCount)
+func (self *TextServerProtocol) FreeCollect(lastCollectTime int64) error {
+	return self.freeCollector.Collect(lastCollectTime, self.slock, self.glock, self.lockedFreeCommands, self.totalCommandCount)
 }
 
 func (self *TextServerProtocol) commandHandlerUnknownCommand(_ *TextServerProtocol, _ []string) error {

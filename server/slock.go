@@ -23,19 +23,18 @@ const (
 )
 
 type SLockFreeCollector struct {
-	lastCollectTime          int64
 	lastTotalCommandCount    uint64
 	lastAvgCommandCount      int
 	lastFreeLockCommandCount int
 }
 
 func NewSLockFreeCollector() *SLockFreeCollector {
-	return &SLockFreeCollector{time.Now().Unix(), 0, 0, 0}
+	return &SLockFreeCollector{0, 0, 0}
 }
 
-func (self *SLockFreeCollector) Collect(slock *SLock, totalCommandCount uint64) error {
+func (self *SLockFreeCollector) Collect(lastCollectTime int64, slock *SLock, totalCommandCount uint64) error {
 	currentTime := time.Now().Unix()
-	avgCommandCount := int((totalCommandCount - self.lastTotalCommandCount) / uint64(currentTime-self.lastCollectTime))
+	avgCommandCount := int((totalCommandCount - self.lastTotalCommandCount) / uint64(currentTime-lastCollectTime))
 	slock.freeLockCommandLock.Lock()
 	freeLockCommandCount := int(slock.freeLockCommandQueue.Len())
 	slock.freeLockCommandLock.Unlock()
@@ -61,7 +60,6 @@ func (self *SLockFreeCollector) Collect(slock *SLock, totalCommandCount uint64) 
 		}
 	}
 
-	self.lastCollectTime = currentTime
 	self.lastTotalCommandCount = totalCommandCount
 	self.lastAvgCommandCount = avgCommandCount
 	self.lastFreeLockCommandCount = freeLockCommandCount
@@ -492,31 +490,31 @@ func (self *SLock) getLockCommands(count int32) []*protocol.LockCommand {
 	return commands
 }
 
-func (self *SLock) FreeCollect(totalCommandCount uint64) error {
-	err := self.freeCollector.Collect(self, totalCommandCount)
+func (self *SLock) FreeCollect(lastCollectTime int64, totalCommandCount uint64) error {
+	err := self.freeCollector.Collect(lastCollectTime, self, totalCommandCount)
 	if err != nil {
 		self.Log().Errorf("Slock Error freeing collect %v", err)
 	}
 
 	for _, db := range self.dbs {
 		if db != nil {
-			err = db.FreeCollect()
+			err = db.FreeCollect(lastCollectTime)
 			if err != nil {
 				self.Log().Errorf("Slock Error DB freeing collect %v", err)
 			}
 		}
 	}
 
-	err = self.aof.FreeCollect()
+	err = self.aof.FreeCollect(lastCollectTime)
 	if err != nil {
 		self.Log().Errorf("Slock Error Aof freeing collect %v", err)
 	}
-	err = self.replicationManager.FreeCollect()
+	err = self.replicationManager.FreeCollect(lastCollectTime)
 	if err != nil {
 		self.Log().Errorf("Slock Error Replication freeing collect %v", err)
 	}
 	if self.subscribeManager != nil {
-		err = self.subscribeManager.FreeCollect()
+		err = self.subscribeManager.FreeCollect(lastCollectTime)
 		if err != nil {
 			self.Log().Errorf("Slock Error Subscribe freeing collect %v", err)
 		}

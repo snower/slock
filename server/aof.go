@@ -609,21 +609,18 @@ type AofLockQueue struct {
 	buffer []*AofLock
 	rindex int
 	windex int
-	blen   int
 	next   *AofLockQueue
 }
 
 type AofChannelFreeCollector struct {
-	lastCollectTime          int64
 	lastFreeLockCommandCount int
 }
 
 func NewAofChannelFreeCollector() *AofChannelFreeCollector {
-	return &AofChannelFreeCollector{time.Now().Unix(), 0}
+	return &AofChannelFreeCollector{0}
 }
 
-func (self *AofChannelFreeCollector) Collect(aofChannel *AofChannel) error {
-	currentTime := time.Now().Unix()
+func (self *AofChannelFreeCollector) Collect(_ int64, aofChannel *AofChannel) error {
 	freeLockCount, minFreeLockCount := aofChannel.freeLockIndex, 8
 	if freeLockCount >= minFreeLockCount && float64(freeLockCount) < float64(self.lastFreeLockCommandCount)*1.5 {
 		freeCount := freeLockCount / 20
@@ -639,8 +636,6 @@ func (self *AofChannelFreeCollector) Collect(aofChannel *AofChannel) error {
 			aofChannel.glock.Unlock()
 		}
 	}
-
-	self.lastCollectTime = currentTime
 	self.lastFreeLockCommandCount = freeLockCount
 	return nil
 }
@@ -708,7 +703,7 @@ func (self *AofChannel) pushAofLock(aofLock *AofLock) {
 	if self.queueTail == nil {
 		self.queueTail = self.aof.getLockQueue()
 		self.queueHead = self.queueTail
-	} else if self.queueTail.windex >= self.queueTail.blen {
+	} else if self.queueTail.windex >= len(self.queueTail.buffer) {
 		self.queueTail.next = self.aof.getLockQueue()
 		self.queueTail = self.queueTail.next
 	}
@@ -1556,12 +1551,14 @@ func (self *Aof) Close() {
 	self.slock.logger.Infof("Aof closed")
 }
 
-func (self *Aof) FreeCollect() error {
+func (self *Aof) FreeCollect(lastCollectTime int64) error {
+	self.collectLockQueue(lastCollectTime)
+
 	self.glock.Lock()
 	channels := self.channels
 	self.glock.Unlock()
 	for _, aofChannel := range channels {
-		_ = aofChannel.freeCollector.Collect(aofChannel)
+		_ = aofChannel.freeCollector.Collect(lastCollectTime, aofChannel)
 	}
 	return nil
 }
@@ -2149,12 +2146,15 @@ func (self *Aof) getLockQueue() *AofLockQueue {
 	if self.freeLockQueueIndex > 0 {
 		self.freeLockQueueIndex--
 		queue := self.freeLockQueues[self.freeLockQueueIndex]
+		self.freeLockQueues[self.freeLockQueueIndex] = nil
 		self.freeLockQueueGlock.Unlock()
+		queue.rindex = 0
+		queue.windex = 0
 		return queue
 	}
 
 	size := int(Config.AofQueueSize) / 64
-	queue := &AofLockQueue{make([]*AofLock, size), 0, 0, size, nil}
+	queue := &AofLockQueue{make([]*AofLock, size), 0, 0, nil}
 	self.freeLockQueueGlock.Unlock()
 	return queue
 }
@@ -2166,11 +2166,30 @@ func (self *Aof) freeLockQueue(queue *AofLockQueue) {
 		return
 	}
 
-	queue.rindex, queue.windex = 0, 0
+	currentTime := time.Now().Unix()
+	queue.rindex = int(currentTime & 0xffffffff)
+	queue.windex = int(currentTime >> 32)
 	queue.next = nil
 	self.freeLockQueues[self.freeLockQueueIndex] = queue
 	self.freeLockQueueIndex++
 	self.freeLockQueueGlock.Unlock()
+}
+
+func (self *Aof) collectLockQueue(lastCollectTime int64) {
+	if self.freeLockQueueIndex > 0 {
+		currentTime := time.Now().Unix()
+		durationTime := currentTime - lastCollectTime
+		self.freeLockQueueGlock.Lock()
+		for self.freeLockQueueIndex > 0 {
+			queue := self.freeLockQueues[self.freeLockQueueIndex-1]
+			idleTime := int64(queue.rindex) | (int64(queue.windex) << 32)
+			if currentTime-idleTime > durationTime {
+				self.freeLockQueueIndex--
+				self.freeLockQueues[self.freeLockQueueIndex] = nil
+			}
+		}
+		self.freeLockQueueGlock.Unlock()
+	}
 }
 
 func (self *Aof) GetLockCommandExpriedTime(lockDb *LockDB, aofLock *AofLock) uint16 {

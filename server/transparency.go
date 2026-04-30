@@ -828,8 +828,8 @@ func (self *TransparencyBinaryServerProtocol) FreeLockCommandLocked(command *pro
 	return self.serverProtocol.FreeLockCommandLocked(command)
 }
 
-func (self *TransparencyBinaryServerProtocol) FreeCollect() error {
-	return self.serverProtocol.FreeCollect()
+func (self *TransparencyBinaryServerProtocol) FreeCollect(lastCollectTime int64) error {
+	return self.serverProtocol.FreeCollect(lastCollectTime)
 }
 
 func (self *TransparencyBinaryServerProtocol) commandHandleListLockCommand(serverProtocol *BinaryServerProtocol, command *protocol.CallCommand) (*protocol.CallResultCommand, error) {
@@ -1186,8 +1186,8 @@ func (self *TransparencyTextServerProtocol) FreeLockCommandLocked(command *proto
 	return self.serverProtocol.FreeLockCommandLocked(command)
 }
 
-func (self *TransparencyTextServerProtocol) FreeCollect() error {
-	return self.serverProtocol.FreeCollect()
+func (self *TransparencyTextServerProtocol) FreeCollect(lastCollectTime int64) error {
+	return self.serverProtocol.FreeCollect(lastCollectTime)
 }
 
 func (self *TransparencyTextServerProtocol) commandHandlerUnknownCommand(serverProtocol *TextServerProtocol, args []string) error {

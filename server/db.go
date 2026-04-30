@@ -327,7 +327,6 @@ func (self *LockDBExecutor) Close() {
 }
 
 type LockDBFreeCollector struct {
-	lastCollectTime           int64
 	lastLockCount             uint64
 	lastLockAvgCount          int
 	lastFreeLockManagerCount  int
@@ -336,12 +335,12 @@ type LockDBFreeCollector struct {
 }
 
 func NewLockDBFreeCollector() *LockDBFreeCollector {
-	return &LockDBFreeCollector{time.Now().Unix(), 0, 0, 0, 0, 0}
+	return &LockDBFreeCollector{0, 0, 0, 0, 0}
 }
 
-func (self *LockDBFreeCollector) Collect(db *LockDB) error {
+func (self *LockDBFreeCollector) Collect(lastCollectTime int64, db *LockDB) error {
 	currentTime := time.Now().Unix()
-	durationTime := currentTime - self.lastCollectTime
+	durationTime := currentTime - lastCollectTime
 	lockCount := uint64(0)
 	for _, state := range db.states {
 		lockCount += state.LockCount
@@ -445,7 +444,6 @@ func (self *LockDBFreeCollector) Collect(db *LockDB) error {
 		}
 	}
 
-	self.lastCollectTime = currentTime
 	self.lastLockCount = lockCount
 	self.lastLockAvgCount = lockAvgCount
 	self.lastFreeLockManagerCount = freeLockManagerCount
@@ -697,8 +695,8 @@ func (self *LockDB) FlushDB() error {
 	return nil
 }
 
-func (self *LockDB) FreeCollect() error {
-	return self.freeCollector.Collect(self)
+func (self *LockDB) FreeCollect(lastCollectTime int64) error {
+	return self.freeCollector.Collect(lastCollectTime, self)
 }
 
 func (self *LockDB) startCheckLoop() {
