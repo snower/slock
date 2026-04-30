@@ -780,7 +780,7 @@ func (self *AofChannel) Push(dbId uint8, lock *Lock, commandType uint8, lockComm
 		aofLock.StartTime = uint16(startTimeSeconds)
 	}
 	aofLock.ExpriedFlag = lockCommand.ExpriedFlag
-	aofLock.ExpriedTime = self.aof.GetAofLockExpriedTime(lockCommand, lock, aofLock)
+	aofLock.ExpriedTime = self.aof.GetAafLockExpiredTime(lockCommand, lock, aofLock)
 	if unLockCommand == nil {
 		aofLock.Count = lockCommand.Count
 		if commandType == protocol.COMMAND_UNLOCK {
@@ -1009,7 +1009,7 @@ func (self *AofChannel) HandleLoad(aofLock *AofLock) {
 	}
 	lockCommand.Timeout = 0
 	lockCommand.ExpriedFlag = aofLock.ExpriedFlag
-	lockCommand.Expried = self.aof.GetLockCommandExpriedTime(self.lockDb, aofLock)
+	lockCommand.Expried = self.aof.GetLockCommandExpiredTime(self.lockDb, aofLock)
 	lockCommand.Count = aofLock.Count
 	lockCommand.Rcount = aofLock.Rcount
 	if aofLock.AofFlag&AOF_FLAG_CONTAINS_DATA != 0 {
@@ -1056,7 +1056,7 @@ func (self *AofChannel) HandleReplay(aofLock *AofLock) {
 	}
 	lockCommand.Timeout = 0
 	lockCommand.ExpriedFlag = aofLock.ExpriedFlag
-	lockCommand.Expried = self.aof.GetLockCommandExpriedTime(self.lockDb, aofLock)
+	lockCommand.Expried = self.aof.GetLockCommandExpiredTime(self.lockDb, aofLock)
 	lockCommand.Count = aofLock.Count
 	lockCommand.Rcount = aofLock.Rcount
 	if aofLock.AofFlag&AOF_FLAG_CONTAINS_DATA != 0 {
@@ -2046,7 +2046,7 @@ func (self *Aof) loadRewriteAofFiles(aofFilenames []string) (*AofFile, []*AofFil
 		lockCommand.LockId = aofLock.LockId
 		lockCommand.LockKey = aofLock.LockKey
 		lockCommand.ExpriedFlag = aofLock.ExpriedFlag
-		lockCommand.Expried = self.GetLockCommandExpriedTime(db, aofLock)
+		lockCommand.Expried = self.GetLockCommandExpiredTime(db, aofLock)
 		lockCommand.Count = aofLock.Count
 		lockCommand.Rcount = aofLock.Rcount
 		if !db.HasLock(lockCommand, aofLock.data) {
@@ -2179,20 +2179,25 @@ func (self *Aof) collectLockQueue(lastCollectTime int64) {
 	if self.freeLockQueueIndex > 0 {
 		currentTime := time.Now().Unix()
 		durationTime := currentTime - lastCollectTime
+		freeCount := 0
 		self.freeLockQueueGlock.Lock()
-		for self.freeLockQueueIndex > 0 {
-			queue := self.freeLockQueues[self.freeLockQueueIndex-1]
+		for i := 0; i < self.freeLockQueueIndex; i++ {
+			queue := self.freeLockQueues[i]
 			idleTime := int64(queue.rindex) | (int64(queue.windex) << 32)
 			if currentTime-idleTime > durationTime {
-				self.freeLockQueueIndex--
-				self.freeLockQueues[self.freeLockQueueIndex] = nil
+				freeCount++
 			}
+		}
+
+		for i := 0; i < freeCount && self.freeLockQueueIndex > 0; i++ {
+			self.freeLockQueueIndex--
+			self.freeLockQueues[self.freeLockQueueIndex] = nil
 		}
 		self.freeLockQueueGlock.Unlock()
 	}
 }
 
-func (self *Aof) GetLockCommandExpriedTime(lockDb *LockDB, aofLock *AofLock) uint16 {
+func (self *Aof) GetLockCommandExpiredTime(lockDb *LockDB, aofLock *AofLock) uint16 {
 	if aofLock.ExpriedFlag&protocol.EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME != 0 {
 		return aofLock.ExpriedTime
 	}
@@ -2225,7 +2230,7 @@ func (self *Aof) GetLockCommandExpriedTime(lockDb *LockDB, aofLock *AofLock) uin
 	return aofLock.ExpriedTime
 }
 
-func (self *Aof) GetAofLockExpriedTime(lockCommand *protocol.LockCommand, lock *Lock, aofLock *AofLock) uint16 {
+func (self *Aof) GetAafLockExpiredTime(lockCommand *protocol.LockCommand, lock *Lock, aofLock *AofLock) uint16 {
 	if lockCommand.ExpriedFlag&protocol.EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME != 0 {
 		return lockCommand.Expried
 	}
