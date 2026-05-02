@@ -1730,10 +1730,12 @@ func (self *PriorityMutex) PriorityLock(priorityType uint32) {
 			for i := 2; i >= 0; i-- {
 				if priorityValue&(0x01<<i) != 0 {
 					self.priorityMutexes[i].Lock()
-					if priorityValue = atomic.LoadUint32(&self.priorityValue) & priorityType; priorityValue == 0 {
+					priorityValue = atomic.LoadUint32(&self.priorityValue) & priorityType
+					if priorityValue == 0 {
 						self.priorityMutexes[i].Unlock()
 						self.mutex.Lock()
-						if priorityValue = atomic.LoadUint32(&self.priorityValue) & priorityType; priorityValue == 0 {
+						priorityValue = atomic.LoadUint32(&self.priorityValue) & priorityType
+						if priorityValue == 0 {
 							return
 						} else {
 							self.mutex.Unlock()
