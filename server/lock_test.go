@@ -2,6 +2,7 @@ package server
 
 import (
 	"math/rand"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -862,4 +863,226 @@ func TestLockManager_ProcessLockDataPipeline(t *testing.T) {
 			return
 		}
 	})
+}
+
+func TestPriorityMutex_ProcessActive(t *testing.T) {
+	p := NewPriorityMutex()
+	p.ActivePriority(PRIORITY_MUTEX_TYPE_HIGH)
+	if p.priorityValue != 0 || p.priorityActives[0] != 0 || p.priorityActives[1] != 0 || p.priorityActives[2] != 0 {
+		t.Errorf("PriorityMutex ActivePriority PRIORITY_MUTEX_TYPE_HIGH fail")
+		return
+	}
+	p.DeActivePriority(PRIORITY_MUTEX_TYPE_HIGH)
+	if p.priorityValue != 0 || p.priorityActives[0] != 0 || p.priorityActives[1] != 0 || p.priorityActives[2] != 0 {
+		t.Errorf("PriorityMutex DeActivePriority PRIORITY_MUTEX_TYPE_HIGH fail")
+		return
+	}
+	p.highPriorityAcquireCount = 1
+	p.ActivePriority(PRIORITY_MUTEX_TYPE_HIGH)
+	if p.priorityValue != 0x04 || p.priorityActives[0] != 0 || p.priorityActives[1] != 0 || p.priorityActives[2] != 1 {
+		t.Errorf("PriorityMutex ActivePriority PRIORITY_MUTEX_TYPE_HIGH fail")
+		return
+	}
+	p.ActivePriority(PRIORITY_MUTEX_TYPE_HIGH)
+	if p.priorityValue != 0x04 || p.priorityActives[0] != 0 || p.priorityActives[1] != 0 || p.priorityActives[2] != 2 {
+		t.Errorf("PriorityMutex ActivePriority PRIORITY_MUTEX_TYPE_HIGH fail")
+		return
+	}
+	p.ActivePriority(PRIORITY_MUTEX_TYPE_HIGH)
+	if p.priorityValue != 0x04 || p.priorityActives[0] != 0 || p.priorityActives[1] != 0 || p.priorityActives[2] != 3 {
+		t.Errorf("PriorityMutex ActivePriority PRIORITY_MUTEX_TYPE_HIGH fail")
+		return
+	}
+	p.DeActivePriority(PRIORITY_MUTEX_TYPE_HIGH)
+	if p.priorityValue != 0x04 || p.priorityActives[0] != 0 || p.priorityActives[1] != 0 || p.priorityActives[2] != 2 {
+		t.Errorf("PriorityMutex DeActivePriority PRIORITY_MUTEX_TYPE_HIGH fail")
+		return
+	}
+	p.DeActivePriority(PRIORITY_MUTEX_TYPE_HIGH)
+	if p.priorityValue != 0x04 || p.priorityActives[0] != 0 || p.priorityActives[1] != 0 || p.priorityActives[2] != 1 {
+		t.Errorf("PriorityMutex DeActivePriority PRIORITY_MUTEX_TYPE_HIGH fail")
+		return
+	}
+	p.DeActivePriority(PRIORITY_MUTEX_TYPE_HIGH)
+	if p.priorityValue != 0 || p.priorityActives[0] != 0 || p.priorityActives[1] != 0 || p.priorityActives[2] != 0 {
+		t.Errorf("PriorityMutex DeActivePriority PRIORITY_MUTEX_TYPE_HIGH fail")
+		return
+	}
+
+	p.ActivePriority(PRIORITY_MUTEX_TYPE_MIDDLE)
+	if p.priorityValue != 0x02 || p.priorityActives[0] != 0 || p.priorityActives[1] != 1 || p.priorityActives[2] != 0 {
+		t.Errorf("PriorityMutex ActivePriority PRIORITY_MUTEX_TYPE_MIDDLE fail")
+		return
+	}
+	p.DeActivePriority(PRIORITY_MUTEX_TYPE_MIDDLE)
+	if p.priorityValue != 0 || p.priorityActives[0] != 0 || p.priorityActives[1] != 0 || p.priorityActives[2] != 0 {
+		t.Errorf("PriorityMutex DeActivePriority PRIORITY_MUTEX_TYPE_MIDDLE fail")
+		return
+	}
+	p.ActivePriority(PRIORITY_MUTEX_TYPE_MIDDLE)
+	if p.priorityValue != 0x02 || p.priorityActives[0] != 0 || p.priorityActives[1] != 1 || p.priorityActives[2] != 0 {
+		t.Errorf("PriorityMutex ActivePriority PRIORITY_MUTEX_TYPE_MIDDLE fail")
+		return
+	}
+	p.ActivePriority(PRIORITY_MUTEX_TYPE_MIDDLE)
+	if p.priorityValue != 0x02 || p.priorityActives[0] != 0 || p.priorityActives[1] != 2 || p.priorityActives[2] != 0 {
+		t.Errorf("PriorityMutex ActivePriority PRIORITY_MUTEX_TYPE_MIDDLE fail")
+		return
+	}
+	p.ActivePriority(PRIORITY_MUTEX_TYPE_MIDDLE)
+	if p.priorityValue != 0x02 || p.priorityActives[0] != 0 || p.priorityActives[1] != 3 || p.priorityActives[2] != 0 {
+		t.Errorf("PriorityMutex ActivePriority PRIORITY_MUTEX_TYPE_MIDDLE fail")
+		return
+	}
+	p.DeActivePriority(PRIORITY_MUTEX_TYPE_MIDDLE)
+	if p.priorityValue != 0x02 || p.priorityActives[0] != 0 || p.priorityActives[1] != 2 || p.priorityActives[2] != 0 {
+		t.Errorf("PriorityMutex DeActivePriority PRIORITY_MUTEX_TYPE_MIDDLE fail")
+		return
+	}
+	p.DeActivePriority(PRIORITY_MUTEX_TYPE_MIDDLE)
+	if p.priorityValue != 0x02 || p.priorityActives[0] != 0 || p.priorityActives[1] != 1 || p.priorityActives[2] != 0 {
+		t.Errorf("PriorityMutex DeActivePriority PRIORITY_MUTEX_TYPE_MIDDLE fail")
+		return
+	}
+	p.DeActivePriority(PRIORITY_MUTEX_TYPE_MIDDLE)
+	if p.priorityValue != 0 || p.priorityActives[0] != 0 || p.priorityActives[1] != 0 || p.priorityActives[2] != 0 {
+		t.Errorf("PriorityMutex DeActivePriority PRIORITY_MUTEX_TYPE_MIDDLE fail")
+		return
+	}
+
+	p.ActivePriority(PRIORITY_MUTEX_TYPE_LOW)
+	if p.priorityValue != 0x01 || p.priorityActives[0] != 1 || p.priorityActives[1] != 0 || p.priorityActives[2] != 0 {
+		t.Errorf("PriorityMutex ActivePriority PRIORITY_MUTEX_TYPE_LOW fail")
+		return
+	}
+	p.DeActivePriority(PRIORITY_MUTEX_TYPE_LOW)
+	if p.priorityValue != 0 || p.priorityActives[0] != 0 || p.priorityActives[1] != 0 || p.priorityActives[2] != 0 {
+		t.Errorf("PriorityMutex DeActivePriority PRIORITY_MUTEX_TYPE_LOW fail")
+		return
+	}
+	p.ActivePriority(PRIORITY_MUTEX_TYPE_LOW)
+	if p.priorityValue != 0x01 || p.priorityActives[0] != 1 || p.priorityActives[1] != 0 || p.priorityActives[2] != 0 {
+		t.Errorf("PriorityMutex ActivePriority PRIORITY_MUTEX_TYPE_LOW fail")
+		return
+	}
+	p.ActivePriority(PRIORITY_MUTEX_TYPE_LOW)
+	if p.priorityValue != 0x01 || p.priorityActives[0] != 2 || p.priorityActives[1] != 0 || p.priorityActives[2] != 0 {
+		t.Errorf("PriorityMutex ActivePriority PRIORITY_MUTEX_TYPE_LOW fail")
+		return
+	}
+	p.ActivePriority(PRIORITY_MUTEX_TYPE_LOW)
+	if p.priorityValue != 0x01 || p.priorityActives[0] != 3 || p.priorityActives[1] != 0 || p.priorityActives[2] != 0 {
+		t.Errorf("PriorityMutex ActivePriority PRIORITY_MUTEX_TYPE_LOW fail")
+		return
+	}
+	p.DeActivePriority(PRIORITY_MUTEX_TYPE_LOW)
+	if p.priorityValue != 0x01 || p.priorityActives[0] != 2 || p.priorityActives[1] != 0 || p.priorityActives[2] != 0 {
+		t.Errorf("PriorityMutex DeActivePriority PRIORITY_MUTEX_TYPE_LOW fail")
+		return
+	}
+	p.DeActivePriority(PRIORITY_MUTEX_TYPE_LOW)
+	if p.priorityValue != 0x01 || p.priorityActives[0] != 1 || p.priorityActives[1] != 0 || p.priorityActives[2] != 0 {
+		t.Errorf("PriorityMutex DeActivePriority PRIORITY_MUTEX_TYPE_LOW fail")
+		return
+	}
+	p.DeActivePriority(PRIORITY_MUTEX_TYPE_LOW)
+	if p.priorityValue != 0 || p.priorityActives[0] != 0 || p.priorityActives[1] != 0 || p.priorityActives[2] != 0 {
+		t.Errorf("PriorityMutex DeActivePriority PRIORITY_MUTEX_TYPE_LOW fail")
+		return
+	}
+
+	p.ActivePriority(PRIORITY_MUTEX_TYPE_HIGH)
+	p.ActivePriority(PRIORITY_MUTEX_TYPE_MIDDLE)
+	p.ActivePriority(PRIORITY_MUTEX_TYPE_LOW)
+	p.ActivePriority(PRIORITY_MUTEX_TYPE_MIDDLE)
+	if p.priorityValue != 0x07 || p.priorityActives[0] != 1 || p.priorityActives[1] != 2 || p.priorityActives[2] != 1 {
+		t.Errorf("PriorityMutex ActivePriority fail")
+		return
+	}
+	p.ActivePriority(PRIORITY_MUTEX_TYPE_HIGH)
+	p.ActivePriority(PRIORITY_MUTEX_TYPE_LOW)
+	if p.priorityValue != 0x07 || p.priorityActives[0] != 2 || p.priorityActives[1] != 2 || p.priorityActives[2] != 2 {
+		t.Errorf("PriorityMutex ActivePriority fail")
+		return
+	}
+	p.DeActivePriority(PRIORITY_MUTEX_TYPE_LOW)
+	if p.priorityValue != 0x07 || p.priorityActives[0] != 1 || p.priorityActives[1] != 2 || p.priorityActives[2] != 2 {
+		t.Errorf("PriorityMutex DeActivePriority fail")
+		return
+	}
+	p.DeActivePriority(PRIORITY_MUTEX_TYPE_HIGH)
+	p.DeActivePriority(PRIORITY_MUTEX_TYPE_LOW)
+	p.DeActivePriority(PRIORITY_MUTEX_TYPE_MIDDLE)
+	if p.priorityValue != 0x06 || p.priorityActives[0] != 0 || p.priorityActives[1] != 1 || p.priorityActives[2] != 1 {
+		t.Errorf("PriorityMutex DeActivePriority fail")
+		return
+	}
+	p.DeActivePriority(PRIORITY_MUTEX_TYPE_HIGH)
+	p.DeActivePriority(PRIORITY_MUTEX_TYPE_MIDDLE)
+	if p.priorityValue != 0 || p.priorityActives[0] != 0 || p.priorityActives[1] != 0 || p.priorityActives[2] != 0 {
+		t.Errorf("PriorityMutex DeActivePriority fail")
+		return
+	}
+}
+
+func TestPriorityMutex_ProcessLock(t *testing.T) {
+	p := NewPriorityMutex()
+	c := uint32(0)
+
+	atomic.AddUint32(&c, 1)
+	go func() {
+		p.PriorityLock(PRIORITY_MUTEX_TYPE_NONE)
+		atomic.AddUint32(&c, 0xffffffff)
+	}()
+	time.Sleep(10 * time.Millisecond)
+	if atomic.LoadUint32(&c) != 0 {
+		t.Errorf("PriorityMutex PriorityLock PRIORITY_MUTEX_TYPE_NONE fail")
+		return
+	}
+	p.PriorityUnlock()
+
+	p.ActivePriority(PRIORITY_MUTEX_TYPE_MIDDLE)
+	atomic.AddUint32(&c, 1)
+	go func() {
+		p.PriorityLock(PRIORITY_MUTEX_TYPE_LOW)
+		atomic.AddUint32(&c, 0xffffffff)
+	}()
+	time.Sleep(10 * time.Millisecond)
+	if atomic.LoadUint32(&c) != 1 {
+		t.Errorf("PriorityMutex PriorityLock PRIORITY_MUTEX_TYPE_LOW fail")
+		return
+	}
+	p.DeActivePriority(PRIORITY_MUTEX_TYPE_MIDDLE)
+	time.Sleep(10 * time.Millisecond)
+	if atomic.LoadUint32(&c) != 0 {
+		t.Errorf("PriorityMutex PriorityLock PRIORITY_MUTEX_TYPE_LOW fail")
+		return
+	}
+	p.PriorityUnlock()
+
+	p.ActivePriority(PRIORITY_MUTEX_TYPE_MIDDLE)
+	atomic.AddUint32(&c, 1)
+	go func() {
+		p.PriorityLock(PRIORITY_MUTEX_TYPE_NONE)
+		atomic.AddUint32(&c, 0xffffffff)
+	}()
+	time.Sleep(10 * time.Millisecond)
+	if atomic.LoadUint32(&c) != 1 {
+		t.Errorf("PriorityMutex PriorityLock PRIORITY_MUTEX_TYPE_LOW fail")
+		return
+	}
+	p.ActivePriority(PRIORITY_MUTEX_TYPE_LOW)
+	p.DeActivePriority(PRIORITY_MUTEX_TYPE_MIDDLE)
+	time.Sleep(10 * time.Millisecond)
+	if atomic.LoadUint32(&c) != 1 {
+		t.Errorf("PriorityMutex PriorityLock PRIORITY_MUTEX_TYPE_LOW fail")
+		return
+	}
+	p.DeActivePriority(PRIORITY_MUTEX_TYPE_LOW)
+	time.Sleep(10 * time.Millisecond)
+	if atomic.LoadUint32(&c) != 0 {
+		t.Errorf("PriorityMutex PriorityLock PRIORITY_MUTEX_TYPE_LOW fail")
+		return
+	}
+	p.PriorityUnlock()
 }
