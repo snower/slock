@@ -848,6 +848,10 @@ func (self *Admin) commandHandleShowLockCommand(serverProtocol *TextServerProtoc
 
 	lockInfos := make([]string, 0)
 	lockManager.glock.PriorityLock(PRIORITY_MUTEX_TYPE_NONE)
+	if command.LockKey != lockManager.lockKey {
+		lockManager.glock.PriorityUnlock()
+		return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(false, "ERR Unknown Lock Manager Error", nil))
+	}
 	if lockManager.currentLock != nil {
 		lock := lockManager.currentLock
 
@@ -929,6 +933,10 @@ func (self *Admin) commandHandleShowLockWaitCommand(serverProtocol *TextServerPr
 
 	lockInfos := make([]string, 0)
 	lockManager.glock.PriorityLock(PRIORITY_MUTEX_TYPE_NONE)
+	if command.LockKey != lockManager.lockKey {
+		lockManager.glock.PriorityUnlock()
+		return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(false, "ERR Unknown Lock Manager Error", nil))
+	}
 	if lockManager.waitLocks != nil {
 		for _, waitLocks := range lockManager.waitLocks.IterNodes() {
 			for _, lock := range waitLocks {

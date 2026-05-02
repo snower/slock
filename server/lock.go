@@ -916,8 +916,9 @@ func (self *LockManager) GetOrNewLock(serverProtocol ServerProtocol, command *pr
 }
 
 func (self *LockManager) GetLockData() []byte {
-	if self.currentData != nil {
-		return self.currentData.GetData()
+	currentData := self.currentData
+	if currentData != nil {
+		return currentData.GetData()
 	}
 	return nil
 }

@@ -179,7 +179,7 @@ func NewLockDBExecutor(db *LockDB, glock *PriorityMutex) *LockDBExecutor {
 	freeTaskMax := int(Config.AofQueueSize) / 64
 	executor := &LockDBExecutor{db, glock, &sync.Mutex{}, nil, nil,
 		make([]*LockDBExecutorTask, freeTaskMax), 0, freeTaskMax, 0, 0,
-		0, make(chan struct{}, 4), 0, make(chan struct{})}
+		0, make(chan struct{}, 8), 0, make(chan struct{})}
 	go executor.Run()
 	go executor.Run()
 	go executor.Run()
@@ -277,27 +277,26 @@ func (self *LockDBExecutor) FlushQueue() {
 		return
 	}
 	executorTask := self.queueTail
+	self.queueTail = nil
+	self.queueHead = nil
+	self.queueCount = 0
+	self.glock.DeActivePriority(PRIORITY_MUTEX_TYPE_MIDDLE)
+	self.queueLock.Unlock()
+
 	for executorTask != nil {
 		nextTask := executorTask.next
 		if atomic.AddUint32(&executorTask.lockManager.refCount, 0xffffffff) == 0 {
+			executorTask.lockManager.glock.PriorityLock(PRIORITY_MUTEX_TYPE_MIDDLE)
 			self.db.RemoveLockManager(executorTask.lockManager)
+			executorTask.lockManager.glock.PriorityUnlock()
 		}
 		_ = executorTask.serverProtocol.FreeLockCommandLocked(executorTask.command)
 		executorTask.next = nil
 		executorTask.serverProtocol = nil
 		executorTask.command = nil
 		executorTask.lockManager = nil
-		self.queueCount--
-		if self.freeTaskIndex < self.freeTaskMax {
-			self.freeTasks[self.freeTaskIndex] = executorTask
-			self.freeTaskIndex++
-		}
 		executorTask = nextTask
 	}
-	self.queueTail = nil
-	self.queueHead = nil
-	self.glock.DeActivePriority(PRIORITY_MUTEX_TYPE_MIDDLE)
-	self.queueLock.Unlock()
 }
 
 func (self *LockDBExecutor) PopFreeTask() {
@@ -621,9 +620,10 @@ func (self *LockDB) PushExecutorLockCommand(serverProtocol ServerProtocol, lockC
 	}
 
 	lockManager := self.GetOrNewLockManager(lockCommand)
-	for atomic.AddUint32(&lockManager.refCount, 1) == 0 {
-		atomic.AddUint32(&lockManager.refCount, 0xffffffff)
+	refCount := atomic.LoadUint32(&lockManager.refCount)
+	for refCount == 0xffffffff || !atomic.CompareAndSwapUint32(&lockManager.refCount, refCount, refCount+1) {
 		lockManager = self.GetOrNewLockManager(lockCommand)
+		refCount = atomic.LoadUint32(&lockManager.refCount)
 	}
 
 	executor := self.executors[lockManager.glockIndex]
@@ -776,7 +776,7 @@ func (self *LockDB) checkTimeTimeOut(checkTimeoutTime int64, now int64, glockInd
 		lock.refCount--
 		if lock.refCount == 0 {
 			lockManager.FreeLock(lock)
-			if lockManager.refCount == 0 {
+			if atomic.LoadUint32(&lockManager.refCount) == 0 {
 				self.RemoveLockManager(lockManager)
 			}
 		}
@@ -797,7 +797,7 @@ func (self *LockDB) checkTimeTimeOut(checkTimeoutTime int64, now int64, glockInd
 					lock.refCount--
 					if lock.refCount == 0 {
 						lockManager.FreeLock(lock)
-						if lockManager.refCount == 0 {
+						if atomic.LoadUint32(&lockManager.refCount) == 0 {
 							self.RemoveLockManager(lockManager)
 						}
 					}
@@ -850,7 +850,7 @@ func (self *LockDB) checkMillisecondTimeOut(ms int64, glockIndex uint16) {
 			lock.refCount--
 			if lock.refCount == 0 {
 				lockManager.FreeLock(lock)
-				if lockManager.refCount == 0 {
+				if atomic.LoadUint32(&lockManager.refCount) == 0 {
 					self.addWaitRemoveLockManager(lockManager)
 				}
 			}
@@ -975,7 +975,7 @@ func (self *LockDB) flushTimeoutCheckLock(lock *Lock, doTimeoutLocks []*Lock) []
 	lock.refCount--
 	if lock.refCount == 0 {
 		lockManager.FreeLock(lock)
-		if lockManager.refCount == 0 {
+		if atomic.LoadUint32(&lockManager.refCount) == 0 {
 			self.RemoveLockManager(lockManager)
 		}
 	}
@@ -1038,7 +1038,7 @@ func (self *LockDB) checkTimeExpried(checkExpriedTime int64, now int64, glockInd
 		lock.refCount--
 		if lock.refCount == 0 {
 			lockManager.FreeLock(lock)
-			if lockManager.refCount == 0 {
+			if atomic.LoadUint32(&lockManager.refCount) == 0 {
 				self.RemoveLockManager(lockManager)
 			}
 		}
@@ -1058,7 +1058,7 @@ func (self *LockDB) checkTimeExpried(checkExpriedTime int64, now int64, glockInd
 					lock.refCount--
 					if lock.refCount == 0 {
 						lockManager.FreeLock(lock)
-						if lockManager.refCount == 0 {
+						if atomic.LoadUint32(&lockManager.refCount) == 0 {
 							self.RemoveLockManager(lockManager)
 						}
 					}
@@ -1111,7 +1111,7 @@ func (self *LockDB) checkMillisecondExpried(ms int64, glockIndex uint16) {
 			lock.refCount--
 			if lock.refCount == 0 {
 				lockManager.FreeLock(lock)
-				if lockManager.refCount == 0 {
+				if atomic.LoadUint32(&lockManager.refCount) == 0 {
 					self.addWaitRemoveLockManager(lockManager)
 				}
 			}
@@ -1238,7 +1238,7 @@ func (self *LockDB) flushExpriedCheckLock(lock *Lock, doExpriedLocks []*Lock) []
 	lock.refCount--
 	if lock.refCount == 0 {
 		lockManager.FreeLock(lock)
-		if lockManager.refCount == 0 {
+		if atomic.LoadUint32(&lockManager.refCount) == 0 {
 			self.RemoveLockManager(lockManager)
 		}
 	}
@@ -1249,8 +1249,7 @@ func (self *LockDB) flushWaitRemoveLockManagerQueue(glockIndex uint16) {
 	for i := int64(0); i < WAIT_REMOVE_LOCK_MANAGER_QUEUE_LENGTH; i++ {
 		lockManager := self.waitRemoveLockManagers[i][glockIndex].Pop()
 		for lockManager != nil {
-			lockManager.refCount--
-			if lockManager.refCount == 0 {
+			if atomic.AddUint32(&lockManager.refCount, 0xffffffff) == 0 {
 				self.RemoveLockManager(lockManager)
 			}
 			lockManager = self.waitRemoveLockManagers[i][glockIndex].Pop()
@@ -1293,8 +1292,7 @@ func (self *LockDB) checkTimeWaitRemoveLockManager(timeIndex int, glockIndex uin
 	lockManagerQueue := self.waitRemoveLockManagers[timeIndex][glockIndex]
 	lockManager := lockManagerQueue.Pop()
 	for lockManager != nil {
-		lockManager.refCount--
-		if lockManager.refCount == 0 {
+		if atomic.AddUint32(&lockManager.refCount, 0xffffffff) == 0 {
 			self.RemoveLockManager(lockManager)
 		}
 		lockManager = lockManagerQueue.Pop()
@@ -1308,7 +1306,7 @@ func (self *LockDB) addWaitRemoveLockManager(lockManager *LockManager) {
 	lockManagerQueue := self.waitRemoveLockManagers[timeIndex][lockManager.glockIndex]
 	err := lockManagerQueue.Push(lockManager)
 	if err == nil {
-		lockManager.refCount++
+		atomic.AddUint32(&lockManager.refCount, 1)
 	}
 }
 
@@ -1386,7 +1384,7 @@ func (self *LockDB) GetOrNewLockManager(command *protocol.LockCommand) *LockMana
 	if atomic.CompareAndSwapUint32(&fastValue.lock, 0, 1) {
 		if atomic.LoadUint32(&fastValue.count) > 0 {
 			self.mGlock.RLock()
-			if lockManager, ok := self.locks[command.LockKey]; ok && atomic.LoadUint32(&lockManager.refCount) != 0xffffffff {
+			if lockManager, ok := self.locks[command.LockKey]; ok {
 				self.mGlock.RUnlock()
 				atomic.CompareAndSwapUint32(&fastValue.lock, 1, 0)
 				return lockManager
@@ -1415,7 +1413,7 @@ func (self *LockDB) GetOrNewLockManager(command *protocol.LockCommand) *LockMana
 	fastValueLock := atomic.LoadUint32(&fastValue.lock)
 	if fastValueLock == 2 {
 		fastLockManager := fastValue.manager
-		if fastLockManager != nil && fastLockManager.lockKey == command.LockKey && atomic.LoadUint32(&fastLockManager.refCount) != 0xffffffff {
+		if fastLockManager != nil && fastLockManager.lockKey == command.LockKey {
 			return fastLockManager
 		}
 	} else if fastValueLock == 1 {
@@ -1427,13 +1425,13 @@ func (self *LockDB) GetOrNewLockManager(command *protocol.LockCommand) *LockMana
 		}
 
 		fastLockManager := fastValue.manager
-		if fastLockManager != nil && fastLockManager.lockKey == command.LockKey && atomic.LoadUint32(&fastLockManager.refCount) != 0xffffffff {
+		if fastLockManager != nil && fastLockManager.lockKey == command.LockKey {
 			return fastLockManager
 		}
 	}
 
 	self.mGlock.Lock()
-	if lockManager, ok := self.locks[command.LockKey]; ok && atomic.LoadUint32(&lockManager.refCount) != 0xffffffff {
+	if lockManager, ok := self.locks[command.LockKey]; ok {
 		self.mGlock.Unlock()
 		return lockManager
 	}
@@ -1483,7 +1481,7 @@ func (self *LockDB) GetLockManager(command *protocol.LockCommand) *LockManager {
 	fastValueLock := atomic.LoadUint32(&fastValue.lock)
 	if fastValueLock == 2 {
 		fastLockManager := fastValue.manager
-		if fastLockManager != nil && fastLockManager.lockKey == command.LockKey && atomic.LoadUint32(&fastLockManager.refCount) != 0xffffffff {
+		if fastLockManager != nil && fastLockManager.lockKey == command.LockKey {
 			return fastLockManager
 		}
 		if atomic.LoadUint32(&fastValue.count) <= 1 {
@@ -1498,7 +1496,7 @@ func (self *LockDB) GetLockManager(command *protocol.LockCommand) *LockManager {
 		}
 
 		fastLockManager := fastValue.manager
-		if fastLockManager != nil && fastLockManager.lockKey == command.LockKey && atomic.LoadUint32(&fastLockManager.refCount) != 0xffffffff {
+		if fastLockManager != nil && fastLockManager.lockKey == command.LockKey {
 			return fastLockManager
 		}
 		if atomic.LoadUint32(&fastValue.count) <= 1 {
@@ -1509,7 +1507,7 @@ func (self *LockDB) GetLockManager(command *protocol.LockCommand) *LockManager {
 	}
 
 	self.mGlock.RLock()
-	if lockManager, ok := self.locks[command.LockKey]; ok && atomic.LoadUint32(&lockManager.refCount) != 0xffffffff {
+	if lockManager, ok := self.locks[command.LockKey]; ok {
 		self.mGlock.RUnlock()
 		return lockManager
 	}
@@ -1672,7 +1670,7 @@ func (self *LockDB) doTimeOut(lock *Lock, forcedExpried bool, removeWaited bool)
 		lock.refCount--
 		if lock.refCount == 0 {
 			lockManager.FreeLock(lock)
-			if lockManager.refCount == 0 {
+			if atomic.LoadUint32(&lockManager.refCount) == 0 {
 				if removeWaited {
 					self.addWaitRemoveLockManager(lockManager)
 				} else {
@@ -1732,7 +1730,7 @@ func (self *LockDB) doTimeOut(lock *Lock, forcedExpried bool, removeWaited bool)
 	lock.refCount--
 	if lock.refCount == 0 {
 		lockManager.FreeLock(lock)
-		if lockManager.refCount == 0 {
+		if atomic.LoadUint32(&lockManager.refCount) == 0 {
 			if removeWaited {
 				self.addWaitRemoveLockManager(lockManager)
 			} else {
@@ -1854,7 +1852,7 @@ func (self *LockDB) doExpried(lock *Lock, forcedExpried bool, removeWaited bool)
 		lock.refCount--
 		if lock.refCount == 0 {
 			lockManager.FreeLock(lock)
-			if lockManager.refCount == 0 {
+			if atomic.LoadUint32(&lockManager.refCount) == 0 {
 				if removeWaited {
 					self.addWaitRemoveLockManager(lockManager)
 				} else {
@@ -1906,7 +1904,7 @@ func (self *LockDB) doExpried(lock *Lock, forcedExpried bool, removeWaited bool)
 	lock.refCount--
 	if lock.refCount == 0 {
 		lockManager.FreeLock(lock)
-		if lockManager.refCount == 0 {
+		if atomic.LoadUint32(&lockManager.refCount) == 0 {
 			if removeWaited {
 				self.addWaitRemoveLockManager(lockManager)
 			} else {
@@ -2000,7 +1998,7 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 
 	if self.status != STATE_LEADER {
 		if command.Flag&protocol.LOCK_FLAG_FROM_AOF == 0 {
-			if lockManager.refCount == 0 {
+			if atomic.LoadUint32(&lockManager.refCount) == 0 {
 				self.RemoveLockManager(lockManager)
 			}
 			lockManager.glock.PriorityUnlock()
@@ -2228,7 +2226,7 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 			_ = self.subscribeChannels[lockManager.glockIndex].Push(command, protocol.RESULT_EXPRIED, uint16(lockManager.locked), lock.locked, lockManager.GetLockData())
 		}
 		lockManager.FreeLock(lock)
-		if lockManager.refCount == 0 {
+		if atomic.LoadUint32(&lockManager.refCount) == 0 {
 			self.RemoveLockManager(lockManager)
 		}
 		lockManager.state.LockCount++
@@ -2249,7 +2247,7 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 				lockManager.ProcessLockData(command, lock, false)
 			}
 			lockManager.FreeLock(lock)
-			if lockManager.refCount == 0 {
+			if atomic.LoadUint32(&lockManager.refCount) == 0 {
 				self.RemoveLockManager(lockManager)
 			}
 			lockManager.state.LockCount++
@@ -2279,7 +2277,7 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 		_ = self.subscribeChannels[lockManager.glockIndex].Push(command, protocol.RESULT_TIMEOUT, uint16(lockManager.locked), lock.locked, lockManager.GetLockData())
 	}
 	lockManager.FreeLock(lock)
-	if lockManager.refCount == 0 {
+	if atomic.LoadUint32(&lockManager.refCount) == 0 {
 		self.RemoveLockManager(lockManager)
 	}
 	lockManager.glock.PriorityUnlock()
@@ -2428,7 +2426,7 @@ func (self *LockDB) UnLock(serverProtocol ServerProtocol, command *protocol.Lock
 
 				if currentLock.refCount == 0 {
 					lockManager.FreeLock(currentLock)
-					if lockManager.refCount == 0 {
+					if atomic.LoadUint32(&lockManager.refCount) == 0 {
 						self.RemoveLockManager(lockManager)
 					}
 				}
@@ -2470,7 +2468,7 @@ func (self *LockDB) UnLock(serverProtocol ServerProtocol, command *protocol.Lock
 
 			if currentLock.refCount == 0 {
 				lockManager.FreeLock(currentLock)
-				if lockManager.refCount == 0 {
+				if atomic.LoadUint32(&lockManager.refCount) == 0 {
 					self.RemoveLockManager(lockManager)
 				}
 			}
@@ -2566,7 +2564,7 @@ func (self *LockDB) wakeUpWaitLocks(lockManager *LockManager, serverProtocol Ser
 
 		if lockManager.waited {
 			lockManager.waited = false
-			if lockManager.refCount == 0 {
+			if atomic.LoadUint32(&lockManager.refCount) == 0 {
 				self.RemoveLockManager(lockManager)
 			}
 		}
@@ -2699,7 +2697,7 @@ func (self *LockDB) cancelWaitLock(lockManager *LockManager, command *protocol.L
 		lockManager.state.WaitCount--
 	}
 
-	if lockManager.refCount == 0 {
+	if atomic.LoadUint32(&lockManager.refCount) == 0 {
 		self.RemoveLockManager(lockManager)
 	}
 	lockManager.state.UnLockCount++
@@ -2792,7 +2790,7 @@ func (self *LockDB) DoAckLock(lock *Lock, succed bool) {
 		lock.refCount--
 		if lock.refCount == 0 {
 			lockManager.FreeLock(lock)
-			if lockManager.refCount == 0 {
+			if atomic.LoadUint32(&lockManager.refCount) == 0 {
 				self.RemoveLockManager(lockManager)
 			}
 		}
@@ -2812,7 +2810,7 @@ func (self *LockDB) DoAckLock(lock *Lock, succed bool) {
 		lock.refCount--
 		if lock.refCount == 0 {
 			lockManager.FreeLock(lock)
-			if lockManager.refCount == 0 {
+			if atomic.LoadUint32(&lockManager.refCount) == 0 {
 				self.RemoveLockManager(lockManager)
 			}
 		}
@@ -2868,7 +2866,7 @@ func (self *LockDB) DoAckLock(lock *Lock, succed bool) {
 	lock.refCount--
 	if lock.refCount == 0 {
 		lockManager.FreeLock(lock)
-		if lockManager.refCount == 0 {
+		if atomic.LoadUint32(&lockManager.refCount) == 0 {
 			self.RemoveLockManager(lockManager)
 		}
 	}

@@ -1856,6 +1856,10 @@ func (self *BinaryServerProtocol) commandHandleListLockedCommand(_ *BinaryServer
 
 	locks := make([]*protobuf.LockDBLockLocked, 0)
 	lockManager.glock.PriorityLock(PRIORITY_MUTEX_TYPE_NONE)
+	if lockCommand.LockKey != lockManager.lockKey {
+		lockManager.glock.PriorityUnlock()
+		return protocol.NewCallResultCommand(command, protocol.RESULT_UNKNOWN_DB, "LOCK_MANAGER_ERROR", nil), nil
+	}
 	if lockManager.currentLock != nil {
 		lock := lockManager.currentLock
 
@@ -1929,6 +1933,10 @@ func (self *BinaryServerProtocol) commandHandleListWaitCommand(_ *BinaryServerPr
 
 	locks := make([]*protobuf.LockDBLockWait, 0)
 	lockManager.glock.PriorityLock(PRIORITY_MUTEX_TYPE_NONE)
+	if lockCommand.LockKey != lockManager.lockKey {
+		lockManager.glock.PriorityUnlock()
+		return protocol.NewCallResultCommand(command, protocol.RESULT_UNKNOWN_DB, "LOCK_MANAGER_ERROR", nil), nil
+	}
 	if lockManager.waitLocks != nil {
 		for _, waitLocks := range lockManager.waitLocks.IterNodes() {
 			for _, lock := range waitLocks {
@@ -2853,7 +2861,7 @@ func (self *TextServerProtocol) commandHandlerKeyReadValueCommand(_ *TextServerP
 		if lockManager != nil {
 			lockManager.glock.PriorityLock(PRIORITY_MUTEX_TYPE_NONE)
 			currentLock := lockManager.currentLock
-			if currentLock != nil {
+			if lockCommand.LockKey == lockManager.lockKey && currentLock != nil {
 				count, rcount, result, lcount, lrcount, data = currentLock.command.Count, currentLock.command.Rcount, protocol.RESULT_UNOWN_ERROR, uint16(lockManager.locked), currentLock.locked, lockManager.GetLockData()
 			}
 			lockManager.glock.PriorityUnlock()
@@ -3103,6 +3111,10 @@ func (self *TextServerProtocol) commandHandlerKeyTTLCommand(_ *TextServerProtoco
 		return self.stream.WriteBytes([]byte(":-2\r\n"))
 	}
 	lockManager.glock.PriorityLock(PRIORITY_MUTEX_TYPE_NONE)
+	if lockCommand.LockKey != lockManager.lockKey {
+		lockManager.glock.PriorityUnlock()
+		return self.stream.WriteBytes([]byte(":-2\r\n"))
+	}
 	if lockManager.currentLock == nil {
 		lockManager.glock.PriorityUnlock()
 		_ = self.FreeLockCommand(lockCommand)
