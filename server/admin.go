@@ -585,7 +585,7 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 				dbCount++
 				freeLockManagerCount = db.GetFreeLockManagerLen()
 				for i := uint16(0); i < db.managerMaxGlocks; i++ {
-					db.managerGlocks[i].LowPriorityLock()
+					db.managerGlocks[i].PriorityLock(PRIORITY_MUTEX_TYPE_NONE)
 					freeLockCount += int(db.freeLocks[i].Len())
 					freeLongWaitQueueCount += db.freeLongWaitQueues[i].Len()
 					freeMillisecondWaitQueueCount += db.freeMillisecondWaitQueues[i].Len()
@@ -608,7 +608,7 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 						executorQueueCount += executor.queueCount
 						executorExecuteCount += executor.executeCount
 					}
-					db.managerGlocks[i].LowPriorityUnlock()
+					db.managerGlocks[i].PriorityUnlock()
 				}
 			}
 		}
@@ -649,30 +649,39 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 		infos = append(infos, fmt.Sprintf("free_long_wait_queue_count:%d", freeLongWaitQueueCount))
 		infos = append(infos, fmt.Sprintf("free_millisecond_wait_queue_count:%d", freeMillisecondWaitQueueCount))
 		infos = append(infos, fmt.Sprintf("total_commands_processed:%d", totalCommandCount))
-		highPriorityLockActivatingCount, lowPriorityLockActivatingCount := uint64(0), uint64(0)
-		highPriorityLockPinningCount, lowPriorityLockPinningCount := uint64(0), uint64(0)
+		highPriorityLockCount, middlePriorityLockCount, lowPriorityLockCount := uint64(0), uint64(0), uint64(0)
+		highPriorityLockActivatingCount, middlePriorityLockActivatingCount, lowPriorityLockActivatingCount := uint64(0), uint64(0), uint64(0)
+		highPriorityLockPinningCount := uint64(0)
 		highPriorityLockActivatedCount, lowPriorityLockActivatedCount := uint64(0), uint64(0)
 		for _, db := range self.slock.dbs {
 			if db == nil {
 				continue
 			}
 			for j := uint16(0); j < db.managerMaxGlocks; j++ {
-				if db.managerGlocks[j].highPriority != 0 {
-					highPriorityLockActivatingCount++
+				if db.managerGlocks[j].priorityValue&0x04 != 0 {
+					highPriorityLockCount++
+					highPriorityLockActivatingCount += uint64(db.managerGlocks[j].priorityActives[2])
 				}
-				if db.managerGlocks[j].lowPriority != 0 {
-					lowPriorityLockActivatingCount++
+				if db.managerGlocks[j].priorityValue&0x02 != 0 {
+					middlePriorityLockCount++
+					middlePriorityLockActivatingCount += uint64(db.managerGlocks[j].priorityActives[1])
+				}
+				if db.managerGlocks[j].priorityValue&0x01 != 0 {
+					lowPriorityLockCount++
+					lowPriorityLockActivatingCount += uint64(db.managerGlocks[j].priorityActives[0])
 				}
 				highPriorityLockPinningCount += uint64(db.managerGlocks[j].highPriorityAcquireCount)
-				lowPriorityLockPinningCount += uint64(db.managerGlocks[j].lowPriority)
-				highPriorityLockActivatedCount += db.managerGlocks[j].setHighPriorityCount
-				lowPriorityLockActivatedCount += db.managerGlocks[j].setLowPriorityCount
+				highPriorityLockActivatedCount += db.managerGlocks[j].highPriorityActiveCount
+				lowPriorityLockActivatedCount += db.managerGlocks[j].lowPriorityActiveCount
 			}
 		}
+		infos = append(infos, fmt.Sprintf("high_priority_lock_count:%d", highPriorityLockCount))
+		infos = append(infos, fmt.Sprintf("middle_priority_lock_count:%d", middlePriorityLockCount))
+		infos = append(infos, fmt.Sprintf("low_priority_lock_count:%d", lowPriorityLockCount))
 		infos = append(infos, fmt.Sprintf("high_priority_lock_activating_count:%d", highPriorityLockActivatingCount))
+		infos = append(infos, fmt.Sprintf("middle_priority_lock_activating_count:%d", middlePriorityLockActivatingCount))
 		infos = append(infos, fmt.Sprintf("low_priority_lock_activating_count:%d", lowPriorityLockActivatingCount))
 		infos = append(infos, fmt.Sprintf("high_priority_lock_pinning_count:%d", highPriorityLockPinningCount))
-		infos = append(infos, fmt.Sprintf("low_priority_lock_pinning_count:%d", lowPriorityLockPinningCount))
 		infos = append(infos, fmt.Sprintf("high_priority_lock_activated_count:%d", highPriorityLockActivatedCount))
 		infos = append(infos, fmt.Sprintf("low_priority_lock_activated_count:%d", lowPriorityLockActivatedCount))
 		infos = append(infos, fmt.Sprintf("long_timeout_queue_count:%d", longTimeoutQueueCount))
@@ -838,7 +847,7 @@ func (self *Admin) commandHandleShowLockCommand(serverProtocol *TextServerProtoc
 	}
 
 	lockInfos := make([]string, 0)
-	lockManager.glock.LowPriorityLock()
+	lockManager.glock.PriorityLock(PRIORITY_MUTEX_TYPE_NONE)
 	if lockManager.currentLock != nil {
 		lock := lockManager.currentLock
 
@@ -905,7 +914,7 @@ func (self *Admin) commandHandleShowLockCommand(serverProtocol *TextServerProtoc
 			}
 		}
 	}
-	lockManager.glock.LowPriorityUnlock()
+	lockManager.glock.PriorityUnlock()
 	return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(true, "", lockInfos))
 }
 
@@ -919,7 +928,7 @@ func (self *Admin) commandHandleShowLockWaitCommand(serverProtocol *TextServerPr
 	}
 
 	lockInfos := make([]string, 0)
-	lockManager.glock.LowPriorityLock()
+	lockManager.glock.PriorityLock(PRIORITY_MUTEX_TYPE_NONE)
 	if lockManager.waitLocks != nil {
 		for _, waitLocks := range lockManager.waitLocks.IterNodes() {
 			for _, lock := range waitLocks {
@@ -955,7 +964,7 @@ func (self *Admin) commandHandleShowLockWaitCommand(serverProtocol *TextServerPr
 			}
 		}
 	}
-	lockManager.glock.LowPriorityUnlock()
+	lockManager.glock.PriorityUnlock()
 	return serverProtocol.stream.WriteBytes(serverProtocol.parser.BuildResponse(true, "", lockInfos))
 }
 

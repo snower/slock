@@ -792,7 +792,8 @@ func (self *SubscribeChannel) pushPublishLock(publishLock *PublishLock) {
 	self.queueTail.windex++
 	self.queueCount++
 	if !self.lockDbGlockAcquired && self.queueCount > self.lockDbGlockAcquiredSize {
-		self.lockDbGlockAcquired = self.lockDbGlock.LowSetPriority()
+		self.lockDbGlock.ActivePriority(PRIORITY_MUTEX_TYPE_LOW)
+		self.lockDbGlockAcquired = true
 	}
 	if self.queuePulled {
 		self.queueWaiter <- true
@@ -825,7 +826,7 @@ func (self *SubscribeChannel) pullPublishLock() *PublishLock {
 	}
 
 	if self.lockDbGlockAcquired && self.queueCount < self.lockDbGlockAcquiredSize {
-		self.lockDbGlock.LowUnSetPriority()
+		self.lockDbGlock.DeActivePriority(PRIORITY_MUTEX_TYPE_LOW)
 		self.lockDbGlockAcquired = false
 	}
 	return publishLock
@@ -934,7 +935,7 @@ func (self *SubscribeChannel) Run() {
 			self.queueGlock.Lock()
 			self.queuePulled = false
 			if self.lockDbGlockAcquired {
-				self.lockDbGlock.LowUnSetPriority()
+				self.lockDbGlock.DeActivePriority(PRIORITY_MUTEX_TYPE_LOW)
 				self.lockDbGlockAcquired = false
 			}
 			self.queueGlock.Unlock()

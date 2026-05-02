@@ -281,11 +281,11 @@ func (self *SLock) updateState(state uint8) {
 	for _, db := range self.dbs {
 		if db != nil && db.status != state {
 			for i := uint16(0); i < db.managerMaxGlocks; i++ {
-				db.managerGlocks[i].LowPriorityLock()
+				db.managerGlocks[i].PriorityLock(PRIORITY_MUTEX_TYPE_NONE)
 			}
 			db.status = state
 			for i := uint16(0); i < db.managerMaxGlocks; i++ {
-				db.managerGlocks[i].LowPriorityUnlock()
+				db.managerGlocks[i].PriorityUnlock()
 			}
 		}
 	}
@@ -336,11 +336,17 @@ func (self *SLock) GetDB(dbId uint8) *LockDB {
 }
 
 func (self *SLock) doLockComamnd(db *LockDB, serverProtocol ServerProtocol, command *protocol.LockCommand) error {
-	return db.Lock(serverProtocol, command, command.Flag&protocol.LOCK_FLAG_FROM_AOF)
+	if command.Flag&protocol.LOCK_FLAG_FROM_AOF == 0 {
+		return db.Lock(serverProtocol, command, PRIORITY_MUTEX_TYPE_NONE, false)
+	}
+	return db.Lock(serverProtocol, command, PRIORITY_MUTEX_TYPE_LOW, false)
 }
 
 func (self *SLock) doUnLockComamnd(db *LockDB, serverProtocol ServerProtocol, command *protocol.LockCommand) error {
-	return db.UnLock(serverProtocol, command, command.Flag&protocol.UNLOCK_FLAG_FROM_AOF)
+	if command.Flag&protocol.LOCK_FLAG_FROM_AOF == 0 {
+		return db.UnLock(serverProtocol, command, PRIORITY_MUTEX_TYPE_NONE, false)
+	}
+	return db.UnLock(serverProtocol, command, PRIORITY_MUTEX_TYPE_LOW, false)
 }
 
 func (self *SLock) GetState(serverProtocol ServerProtocol, command *protocol.StateCommand) error {

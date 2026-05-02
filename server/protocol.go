@@ -294,7 +294,10 @@ func (self *DefaultServerProtocol) ProcessCommad(command protocol.ICommand) erro
 		if db == nil {
 			db = self.slock.GetOrNewDB(lockCommand.DbId)
 		}
-		return db.Lock(self, lockCommand, lockCommand.Flag&protocol.LOCK_FLAG_FROM_AOF)
+		if lockCommand.Flag&protocol.LOCK_FLAG_FROM_AOF == 0 {
+			return db.Lock(self, lockCommand, PRIORITY_MUTEX_TYPE_NONE, false)
+		}
+		return db.Lock(self, lockCommand, PRIORITY_MUTEX_TYPE_LOW, false)
 
 	case protocol.COMMAND_UNLOCK:
 		lockCommand := command.(*protocol.LockCommand)
@@ -311,8 +314,10 @@ func (self *DefaultServerProtocol) ProcessCommad(command protocol.ICommand) erro
 			_ = self.FreeLockCommand(lockCommand)
 			return err
 		}
-		return db.UnLock(self, lockCommand, lockCommand.Flag&protocol.UNLOCK_FLAG_FROM_AOF)
-
+		if lockCommand.Flag&protocol.LOCK_FLAG_FROM_AOF == 0 {
+			return db.UnLock(self, lockCommand, PRIORITY_MUTEX_TYPE_NONE, false)
+		}
+		return db.UnLock(self, lockCommand, PRIORITY_MUTEX_TYPE_LOW, false)
 	default:
 		return self.Write(protocol.NewResultCommand(command, protocol.RESULT_UNKNOWN_COMMAND))
 	}
@@ -330,7 +335,10 @@ func (self *DefaultServerProtocol) ProcessLockCommand(lockCommand *protocol.Lock
 		if db == nil {
 			db = self.slock.GetOrNewDB(lockCommand.DbId)
 		}
-		return db.Lock(self, lockCommand, lockCommand.Flag&protocol.LOCK_FLAG_FROM_AOF)
+		if lockCommand.Flag&protocol.LOCK_FLAG_FROM_AOF == 0 {
+			return db.Lock(self, lockCommand, PRIORITY_MUTEX_TYPE_NONE, false)
+		}
+		return db.Lock(self, lockCommand, PRIORITY_MUTEX_TYPE_LOW, false)
 	}
 
 	if db == nil {
@@ -338,7 +346,10 @@ func (self *DefaultServerProtocol) ProcessLockCommand(lockCommand *protocol.Lock
 		_ = self.FreeLockCommand(lockCommand)
 		return err
 	}
-	return db.UnLock(self, lockCommand, lockCommand.Flag&protocol.UNLOCK_FLAG_FROM_AOF)
+	if lockCommand.Flag&protocol.LOCK_FLAG_FROM_AOF == 0 {
+		return db.UnLock(self, lockCommand, PRIORITY_MUTEX_TYPE_NONE, false)
+	}
+	return db.UnLock(self, lockCommand, PRIORITY_MUTEX_TYPE_LOW, false)
 }
 
 func (self *DefaultServerProtocol) ProcessLockResultCommand(_ *protocol.LockCommand, _ uint8, _ uint16, _ uint8, _ []byte) error {
@@ -483,14 +494,20 @@ func (self *MemWaiterServerProtocol) ProcessLockCommand(lockCommand *protocol.Lo
 		if db == nil {
 			db = self.slock.GetOrNewDB(lockCommand.DbId)
 		}
-		return db.Lock(self, lockCommand, lockCommand.Flag&protocol.LOCK_FLAG_FROM_AOF)
+		if lockCommand.Flag&protocol.LOCK_FLAG_FROM_AOF == 0 {
+			return db.Lock(self, lockCommand, PRIORITY_MUTEX_TYPE_NONE, false)
+		}
+		return db.Lock(self, lockCommand, PRIORITY_MUTEX_TYPE_LOW, false)
 	case protocol.COMMAND_UNLOCK:
 		if db == nil {
 			err := self.ProcessLockResultCommand(lockCommand, protocol.RESULT_UNKNOWN_DB, 0, 0, nil)
 			_ = self.FreeLockCommand(lockCommand)
 			return err
 		}
-		return db.UnLock(self, lockCommand, lockCommand.Flag&protocol.UNLOCK_FLAG_FROM_AOF)
+		if lockCommand.Flag&protocol.LOCK_FLAG_FROM_AOF == 0 {
+			return db.UnLock(self, lockCommand, PRIORITY_MUTEX_TYPE_NONE, false)
+		}
+		return db.UnLock(self, lockCommand, PRIORITY_MUTEX_TYPE_LOW, false)
 	}
 	return self.ProcessLockResultCommand(lockCommand, protocol.RESULT_UNKNOWN_COMMAND, 0, 0, nil)
 }
@@ -1205,7 +1222,7 @@ func (self *BinaryServerProtocol) ProcessParse(buf []byte) error {
 		if db == nil {
 			db = self.slock.GetOrNewDB(lockCommand.DbId)
 		}
-		err := db.Lock(self, lockCommand, lockCommand.Flag&protocol.LOCK_FLAG_FROM_AOF)
+		err := db.Lock(self, lockCommand, PRIORITY_MUTEX_TYPE_NONE, false)
 		if err != nil {
 			return err
 		}
@@ -1261,7 +1278,7 @@ func (self *BinaryServerProtocol) ProcessParse(buf []byte) error {
 			_ = self.FreeLockCommand(lockCommand)
 			return err
 		}
-		err := db.UnLock(self, lockCommand, lockCommand.Flag&protocol.UNLOCK_FLAG_FROM_AOF)
+		err := db.UnLock(self, lockCommand, PRIORITY_MUTEX_TYPE_NONE, false)
 		if err != nil {
 			return err
 		}
@@ -1382,7 +1399,7 @@ func (self *BinaryServerProtocol) ProcessCommad(command protocol.ICommand) error
 		if db == nil {
 			db = self.slock.GetOrNewDB(lockCommand.DbId)
 		}
-		return db.Lock(self, lockCommand, lockCommand.Flag&protocol.LOCK_FLAG_FROM_AOF)
+		return db.Lock(self, lockCommand, PRIORITY_MUTEX_TYPE_NONE, false)
 
 	case protocol.COMMAND_UNLOCK:
 		lockCommand := command.(*protocol.LockCommand)
@@ -1399,7 +1416,7 @@ func (self *BinaryServerProtocol) ProcessCommad(command protocol.ICommand) error
 			_ = self.FreeLockCommand(lockCommand)
 			return err
 		}
-		return db.UnLock(self, lockCommand, lockCommand.Flag&protocol.UNLOCK_FLAG_FROM_AOF)
+		return db.UnLock(self, lockCommand, PRIORITY_MUTEX_TYPE_NONE, false)
 
 	default:
 		switch command.GetCommandType() {
@@ -1527,7 +1544,7 @@ func (self *BinaryServerProtocol) ProcessLockCommand(lockCommand *protocol.LockC
 		if db == nil {
 			db = self.slock.GetOrNewDB(lockCommand.DbId)
 		}
-		return db.Lock(self, lockCommand, lockCommand.Flag&protocol.LOCK_FLAG_FROM_AOF)
+		return db.Lock(self, lockCommand, PRIORITY_MUTEX_TYPE_NONE, false)
 	}
 
 	if db == nil {
@@ -1535,7 +1552,7 @@ func (self *BinaryServerProtocol) ProcessLockCommand(lockCommand *protocol.LockC
 		_ = self.FreeLockCommand(lockCommand)
 		return err
 	}
-	return db.UnLock(self, lockCommand, lockCommand.Flag&protocol.UNLOCK_FLAG_FROM_AOF)
+	return db.UnLock(self, lockCommand, PRIORITY_MUTEX_TYPE_NONE, false)
 }
 
 func (self *BinaryServerProtocol) ProcessLockResultCommand(command *protocol.LockCommand, result uint8, lcount uint16, lrcount uint8, data []byte) error {
@@ -1838,7 +1855,7 @@ func (self *BinaryServerProtocol) commandHandleListLockedCommand(_ *BinaryServer
 	}
 
 	locks := make([]*protobuf.LockDBLockLocked, 0)
-	lockManager.glock.LowPriorityLock()
+	lockManager.glock.PriorityLock(PRIORITY_MUTEX_TYPE_NONE)
 	if lockManager.currentLock != nil {
 		lock := lockManager.currentLock
 
@@ -1876,7 +1893,7 @@ func (self *BinaryServerProtocol) commandHandleListLockedCommand(_ *BinaryServer
 	if lockData != nil {
 		lockDBLockData = &protobuf.LockDBLockData{Data: lockData[6:], CommandType: uint32(lockData[4]), DataFlag: uint32(lockData[5])}
 	}
-	lockManager.glock.LowPriorityUnlock()
+	lockManager.glock.PriorityUnlock()
 
 	response := protobuf.LockDBListLockedResponse{LockKey: lockManager.lockKey[:], LockedCount: lockManager.locked, Locks: locks, LockData: lockDBLockData}
 	data, err := proto.Marshal(&response)
@@ -1911,7 +1928,7 @@ func (self *BinaryServerProtocol) commandHandleListWaitCommand(_ *BinaryServerPr
 	}
 
 	locks := make([]*protobuf.LockDBLockWait, 0)
-	lockManager.glock.LowPriorityLock()
+	lockManager.glock.PriorityLock(PRIORITY_MUTEX_TYPE_NONE)
 	if lockManager.waitLocks != nil {
 		for _, waitLocks := range lockManager.waitLocks.IterNodes() {
 			for _, lock := range waitLocks {
@@ -1934,7 +1951,7 @@ func (self *BinaryServerProtocol) commandHandleListWaitCommand(_ *BinaryServerPr
 	if lockData != nil {
 		lockDBLockData = &protobuf.LockDBLockData{Data: lockData[6:], CommandType: uint32(lockData[4]), DataFlag: uint32(lockData[5])}
 	}
-	lockManager.glock.LowPriorityUnlock()
+	lockManager.glock.PriorityUnlock()
 
 	response := protobuf.LockDBListWaitResponse{LockKey: lockManager.lockKey[:], LockedCount: lockManager.locked, Locks: locks, LockData: lockDBLockData}
 	data, err := proto.Marshal(&response)
@@ -2343,7 +2360,7 @@ func (self *TextServerProtocol) ProcessCommad(command protocol.ICommand) error {
 		if db == nil {
 			db = self.slock.GetOrNewDB(lockCommand.DbId)
 		}
-		return db.Lock(self, lockCommand, lockCommand.Flag&protocol.LOCK_FLAG_FROM_AOF)
+		return db.Lock(self, lockCommand, PRIORITY_MUTEX_TYPE_NONE, false)
 
 	case protocol.COMMAND_UNLOCK:
 		lockCommand := command.(*protocol.LockCommand)
@@ -2360,7 +2377,7 @@ func (self *TextServerProtocol) ProcessCommad(command protocol.ICommand) error {
 			_ = self.FreeLockCommand(lockCommand)
 			return err
 		}
-		return db.UnLock(self, lockCommand, lockCommand.Flag&protocol.UNLOCK_FLAG_FROM_AOF)
+		return db.UnLock(self, lockCommand, PRIORITY_MUTEX_TYPE_NONE, false)
 
 	default:
 		switch command.GetCommandType() {
@@ -2460,7 +2477,7 @@ func (self *TextServerProtocol) ProcessLockCommand(lockCommand *protocol.LockCom
 		if db == nil {
 			db = self.slock.GetOrNewDB(lockCommand.DbId)
 		}
-		return db.Lock(self, lockCommand, lockCommand.Flag&protocol.LOCK_FLAG_FROM_AOF)
+		return db.Lock(self, lockCommand, PRIORITY_MUTEX_TYPE_NONE, false)
 	}
 
 	if db == nil {
@@ -2468,7 +2485,7 @@ func (self *TextServerProtocol) ProcessLockCommand(lockCommand *protocol.LockCom
 		_ = self.FreeLockCommand(lockCommand)
 		return err
 	}
-	return db.UnLock(self, lockCommand, lockCommand.Flag&protocol.UNLOCK_FLAG_FROM_AOF)
+	return db.UnLock(self, lockCommand, PRIORITY_MUTEX_TYPE_NONE, false)
 }
 
 func (self *TextServerProtocol) ProcessLockResultCommand(lockCommand *protocol.LockCommand, result uint8, lcount uint16, lrcount uint8, data []byte) error {
@@ -2694,7 +2711,7 @@ func (self *TextServerProtocol) commandHandlerLock(_ *TextServerProtocol, args [
 		db = self.slock.GetOrNewDB(lockCommand.DbId)
 	}
 	self.lockRequestId = lockCommand.RequestId
-	err = db.Lock(self, lockCommand, lockCommand.Flag&protocol.LOCK_FLAG_FROM_AOF)
+	err = db.Lock(self, lockCommand, PRIORITY_MUTEX_TYPE_NONE, false)
 	if err != nil {
 		self.lockRequestId[0], self.lockRequestId[1], self.lockRequestId[2], self.lockRequestId[3], self.lockRequestId[4], self.lockRequestId[5], self.lockRequestId[6], self.lockRequestId[7],
 			self.lockRequestId[8], self.lockRequestId[9], self.lockRequestId[10], self.lockRequestId[11], self.lockRequestId[12], self.lockRequestId[13], self.lockRequestId[14], self.lockRequestId[15] =
@@ -2741,7 +2758,7 @@ func (self *TextServerProtocol) commandHandlerUnlock(_ *TextServerProtocol, args
 	}
 
 	self.lockRequestId = lockCommand.RequestId
-	err = db.UnLock(self, lockCommand, lockCommand.Flag&protocol.UNLOCK_FLAG_FROM_AOF)
+	err = db.UnLock(self, lockCommand, PRIORITY_MUTEX_TYPE_NONE, false)
 	if err != nil {
 		self.lockRequestId[0], self.lockRequestId[1], self.lockRequestId[2], self.lockRequestId[3], self.lockRequestId[4], self.lockRequestId[5], self.lockRequestId[6], self.lockRequestId[7],
 			self.lockRequestId[8], self.lockRequestId[9], self.lockRequestId[10], self.lockRequestId[11], self.lockRequestId[12], self.lockRequestId[13], self.lockRequestId[14], self.lockRequestId[15] =
@@ -2776,7 +2793,7 @@ func (self *TextServerProtocol) commandHandlerPush(_ *TextServerProtocol, args [
 	if db == nil {
 		db = self.slock.GetOrNewDB(lockCommand.DbId)
 	}
-	err = db.Lock(self, lockCommand, lockCommand.Flag&protocol.LOCK_FLAG_FROM_AOF)
+	err = db.Lock(self, lockCommand, PRIORITY_MUTEX_TYPE_NONE, false)
 	if err != nil {
 		return self.stream.WriteBytes(self.parser.BuildResponse(false, "ERR Lock Error", nil))
 	}
@@ -2800,9 +2817,9 @@ func (self *TextServerProtocol) commandHandlerKeyWriteValueCommand(_ *TextServer
 	self.lockRequestId = lockCommand.RequestId
 	switch lockCommand.CommandType {
 	case protocol.COMMAND_LOCK:
-		err = db.Lock(self, lockCommand, lockCommand.Flag&protocol.LOCK_FLAG_FROM_AOF)
+		err = db.Lock(self, lockCommand, PRIORITY_MUTEX_TYPE_NONE, false)
 	case protocol.COMMAND_UNLOCK:
-		err = db.UnLock(self, lockCommand, lockCommand.Flag&protocol.LOCK_FLAG_FROM_AOF)
+		err = db.UnLock(self, lockCommand, PRIORITY_MUTEX_TYPE_NONE, false)
 	default:
 		err = errors.New("unknown command")
 	}
@@ -2834,12 +2851,12 @@ func (self *TextServerProtocol) commandHandlerKeyReadValueCommand(_ *TextServerP
 	if db != nil {
 		lockManager := db.GetLockManager(lockCommand)
 		if lockManager != nil {
-			lockManager.glock.LowPriorityLock()
+			lockManager.glock.PriorityLock(PRIORITY_MUTEX_TYPE_NONE)
 			currentLock := lockManager.currentLock
 			if currentLock != nil {
 				count, rcount, result, lcount, lrcount, data = currentLock.command.Count, currentLock.command.Rcount, protocol.RESULT_UNOWN_ERROR, uint16(lockManager.locked), currentLock.locked, lockManager.GetLockData()
 			}
-			lockManager.glock.LowPriorityUnlock()
+			lockManager.glock.PriorityUnlock()
 		}
 	}
 
@@ -3085,14 +3102,14 @@ func (self *TextServerProtocol) commandHandlerKeyTTLCommand(_ *TextServerProtoco
 		_ = self.FreeLockCommand(lockCommand)
 		return self.stream.WriteBytes([]byte(":-2\r\n"))
 	}
-	lockManager.glock.LowPriorityLock()
+	lockManager.glock.PriorityLock(PRIORITY_MUTEX_TYPE_NONE)
 	if lockManager.currentLock == nil {
-		lockManager.glock.LowPriorityUnlock()
+		lockManager.glock.PriorityUnlock()
 		_ = self.FreeLockCommand(lockCommand)
 		return self.stream.WriteBytes([]byte(":-2\r\n"))
 	}
 	expriedTime := lockManager.currentLock.expriedTime
-	lockManager.glock.LowPriorityUnlock()
+	lockManager.glock.PriorityUnlock()
 	_ = self.FreeLockCommand(lockCommand)
 	if expriedTime == 0x7fffffffffffffff {
 		return self.stream.WriteBytes([]byte(":-1\r\n"))

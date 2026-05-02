@@ -2325,8 +2325,8 @@ func (self *ReplicationManager) SwitchToFollower(address string) error {
 	for _, db := range self.slock.dbs {
 		if db != nil {
 			for i := uint16(0); i < db.managerMaxGlocks; i++ {
-				db.managerGlocks[i].Lock()
-				db.managerGlocks[i].Unlock()
+				db.managerGlocks[i].PriorityLock(PRIORITY_MUTEX_TYPE_LOW)
+				db.managerGlocks[i].PriorityUnlock()
 			}
 		}
 	}
@@ -2432,8 +2432,8 @@ func (self *ReplicationManager) SuspendFollower() error {
 		for _, db := range self.slock.dbs {
 			if db != nil {
 				for i := uint16(0); i < db.managerMaxGlocks; i++ {
-					db.managerGlocks[i].Lock()
-					db.managerGlocks[i].Unlock()
+					db.managerGlocks[i].PriorityLock(PRIORITY_MUTEX_TYPE_LOW)
+					db.managerGlocks[i].PriorityUnlock()
 				}
 			}
 		}

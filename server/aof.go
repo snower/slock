@@ -711,7 +711,8 @@ func (self *AofChannel) pushAofLock(aofLock *AofLock) {
 	self.queueTail.windex++
 	self.queueCount++
 	if !self.lockDbGlockAcquired && self.queueCount > self.lockDbGlockAcquiredSize {
-		self.lockDbGlockAcquired = self.lockDbGlock.LowSetPriority()
+		self.lockDbGlock.ActivePriority(PRIORITY_MUTEX_TYPE_LOW)
+		self.lockDbGlockAcquired = true
 	}
 	if self.queuePulled {
 		self.queueWaiter <- struct{}{}
@@ -744,7 +745,7 @@ func (self *AofChannel) pullAofLock() *AofLock {
 	}
 
 	if self.lockDbGlockAcquired && self.queueCount < self.lockDbGlockAcquiredSize {
-		self.lockDbGlock.LowUnSetPriority()
+		self.lockDbGlock.DeActivePriority(PRIORITY_MUTEX_TYPE_LOW)
 		self.lockDbGlockAcquired = false
 	}
 	return aofLock
@@ -818,9 +819,9 @@ func (self *AofChannel) Load(fromAofLock *AofLock) error {
 		return io.EOF
 	}
 
-	if atomic.LoadUint32(&self.lockDbGlock.lowPriority) != 0 {
-		self.lockDbGlock.LowPriorityLock()
-		self.lockDbGlock.LowPriorityUnlock()
+	if atomic.LoadUint32(&self.lockDbGlock.priorityValue) != 0 {
+		self.lockDbGlock.PriorityLock(PRIORITY_MUTEX_TYPE_NONE)
+		self.lockDbGlock.PriorityUnlock()
 	}
 	aofLock := self.getAofLock()
 	copy(aofLock.buf, fromAofLock.buf)
@@ -838,9 +839,9 @@ func (self *AofChannel) Replay(fromAofLock *AofLock) error {
 		return io.EOF
 	}
 
-	if atomic.LoadUint32(&self.lockDbGlock.lowPriority) != 0 {
-		self.lockDbGlock.LowPriorityLock()
-		self.lockDbGlock.LowPriorityUnlock()
+	if atomic.LoadUint32(&self.lockDbGlock.priorityValue) != 0 {
+		self.lockDbGlock.PriorityLock(PRIORITY_MUTEX_TYPE_NONE)
+		self.lockDbGlock.PriorityUnlock()
 	}
 	aofLock := self.getAofLock()
 	copy(aofLock.buf, fromAofLock.buf)
@@ -922,7 +923,7 @@ func (self *AofChannel) Run() {
 			self.queueGlock.Lock()
 			self.queuePulled = false
 			if self.lockDbGlockAcquired {
-				self.lockDbGlock.LowUnSetPriority()
+				self.lockDbGlock.DeActivePriority(PRIORITY_MUTEX_TYPE_LOW)
 				self.lockDbGlockAcquired = false
 			}
 			self.queueGlock.Unlock()

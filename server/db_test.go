@@ -52,11 +52,11 @@ func TestLockDB_LockTimeoutLongWait(t *testing.T) {
 			t.Errorf("longTimeoutLocks Is Not Exist")
 			return
 		}
-		db.managerGlocks[0].Lock()
+		db.managerGlocks[0].PriorityLock(PRIORITY_MUTEX_TYPE_NONE)
 		for _, lock := range locks {
 			db.RemoveLongTimeOut(lock)
 		}
-		db.managerGlocks[0].Unlock()
+		db.managerGlocks[0].PriorityUnlock()
 		if longLocks, ok := db.longTimeoutLocks[0][lockTimeoutTime]; ok {
 			t.Errorf("longTimeoutLocks Is Exist %v", longLocks.Len())
 			return
@@ -118,11 +118,11 @@ func TestLockDB_LockExpriedLongWait(t *testing.T) {
 			t.Errorf("longExpriedLocks Is Not Exist")
 			return
 		}
-		db.managerGlocks[0].Lock()
+		db.managerGlocks[0].PriorityLock(PRIORITY_MUTEX_TYPE_NONE)
 		for _, lock := range locks {
 			db.RemoveLongExpried(lock, lock.expriedTime)
 		}
-		db.managerGlocks[0].Unlock()
+		db.managerGlocks[0].PriorityUnlock()
 		if longLocks, ok := db.longExpriedLocks[0][lockExpriedTime]; ok {
 			t.Errorf("longExpriedLocks Is Exist %v", longLocks.Len())
 			return
@@ -160,21 +160,20 @@ func TestLockDB_LockExpriedLongWait(t *testing.T) {
 func TestLockDBExecutorFlushQueueDrainsAllTasks(t *testing.T) {
 	testWithLockDB(t, func(db *LockDB) {
 		executor := &LockDBExecutor{
-			db:            db,
-			glock:         db.managerGlocks[0],
-			queueLock:     &sync.Mutex{},
-			freeTasks:     make([]*LockDBExecutorTask, 4),
-			freeTaskMax:   4,
-			glockAcquired: true,
-			queueCount:    2,
+			db:          db,
+			glock:       db.managerGlocks[0],
+			queueLock:   &sync.Mutex{},
+			freeTasks:   make([]*LockDBExecutorTask, 4),
+			freeTaskMax: 4,
+			queueCount:  2,
 		}
 
 		lockManager1 := NewLockManager(db, &protocol.LockCommand{DbId: 0}, db.managerGlocks[0], 0, db.freeLocks[0], db.states[0])
 		lockManager2 := NewLockManager(db, &protocol.LockCommand{DbId: 0}, db.managerGlocks[0], 0, db.freeLocks[0], db.states[0])
 		lockManager1.refCount = 1
 		lockManager2.refCount = 1
-		lockManager1.glock.LowSetPriorityWithNotTraceCount()
-		lockManager2.glock.LowSetPriorityWithNotTraceCount()
+		lockManager1.glock.ActivePriority(PRIORITY_MUTEX_TYPE_MIDDLE)
+		lockManager2.glock.ActivePriority(PRIORITY_MUTEX_TYPE_MIDDLE)
 
 		task2 := &LockDBExecutorTask{serverProtocol: defaultServerProtocol, command: &protocol.LockCommand{}, lockManager: lockManager2}
 		task1 := &LockDBExecutorTask{next: task2, serverProtocol: defaultServerProtocol, command: &protocol.LockCommand{}, lockManager: lockManager1}

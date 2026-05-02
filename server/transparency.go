@@ -500,7 +500,7 @@ func (self *TransparencyBinaryServerProtocol) ProcessParse(buf []byte) error {
 			if db == nil {
 				db = self.slock.GetOrNewDB(lockCommand.DbId)
 			}
-			return db.Lock(self, lockCommand, lockCommand.Flag&protocol.LOCK_FLAG_FROM_AOF)
+			return db.Lock(self, lockCommand, PRIORITY_MUTEX_TYPE_NONE, false)
 		} else {
 			db := self.slock.dbs[lockCommand.DbId]
 			if db != nil && db.CheckProbableLock(self, lockCommand) {
@@ -574,7 +574,7 @@ func (self *TransparencyBinaryServerProtocol) ProcessParse(buf []byte) error {
 				_ = self.serverProtocol.FreeLockCommand(lockCommand)
 				return err
 			}
-			return db.UnLock(self, lockCommand, lockCommand.Flag&protocol.UNLOCK_FLAG_FROM_AOF)
+			return db.UnLock(self, lockCommand, PRIORITY_MUTEX_TYPE_NONE, false)
 		}
 
 		clientProtocol, err := self.CheckClient()

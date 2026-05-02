@@ -159,30 +159,29 @@ type LockDBExecutorTask struct {
 }
 
 type LockDBExecutor struct {
-	db                *LockDB
-	glock             *PriorityMutex
-	queueLock         *sync.Mutex
-	queueHead         *LockDBExecutorTask
-	queueTail         *LockDBExecutorTask
-	freeTasks         []*LockDBExecutorTask
-	freeTaskIndex     int
-	freeTaskMax       int
-	runningCount      int
-	queueCount        int
-	executeCount      uint64
-	queueWaiter       chan struct{}
-	queueWaited       int
-	glockAcquiredSize int
-	glockAcquired     bool
-	closeWaiter       chan struct{}
+	db            *LockDB
+	glock         *PriorityMutex
+	queueLock     *sync.Mutex
+	queueHead     *LockDBExecutorTask
+	queueTail     *LockDBExecutorTask
+	freeTasks     []*LockDBExecutorTask
+	freeTaskIndex int
+	freeTaskMax   int
+	runningCount  int
+	queueCount    int
+	executeCount  uint64
+	queueWaiter   chan struct{}
+	queueWaited   int
+	closeWaiter   chan struct{}
 }
 
 func NewLockDBExecutor(db *LockDB, glock *PriorityMutex) *LockDBExecutor {
 	freeTaskMax := int(Config.AofQueueSize) / 64
 	executor := &LockDBExecutor{db, glock, &sync.Mutex{}, nil, nil,
 		make([]*LockDBExecutorTask, freeTaskMax), 0, freeTaskMax, 0, 0,
-		0, make(chan struct{}, 4), 0, freeTaskMax * 2, false,
-		make(chan struct{})}
+		0, make(chan struct{}, 4), 0, make(chan struct{})}
+	go executor.Run()
+	go executor.Run()
 	go executor.Run()
 	go executor.Run()
 	return executor
@@ -208,24 +207,20 @@ func (self *LockDBExecutor) Run() {
 			self.queueHead = nil
 		}
 		self.queueCount--
-		if self.glockAcquired && self.queueCount < self.glockAcquiredSize {
-			self.glock.LowUnSetPriority()
-			self.glockAcquired = false
-		}
+		deActivePriority := self.queueTail == nil
 		self.queueLock.Unlock()
 		if self.db.status == STATE_LEADER {
 			switch executorTask.command.CommandType {
 			case protocol.COMMAND_LOCK:
-				_ = self.db.Lock(executorTask.serverProtocol, executorTask.command, 1)
+				_ = self.db.Lock(executorTask.serverProtocol, executorTask.command, PRIORITY_MUTEX_TYPE_MIDDLE, deActivePriority)
 			case protocol.COMMAND_UNLOCK:
-				_ = self.db.UnLock(executorTask.serverProtocol, executorTask.command, 1)
+				_ = self.db.UnLock(executorTask.serverProtocol, executorTask.command, PRIORITY_MUTEX_TYPE_MIDDLE, deActivePriority)
 			}
 		}
-		executorTask.lockManager.glock.LowUnSetPriority()
 		if atomic.AddUint32(&executorTask.lockManager.refCount, 0xffffffff) == 0 {
-			executorTask.lockManager.glock.Lock()
+			executorTask.lockManager.glock.PriorityLock(PRIORITY_MUTEX_TYPE_MIDDLE)
 			self.db.RemoveLockManager(executorTask.lockManager)
-			executorTask.lockManager.glock.Unlock()
+			executorTask.lockManager.glock.PriorityUnlock()
 		}
 		executorTask.next = nil
 		executorTask.serverProtocol = nil
@@ -261,15 +256,13 @@ func (self *LockDBExecutor) Push(serverProtocol ServerProtocol, lockCommand *pro
 	}
 	if self.queueHead != nil {
 		self.queueHead.next = executorTask
+		self.queueHead = executorTask
 	} else {
 		self.queueTail = executorTask
+		self.queueHead = executorTask
+		self.glock.ActivePriority(PRIORITY_MUTEX_TYPE_MIDDLE)
 	}
-	self.queueHead = executorTask
-	lockManager.glock.LowSetPriorityWithNotTraceCount()
 	self.queueCount++
-	if !self.glockAcquired && self.queueCount > self.glockAcquiredSize {
-		self.glockAcquired = self.glock.LowSetPriority()
-	}
 	if self.queueWaited > 0 {
 		self.queueWaiter <- struct{}{}
 		self.queueWaited--
@@ -279,10 +272,13 @@ func (self *LockDBExecutor) Push(serverProtocol ServerProtocol, lockCommand *pro
 
 func (self *LockDBExecutor) FlushQueue() {
 	self.queueLock.Lock()
+	if self.queueTail == nil {
+		self.queueLock.Unlock()
+		return
+	}
 	executorTask := self.queueTail
 	for executorTask != nil {
 		nextTask := executorTask.next
-		executorTask.lockManager.glock.LowUnSetPriority()
 		if atomic.AddUint32(&executorTask.lockManager.refCount, 0xffffffff) == 0 {
 			self.db.RemoveLockManager(executorTask.lockManager)
 		}
@@ -300,10 +296,7 @@ func (self *LockDBExecutor) FlushQueue() {
 	}
 	self.queueTail = nil
 	self.queueHead = nil
-	if self.glockAcquired && self.queueCount < self.glockAcquiredSize {
-		self.glock.LowUnSetPriority()
-		self.glockAcquired = false
-	}
+	self.glock.DeActivePriority(PRIORITY_MUTEX_TYPE_MIDDLE)
 	self.queueLock.Unlock()
 }
 
@@ -352,13 +345,13 @@ func (self *LockDBFreeCollector) Collect(lastCollectTime int64, db *LockDB) erro
 	}
 	freeLockCount, minLockCount, executorFreeTaskCount, executorMinTaskCount := 0, minLockManagerCount*2, 0, minLockManagerCount*2
 	for i := uint16(0); i < db.managerMaxGlocks; i++ {
-		db.managerGlocks[i].LowPriorityLock()
+		db.managerGlocks[i].PriorityLock(PRIORITY_MUTEX_TYPE_NONE)
 		freeLockCount += int(db.freeLocks[i].Len())
 		executor := db.executors[i]
 		if executor != nil {
 			executorFreeTaskCount += executor.FreeTaskLen()
 		}
-		db.managerGlocks[i].LowPriorityUnlock()
+		db.managerGlocks[i].PriorityUnlock()
 	}
 
 	if lockAvgCount <= self.lastLockAvgCount*2 {
@@ -370,7 +363,7 @@ func (self *LockDBFreeCollector) Collect(lastCollectTime int64, db *LockDB) erro
 			freeCount := freeLockCount / 20 / int(db.managerMaxGlocks)
 			if freeCount > 0 {
 				for i := uint16(0); i < db.managerMaxGlocks; i++ {
-					db.managerGlocks[i].LowPriorityLock()
+					db.managerGlocks[i].PriorityLock(PRIORITY_MUTEX_TYPE_NONE)
 					for j := 0; j < freeCount; j++ {
 						lock := db.freeLocks[i].PopRight()
 						if lock == nil {
@@ -378,7 +371,7 @@ func (self *LockDBFreeCollector) Collect(lastCollectTime int64, db *LockDB) erro
 						}
 					}
 					db.freeLocks[i].freeQueue()
-					db.managerGlocks[i].LowPriorityUnlock()
+					db.managerGlocks[i].PriorityUnlock()
 				}
 			}
 		}
@@ -394,14 +387,14 @@ func (self *LockDBFreeCollector) Collect(lastCollectTime int64, db *LockDB) erro
 			}
 			freeCount := expiredCount / 10
 			if freeCount > 0 {
-				db.managerGlocks[i].LowPriorityLock()
+				db.managerGlocks[i].PriorityLock(PRIORITY_MUTEX_TYPE_NONE)
 				for j := 0; j < freeCount; j++ {
 					queue := db.freeLongWaitQueues[i].Pop()
 					if queue == nil {
 						break
 					}
 				}
-				db.managerGlocks[i].LowPriorityUnlock()
+				db.managerGlocks[i].PriorityUnlock()
 			}
 		}
 
@@ -416,14 +409,14 @@ func (self *LockDBFreeCollector) Collect(lastCollectTime int64, db *LockDB) erro
 			}
 			freeCount := expiredCount / 10
 			if freeCount > 0 {
-				db.managerGlocks[i].LowPriorityLock()
+				db.managerGlocks[i].PriorityLock(PRIORITY_MUTEX_TYPE_NONE)
 				for j := 0; j < freeCount; j++ {
 					queue := db.freeMillisecondWaitQueues[i].Pop()
 					if queue == nil {
 						break
 					}
 				}
-				db.managerGlocks[i].LowPriorityUnlock()
+				db.managerGlocks[i].PriorityUnlock()
 			}
 		}
 
@@ -431,14 +424,14 @@ func (self *LockDBFreeCollector) Collect(lastCollectTime int64, db *LockDB) erro
 			freeCount := executorFreeTaskCount / 20 / int(db.managerMaxGlocks)
 			if freeCount > 0 {
 				for i := uint16(0); i < db.managerMaxGlocks; i++ {
-					db.managerGlocks[i].LowPriorityLock()
+					db.managerGlocks[i].PriorityLock(PRIORITY_MUTEX_TYPE_NONE)
 					executor := db.executors[i]
 					if executor != nil {
 						for j := 0; j < freeCount; j++ {
 							executor.PopFreeTask()
 						}
 					}
-					db.managerGlocks[i].LowPriorityUnlock()
+					db.managerGlocks[i].PriorityUnlock()
 				}
 			}
 		}
@@ -658,7 +651,7 @@ func (self *LockDB) Close() {
 	self.glock.Unlock()
 
 	for i := uint16(0); i < self.managerMaxGlocks; i++ {
-		self.managerGlocks[i].LowPriorityLock()
+		self.managerGlocks[i].PriorityLock(PRIORITY_MUTEX_TYPE_NONE)
 		if self.executors[i] != nil {
 			self.executors[i].Close()
 			self.executors[i] = nil
@@ -670,14 +663,14 @@ func (self *LockDB) Close() {
 		if self.subscribeChannels != nil {
 			self.slock.GetSubscribeManager().CloseSubscribeChannel(self.subscribeChannels[i])
 		}
-		self.managerGlocks[i].LowPriorityUnlock()
+		self.managerGlocks[i].PriorityUnlock()
 	}
 	close(self.closeWaiter)
 }
 
 func (self *LockDB) FlushDB() error {
 	for i := uint16(0); i < self.managerMaxGlocks; i++ {
-		self.managerGlocks[i].LowPriorityLock()
+		self.managerGlocks[i].PriorityLock(PRIORITY_MUTEX_TYPE_NONE)
 	}
 
 	for i := uint16(0); i < self.managerMaxGlocks; i++ {
@@ -690,7 +683,7 @@ func (self *LockDB) FlushDB() error {
 	}
 
 	for i := uint16(0); i < self.managerMaxGlocks; i++ {
-		self.managerGlocks[i].LowPriorityUnlock()
+		self.managerGlocks[i].PriorityUnlock()
 	}
 	return nil
 }
@@ -716,7 +709,7 @@ func (self *LockDB) updateCurrentTime(timeoutWaiter chan struct{}, expriedWaiter
 		time.Sleep(priorityCheckTime - time.Duration(time.Now().Nanosecond()))
 		for i := uint16(0); i < self.managerMaxGlocks; i++ {
 			if self.managerGlocks[i].highPriorityAcquireCount > 0 {
-				self.managerGlocks[i].HighSetPriority()
+				self.managerGlocks[i].ActivePriority(PRIORITY_MUTEX_TYPE_HIGH)
 			}
 		}
 		if self.status != STATE_CLOSE {
@@ -876,9 +869,9 @@ func (self *LockDB) checkMillisecondTimeOut(ms int64, glockIndex uint16) {
 		}
 	}
 
-	self.managerGlocks[glockIndex].Lock()
+	self.managerGlocks[glockIndex].PriorityLock(PRIORITY_MUTEX_TYPE_HIGH)
 	self.freeMillisecondWaitQueues[glockIndex].FreeLockQueue(lockQueue, self.currentTime)
-	self.managerGlocks[glockIndex].Unlock()
+	self.managerGlocks[glockIndex].PriorityUnlock()
 }
 
 func (self *LockDB) restructuringLongTimeOutQueue(longLocks *LongWaitLockQueue) {
@@ -966,11 +959,11 @@ func (self *LockDB) flushTimeOut(glockIndex uint16, doTimeout bool) {
 	}
 
 	if doTimeout {
-		self.managerGlocks[glockIndex].Unlock()
+		self.managerGlocks[glockIndex].PriorityUnlock()
 		for _, lock := range doTimeoutLocks {
 			self.doTimeOut(lock, true, false)
 		}
-		self.managerGlocks[glockIndex].Lock()
+		self.managerGlocks[glockIndex].PriorityLock(PRIORITY_MUTEX_TYPE_HIGH)
 	}
 }
 
@@ -1137,9 +1130,9 @@ func (self *LockDB) checkMillisecondExpried(ms int64, glockIndex uint16) {
 		}
 	}
 
-	self.managerGlocks[glockIndex].Lock()
+	self.managerGlocks[glockIndex].PriorityLock(PRIORITY_MUTEX_TYPE_HIGH)
 	self.freeMillisecondWaitQueues[glockIndex].FreeLockQueue(lockQueue, self.currentTime)
-	self.managerGlocks[glockIndex].Unlock()
+	self.managerGlocks[glockIndex].PriorityUnlock()
 }
 
 func (self *LockDB) restructuringLongExpriedQueue(longLocks *LongWaitLockQueue) {
@@ -1228,11 +1221,11 @@ func (self *LockDB) flushExpried(glockIndex uint16, doExpried bool) {
 	}
 
 	if doExpried {
-		self.managerGlocks[glockIndex].Unlock()
+		self.managerGlocks[glockIndex].PriorityUnlock()
 		for _, lock := range doExpriedLocks {
 			self.doExpried(lock, true, false)
 		}
-		self.managerGlocks[glockIndex].Lock()
+		self.managerGlocks[glockIndex].PriorityLock(PRIORITY_MUTEX_TYPE_HIGH)
 	}
 }
 
@@ -1279,12 +1272,12 @@ func (self *LockDB) checkWaitRemoveLockManager(waiter chan struct{}) {
 			}
 			timeIndex := int((currentTime % (WAIT_REMOVE_LOCK_MANAGER_QUEUE_LENGTH * 500)) / 500)
 			for i := uint16(0); i < self.managerMaxGlocks; i++ {
-				self.managerGlocks[i].Lock()
+				self.managerGlocks[i].PriorityLock(PRIORITY_MUTEX_TYPE_HIGH)
 				if self.waitRemoveLockManagers[timeIndex][i].Head() != nil {
-					self.managerGlocks[i].Unlock()
+					self.managerGlocks[i].PriorityUnlock()
 					go self.checkTimeWaitRemoveLockManager(timeIndex, i)
 				} else {
-					self.managerGlocks[i].Unlock()
+					self.managerGlocks[i].PriorityUnlock()
 				}
 			}
 			currentTime += 500
@@ -1674,7 +1667,7 @@ func (self *LockDB) RemoveLongTimeOut(lock *Lock) {
 
 func (self *LockDB) doTimeOut(lock *Lock, forcedExpried bool, removeWaited bool) {
 	lockManager := lock.manager
-	lockManager.glock.Lock()
+	lockManager.glock.PriorityLock(PRIORITY_MUTEX_TYPE_HIGH)
 	if lock.timeouted {
 		lock.refCount--
 		if lock.refCount == 0 {
@@ -1688,7 +1681,7 @@ func (self *LockDB) doTimeOut(lock *Lock, forcedExpried bool, removeWaited bool)
 			}
 		}
 
-		lockManager.glock.Unlock()
+		lockManager.glock.PriorityUnlock()
 		return
 	}
 
@@ -1698,7 +1691,7 @@ func (self *LockDB) doTimeOut(lock *Lock, forcedExpried bool, removeWaited bool)
 			if stream != nil && !stream.closed {
 				lock.timeoutTime = self.currentTime + int64(lock.command.Timeout)
 				self.AddTimeOut(lock)
-				lockManager.glock.Unlock()
+				lockManager.glock.PriorityUnlock()
 				return
 			}
 		}
@@ -1748,7 +1741,7 @@ func (self *LockDB) doTimeOut(lock *Lock, forcedExpried bool, removeWaited bool)
 		}
 	}
 	lockManager.state.TimeoutedCount++
-	lockManager.glock.Unlock()
+	lockManager.glock.PriorityUnlock()
 
 	timeoutFlag := lockCommand.TimeoutFlag
 	if timeoutFlag&protocol.TIMEOUT_FLAG_LOG_ERROR_WHEN_TIMEOUT != 0 {
@@ -1855,7 +1848,7 @@ func (self *LockDB) RemoveLongExpried(lock *Lock, expriedTime int64) {
 
 func (self *LockDB) doExpried(lock *Lock, forcedExpried bool, removeWaited bool) {
 	lockManager := lock.manager
-	lockManager.glock.Lock()
+	lockManager.glock.PriorityLock(PRIORITY_MUTEX_TYPE_HIGH)
 
 	if lock.expried {
 		lock.refCount--
@@ -1870,7 +1863,7 @@ func (self *LockDB) doExpried(lock *Lock, forcedExpried bool, removeWaited bool)
 			}
 		}
 
-		lockManager.glock.Unlock()
+		lockManager.glock.PriorityUnlock()
 		return
 	}
 
@@ -1879,7 +1872,7 @@ func (self *LockDB) doExpried(lock *Lock, forcedExpried bool, removeWaited bool)
 			if lock.expriedTime <= 0 || self.currentTime-lock.expriedTime < EXPRIED_WAIT_LEADER_MAX_TIME {
 				lock.expriedTime = self.currentTime + 30
 				self.AddExpried(lock)
-				lockManager.glock.Unlock()
+				lockManager.glock.PriorityUnlock()
 				return
 			}
 		}
@@ -1889,7 +1882,7 @@ func (self *LockDB) doExpried(lock *Lock, forcedExpried bool, removeWaited bool)
 			if stream != nil && !stream.closed {
 				lock.expriedTime = self.currentTime + int64(lock.command.Expried)
 				self.AddExpried(lock)
-				lockManager.glock.Unlock()
+				lockManager.glock.PriorityUnlock()
 				return
 			}
 		}
@@ -1923,7 +1916,7 @@ func (self *LockDB) doExpried(lock *Lock, forcedExpried bool, removeWaited bool)
 	}
 	lockManager.state.LockedCount -= uint32(lockLocked)
 	lockManager.state.ExpriedCount++
-	lockManager.glock.Unlock()
+	lockManager.glock.PriorityUnlock()
 
 	expriedFlag := lockCommand.ExpriedFlag
 	if expriedFlag&protocol.EXPRIED_FLAG_LOG_ERROR_WHEN_EXPRIED != 0 {
@@ -1973,7 +1966,7 @@ func (self *LockDB) AddMillisecondExpried(lock *Lock) {
 	}
 }
 
-func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCommand, lockPriorityLevel uint8) error {
+func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCommand, priorityType uint32, deActivePriority bool) error {
 	/*
 	   protocol.LockCommand.Flag
 	   |7              |       5	 |       4      |        3       |    2   |           1           |         0           |
@@ -1996,14 +1989,13 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 	}
 
 	lockManager := self.GetOrNewLockManager(command)
-	if lockPriorityLevel == 0 {
-		lockManager.glock.LowPriorityLock()
-	} else {
-		lockManager.glock.Lock()
-	}
+	lockManager.glock.PriorityLock(priorityType)
 	if lockManager.lockKey != command.LockKey {
-		lockManager.glock.Unlock()
-		return self.Lock(serverProtocol, command, lockPriorityLevel)
+		lockManager.glock.PriorityUnlock()
+		return self.Lock(serverProtocol, command, priorityType, deActivePriority)
+	}
+	if deActivePriority {
+		lockManager.glock.DeActivePriority(priorityType)
 	}
 
 	if self.status != STATE_LEADER {
@@ -2011,7 +2003,7 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 			if lockManager.refCount == 0 {
 				self.RemoveLockManager(lockManager)
 			}
-			lockManager.glock.Unlock()
+			lockManager.glock.PriorityUnlock()
 			_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_STATE_ERROR, uint16(lockManager.locked), 0, lockManager.GetLockData())
 			_ = serverProtocol.FreeLockCommand(command)
 			return nil
@@ -2030,7 +2022,7 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 				command.ExpriedFlag = currentLock.command.ExpriedFlag
 				command.Count = currentLock.command.Count
 				command.Rcount = currentLock.command.Rcount
-				lockManager.glock.Unlock()
+				lockManager.glock.PriorityUnlock()
 
 				_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_UNOWN_ERROR, uint16(lockManager.locked), currentLock.locked, lockManager.GetLockData())
 				_ = serverProtocol.FreeLockCommand(command)
@@ -2041,7 +2033,7 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 		currentLock := lockManager.GetLockedLock(command)
 		if currentLock != nil {
 			if currentLock.ackCount != 0xff {
-				lockManager.glock.Unlock()
+				lockManager.glock.PriorityUnlock()
 
 				_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_LOCK_ACK_WAITING, uint16(lockManager.locked), currentLock.locked, lockManager.GetLockData())
 				_ = serverProtocol.FreeLockCommand(command)
@@ -2056,7 +2048,7 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 					lockManager.ProcessLockData(command, currentLock, false)
 					if lockManager.currentData != nil && lockManager.currentData.isAof && (currentLock.data == nil || currentLock.data.aofData == nil) {
 						if lockManager.CheckLockedEqual(currentLock, command) {
-							lockManager.glock.Unlock()
+							lockManager.glock.PriorityUnlock()
 							_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_LOCKED_ERROR, uint16(lockManager.locked), currentLock.locked, lockData)
 							_ = serverProtocol.FreeLockCommand(command)
 							return nil
@@ -2064,7 +2056,7 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 					}
 				} else {
 					if lockManager.CheckLockedEqual(currentLock, command) {
-						lockManager.glock.Unlock()
+						lockManager.glock.PriorityUnlock()
 						_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_LOCKED_ERROR, uint16(lockManager.locked), currentLock.locked, lockData)
 						_ = serverProtocol.FreeLockCommand(command)
 						return nil
@@ -2094,7 +2086,7 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 						err := lockManager.PushLockAof(currentLock, AOF_FLAG_UPDATED)
 						if err == nil {
 							currentLock.refCount++
-							lockManager.glock.Unlock()
+							lockManager.glock.PriorityUnlock()
 							_ = serverProtocol.FreeLockCommand(currentLockCommand)
 							return nil
 						}
@@ -2103,14 +2095,14 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 						_ = lockManager.PushLockAof(currentLock, AOF_FLAG_UPDATED)
 					}
 				}
-				lockManager.glock.Unlock()
+				lockManager.glock.PriorityUnlock()
 				_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_LOCKED_ERROR, uint16(lockManager.locked), currentLock.locked, lockData)
 				_ = serverProtocol.FreeLockCommand(currentLockCommand)
 				return nil
 			}
 			if currentLock.locked < 0xff && currentLock.locked <= command.Rcount && command.TimeoutFlag&protocol.TIMEOUT_FLAG_RCOUNT_IS_PRIORITY == 0 {
 				if command.Expried == 0 {
-					lockManager.glock.Unlock()
+					lockManager.glock.PriorityUnlock()
 
 					_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, uint16(lockManager.locked), currentLock.locked, lockData)
 					_ = serverProtocol.FreeLockCommand(command)
@@ -2146,14 +2138,14 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 				}
 				lockManager.state.LockCount++
 				lockManager.state.LockedCount++
-				lockManager.glock.Unlock()
+				lockManager.glock.PriorityUnlock()
 
 				_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, uint16(lockManager.locked), currentLock.locked, lockData)
 				_ = serverProtocol.FreeLockCommand(currentLockCommand)
 				return nil
 			}
 
-			lockManager.glock.Unlock()
+			lockManager.glock.PriorityUnlock()
 			_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_LOCKED_ERROR, uint16(lockManager.locked), currentLock.locked, lockData)
 			_ = serverProtocol.FreeLockCommand(command)
 			return nil
@@ -2161,7 +2153,7 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 	} else {
 		if command.TimeoutFlag&protocol.TIMEOUT_FLAG_LOCK_WAIT_WHEN_UNLOCK != 0 {
 			if lockManager.waited && command.Count == 0 {
-				lockManager.glock.Unlock()
+				lockManager.glock.PriorityUnlock()
 
 				_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_UNOWN_ERROR, uint16(lockManager.locked), 0, lockManager.GetLockData())
 				_ = serverProtocol.FreeLockCommand(command)
@@ -2195,9 +2187,9 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 				lockManager.state.LockCount++
 				lockManager.state.LockedCount++
 				if err == nil {
-					lockManager.glock.Unlock()
+					lockManager.glock.PriorityUnlock()
 				} else {
-					lockManager.glock.Unlock()
+					lockManager.glock.PriorityUnlock()
 					self.DoAckLock(lock, false)
 				}
 				return nil
@@ -2215,7 +2207,7 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 			lock.refCount++
 			lockManager.state.LockCount++
 			lockManager.state.LockedCount++
-			lockManager.glock.Unlock()
+			lockManager.glock.PriorityUnlock()
 
 			_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, uint16(lockManager.locked), lock.locked, lockData)
 			if requireWakeup {
@@ -2240,7 +2232,7 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 			self.RemoveLockManager(lockManager)
 		}
 		lockManager.state.LockCount++
-		lockManager.glock.Unlock()
+		lockManager.glock.PriorityUnlock()
 
 		_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, uint16(lockManager.locked), lock.locked, lockData)
 		_ = serverProtocol.FreeLockCommand(command)
@@ -2262,7 +2254,7 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 			}
 			lockManager.state.LockCount++
 			command.LockId = lockManager.currentLock.command.LockId
-			lockManager.glock.Unlock()
+			lockManager.glock.PriorityUnlock()
 
 			_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, uint16(lockManager.locked), lock.locked, lockData)
 			_ = serverProtocol.FreeLockCommand(command)
@@ -2279,7 +2271,7 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 		}
 		lock.refCount++
 		lockManager.state.WaitCount++
-		lockManager.glock.Unlock()
+		lockManager.glock.PriorityUnlock()
 		return nil
 	}
 
@@ -2290,14 +2282,14 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 	if lockManager.refCount == 0 {
 		self.RemoveLockManager(lockManager)
 	}
-	lockManager.glock.Unlock()
+	lockManager.glock.PriorityUnlock()
 
 	_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_TIMEOUT, uint16(lockManager.locked), lock.locked, lockManager.GetLockData())
 	_ = serverProtocol.FreeLockCommand(command)
 	return nil
 }
 
-func (self *LockDB) UnLock(serverProtocol ServerProtocol, command *protocol.LockCommand, lockPriorityLevel uint8) error {
+func (self *LockDB) UnLock(serverProtocol ServerProtocol, command *protocol.LockCommand, priorityType uint32, deActivePriority bool) error {
 	/*
 	   protocol.LockCommand.Flag
 	   |7                  |      5      |        4       |         3         |    2   |           1             |               0               |
@@ -2313,20 +2305,19 @@ func (self *LockDB) UnLock(serverProtocol ServerProtocol, command *protocol.Lock
 		return nil
 	}
 
-	if lockPriorityLevel == 0 {
-		lockManager.glock.LowPriorityLock()
-	} else {
-		lockManager.glock.Lock()
-	}
+	lockManager.glock.PriorityLock(PRIORITY_MUTEX_TYPE_LOW)
 	if lockManager.lockKey != command.LockKey {
-		lockManager.glock.Unlock()
-		return self.UnLock(serverProtocol, command, lockPriorityLevel)
+		lockManager.glock.PriorityUnlock()
+		return self.UnLock(serverProtocol, command, priorityType, deActivePriority)
+	}
+	if deActivePriority {
+		lockManager.glock.DeActivePriority(priorityType)
 	}
 
 	if self.status != STATE_LEADER {
 		if command.Flag&protocol.UNLOCK_FLAG_FROM_AOF == 0 {
 			lockManager.state.UnlockErrorCount++
-			lockManager.glock.Unlock()
+			lockManager.glock.PriorityUnlock()
 
 			_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_STATE_ERROR, uint16(lockManager.locked), 0, lockManager.GetLockData())
 			_ = serverProtocol.FreeLockCommand(command)
@@ -2340,7 +2331,7 @@ func (self *LockDB) UnLock(serverProtocol ServerProtocol, command *protocol.Lock
 			return nil
 		}
 		lockManager.state.UnlockErrorCount++
-		lockManager.glock.Unlock()
+		lockManager.glock.PriorityUnlock()
 
 		_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_UNLOCK_ERROR, uint16(lockManager.locked), 0, lockManager.GetLockData())
 		_ = serverProtocol.FreeLockCommand(command)
@@ -2354,7 +2345,7 @@ func (self *LockDB) UnLock(serverProtocol ServerProtocol, command *protocol.Lock
 
 			if currentLock == nil {
 				lockManager.state.UnlockErrorCount++
-				lockManager.glock.Unlock()
+				lockManager.glock.PriorityUnlock()
 
 				_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_UNOWN_ERROR, uint16(lockManager.locked), 0, lockManager.GetLockData())
 				_ = serverProtocol.FreeLockCommand(command)
@@ -2373,7 +2364,7 @@ func (self *LockDB) UnLock(serverProtocol ServerProtocol, command *protocol.Lock
 			return nil
 		} else {
 			lockManager.state.UnlockErrorCount++
-			lockManager.glock.Unlock()
+			lockManager.glock.PriorityUnlock()
 
 			_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_UNOWN_ERROR, uint16(lockManager.locked), 0, lockManager.GetLockData())
 			_ = serverProtocol.FreeLockCommand(command)
@@ -2382,7 +2373,7 @@ func (self *LockDB) UnLock(serverProtocol ServerProtocol, command *protocol.Lock
 	} else {
 		if currentLock.ackCount != 0xff {
 			lockManager.state.UnlockErrorCount++
-			lockManager.glock.Unlock()
+			lockManager.glock.PriorityUnlock()
 
 			_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_LOCK_ACK_WAITING, uint16(lockManager.locked), currentLock.locked, lockManager.GetLockData())
 			_ = serverProtocol.FreeLockCommand(command)
@@ -2407,7 +2398,7 @@ func (self *LockDB) UnLock(serverProtocol ServerProtocol, command *protocol.Lock
 				}
 				lockManager.state.UnLockCount++
 				lockManager.state.LockedCount--
-				lockManager.glock.Unlock()
+				lockManager.glock.PriorityUnlock()
 
 				_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, uint16(lockManager.locked), currentLock.locked, lockData)
 				_ = serverProtocol.FreeLockCommand(command)
@@ -2452,7 +2443,7 @@ func (self *LockDB) UnLock(serverProtocol ServerProtocol, command *protocol.Lock
 
 			if command.Flag&protocol.UNLOCK_FLAG_UNLOCK_TREE_LOCK == 0 || lockManager.locked > 1 ||
 				!self.unlockTreeLock(serverProtocol, command, lockManager, currentLockCommand, currentLock) {
-				lockManager.glock.Unlock()
+				lockManager.glock.PriorityUnlock()
 				_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, uint16(lockManager.locked), currentLock.locked, lockData)
 				_ = serverProtocol.FreeLockCommand(currentLockCommand)
 				_ = serverProtocol.FreeLockCommand(command)
@@ -2500,7 +2491,7 @@ func (self *LockDB) UnLock(serverProtocol ServerProtocol, command *protocol.Lock
 		} else {
 			if command.Flag&protocol.UNLOCK_FLAG_UNLOCK_TREE_LOCK == 0 || lockManager.locked > 1 ||
 				!self.unlockTreeLock(serverProtocol, command, lockManager, currentLockCommand, currentLock) {
-				lockManager.glock.Unlock()
+				lockManager.glock.PriorityUnlock()
 				_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, uint16(lockManager.locked), currentLock.locked, lockData)
 				_ = serverProtocol.FreeLockCommand(currentLockCommand)
 				_ = serverProtocol.FreeLockCommand(command)
@@ -2560,16 +2551,16 @@ func (self *LockDB) doCheckLockWaitPriority(lockManager *LockManager, lock *Lock
 
 func (self *LockDB) wakeUpWaitLocks(lockManager *LockManager, serverProtocol ServerProtocol) {
 	if lockManager.waited {
-		lockManager.glock.Lock()
+		lockManager.glock.PriorityLock(PRIORITY_MUTEX_TYPE_LOW)
 		waitLock := lockManager.GetWaitLock()
 		for waitLock != nil {
 			if !self.doLock(lockManager, waitLock) {
-				lockManager.glock.Unlock()
+				lockManager.glock.PriorityUnlock()
 				return
 			}
 
 			self.wakeUpWaitLock(lockManager, waitLock, serverProtocol)
-			lockManager.glock.Lock()
+			lockManager.glock.PriorityLock(PRIORITY_MUTEX_TYPE_LOW)
 			waitLock = lockManager.GetWaitLock()
 		}
 
@@ -2579,7 +2570,7 @@ func (self *LockDB) wakeUpWaitLocks(lockManager *LockManager, serverProtocol Ser
 				self.RemoveLockManager(lockManager)
 			}
 		}
-		lockManager.glock.Unlock()
+		lockManager.glock.PriorityUnlock()
 	}
 }
 
@@ -2597,9 +2588,9 @@ func (self *LockDB) wakeUpWaitLock(lockManager *LockManager, waitLock *Lock, ser
 		lockManager.state.LockedCount++
 		lockManager.state.WaitCount--
 		if err == nil {
-			lockManager.glock.Unlock()
+			lockManager.glock.PriorityUnlock()
 		} else {
-			lockManager.glock.Unlock()
+			lockManager.glock.PriorityUnlock()
 			self.DoAckLock(waitLock, false)
 		}
 		return
@@ -2628,7 +2619,7 @@ func (self *LockDB) wakeUpWaitLock(lockManager *LockManager, waitLock *Lock, ser
 		lockManager.state.LockCount++
 		lockManager.state.LockedCount++
 		lockManager.state.WaitCount--
-		lockManager.glock.Unlock()
+		lockManager.glock.PriorityUnlock()
 
 		if waitLockProtocol.serverProtocol == serverProtocol {
 			_ = serverProtocol.ProcessLockResultCommand(waitLockCommand, protocol.RESULT_SUCCED, uint16(lockManager.locked), waitLock.locked, lockData)
@@ -2652,7 +2643,7 @@ func (self *LockDB) wakeUpWaitLock(lockManager *LockManager, waitLock *Lock, ser
 	if self.subscribeChannels != nil && waitLockCommand.ExpriedFlag&protocol.EXPRIED_FLAG_PUSH_SUBSCRIBE != 0 {
 		_ = self.subscribeChannels[lockManager.glockIndex].Push(waitLockCommand, protocol.RESULT_EXPRIED, uint16(lockManager.locked), waitLock.locked, lockManager.GetLockData())
 	}
-	lockManager.glock.Unlock()
+	lockManager.glock.PriorityUnlock()
 
 	if waitLockProtocol.serverProtocol == serverProtocol {
 		_ = serverProtocol.ProcessLockResultCommand(waitLockCommand, protocol.RESULT_SUCCED, uint16(lockManager.locked), waitLock.locked, lockData)
@@ -2681,7 +2672,7 @@ func (self *LockDB) cancelWaitLock(lockManager *LockManager, command *protocol.L
 
 	if waitLock == nil {
 		lockManager.state.UnlockErrorCount++
-		lockManager.glock.Unlock()
+		lockManager.glock.PriorityUnlock()
 
 		_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_UNLOCK_ERROR, uint16(lockManager.locked), 0, lockManager.GetLockData())
 		_ = serverProtocol.FreeLockCommand(command)
@@ -2712,7 +2703,7 @@ func (self *LockDB) cancelWaitLock(lockManager *LockManager, command *protocol.L
 		self.RemoveLockManager(lockManager)
 	}
 	lockManager.state.UnLockCount++
-	lockManager.glock.Unlock()
+	lockManager.glock.PriorityUnlock()
 
 	_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_LOCKED_ERROR, uint16(lockManager.locked), waitLock.locked, lockManager.GetLockData())
 	_ = serverProtocol.FreeLockCommand(command)
@@ -2746,14 +2737,14 @@ func (self *LockDB) addUnlockLockCommandToWaitLock(lockManager *LockManager, com
 		}
 		lock.refCount++
 		lockManager.state.WaitCount++
-		lockManager.glock.Unlock()
+		lockManager.glock.PriorityUnlock()
 		return
 	}
 
 	if self.subscribeChannels != nil && command.TimeoutFlag&protocol.TIMEOUT_FLAG_PUSH_SUBSCRIBE != 0 {
 		_ = self.subscribeChannels[lockManager.glockIndex].Push(command, protocol.RESULT_TIMEOUT, uint16(lockManager.locked), 0, lockManager.GetLockData())
 	}
-	lockManager.glock.Unlock()
+	lockManager.glock.PriorityUnlock()
 	_ = serverProtocol.FreeLockCommand(command)
 }
 
@@ -2766,7 +2757,7 @@ func (self *LockDB) unlockTreeLock(serverProtocol ServerProtocol, command *proto
 
 		command.LockKey = currentCommand.LockKey
 		command.LockId = currentCommand.LockId
-		lockManager.glock.Unlock()
+		lockManager.glock.PriorityUnlock()
 		_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, uint16(lockManager.locked), currentLock.locked, lockManager.GetLockData())
 		_ = serverProtocol.FreeLockCommand(currentLockCommand)
 
@@ -2775,7 +2766,7 @@ func (self *LockDB) unlockTreeLock(serverProtocol ServerProtocol, command *proto
 		return true
 	}
 
-	lockManager.glock.Unlock()
+	lockManager.glock.PriorityUnlock()
 	command.LockKey = currentLockCommand.LockId
 	command.LockId = currentLockCommand.LockKey
 	_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, uint16(lockManager.locked), currentLock.locked, lockManager.GetLockData())
@@ -2789,7 +2780,7 @@ func (self *LockDB) unlockTreeLock(serverProtocol ServerProtocol, command *proto
 
 func (self *LockDB) DoAckLock(lock *Lock, succed bool) {
 	lockManager := lock.manager
-	lockManager.glock.Lock()
+	lockManager.glock.PriorityLock(PRIORITY_MUTEX_TYPE_LOW)
 
 	if !lock.timeouted {
 		lock.timeouted = true
@@ -2805,7 +2796,7 @@ func (self *LockDB) DoAckLock(lock *Lock, succed bool) {
 				self.RemoveLockManager(lockManager)
 			}
 		}
-		lockManager.glock.Unlock()
+		lockManager.glock.PriorityUnlock()
 		return
 	}
 
@@ -2825,7 +2816,7 @@ func (self *LockDB) DoAckLock(lock *Lock, succed bool) {
 				self.RemoveLockManager(lockManager)
 			}
 		}
-		lockManager.glock.Unlock()
+		lockManager.glock.PriorityUnlock()
 
 		_ = lockProtocol.ProcessLockResultCommandLocked(lockCommand, protocol.RESULT_LOCKED_ERROR, uint16(lockManager.locked), lock.locked, lockData)
 		return
@@ -2857,7 +2848,7 @@ func (self *LockDB) DoAckLock(lock *Lock, succed bool) {
 			self.AddMillisecondExpried(lock)
 		}
 		lockProtocol, lockCommand := lock.protocol, lock.command
-		lockManager.glock.Unlock()
+		lockManager.glock.PriorityUnlock()
 
 		_ = lockProtocol.ProcessLockResultCommandLocked(lockCommand, protocol.RESULT_SUCCED, uint16(lockManager.locked), lock.locked, lockData)
 		return
@@ -2883,7 +2874,7 @@ func (self *LockDB) DoAckLock(lock *Lock, succed bool) {
 	}
 	lockManager.state.LockCount--
 	lockManager.state.LockedCount--
-	lockManager.glock.Unlock()
+	lockManager.glock.PriorityUnlock()
 
 	_ = lockProtocol.ProcessLockResultCommandLocked(lockCommand, protocol.RESULT_ERROR, uint16(lockManager.locked), lock.locked, lockManager.GetLockData())
 	_ = lockProtocol.FreeLockCommandLocked(lockCommand)
@@ -2914,65 +2905,65 @@ func (self *LockDB) HasLock(command *protocol.LockCommand, aofLockData []byte) b
 		return false
 	}
 
-	lockManager.glock.LowPriorityLock()
+	lockManager.glock.PriorityLock(PRIORITY_MUTEX_TYPE_NONE)
 	for lockManager.lockKey != command.LockKey {
-		lockManager.glock.LowPriorityUnlock()
+		lockManager.glock.PriorityUnlock()
 		lockManager = self.GetLockManager(command)
 		if lockManager == nil {
 			return false
 		}
-		lockManager.glock.LowPriorityLock()
+		lockManager.glock.PriorityLock(PRIORITY_MUTEX_TYPE_NONE)
 	}
 
 	if lockManager.locked == 0 {
-		lockManager.glock.LowPriorityUnlock()
+		lockManager.glock.PriorityUnlock()
 		return false
 	}
 	if command.CommandType == protocol.COMMAND_LOCK {
 		if command.Expried == 0 && command.ExpriedFlag&0x4440 == 0 {
 			if lockManager.currentData == nil {
 				if aofLockData != nil {
-					lockManager.glock.LowPriorityUnlock()
+					lockManager.glock.PriorityUnlock()
 					return false
 				}
 			} else if !lockManager.currentData.Equal(aofLockData) {
-				lockManager.glock.LowPriorityUnlock()
+				lockManager.glock.PriorityUnlock()
 				return false
 			}
-			lockManager.glock.LowPriorityUnlock()
+			lockManager.glock.PriorityUnlock()
 			return true
 		} else if command.Flag&protocol.LOCK_FLAG_UPDATE_WHEN_LOCKED != 0 {
 			currentLock := lockManager.GetLockedLock(command)
 			if currentLock == nil {
-				lockManager.glock.LowPriorityUnlock()
+				lockManager.glock.PriorityUnlock()
 				return false
 			}
 			if aofLockData == nil {
 				if !lockManager.CheckLockedEqual(currentLock, command) {
-					lockManager.glock.LowPriorityUnlock()
+					lockManager.glock.PriorityUnlock()
 					return false
 				}
 			} else if lockManager.currentData == nil || !lockManager.currentData.Equal(aofLockData) {
 				if command.ExpriedFlag&protocol.EXPRIED_FLAG_UNLIMITED_EXPRIED_TIME != 0 && command.Expried == 0xffff {
 					if currentLock.command.Count == command.Count && currentLock.command.Rcount == command.Rcount {
-						lockManager.glock.LowPriorityUnlock()
+						lockManager.glock.PriorityUnlock()
 						return false
 					}
 				} else if !lockManager.CheckLockedEqual(currentLock, command) {
-					lockManager.glock.LowPriorityUnlock()
+					lockManager.glock.PriorityUnlock()
 					return false
 				}
 			}
-			lockManager.glock.LowPriorityUnlock()
+			lockManager.glock.PriorityUnlock()
 			return true
 		}
 	}
 	currentLock := lockManager.GetLockedLock(command)
 	if currentLock == nil {
-		lockManager.glock.LowPriorityUnlock()
+		lockManager.glock.PriorityUnlock()
 		return false
 	}
-	lockManager.glock.LowPriorityUnlock()
+	lockManager.glock.PriorityUnlock()
 	return true
 }
 

@@ -21,7 +21,7 @@ func TestLock_LockAndUnLock(t *testing.T) {
 
 		_, err = lock.Unlock()
 		if err != nil {
-			t.Errorf("Lock Unlock Fail %v", err)
+			t.Errorf("Lock PriorityUnlock Fail %v", err)
 			return
 		}
 
@@ -59,7 +59,7 @@ func TestLock_LockUpdate(t *testing.T) {
 
 		_, err = lock.Unlock()
 		if err != nil {
-			t.Errorf("Lock Unlock Fail %v", err)
+			t.Errorf("Lock PriorityUnlock Fail %v", err)
 			return
 		}
 	})
@@ -87,7 +87,7 @@ func TestLock_LockShow(t *testing.T) {
 
 		_, err = lock.Unlock()
 		if err != nil {
-			t.Errorf("Lock Unlock Fail %v", err)
+			t.Errorf("Lock PriorityUnlock Fail %v", err)
 			return
 		}
 	})
@@ -112,7 +112,7 @@ func TestLock_UnLockHead(t *testing.T) {
 		unlockHeadLock := client.Lock(testString2Key("TestUnLockHead"), 5, 5)
 		result, err = unlockHeadLock.UnlockHead()
 		if result != nil && result.Result != 0 {
-			t.Errorf("Lock Unlock Fail %v", err)
+			t.Errorf("Lock PriorityUnlock Fail %v", err)
 			return
 		}
 
@@ -158,7 +158,7 @@ func TestLock_CancelWait(t *testing.T) {
 
 		_, err = lock.Unlock()
 		if err != nil {
-			t.Errorf("Lock Unlock Fail %v", err)
+			t.Errorf("Lock PriorityUnlock Fail %v", err)
 			return
 		}
 		time.Sleep(20 * time.Millisecond)
@@ -257,7 +257,7 @@ func TestLock_LockRCount(t *testing.T) {
 
 		_, err = lock.Unlock()
 		if err != nil {
-			t.Errorf("Lock Unlock Fail %v", err)
+			t.Errorf("Lock PriorityUnlock Fail %v", err)
 			return
 		}
 
@@ -269,7 +269,7 @@ func TestLock_LockRCount(t *testing.T) {
 
 		result, err = lock.Unlock()
 		if err == nil || (result != nil && result.Result != protocol.RESULT_UNLOCK_ERROR) {
-			t.Errorf("Lock Check Unlock Fail %v", err)
+			t.Errorf("Lock Check PriorityUnlock Fail %v", err)
 			return
 		}
 
@@ -290,13 +290,13 @@ func TestLock_LockRCount(t *testing.T) {
 		lock.SetRcount(0)
 		_, err = lock.Unlock()
 		if err != nil {
-			t.Errorf("Lock Check All Unlock Fail %v", err)
+			t.Errorf("Lock Check All PriorityUnlock Fail %v", err)
 			return
 		}
 
 		result, err = lock.Unlock()
 		if err == nil || (result != nil && result.Result != protocol.RESULT_UNLOCK_ERROR) {
-			t.Errorf("Lock Check All Check Unlock Fail %v", err)
+			t.Errorf("Lock Check All Check PriorityUnlock Fail %v", err)
 			return
 		}
 	})
@@ -319,7 +319,7 @@ func TestLock_ZeroTimeout(t *testing.T) {
 
 		_, err = lock.Unlock()
 		if err != nil {
-			t.Errorf("Lock Unlock Fail %v", err)
+			t.Errorf("Lock PriorityUnlock Fail %v", err)
 			return
 		}
 	})
@@ -378,7 +378,7 @@ func TestLock_TimeoutTeverseKeyLock(t *testing.T) {
 
 		result, err = lock.UnlockHead()
 		if result != nil && result.Result != 0 {
-			t.Errorf("Lock Unlock Fail %v", err)
+			t.Errorf("Lock PriorityUnlock Fail %v", err)
 			return
 		}
 	})
@@ -408,7 +408,7 @@ func TestLock_ExpriedReverseKeyLock(t *testing.T) {
 
 		result, err = lock.UnlockHead()
 		if result != nil && result.Result != 0 {
-			t.Errorf("Lock Unlock Fail %v", err)
+			t.Errorf("Lock PriorityUnlock Fail %v", err)
 			return
 		}
 	})
@@ -428,11 +428,11 @@ func TestLock_WithData_SetUnset(t *testing.T) {
 		}
 		result, err = lock.Unlock()
 		if err != nil {
-			t.Errorf("Lock Unlock Fail %v", err)
+			t.Errorf("Lock PriorityUnlock Fail %v", err)
 			return
 		}
 		if result.GetLockData() == nil || result.GetLockData().GetStringValue() != "aaa" {
-			t.Errorf("Lock Unlock Result LockData Fail %v", result.GetLockData())
+			t.Errorf("Lock PriorityUnlock Result LockData Fail %v", result.GetLockData())
 			return
 		}
 
@@ -472,11 +472,11 @@ func TestLock_WithData_SetUnset(t *testing.T) {
 
 		result, err = lock.Unlock()
 		if err != nil {
-			t.Errorf("Lock Unlock Fail %v", err)
+			t.Errorf("Lock PriorityUnlock Fail %v", err)
 			return
 		}
 		if result.GetLockData() == nil || result.GetLockData().GetStringValue() != "ccc" {
-			t.Errorf("Lock Unlock Result LockData Fail %v", result.GetLockData())
+			t.Errorf("Lock PriorityUnlock Result LockData Fail %v", result.GetLockData())
 			return
 		}
 		result, err = ulock1.UnlockWithData(protocol.NewLockCommandDataUnsetData())
@@ -522,11 +522,11 @@ func TestLock_WithData_SetUnset(t *testing.T) {
 		}
 		result, err = lock.Unlock()
 		if err != nil {
-			t.Errorf("Lock Unlock Fail %v", err)
+			t.Errorf("Lock PriorityUnlock Fail %v", err)
 			return
 		}
 		if result.GetLockData() == nil || result.GetLockData().GetStringValue() != "bbb" {
-			t.Errorf("Lock Unlock Result LockData Fail %v", result.GetLockData())
+			t.Errorf("Lock PriorityUnlock Result LockData Fail %v", result.GetLockData())
 			return
 		}
 	})
@@ -558,11 +558,11 @@ func TestLock_WithData_Incr(t *testing.T) {
 		}
 		result, err = lock.Unlock()
 		if err != nil {
-			t.Errorf("Lock Unlock Incr Fail %v", err)
+			t.Errorf("Lock PriorityUnlock Incr Fail %v", err)
 			return
 		}
 		if result.GetLockData() == nil || result.GetLockData().GetIncrValue() != -1 {
-			t.Errorf("Lock Unlock Incr Result LockData Fail %v", result.GetLockData())
+			t.Errorf("Lock PriorityUnlock Incr Result LockData Fail %v", result.GetLockData())
 			return
 		}
 	})
@@ -594,11 +594,11 @@ func TestLock_WithData_AppendShift(t *testing.T) {
 		}
 		result, err = lock.UnlockWithData(protocol.NewLockCommandDataShiftData(2))
 		if err != nil {
-			t.Errorf("Lock Unlock Append Fail %v", err)
+			t.Errorf("Lock PriorityUnlock Append Fail %v", err)
 			return
 		}
 		if result.GetLockData() == nil || result.GetLockData().GetStringValue() != "aaabbb" {
-			t.Errorf("Lock Unlock Append Result LockData Fail %v", result.GetLockData())
+			t.Errorf("Lock PriorityUnlock Append Result LockData Fail %v", result.GetLockData())
 			return
 		}
 		result, err = ulock1.Unlock()
@@ -630,11 +630,11 @@ func TestLock_WithData_Execute(t *testing.T) {
 		}
 		result, err = lock.Unlock()
 		if err != nil {
-			t.Errorf("Lock Unlock Execute Fail %v", err)
+			t.Errorf("Lock PriorityUnlock Execute Fail %v", err)
 			return
 		}
 		if result.GetLockData() != nil {
-			t.Errorf("Lock Unlock Execute Result LockData Fail %v", result.GetLockData())
+			t.Errorf("Lock PriorityUnlock Execute Result LockData Fail %v", result.GetLockData())
 			return
 		}
 		time.Sleep(200 * time.Millisecond)
@@ -646,11 +646,11 @@ func TestLock_WithData_Execute(t *testing.T) {
 		}
 		result, err = lock.UnlockHead()
 		if err != nil {
-			t.Errorf("Lock Unlock Execute Release Fail %v", err)
+			t.Errorf("Lock PriorityUnlock Execute Release Fail %v", err)
 			return
 		}
 		if result.GetLockData() == nil || result.GetLockData().GetStringValue() != "aaa" {
-			t.Errorf("Lock Unlock Execute Release LockData Fail %v", result.GetLockData())
+			t.Errorf("Lock PriorityUnlock Execute Release LockData Fail %v", result.GetLockData())
 			return
 		}
 	})
@@ -678,11 +678,11 @@ func TestLock_WithData_Pipeline(t *testing.T) {
 		}
 		result, err = lock.Unlock()
 		if err != nil {
-			t.Errorf("Lock Unlock Pipeline Fail %v", err)
+			t.Errorf("Lock PriorityUnlock Pipeline Fail %v", err)
 			return
 		}
 		if result.GetLockData() == nil || result.GetLockData().GetStringValue() != "aaa" {
-			t.Errorf("Lock Unlock Pipeline Result LockData Fail %v", result.GetLockData())
+			t.Errorf("Lock PriorityUnlock Pipeline Result LockData Fail %v", result.GetLockData())
 			return
 		}
 		time.Sleep(200 * time.Millisecond)
@@ -694,11 +694,11 @@ func TestLock_WithData_Pipeline(t *testing.T) {
 		}
 		result, err = lock.UnlockHead()
 		if err != nil {
-			t.Errorf("Lock Unlock Pipeline Release Fail %v", err)
+			t.Errorf("Lock PriorityUnlock Pipeline Release Fail %v", err)
 			return
 		}
 		if result.GetLockData() != nil {
-			t.Errorf("Lock Unlock Pipeline Release LockData Fail %v", result.GetLockData())
+			t.Errorf("Lock PriorityUnlock Pipeline Release LockData Fail %v", result.GetLockData())
 			return
 		}
 		lock = client.Lock(lockKey2, 0, 10)
@@ -709,11 +709,11 @@ func TestLock_WithData_Pipeline(t *testing.T) {
 		}
 		result, err = lock.UnlockHead()
 		if err != nil {
-			t.Errorf("Lock Unlock Pipeline Release Fail %v", err)
+			t.Errorf("Lock PriorityUnlock Pipeline Release Fail %v", err)
 			return
 		}
 		if result.GetLockData() == nil || result.GetLockData().GetStringValue() != "aaa" {
-			t.Errorf("Lock Unlock Pipeline Release LockData Fail %v", result.GetLockData())
+			t.Errorf("Lock PriorityUnlock Pipeline Release LockData Fail %v", result.GetLockData())
 			return
 		}
 	})
@@ -766,16 +766,16 @@ func TestLock_WithData_PushPop(t *testing.T) {
 		}
 		result, err = lock.UnlockWithData(protocol.NewLockCommandDataPopData(1))
 		if err != nil {
-			t.Errorf("Lock Unlock Push Fail %v", err)
+			t.Errorf("Lock PriorityUnlock Push Fail %v", err)
 			return
 		}
 		if result.GetLockData() == nil {
-			t.Errorf("Lock Unlock Push Result LockData Fail %v", result.GetLockData())
+			t.Errorf("Lock PriorityUnlock Push Result LockData Fail %v", result.GetLockData())
 			return
 		}
 		values = result.GetLockData().GetArrayValue()
 		if values == nil || len(values) != 3 && string(values[0]) != "aaa" && string(values[1]) != "bbb" && string(values[1]) != "ccc" {
-			t.Errorf("Lock Unlock Push Result LockData Fail %v", result.GetLockData())
+			t.Errorf("Lock PriorityUnlock Push Result LockData Fail %v", result.GetLockData())
 			return
 		}
 		result, err = ulock1.UnlockWithData(protocol.NewLockCommandDataPopData(2))
@@ -789,7 +789,7 @@ func TestLock_WithData_PushPop(t *testing.T) {
 		}
 		values = result.GetLockData().GetArrayValue()
 		if values == nil || len(values) != 2 && string(values[1]) != "bbb" && string(values[1]) != "ccc" {
-			t.Errorf("Lock Unlock Push Result LockData Fail %v", result.GetLockData())
+			t.Errorf("Lock PriorityUnlock Push Result LockData Fail %v", result.GetLockData())
 			return
 		}
 		result, err = ulock2.Unlock()
@@ -803,7 +803,7 @@ func TestLock_WithData_PushPop(t *testing.T) {
 		}
 		values = result.GetLockData().GetArrayValue()
 		if values == nil || len(values) != 0 {
-			t.Errorf("Lock Unlock Push Result LockData Fail %v", result.GetLockData())
+			t.Errorf("Lock PriorityUnlock Push Result LockData Fail %v", result.GetLockData())
 			return
 		}
 	})
@@ -832,26 +832,26 @@ func TestLock_WithData_SetWithProperty(t *testing.T) {
 			return
 		}
 		if result.GetLockData() == nil || result.GetLockData().GetStringValue() != "aaa" {
-			t.Errorf("Lock Unlock Result LockData Fail %v", result.GetLockData())
+			t.Errorf("Lock PriorityUnlock Result LockData Fail %v", result.GetLockData())
 			return
 		}
 		result, err = lock1.Unlock()
 		if err != nil {
-			t.Errorf("Lock Unlock Fail %v", err)
+			t.Errorf("Lock PriorityUnlock Fail %v", err)
 			return
 		}
 		if result.GetLockData() == nil || result.GetLockData().GetStringValue() != "bbb" {
-			t.Errorf("Lock Unlock Result LockData Fail %v", result.GetLockData())
+			t.Errorf("Lock PriorityUnlock Result LockData Fail %v", result.GetLockData())
 			return
 		}
 		property := result.GetLockData().GetDataProperty(protocol.LOCK_DATA_PROPERTY_CODE_KEY)
 		if property == nil || property.GetValueString() != "cccc" {
-			t.Errorf("Lock Unlock Result LockData Fail %v", result.GetLockData())
+			t.Errorf("Lock PriorityUnlock Result LockData Fail %v", result.GetLockData())
 			return
 		}
 		result, err = lock2.Unlock()
 		if err != nil {
-			t.Errorf("Lock Unlock Fail %v", err)
+			t.Errorf("Lock PriorityUnlock Fail %v", err)
 			return
 		}
 	})
@@ -880,26 +880,26 @@ func TestLock_WithData_IncrWithProperty(t *testing.T) {
 			return
 		}
 		if result.GetLockData() == nil || result.GetLockData().GetIncrValue() != 10 {
-			t.Errorf("Lock Unlock Result LockData Fail %v", result.GetLockData())
+			t.Errorf("Lock PriorityUnlock Result LockData Fail %v", result.GetLockData())
 			return
 		}
 		result, err = lock1.Unlock()
 		if err != nil {
-			t.Errorf("Lock Unlock Fail %v", err)
+			t.Errorf("Lock PriorityUnlock Fail %v", err)
 			return
 		}
 		if result.GetLockData() == nil || result.GetLockData().GetIncrValue() != -2 {
-			t.Errorf("Lock Unlock Result LockData Fail %v", result.GetLockData())
+			t.Errorf("Lock PriorityUnlock Result LockData Fail %v", result.GetLockData())
 			return
 		}
 		property := result.GetLockData().GetDataProperty(protocol.LOCK_DATA_PROPERTY_CODE_KEY)
 		if property == nil || property.GetValueString() != "cccc" {
-			t.Errorf("Lock Unlock Result LockData Fail %v", result.GetLockData())
+			t.Errorf("Lock PriorityUnlock Result LockData Fail %v", result.GetLockData())
 			return
 		}
 		result, err = lock2.Unlock()
 		if err != nil {
-			t.Errorf("Lock Unlock Fail %v", err)
+			t.Errorf("Lock PriorityUnlock Fail %v", err)
 			return
 		}
 	})
@@ -928,26 +928,26 @@ func TestLock_WithData_AppendWithProperty(t *testing.T) {
 			return
 		}
 		if result.GetLockData() == nil || result.GetLockData().GetStringValue() != "aaa" {
-			t.Errorf("Lock Unlock Result LockData Fail %v", result.GetLockData())
+			t.Errorf("Lock PriorityUnlock Result LockData Fail %v", result.GetLockData())
 			return
 		}
 		result, err = lock1.Unlock()
 		if err != nil {
-			t.Errorf("Lock Unlock Fail %v", err)
+			t.Errorf("Lock PriorityUnlock Fail %v", err)
 			return
 		}
 		if result.GetLockData() == nil || result.GetLockData().GetStringValue() != "aaabbb" {
-			t.Errorf("Lock Unlock Result LockData Fail %v", result.GetLockData())
+			t.Errorf("Lock PriorityUnlock Result LockData Fail %v", result.GetLockData())
 			return
 		}
 		property := result.GetLockData().GetDataProperty(protocol.LOCK_DATA_PROPERTY_CODE_KEY)
 		if property == nil || property.GetValueString() != "bbbb" {
-			t.Errorf("Lock Unlock Result LockData Fail %v", result.GetLockData())
+			t.Errorf("Lock PriorityUnlock Result LockData Fail %v", result.GetLockData())
 			return
 		}
 		result, err = lock2.Unlock()
 		if err != nil {
-			t.Errorf("Lock Unlock Fail %v", err)
+			t.Errorf("Lock PriorityUnlock Fail %v", err)
 			return
 		}
 	})
@@ -976,36 +976,36 @@ func TestLock_WithData_PushWithProperty(t *testing.T) {
 			return
 		}
 		if result.GetLockData() == nil {
-			t.Errorf("Lock Unlock Result LockData Fail %v", result.GetLockData())
+			t.Errorf("Lock PriorityUnlock Result LockData Fail %v", result.GetLockData())
 			return
 		}
 		values := result.GetLockData().GetArrayValue()
 		if values == nil || len(values) != 1 && string(values[0]) != "aaa" {
-			t.Errorf("Lock Unlock Result LockData Fail %v", result.GetLockData())
+			t.Errorf("Lock PriorityUnlock Result LockData Fail %v", result.GetLockData())
 			return
 		}
 		result, err = lock1.Unlock()
 		if err != nil {
-			t.Errorf("Lock Unlock Fail %v", err)
+			t.Errorf("Lock PriorityUnlock Fail %v", err)
 			return
 		}
 		if result.GetLockData() == nil {
-			t.Errorf("Lock Unlock Result LockData Fail %v", result.GetLockData())
+			t.Errorf("Lock PriorityUnlock Result LockData Fail %v", result.GetLockData())
 			return
 		}
 		values = result.GetLockData().GetArrayValue()
 		if values == nil || len(values) != 2 && string(values[0]) != "aaa" && string(values[0]) != "bbb" {
-			t.Errorf("Lock Unlock Result LockData Fail %v", result.GetLockData())
+			t.Errorf("Lock PriorityUnlock Result LockData Fail %v", result.GetLockData())
 			return
 		}
 		property := result.GetLockData().GetDataProperty(protocol.LOCK_DATA_PROPERTY_CODE_KEY)
 		if property == nil || property.GetValueString() != "bbbb" {
-			t.Errorf("Lock Unlock Result LockData Fail %v", result.GetLockData())
+			t.Errorf("Lock PriorityUnlock Result LockData Fail %v", result.GetLockData())
 			return
 		}
 		result, err = lock2.Unlock()
 		if err != nil {
-			t.Errorf("Lock Unlock Fail %v", err)
+			t.Errorf("Lock PriorityUnlock Fail %v", err)
 			return
 		}
 	})
@@ -1032,31 +1032,31 @@ func TestLock_WithData_SetArray(t *testing.T) {
 			return
 		}
 		if result.GetLockData() == nil {
-			t.Errorf("Lock Unlock Result LockData Fail %v", result.GetLockData())
+			t.Errorf("Lock PriorityUnlock Result LockData Fail %v", result.GetLockData())
 			return
 		}
 		valeus := result.GetLockData().GetArrayValue()
 		if valeus == nil || len(valeus) != 2 || string(valeus[0]) != "aaa" || string(valeus[1]) != "bbb" {
-			t.Errorf("Lock Unlock Result LockData Fail %v", result.GetLockData())
+			t.Errorf("Lock PriorityUnlock Result LockData Fail %v", result.GetLockData())
 			return
 		}
 		result, err = lock1.Unlock()
 		if err != nil {
-			t.Errorf("Lock Unlock Fail %v", err)
+			t.Errorf("Lock PriorityUnlock Fail %v", err)
 			return
 		}
 		if result.GetLockData() == nil {
-			t.Errorf("Lock Unlock Result LockData Fail %v", result.GetLockData())
+			t.Errorf("Lock PriorityUnlock Result LockData Fail %v", result.GetLockData())
 			return
 		}
 		valeus = result.GetLockData().GetArrayValue()
 		if valeus == nil || len(valeus) != 2 || string(valeus[0]) != "ccc" || string(valeus[1]) != "ddd" {
-			t.Errorf("Lock Unlock Result LockData Fail %v", result.GetLockData())
+			t.Errorf("Lock PriorityUnlock Result LockData Fail %v", result.GetLockData())
 			return
 		}
 		result, err = lock2.Unlock()
 		if err != nil {
-			t.Errorf("Lock Unlock Fail %v", err)
+			t.Errorf("Lock PriorityUnlock Fail %v", err)
 			return
 		}
 	})
@@ -1089,31 +1089,31 @@ func TestLock_WithData_SetKV(t *testing.T) {
 			return
 		}
 		if result.GetLockData() == nil {
-			t.Errorf("Lock Unlock Result LockData Fail %v", result.GetLockData())
+			t.Errorf("Lock PriorityUnlock Result LockData Fail %v", result.GetLockData())
 			return
 		}
 		kvvalues = result.GetLockData().GetKVValue()
 		if kvvalues == nil || len(kvvalues) != 2 || string(kvvalues["aaa"]) != "aaa" || string(kvvalues["bbb"]) != "bbb" {
-			t.Errorf("Lock Unlock Result LockData Fail %v", result.GetLockData())
+			t.Errorf("Lock PriorityUnlock Result LockData Fail %v", result.GetLockData())
 			return
 		}
 		result, err = lock1.Unlock()
 		if err != nil {
-			t.Errorf("Lock Unlock Fail %v", err)
+			t.Errorf("Lock PriorityUnlock Fail %v", err)
 			return
 		}
 		if result.GetLockData() == nil {
-			t.Errorf("Lock Unlock Result LockData Fail %v", result.GetLockData())
+			t.Errorf("Lock PriorityUnlock Result LockData Fail %v", result.GetLockData())
 			return
 		}
 		kvvalues = result.GetLockData().GetKVValue()
 		if kvvalues == nil || len(kvvalues) != 2 || string(kvvalues["ccc"]) != "ccc" || string(kvvalues["ddd"]) != "ddd" {
-			t.Errorf("Lock Unlock Result LockData Fail %v", result.GetLockData())
+			t.Errorf("Lock PriorityUnlock Result LockData Fail %v", result.GetLockData())
 			return
 		}
 		result, err = lock2.Unlock()
 		if err != nil {
-			t.Errorf("Lock Unlock Fail %v", err)
+			t.Errorf("Lock PriorityUnlock Fail %v", err)
 			return
 		}
 	})
@@ -1134,11 +1134,11 @@ func TestLock_RequireAck(t *testing.T) {
 		}
 		result, err = lock.Unlock()
 		if err != nil {
-			t.Errorf("Lock Unlock Fail %v", err)
+			t.Errorf("Lock PriorityUnlock Fail %v", err)
 			return
 		}
 		if result.GetLockData() != nil {
-			t.Errorf("Lock Unlock Result LockData Fail %v", result.GetLockData())
+			t.Errorf("Lock PriorityUnlock Result LockData Fail %v", result.GetLockData())
 			return
 		}
 
@@ -1181,11 +1181,11 @@ func TestLock_RequireAck(t *testing.T) {
 
 		result, err = lock.Unlock()
 		if err != nil {
-			t.Errorf("Lock Unlock Fail %v", err)
+			t.Errorf("Lock PriorityUnlock Fail %v", err)
 			return
 		}
 		if result.GetLockData() == nil || result.GetLockData().GetStringValue() != "ccc" {
-			t.Errorf("Lock Unlock Result LockData Fail %v", result.GetLockData())
+			t.Errorf("Lock PriorityUnlock Result LockData Fail %v", result.GetLockData())
 			return
 		}
 		result, err = ulock1.UnlockWithData(protocol.NewLockCommandDataUnsetData())
@@ -1231,12 +1231,12 @@ func TestLock_MultiLockCheckVersion(t *testing.T) {
 		}
 		_, err = lock1.Unlock()
 		if err != nil {
-			t.Errorf("MultiLockCheckVersion Unlock Fail %v", err)
+			t.Errorf("MultiLockCheckVersion PriorityUnlock Fail %v", err)
 			return
 		}
 		_, err = lock2.Unlock()
 		if err != nil {
-			t.Errorf("MultiLockCheckVersion Unlock Fail %v", err)
+			t.Errorf("MultiLockCheckVersion PriorityUnlock Fail %v", err)
 			return
 		}
 
@@ -1260,7 +1260,7 @@ func TestLock_MultiLockCheckVersion(t *testing.T) {
 		}
 		_, err = lock1.Unlock()
 		if err != nil {
-			t.Errorf("MultiLockCheckVersion Unlock Fail %v", err)
+			t.Errorf("MultiLockCheckVersion PriorityUnlock Fail %v", err)
 			return
 		}
 	})
@@ -1281,11 +1281,11 @@ func TestLock_ProcessLockDataFirstOrLast_Set(t *testing.T) {
 		}
 		result, err = lock1.Unlock()
 		if err != nil {
-			t.Errorf("Lock Unlock Fail %v", err)
+			t.Errorf("Lock PriorityUnlock Fail %v", err)
 			return
 		}
 		if result.GetLockData() == nil || result.GetLockData().GetStringValue() != "aaa" {
-			t.Errorf("Lock Unlock Result LockData Fail %v", result.GetLockData())
+			t.Errorf("Lock PriorityUnlock Result LockData Fail %v", result.GetLockData())
 			return
 		}
 
@@ -1328,11 +1328,11 @@ func TestLock_ProcessLockDataFirstOrLast_Set(t *testing.T) {
 
 		result, err = lock1.Unlock()
 		if err != nil {
-			t.Errorf("Lock Unlock Fail %v", err)
+			t.Errorf("Lock PriorityUnlock Fail %v", err)
 			return
 		}
 		if result.GetLockData() == nil || result.GetLockData().GetStringValue() != "aaa" {
-			t.Errorf("Lock Unlock Result LockData Fail %v", result.GetLockData())
+			t.Errorf("Lock PriorityUnlock Result LockData Fail %v", result.GetLockData())
 			return
 		}
 		result, err = ulock1.UnlockWithData(protocol.NewLockCommandDataFromString("ddd", protocol.LOCK_DATA_STAGE_CURRENT,
@@ -1377,11 +1377,11 @@ func TestLock_ProcessLockDataFirstOrLast_Execute(t *testing.T) {
 		lockCommand.Data = protocol.NewLockCommandDataSetString("aaa")
 		result, err = lock1.UnlockWithData(protocol.NewLockCommandDataExecuteDataWithFlag(lockCommand, protocol.LOCK_DATA_STAGE_CURRENT, protocol.LOCK_DATA_FLAG_PROCESS_FIRST_OR_LAST))
 		if err != nil {
-			t.Errorf("Lock Unlock Execute Fail %v", err)
+			t.Errorf("Lock PriorityUnlock Execute Fail %v", err)
 			return
 		}
 		if result.GetLockData() != nil {
-			t.Errorf("Lock Unlock Execute Result LockData Fail %v", result.GetLockData())
+			t.Errorf("Lock PriorityUnlock Execute Result LockData Fail %v", result.GetLockData())
 			return
 		}
 		time.Sleep(200 * time.Millisecond)
@@ -1393,11 +1393,11 @@ func TestLock_ProcessLockDataFirstOrLast_Execute(t *testing.T) {
 		}
 		result, err = lock1.UnlockHead()
 		if err != nil {
-			t.Errorf("Lock Unlock Execute Release Fail %v", err)
+			t.Errorf("Lock PriorityUnlock Execute Release Fail %v", err)
 			return
 		}
 		if result.GetLockData() == nil || result.GetLockData().GetStringValue() != "aaa" {
-			t.Errorf("Lock Unlock Execute Release LockData Fail %v", result.GetLockData())
+			t.Errorf("Lock PriorityUnlock Execute Release LockData Fail %v", result.GetLockData())
 			return
 		}
 		lock1 = client.Lock(lockKey2, 0, 10)
@@ -1408,11 +1408,11 @@ func TestLock_ProcessLockDataFirstOrLast_Execute(t *testing.T) {
 		}
 		result, err = lock1.UnlockHead()
 		if err != nil {
-			t.Errorf("Lock Unlock Execute Release Fail %v", err)
+			t.Errorf("Lock PriorityUnlock Execute Release Fail %v", err)
 			return
 		}
 		if result.GetLockData() == nil || result.GetLockData().GetStringValue() != "aaa" {
-			t.Errorf("Lock Unlock Execute Release LockData Fail %v", result.GetLockData())
+			t.Errorf("Lock PriorityUnlock Execute Release LockData Fail %v", result.GetLockData())
 			return
 		}
 
@@ -1441,16 +1441,16 @@ func TestLock_ProcessLockDataFirstOrLast_Execute(t *testing.T) {
 		lockCommand.Data = protocol.NewLockCommandDataSetString("aaa")
 		result, err = lock1.UnlockWithData(protocol.NewLockCommandDataExecuteDataWithFlag(lockCommand, protocol.LOCK_DATA_STAGE_CURRENT, protocol.LOCK_DATA_FLAG_PROCESS_FIRST_OR_LAST))
 		if err != nil {
-			t.Errorf("Lock Unlock Execute Fail %v", err)
+			t.Errorf("Lock PriorityUnlock Execute Fail %v", err)
 			return
 		}
 		if result.GetLockData() != nil {
-			t.Errorf("Lock Unlock Execute Result LockData Fail %v", result.GetLockData())
+			t.Errorf("Lock PriorityUnlock Execute Result LockData Fail %v", result.GetLockData())
 			return
 		}
 		result, err = lock.Unlock()
 		if err != nil {
-			t.Errorf("Lock Unlock Execute Fail %v", err)
+			t.Errorf("Lock PriorityUnlock Execute Fail %v", err)
 			return
 		}
 		time.Sleep(200 * time.Millisecond)
@@ -1490,18 +1490,18 @@ func TestLock_ProcessLockDataFirstOrLast_Execute(t *testing.T) {
 		}
 		result, err = lock.Unlock()
 		if err != nil {
-			t.Errorf("Lock Unlock Execute Fail %v", err)
+			t.Errorf("Lock PriorityUnlock Execute Fail %v", err)
 			return
 		}
 		lockCommand = protocol.NewLockCommand(0, lockKey2, protocol.GenLockId(), 0, 10, 0)
 		lockCommand.Data = protocol.NewLockCommandDataSetString("aaa")
 		result, err = lock1.UnlockWithData(protocol.NewLockCommandDataExecuteDataWithFlag(lockCommand, protocol.LOCK_DATA_STAGE_CURRENT, protocol.LOCK_DATA_FLAG_PROCESS_FIRST_OR_LAST))
 		if err != nil {
-			t.Errorf("Lock Unlock Execute Fail %v", err)
+			t.Errorf("Lock PriorityUnlock Execute Fail %v", err)
 			return
 		}
 		if result.GetLockData() != nil {
-			t.Errorf("Lock Unlock Execute Result LockData Fail %v", result.GetLockData())
+			t.Errorf("Lock PriorityUnlock Execute Result LockData Fail %v", result.GetLockData())
 			return
 		}
 		time.Sleep(200 * time.Millisecond)
@@ -1536,7 +1536,7 @@ func TestLock_ProcessLockDataFirstOrLast_Execute(t *testing.T) {
 				return
 			}
 			if result.GetLockData() == nil || result.GetLockData().GetStringValue() != "aaa" {
-				t.Errorf("Lock Unlock Execute Release LockData Fail %v", result.GetLockData())
+				t.Errorf("Lock PriorityUnlock Execute Release LockData Fail %v", result.GetLockData())
 				return
 			}
 			result, err = lock4.UnlockWithData(protocol.NewLockCommandDataUnsetDataWithFlag(protocol.LOCK_DATA_FLAG_PROCESS_FIRST_OR_LAST))
@@ -1545,7 +1545,7 @@ func TestLock_ProcessLockDataFirstOrLast_Execute(t *testing.T) {
 				return
 			}
 			if result.GetLockData() == nil || result.GetLockData().GetStringValue() != "aaa" {
-				t.Errorf("Lock Unlock Execute Release LockData Fail %v", result.GetLockData())
+				t.Errorf("Lock PriorityUnlock Execute Release LockData Fail %v", result.GetLockData())
 				return
 			}
 		}()
@@ -1558,7 +1558,7 @@ func TestLock_ProcessLockDataFirstOrLast_Execute(t *testing.T) {
 				return
 			}
 			if result.GetLockData() == nil || result.GetLockData().GetStringValue() != "aaa" {
-				t.Errorf("Lock Unlock Execute Release LockData Fail %v", result.GetLockData())
+				t.Errorf("Lock PriorityUnlock Execute Release LockData Fail %v", result.GetLockData())
 				return
 			}
 			result, err = lock5.UnlockWithData(protocol.NewLockCommandDataUnsetDataWithFlag(protocol.LOCK_DATA_FLAG_PROCESS_FIRST_OR_LAST))
@@ -1567,7 +1567,7 @@ func TestLock_ProcessLockDataFirstOrLast_Execute(t *testing.T) {
 				return
 			}
 			if result.GetLockData() == nil || result.GetLockData().GetStringValue() != "aaa" {
-				t.Errorf("Lock Unlock Execute Release LockData Fail %v", result.GetLockData())
+				t.Errorf("Lock PriorityUnlock Execute Release LockData Fail %v", result.GetLockData())
 				return
 			}
 		}()
@@ -1578,7 +1578,7 @@ func TestLock_ProcessLockDataFirstOrLast_Execute(t *testing.T) {
 			return
 		}
 		if result.GetLockData() != nil {
-			t.Errorf("Lock Unlock Execute Release LockData Fail %v", result.GetLockData())
+			t.Errorf("Lock PriorityUnlock Execute Release LockData Fail %v", result.GetLockData())
 			return
 		}
 		wg.Wait()
@@ -1590,7 +1590,7 @@ func TestLock_ProcessLockDataFirstOrLast_Execute(t *testing.T) {
 			return
 		}
 		if result.GetLockData() != nil {
-			t.Errorf("Lock Unlock Execute Release LockData Fail %v", result.GetLockData())
+			t.Errorf("Lock PriorityUnlock Execute Release LockData Fail %v", result.GetLockData())
 			return
 		}
 		result, err = lock3.Unlock()
@@ -1599,7 +1599,7 @@ func TestLock_ProcessLockDataFirstOrLast_Execute(t *testing.T) {
 			return
 		}
 		if result.GetLockData() != nil {
-			t.Errorf("Lock Unlock Execute Release LockData Fail %v", result.GetLockData())
+			t.Errorf("Lock PriorityUnlock Execute Release LockData Fail %v", result.GetLockData())
 			return
 		}
 	})
@@ -1624,20 +1624,20 @@ func TestLock_ProcessLockDataUpdate_Execute(t *testing.T) {
 		lockCommand.Data = protocol.NewLockCommandDataSetString("bbb")
 		result, err = lock1.LockUpdateWithData(protocol.NewLockCommandDataExecuteDataWithFlag(lockCommand, protocol.LOCK_DATA_STAGE_UNLOCK, 0))
 		if err != nil {
-			t.Errorf("Lock Unlock Execute Fail %v", err)
+			t.Errorf("Lock PriorityUnlock Execute Fail %v", err)
 			return
 		}
 		if result.GetLockData() != nil {
-			t.Errorf("Lock Unlock Execute Result LockData Fail %v", result.GetLockData())
+			t.Errorf("Lock PriorityUnlock Execute Result LockData Fail %v", result.GetLockData())
 			return
 		}
 		result, err = lock1.Unlock()
 		if err != nil {
-			t.Errorf("Lock Unlock Execute Release Fail %v", err)
+			t.Errorf("Lock PriorityUnlock Execute Release Fail %v", err)
 			return
 		}
 		if result.GetLockData() != nil {
-			t.Errorf("Lock Unlock Execute Release LockData Fail %v", result.GetLockData())
+			t.Errorf("Lock PriorityUnlock Execute Release LockData Fail %v", result.GetLockData())
 			return
 		}
 		lock1 = client.Lock(lockKey1, 0, 0)
@@ -1649,11 +1649,11 @@ func TestLock_ProcessLockDataUpdate_Execute(t *testing.T) {
 		lock1 = client.Lock(lockKey2, 0, 0)
 		result, err = lock1.Lock()
 		if err == nil || result.Result != protocol.RESULT_TIMEOUT {
-			t.Errorf("Lock LockWithData Unlock Execute Fail %v", err)
+			t.Errorf("Lock LockWithData PriorityUnlock Execute Fail %v", err)
 			return
 		}
 		if result.GetLockData() == nil || result.GetLockData().GetStringValue() != "bbb" {
-			t.Errorf("Lock LockWithData Unlock Execute LockData Fail %v", result.GetLockData())
+			t.Errorf("Lock LockWithData PriorityUnlock Execute LockData Fail %v", result.GetLockData())
 			return
 		}
 		result, err = lock1.UnlockHead()

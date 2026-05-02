@@ -42,7 +42,7 @@ func TestDB_ListLocks(t *testing.T) {
 
 		_, err = lock.Unlock()
 		if err != nil {
-			t.Errorf("DB Unlock Fail %v", err)
+			t.Errorf("DB PriorityUnlock Fail %v", err)
 			return
 		}
 	})
@@ -76,7 +76,7 @@ func TestDB_ListLockeds(t *testing.T) {
 
 		_, err = lock.Unlock()
 		if err != nil {
-			t.Errorf("DB Unlock Fail %v", err)
+			t.Errorf("DB PriorityUnlock Fail %v", err)
 			return
 		}
 	})
@@ -120,7 +120,7 @@ func TestDB_ListWaits(t *testing.T) {
 
 		_, err = lock.Unlock()
 		if err != nil {
-			t.Errorf("DB Unlock Fail %v", err)
+			t.Errorf("DB PriorityUnlock Fail %v", err)
 			return
 		}
 		time.Sleep(20 * time.Millisecond)
