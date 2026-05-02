@@ -17,20 +17,20 @@ import (
 )
 
 type ReplicationBufferMutex struct {
-	lock   *sync.Mutex
-	rwlock *sync.RWMutex
+	sync.RWMutex
+	lock   sync.Mutex
 	waiter chan struct{}
 	state  uint32
 }
 
-func (self *ReplicationBufferMutex) Lock() {
-	self.rwlock.Lock()
+func (self *ReplicationBufferMutex) WLock() {
+	self.Lock()
 	if atomic.LoadUint32(&self.state) == 1 {
 		for {
-			self.rwlock.Unlock()
+			self.Unlock()
 			self.lock.Lock()
 			self.lock.Unlock()
-			self.rwlock.Lock()
+			self.Lock()
 			if atomic.LoadUint32(&self.state) == 0 {
 				return
 			}
@@ -38,27 +38,19 @@ func (self *ReplicationBufferMutex) Lock() {
 	}
 }
 
-func (self *ReplicationBufferMutex) Unlock() {
-	self.rwlock.Unlock()
-}
-
-func (self *ReplicationBufferMutex) RLock() {
-	self.rwlock.RLock()
-}
-
-func (self *ReplicationBufferMutex) RUnlock() {
-	self.rwlock.RUnlock()
+func (self *ReplicationBufferMutex) WUnlock() {
+	self.Unlock()
 }
 
 func (self *ReplicationBufferMutex) Wait(duration time.Duration) {
 	self.lock.Lock()
 	if atomic.CompareAndSwapUint32(&self.state, 0, 1) {
-		self.rwlock.Unlock()
+		self.Unlock()
 		select {
 		case <-self.waiter:
 			atomic.StoreUint32(&self.state, 0)
 			time.Sleep(100 * time.Microsecond)
-			self.rwlock.Lock()
+			self.Lock()
 			self.lock.Unlock()
 			return
 		case <-time.After(duration):
@@ -71,7 +63,7 @@ func (self *ReplicationBufferMutex) Wait(duration time.Duration) {
 					break
 				}
 			}
-			self.rwlock.Lock()
+			self.Lock()
 			self.lock.Unlock()
 			return
 		}
@@ -143,7 +135,7 @@ type ReplicationBufferQueue struct {
 }
 
 func NewReplicationBufferQueue(manager *ReplicationManager, bufSize uint64, maxSize uint64) *ReplicationBufferQueue {
-	queue := &ReplicationBufferQueue{manager, ReplicationBufferMutex{&sync.Mutex{}, &sync.RWMutex{}, make(chan struct{}, 1), 0}, nil,
+	queue := &ReplicationBufferQueue{manager, ReplicationBufferMutex{sync.RWMutex{}, sync.Mutex{}, make(chan struct{}, 1), 0}, nil,
 		nil, nil, nil, 0, 0, bufSize, maxSize,
 		0, 0, false}
 	queue.InitFreeQueueItems(bufSize / 64)
@@ -208,25 +200,25 @@ func (self *ReplicationBufferQueue) ResetQueueItems() *ReplicationBufferQueueIte
 }
 
 func (self *ReplicationBufferQueue) AddPoll(cursor *ReplicationBufferQueueCursor) {
-	self.glock.Lock()
+	self.glock.WLock()
 	self.pollCount++
 	currentItem := cursor.currentItem
 	for currentItem != nil {
 		atomic.AddUint32(&currentItem.pollCount, 1)
 		currentItem = currentItem.nextItem
 	}
-	self.glock.Unlock()
+	self.glock.WUnlock()
 }
 
 func (self *ReplicationBufferQueue) RemovePoll(cursor *ReplicationBufferQueueCursor) {
-	self.glock.Lock()
+	self.glock.WLock()
 	self.pollCount--
 	currentItem := cursor.currentItem
 	for currentItem != nil {
 		atomic.AddUint32(&currentItem.pollIndex, 1)
 		currentItem = currentItem.nextItem
 	}
-	self.glock.Unlock()
+	self.glock.WUnlock()
 }
 
 func (self *ReplicationBufferQueue) Close() error {
@@ -237,7 +229,7 @@ func (self *ReplicationBufferQueue) Close() error {
 }
 
 func (self *ReplicationBufferQueue) Push(buf []byte, data []byte) error {
-	self.glock.Lock()
+	self.glock.WLock()
 	var queueItem *ReplicationBufferQueueItem = nil
 	if (self.freeTailItem == nil || self.usedBufferSize >= self.bufferSize) && self.tailItem != nil {
 		if self.tailItem.pollIndex < self.tailItem.pollCount && self.bufferSize < self.maxBufferSize {
@@ -298,7 +290,7 @@ func (self *ReplicationBufferQueue) Push(buf []byte, data []byte) error {
 		self.usedBufferSize += uint64(64 + len(data))
 	}
 	self.seq++
-	self.glock.Unlock()
+	self.glock.WUnlock()
 	return nil
 }
 
