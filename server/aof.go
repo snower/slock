@@ -819,16 +819,18 @@ func (self *AofChannel) Load(fromAofLock *AofLock) error {
 		return io.EOF
 	}
 
-	if atomic.LoadUint32(&self.lockDbGlock.priorityValue) != 0 {
-		self.lockDbGlock.PriorityLock(PRIORITY_MUTEX_TYPE_NONE)
-		self.lockDbGlock.PriorityUnlock()
-	}
 	aofLock := self.getAofLock()
 	copy(aofLock.buf, fromAofLock.buf)
 	aofLock.data = fromAofLock.data
 	aofLock.HandleType = AOF_LOCK_TYPE_LOAD
 
 	self.queueGlock.Lock()
+	if self.lockDbGlockAcquired {
+		self.queueGlock.Unlock()
+		self.lockDbGlock.PriorityLock(PRIORITY_MUTEX_TYPE_NONE)
+		self.lockDbGlock.PriorityUnlock()
+		self.queueGlock.Lock()
+	}
 	self.pushAofLock(aofLock)
 	self.queueGlock.Unlock()
 	return nil
@@ -839,16 +841,18 @@ func (self *AofChannel) Replay(fromAofLock *AofLock) error {
 		return io.EOF
 	}
 
-	if atomic.LoadUint32(&self.lockDbGlock.priorityValue) != 0 {
-		self.lockDbGlock.PriorityLock(PRIORITY_MUTEX_TYPE_NONE)
-		self.lockDbGlock.PriorityUnlock()
-	}
 	aofLock := self.getAofLock()
 	copy(aofLock.buf, fromAofLock.buf)
 	aofLock.data = fromAofLock.data
 	aofLock.HandleType = AOF_LOCK_TYPE_REPLAY
 
 	self.queueGlock.Lock()
+	if self.lockDbGlockAcquired {
+		self.queueGlock.Unlock()
+		self.lockDbGlock.PriorityLock(PRIORITY_MUTEX_TYPE_NONE)
+		self.lockDbGlock.PriorityUnlock()
+		self.queueGlock.Lock()
+	}
 	self.pushAofLock(aofLock)
 	self.queueGlock.Unlock()
 	return nil
