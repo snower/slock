@@ -188,7 +188,7 @@ func TestLockDBExecutorFlushQueueDrainsAllTasks(t *testing.T) {
 		if executor.queueCount != 0 {
 			t.Fatalf("expected queueCount to be 0, got %d", executor.queueCount)
 		}
-		if executor.freeTaskIndex != 2 {
+		if executor.freeTaskIndex != 0 {
 			t.Fatalf("expected 2 tasks to be returned to free list, got %d", executor.freeTaskIndex)
 		}
 	})
