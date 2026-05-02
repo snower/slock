@@ -2305,7 +2305,7 @@ func (self *LockDB) UnLock(serverProtocol ServerProtocol, command *protocol.Lock
 		return nil
 	}
 
-	lockManager.glock.PriorityLock(PRIORITY_MUTEX_TYPE_LOW)
+	lockManager.glock.PriorityLock(priorityType)
 	if lockManager.lockKey != command.LockKey {
 		lockManager.glock.PriorityUnlock()
 		return self.UnLock(serverProtocol, command, priorityType, deActivePriority)

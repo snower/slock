@@ -1602,6 +1602,7 @@ func (self *PriorityMutex) ActivePriority(priorityType uint32) {
 				}
 			}
 			self.priorityMutexes[2].Lock()
+			atomic.AddUint32(&self.priorityActives[2], 1)
 			self.highPriorityActiveCount++
 			if atomic.CompareAndSwapUint32(&self.highPriorityAcquireCount, 0, 0) {
 				self.priorityValueMutex.Unlock()
@@ -1626,6 +1627,7 @@ func (self *PriorityMutex) ActivePriority(priorityType uint32) {
 				}
 			}
 			self.priorityMutexes[1].Lock()
+			atomic.AddUint32(&self.priorityActives[1], 1)
 		} else {
 			atomic.AddUint32(&self.priorityActives[1], 1)
 			self.priorityValueMutex.Unlock()
@@ -1644,6 +1646,7 @@ func (self *PriorityMutex) ActivePriority(priorityType uint32) {
 				}
 			}
 			self.priorityMutexes[0].Lock()
+			atomic.AddUint32(&self.priorityActives[0], 1)
 			self.lowPriorityActiveCount++
 		} else {
 			atomic.AddUint32(&self.priorityActives[0], 1)
