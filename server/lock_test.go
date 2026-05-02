@@ -1044,6 +1044,18 @@ func TestPriorityMutex_ProcessLock(t *testing.T) {
 	p.ActivePriority(PRIORITY_MUTEX_TYPE_MIDDLE)
 	atomic.AddUint32(&c, 1)
 	go func() {
+		p.PriorityLock(PRIORITY_MUTEX_TYPE_MIDDLE)
+		atomic.AddUint32(&c, 0xffffffff)
+	}()
+	time.Sleep(10 * time.Millisecond)
+	if atomic.LoadUint32(&c) != 0 {
+		t.Errorf("PriorityMutex PriorityLock PRIORITY_MUTEX_TYPE_MIDDLE fail")
+		return
+	}
+	p.PriorityUnlock()
+
+	atomic.AddUint32(&c, 1)
+	go func() {
 		p.PriorityLock(PRIORITY_MUTEX_TYPE_LOW)
 		atomic.AddUint32(&c, 0xffffffff)
 	}()
