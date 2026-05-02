@@ -1573,24 +1573,28 @@ const (
 
 type PriorityMutex struct {
 	sync.Mutex
-	priorityMutexes          [3]sync.Mutex
-	priorityActives          [3]uint32
 	priorityValue            uint32
-	priorityValueMutex       sync.Mutex
+	priorityMutexes          [3]sync.Mutex
 	highPriorityAcquireCount uint32
+	priorityValueMutex       sync.Mutex
+	priorityActives          [3]uint32
 	highPriorityActiveCount  uint64
 	lowPriorityActiveCount   uint64
 }
 
 func NewPriorityMutex() *PriorityMutex {
-	return &PriorityMutex{sync.Mutex{}, [3]sync.Mutex{{}, {}, {}},
-		[3]uint32{0, 0, 0}, 0, sync.Mutex{}, 0, 0, 0}
+	return &PriorityMutex{sync.Mutex{}, 0, [3]sync.Mutex{{}, {}, {}}, 0,
+		sync.Mutex{}, [3]uint32{0, 0, 0}, 0, 0}
 }
 
 func (self *PriorityMutex) ActivePriority(priorityType uint32) {
 	self.priorityValueMutex.Lock()
 	switch priorityType {
 	case PRIORITY_MUTEX_TYPE_HIGH:
+		if atomic.LoadUint32(&self.highPriorityAcquireCount) == 0 {
+			self.priorityValueMutex.Unlock()
+			return
+		}
 		priorityValue := atomic.LoadUint32(&self.priorityValue)
 		if priorityValue&0x04 == 0 {
 			for !atomic.CompareAndSwapUint32(&self.priorityValue, priorityValue, priorityValue|0x04) {
@@ -1604,7 +1608,7 @@ func (self *PriorityMutex) ActivePriority(priorityType uint32) {
 			self.priorityMutexes[2].Lock()
 			atomic.AddUint32(&self.priorityActives[2], 1)
 			self.highPriorityActiveCount++
-			if atomic.CompareAndSwapUint32(&self.highPriorityAcquireCount, 0, 0) {
+			if atomic.LoadUint32(&self.highPriorityAcquireCount) == 0 {
 				self.priorityValueMutex.Unlock()
 				self.DeActivePriority(PRIORITY_MUTEX_TYPE_HIGH)
 				return

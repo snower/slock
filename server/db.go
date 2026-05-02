@@ -708,7 +708,7 @@ func (self *LockDB) updateCurrentTime(timeoutWaiter chan struct{}, expriedWaiter
 		expriedWaiter <- struct{}{}
 		time.Sleep(priorityCheckTime - time.Duration(time.Now().Nanosecond()))
 		for i := uint16(0); i < self.managerMaxGlocks; i++ {
-			if self.managerGlocks[i].highPriorityAcquireCount > 0 {
+			if atomic.LoadUint32(&self.managerGlocks[i].highPriorityAcquireCount) > 0 {
 				self.managerGlocks[i].ActivePriority(PRIORITY_MUTEX_TYPE_HIGH)
 			}
 		}
