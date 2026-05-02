@@ -2,11 +2,12 @@ package adapter
 
 import (
 	"fmt"
-	"github.com/snower/slock/client"
-	"github.com/snower/slock/protocol"
 	"math/rand"
 	"sync/atomic"
 	"time"
+
+	"github.com/snower/slock/client"
+	"github.com/snower/slock/protocol"
 )
 
 func randLockData(dataLength int) *protocol.LockCommandData {
@@ -75,7 +76,7 @@ func runClientBenchmark(slockClient *client.Client, count *uint32, maxCount uint
 }
 
 func StartClientBenchmark(clientCount int, concurrentc int, maxCount int, keys [][16]byte, port int, host string, timeout uint32, expried uint32, dataLength int, dataRate float64) {
-	fmt.Printf("Run %d Client, %d concurrentc, %d Count Lock and PriorityUnlock\n", clientCount, concurrentc, maxCount)
+	fmt.Printf("Run %d Client, %d concurrentc, %d Count Lock and Unlock\n", clientCount, concurrentc, maxCount)
 
 	clients := make([]*client.Client, clientCount)
 	waiters := make([]chan bool, concurrentc)

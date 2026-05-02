@@ -2,11 +2,12 @@ package adapter
 
 import (
 	"fmt"
-	"github.com/snower/slock/protocol"
 	"math/rand"
 	"net"
 	"sync/atomic"
 	"time"
+
+	"github.com/snower/slock/protocol"
 )
 
 var benchStreamCount uint8
@@ -125,7 +126,7 @@ func runStreamBenchmark(client net.Conn, count *uint32, wcount *uint32, maxCount
 func StartStreamBenchmark(clientCount int, concurrentc int, maxCount int, keys [][16]byte, port int, host string, timeout uint32, expried uint32, dataLength int, dataRate float64) {
 	benchStreamCount++
 
-	fmt.Printf("Run %d Client, %d concurrentc, %d Count Lock and PriorityUnlock\n", clientCount, concurrentc, maxCount)
+	fmt.Printf("Run %d Client, %d concurrentc, %d Count Lock and Unlock\n", clientCount, concurrentc, maxCount)
 
 	addr := fmt.Sprintf("%s:%d", host, port)
 	clients := make([]net.Conn, clientCount)
