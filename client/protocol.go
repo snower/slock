@@ -382,10 +382,13 @@ func (self *BinaryClientProtocol) FlushWriteBuffered() error {
 	if !atomic.CompareAndSwapUint32(&self.buffered, 1, 0) {
 		self.wglock.Lock()
 		if atomic.CompareAndSwapUint32(&self.buffered, 2, 0) {
-			err := self.stream.Flush()
-			if err != nil {
-				self.wglock.Unlock()
-				return err
+			writerBuffer := self.stream.writerBuffer
+			if writerBuffer.index > 0 {
+				err := writerBuffer.WriteToConn(self.stream.conn)
+				if err != nil {
+					self.wglock.Unlock()
+					return err
+				}
 			}
 		} else {
 			atomic.CompareAndSwapUint32(&self.buffered, 1, 0)

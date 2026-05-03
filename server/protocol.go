@@ -1002,44 +1002,66 @@ func (self *BinaryServerProtocol) Write(result protocol.CommandEncode) error {
 	}
 
 	self.glock.Lock()
-	err := result.Encode(self.wbuf)
+	buf := self.wbuf
+	err := result.Encode(buf)
 	if err != nil {
 		self.glock.Unlock()
 		return err
 	}
+	data := result.EncodeData()
 
-	n, err := self.stream.conn.Write(self.wbuf)
+	writerBuffer := self.stream.writerBuffer
+	if writerBuffer != nil && (data == nil || len(data)+128 < len(self.stream.writerBuffer.buf)) {
+		buffered := atomic.LoadUint32(&self.buffered)
+		if buffered > 0 {
+			if buffered == 2 || atomic.CompareAndSwapUint32(&self.buffered, 1, 2) {
+				if data != nil {
+					if writerBuffer.index+64+len(data) > len(writerBuffer.buf) {
+						err = writerBuffer.WriteToConn(self.stream.conn)
+						if err != nil {
+							self.glock.Unlock()
+							return err
+						}
+					}
+					copy(writerBuffer.buf[writerBuffer.index:], buf)
+					writerBuffer.index += 64
+					copy(writerBuffer.buf[writerBuffer.index:], data)
+					writerBuffer.index += len(data)
+				} else {
+					copy(writerBuffer.buf[writerBuffer.index:], buf)
+					writerBuffer.index += 64
+				}
+				if writerBuffer.index+64 > len(writerBuffer.buf) {
+					err = writerBuffer.WriteToConn(self.stream.conn)
+					if err != nil {
+						self.glock.Unlock()
+						return err
+					}
+				}
+				self.glock.Unlock()
+				return nil
+			}
+		}
+	}
+
+	n, err := self.stream.conn.Write(buf)
 	if err != nil {
 		self.glock.Unlock()
 		return err
 	}
 	for n < 64 {
-		cn, cerr := self.stream.conn.Write(self.wbuf[n:])
+		cn, cerr := self.stream.conn.Write(buf[n:])
 		if cerr != nil {
 			self.glock.Unlock()
 			return cerr
 		}
 		n += cn
 	}
-
-	switch result.(type) {
-	case *protocol.LockResultCommand:
-		lockResultCommand := result.(*protocol.LockResultCommand)
-		if lockResultCommand.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
-			err = self.stream.WriteBytes(lockResultCommand.Data.Data)
-			if err != nil {
-				self.glock.Unlock()
-				return err
-			}
-		}
-	case *protocol.CallResultCommand:
-		callCommand := result.(*protocol.CallResultCommand)
-		if callCommand.ContentLen > 0 {
-			err = self.stream.WriteBytes(callCommand.Data)
-			if err != nil {
-				self.glock.Unlock()
-				return err
-			}
+	if data != nil {
+		err = self.stream.WriteBytes(data)
+		if err != nil {
+			self.glock.Unlock()
+			return err
 		}
 	}
 	self.glock.Unlock()
