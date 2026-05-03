@@ -1703,6 +1703,7 @@ func TestLock_OverWait(t *testing.T) {
 			t.Errorf("Lock Fail %v", err)
 			return
 		}
+		time.Sleep(100 * time.Millisecond)
 	})
 }
 
