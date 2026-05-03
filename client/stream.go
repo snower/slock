@@ -96,16 +96,76 @@ func (self *StreamReaderBuffer) ReadFromConn(conn net.Conn, size int) (int, erro
 	return self.len - self.index, nil
 }
 
+type StreamWriterBuffer struct {
+	buf   []byte
+	index int
+}
+
+func NewStreamWriterBufferBuffer(size int) *StreamWriterBuffer {
+	return &StreamWriterBuffer{make([]byte, size), 0}
+}
+
+func (self *StreamWriterBuffer) EnsureSizeBuf(size int) []byte {
+	if self.index+size > len(self.buf) {
+		return nil
+	}
+	return self.buf[self.index : self.index+size]
+}
+
+func (self *StreamWriterBuffer) Write(buf []byte) int {
+	if self.index+len(buf) > len(self.buf) {
+		return 0
+	}
+	return copy(self.buf[self.index:], buf)
+}
+
+func (self *StreamWriterBuffer) Bytes() []byte {
+	return self.buf[self.index:]
+}
+
+func (self *StreamWriterBuffer) WriteToConn(conn net.Conn) error {
+	n, err := conn.Write(self.buf[:self.index])
+	if err != nil {
+		return err
+	}
+	for n < self.index {
+		nn, nerr := conn.Write(self.buf[n:self.index])
+		if nerr != nil {
+			copy(self.buf, self.buf[n:self.index])
+			self.index = 0
+			return nerr
+		}
+		n += nn
+	}
+	self.index = 0
+	return nil
+}
+
 type Stream struct {
 	conn         net.Conn
 	readerBuffer *StreamReaderBuffer
+	writerBuffer *StreamWriterBuffer
 	closed       bool
 	closedWait   chan bool
 }
 
 func NewStream(conn net.Conn) *Stream {
-	stream := &Stream{conn, NewStreamReaderBuffer(4096), false, make(chan bool, 1)}
+	stream := &Stream{conn, NewStreamReaderBuffer(4096), nil, false, make(chan bool, 1)}
 	return stream
+}
+
+func (self *Stream) GetReaderBuffer() *StreamReaderBuffer {
+	return self.readerBuffer
+}
+
+func (self *Stream) GetWriterBuffer() *StreamWriterBuffer {
+	return self.writerBuffer
+}
+
+func (self *Stream) EnsureWriterBuffer() {
+	if self.writerBuffer == nil {
+		self.writerBuffer = NewStreamWriterBufferBuffer(4096)
+	}
 }
 
 func (self *Stream) ReadBytes(buf []byte) (int, error) {
@@ -332,6 +392,13 @@ func (self *Stream) Write(b []byte) (int, error) {
 		return 0, io.EOF
 	}
 	return self.conn.Write(b)
+}
+
+func (self *Stream) Flush() error {
+	if self.writerBuffer == nil || self.writerBuffer.index <= 0 {
+		return nil
+	}
+	return self.writerBuffer.WriteToConn(self.conn)
 }
 
 func (self *Stream) Close() error {

@@ -144,15 +144,19 @@ type ICommand interface {
 	GetCommandType() uint8
 	GetRequestId() [16]byte
 	Encode(buf []byte) error
+	EncodeData() []byte
 	Decode(buf []byte) error
+	DecodeData(data []byte) error
 }
 
 type CommandDecode interface {
 	Decode(buf []byte) error
+	DecodeData(data []byte) error
 }
 
 type CommandEncode interface {
 	Encode(buf []byte) error
+	EncodeData() []byte
 }
 
 type Command struct {
@@ -180,6 +184,10 @@ func (self *Command) Decode(buf []byte) error {
 	return nil
 }
 
+func (self *Command) DecodeData(_ []byte) error {
+	return nil
+}
+
 func (self *Command) Encode(buf []byte) error {
 	buf[0] = byte(self.Magic)
 	buf[1] = byte(self.Version)
@@ -191,6 +199,10 @@ func (self *Command) Encode(buf []byte) error {
 		self.RequestId[8], self.RequestId[9], self.RequestId[10], self.RequestId[11], self.RequestId[12], self.RequestId[13], self.RequestId[14], self.RequestId[15]
 
 	copy(buf[19:], make([]byte, 45))
+	return nil
+}
+
+func (self *Command) EncodeData() []byte {
 	return nil
 }
 
@@ -229,6 +241,10 @@ func (self *ResultCommand) Decode(buf []byte) error {
 	return nil
 }
 
+func (self *ResultCommand) DecodeData(_ []byte) error {
+	return nil
+}
+
 func (self *ResultCommand) Encode(buf []byte) error {
 	buf[0] = byte(self.Magic)
 	buf[1] = byte(self.Version)
@@ -242,6 +258,10 @@ func (self *ResultCommand) Encode(buf []byte) error {
 	buf[19] = uint8(self.Result)
 
 	copy(buf[20:], make([]byte, 44))
+	return nil
+}
+
+func (self *ResultCommand) EncodeData() []byte {
 	return nil
 }
 
@@ -285,6 +305,10 @@ func (self *InitCommand) Decode(buf []byte) error {
 	return nil
 }
 
+func (self *InitCommand) DecodeData(_ []byte) error {
+	return nil
+}
+
 func (self *InitCommand) Encode(buf []byte) error {
 	if len(buf) < 64 {
 		return errors.New("buf too short")
@@ -306,6 +330,10 @@ func (self *InitCommand) Encode(buf []byte) error {
 		buf[35+i] = 0x00
 	}
 
+	return nil
+}
+
+func (self *InitCommand) EncodeData() []byte {
 	return nil
 }
 
@@ -349,6 +377,10 @@ func (self *InitResultCommand) Decode(buf []byte) error {
 	return nil
 }
 
+func (self *InitResultCommand) DecodeData(_ []byte) error {
+	return nil
+}
+
 func (self *InitResultCommand) Encode(buf []byte) error {
 	if len(buf) < 64 {
 		return errors.New("buf too short")
@@ -367,6 +399,10 @@ func (self *InitResultCommand) Encode(buf []byte) error {
 		buf[21+i] = 0x00
 	}
 
+	return nil
+}
+
+func (self *InitResultCommand) EncodeData() []byte {
 	return nil
 }
 
@@ -794,6 +830,13 @@ func (self *LockCommand) Decode(buf []byte) error {
 	return nil
 }
 
+func (self *LockCommand) DecodeData(data []byte) error {
+	if self.Flag&LOCK_FLAG_CONTAINS_DATA != 0 {
+		self.Data = NewLockCommandDataFromOriginBytes(data)
+	}
+	return nil
+}
+
 func (self *LockCommand) Encode(buf []byte) error {
 	if len(buf) < 64 {
 		return errors.New("buf too short")
@@ -822,6 +865,13 @@ func (self *LockCommand) Encode(buf []byte) error {
 
 	buf[61], buf[62], buf[63] = byte(self.Count), byte(self.Count>>8), byte(self.Rcount)
 
+	return nil
+}
+
+func (self *LockCommand) EncodeData() []byte {
+	if self.Flag&LOCK_FLAG_CONTAINS_DATA != 0 && self.Data != nil {
+		return self.Data.Data
+	}
 	return nil
 }
 
@@ -1037,6 +1087,13 @@ func (self *LockResultCommand) Decode(buf []byte) error {
 	return nil
 }
 
+func (self *LockResultCommand) DecodeData(data []byte) error {
+	if self.Flag&LOCK_FLAG_CONTAINS_DATA != 0 {
+		self.Data = NewLockResultCommandDataFromOriginBytes(data)
+	}
+	return nil
+}
+
 func (self *LockResultCommand) Encode(buf []byte) error {
 	if len(buf) < 64 {
 		return errors.New("buf too short")
@@ -1063,6 +1120,13 @@ func (self *LockResultCommand) Encode(buf []byte) error {
 
 	buf[54], buf[55], buf[56], buf[57], buf[58], buf[59], buf[60], buf[61] = byte(self.Lcount), byte(self.Lcount>>8), byte(self.Count), byte(self.Count>>8), byte(self.Lrcount), byte(self.Rcount), 0x00, 0x00
 	buf[62], buf[63] = 0x00, 0x00
+	return nil
+}
+
+func (self *LockResultCommand) EncodeData() []byte {
+	if self.Flag&LOCK_FLAG_CONTAINS_DATA != 0 && self.Data != nil {
+		return self.Data.Data
+	}
 	return nil
 }
 
@@ -1099,6 +1163,10 @@ func (self *StateCommand) Decode(buf []byte) error {
 	return nil
 }
 
+func (self *StateCommand) DecodeData(_ []byte) error {
+	return nil
+}
+
 func (self *StateCommand) Encode(buf []byte) error {
 	buf[0] = byte(self.Magic)
 	buf[1] = byte(self.Version)
@@ -1116,6 +1184,10 @@ func (self *StateCommand) Encode(buf []byte) error {
 		buf[21+i] = 0x00
 	}
 
+	return nil
+}
+
+func (self *StateCommand) EncodeData() []byte {
 	return nil
 }
 
@@ -1160,6 +1232,10 @@ func (self *StateResultCommand) Decode(buf []byte) error {
 	self.State.UnlockErrorCount = uint32(buf[55]) | uint32(buf[56])<<8 | uint32(buf[57])<<16 | uint32(buf[58])<<24
 	self.State.KeyCount = uint32(buf[59]) | uint32(buf[60])<<8 | uint32(buf[61])<<16 | uint32(buf[62])<<24
 
+	return nil
+}
+
+func (self *StateResultCommand) DecodeData(_ []byte) error {
 	return nil
 }
 
@@ -1231,6 +1307,10 @@ func (self *StateResultCommand) Encode(buf []byte) error {
 	return nil
 }
 
+func (self *StateResultCommand) EncodeData() []byte {
+	return nil
+}
+
 type AdminCommand struct {
 	Command
 	AdminType uint8
@@ -1258,6 +1338,10 @@ func (self *AdminCommand) Decode(buf []byte) error {
 	return nil
 }
 
+func (self *AdminCommand) DecodeData(_ []byte) error {
+	return nil
+}
+
 func (self *AdminCommand) Encode(buf []byte) error {
 	buf[0] = byte(self.Magic)
 	buf[1] = byte(self.Version)
@@ -1274,6 +1358,10 @@ func (self *AdminCommand) Encode(buf []byte) error {
 		buf[20+i] = 0x00
 	}
 
+	return nil
+}
+
+func (self *AdminCommand) EncodeData() []byte {
 	return nil
 }
 
@@ -1302,6 +1390,10 @@ func (self *AdminResultCommand) Decode(buf []byte) error {
 	return nil
 }
 
+func (self *AdminResultCommand) DecodeData(_ []byte) error {
+	return nil
+}
+
 func (self *AdminResultCommand) Encode(buf []byte) error {
 	buf[0] = byte(self.Magic)
 	buf[1] = byte(self.Version)
@@ -1318,6 +1410,10 @@ func (self *AdminResultCommand) Encode(buf []byte) error {
 		buf[20+i] = 0x00
 	}
 
+	return nil
+}
+
+func (self *AdminResultCommand) EncodeData() []byte {
 	return nil
 }
 
@@ -1345,6 +1441,10 @@ func (self *PingCommand) Decode(buf []byte) error {
 	return nil
 }
 
+func (self *PingCommand) DecodeData(_ []byte) error {
+	return nil
+}
+
 func (self *PingCommand) Encode(buf []byte) error {
 	buf[0] = byte(self.Magic)
 	buf[1] = byte(self.Version)
@@ -1359,6 +1459,10 @@ func (self *PingCommand) Encode(buf []byte) error {
 		buf[19+i] = 0x00
 	}
 
+	return nil
+}
+
+func (self *PingCommand) EncodeData() []byte {
 	return nil
 }
 
@@ -1387,6 +1491,10 @@ func (self *PingResultCommand) Decode(buf []byte) error {
 	return nil
 }
 
+func (self *PingResultCommand) DecodeData(_ []byte) error {
+	return nil
+}
+
 func (self *PingResultCommand) Encode(buf []byte) error {
 	buf[0] = byte(self.Magic)
 	buf[1] = byte(self.Version)
@@ -1403,6 +1511,10 @@ func (self *PingResultCommand) Encode(buf []byte) error {
 		buf[20+i] = 0x00
 	}
 
+	return nil
+}
+
+func (self *PingResultCommand) EncodeData() []byte {
 	return nil
 }
 
@@ -1430,6 +1542,10 @@ func (self *QuitCommand) Decode(buf []byte) error {
 	return nil
 }
 
+func (self *QuitCommand) DecodeData(_ []byte) error {
+	return nil
+}
+
 func (self *QuitCommand) Encode(buf []byte) error {
 	buf[0] = byte(self.Magic)
 	buf[1] = byte(self.Version)
@@ -1444,6 +1560,10 @@ func (self *QuitCommand) Encode(buf []byte) error {
 		buf[19+i] = 0x00
 	}
 
+	return nil
+}
+
+func (self *QuitCommand) EncodeData() []byte {
 	return nil
 }
 
@@ -1472,6 +1592,10 @@ func (self *QuitResultCommand) Decode(buf []byte) error {
 	return nil
 }
 
+func (self *QuitResultCommand) DecodeData(_ []byte) error {
+	return nil
+}
+
 func (self *QuitResultCommand) Encode(buf []byte) error {
 	buf[0] = byte(self.Magic)
 	buf[1] = byte(self.Version)
@@ -1488,6 +1612,10 @@ func (self *QuitResultCommand) Encode(buf []byte) error {
 		buf[20+i] = 0x00
 	}
 
+	return nil
+}
+
+func (self *QuitResultCommand) EncodeData() []byte {
 	return nil
 }
 
@@ -1530,6 +1658,11 @@ func (self *CallCommand) Decode(buf []byte) error {
 	return nil
 }
 
+func (self *CallCommand) DecodeData(data []byte) error {
+	self.Data = data
+	return nil
+}
+
 func (self *CallCommand) Encode(buf []byte) error {
 	if len(self.MethodName) > 38 {
 		return errors.New("MethodName too long")
@@ -1561,6 +1694,10 @@ func (self *CallCommand) Encode(buf []byte) error {
 		}
 	}
 	return nil
+}
+
+func (self *CallCommand) EncodeData() []byte {
+	return self.Data
 }
 
 type CallResultCommand struct {
@@ -1603,6 +1740,11 @@ func (self *CallResultCommand) Decode(buf []byte) error {
 	return nil
 }
 
+func (self *CallResultCommand) DecodeData(data []byte) error {
+	self.Data = data
+	return nil
+}
+
 func (self *CallResultCommand) Encode(buf []byte) error {
 	if len(self.ErrType) > 37 {
 		return errors.New("ErrType too long")
@@ -1638,6 +1780,10 @@ func (self *CallResultCommand) Encode(buf []byte) error {
 	return nil
 }
 
+func (self *CallResultCommand) EncodeData() []byte {
+	return self.Data
+}
+
 type LeaderCommand struct {
 	Command
 	Flag  uint8
@@ -1664,6 +1810,10 @@ func (self *LeaderCommand) Decode(buf []byte) error {
 	return nil
 }
 
+func (self *LeaderCommand) DecodeData(_ []byte) error {
+	return nil
+}
+
 func (self *LeaderCommand) Encode(buf []byte) error {
 	buf[0] = byte(self.Magic)
 	buf[1] = byte(self.Version)
@@ -1679,6 +1829,10 @@ func (self *LeaderCommand) Encode(buf []byte) error {
 	for i := 0; i < 44; i++ {
 		buf[20+i] = 0x00
 	}
+	return nil
+}
+
+func (self *LeaderCommand) EncodeData() []byte {
 	return nil
 }
 
@@ -1708,6 +1862,10 @@ func (self *LeaderResultCommand) Decode(buf []byte) error {
 	return nil
 }
 
+func (self *LeaderResultCommand) DecodeData(_ []byte) error {
+	return nil
+}
+
 func (self *LeaderResultCommand) Encode(buf []byte) error {
 	if len(self.Host) > 43 {
 		return errors.New("Host too long")
@@ -1732,6 +1890,10 @@ func (self *LeaderResultCommand) Encode(buf []byte) error {
 			buf[21+i] = self.Host[i]
 		}
 	}
+	return nil
+}
+
+func (self *LeaderResultCommand) EncodeData() []byte {
 	return nil
 }
 
@@ -1779,6 +1941,10 @@ func (self *SubscribeCommand) Decode(buf []byte) error {
 	return nil
 }
 
+func (self *SubscribeCommand) DecodeData(_ []byte) error {
+	return nil
+}
+
 func (self *SubscribeCommand) Encode(buf []byte) error {
 	buf[0] = byte(self.Magic)
 	buf[1] = byte(self.Version)
@@ -1823,6 +1989,10 @@ func (self *SubscribeCommand) Encode(buf []byte) error {
 	return nil
 }
 
+func (self *SubscribeCommand) EncodeData() []byte {
+	return nil
+}
+
 type SubscribeResultCommand struct {
 	ResultCommand
 	Flag        uint8
@@ -1852,6 +2022,10 @@ func (self *SubscribeResultCommand) Decode(buf []byte) error {
 	return nil
 }
 
+func (self *SubscribeResultCommand) DecodeData(_ []byte) error {
+	return nil
+}
+
 func (self *SubscribeResultCommand) Encode(buf []byte) error {
 	buf[0] = byte(self.Magic)
 	buf[1] = byte(self.Version)
@@ -1877,5 +2051,9 @@ func (self *SubscribeResultCommand) Encode(buf []byte) error {
 	for i := 0; i < 35; i++ {
 		buf[29+i] = 0x00
 	}
+	return nil
+}
+
+func (self *SubscribeResultCommand) EncodeData() []byte {
 	return nil
 }

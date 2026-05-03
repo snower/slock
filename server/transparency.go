@@ -18,9 +18,11 @@ type TransparencyBinaryClientProtocol struct {
 	stream            *client.Stream
 	clientProtocol    *client.BinaryClientProtocol
 	serverProtocol    ServerProtocol
+	serverProcess     func(command protocol.CommandDecode) error
 	nextClient        *TransparencyBinaryClientProtocol
 	initCommand       *protocol.InitCommand
 	initResultCommand *protocol.InitResultCommand
+	bufferedProtocol  *BinaryServerProtocol
 	latestCommandType uint8
 	latestRequestId   [16]byte
 	leaderAddress     string
@@ -30,8 +32,8 @@ type TransparencyBinaryClientProtocol struct {
 }
 
 func NewTransparencyBinaryClientProtocol(manager *TransparencyManager) *TransparencyBinaryClientProtocol {
-	return &TransparencyBinaryClientProtocol{manager, &sync.Mutex{}, nil, nil,
-		nil, nil, nil, nil, 0xff, [16]byte{},
+	return &TransparencyBinaryClientProtocol{manager, &sync.Mutex{}, nil, nil, nil,
+		nil, nil, nil, nil, nil, 0xff, [16]byte{},
 		"", "", false, time.Now()}
 }
 
@@ -59,6 +61,7 @@ func (self *TransparencyBinaryClientProtocol) Open(leaderAddress string) error {
 func (self *TransparencyBinaryClientProtocol) RetryOpen(leaderAddress string) error {
 	self.manager.slock.Log().Infof("Transparency client reconnect %s, leader %s", self.localAddress, self.leaderAddress)
 	if self.clientProtocol != nil {
+		_ = self.clientProtocol.FlushWriteBuffered()
 		_ = self.clientProtocol.Close()
 		self.clientProtocol = nil
 		self.stream = nil
@@ -71,12 +74,57 @@ func (self *TransparencyBinaryClientProtocol) RetryOpen(leaderAddress string) er
 	return nil
 }
 
+func (self *TransparencyBinaryClientProtocol) UpdateServerProtocol(serverProtocol ServerProtocol) {
+	if self.serverProtocol != nil {
+		switch self.serverProtocol.(type) {
+		case *TransparencyBinaryServerProtocol:
+			transparencyBinaryServerProtocol := self.serverProtocol.(*TransparencyBinaryServerProtocol)
+			if transparencyBinaryServerProtocol.serverProtocol != nil {
+				_ = transparencyBinaryServerProtocol.serverProtocol.ProcessFlush()
+			}
+			self.bufferedProtocol = nil
+			break
+		case *BinaryServerProtocol:
+			binaryServerProtocol := self.serverProtocol.(*BinaryServerProtocol)
+			_ = binaryServerProtocol.ProcessFlush()
+			self.bufferedProtocol = nil
+			break
+		}
+	}
+	self.serverProtocol = serverProtocol
+	if self.serverProtocol != nil {
+		switch self.serverProtocol.(type) {
+		case *TransparencyBinaryServerProtocol:
+			transparencyBinaryServerProtocol := self.serverProtocol.(*TransparencyBinaryServerProtocol)
+			if transparencyBinaryServerProtocol.serverProtocol != nil {
+				transparencyBinaryServerProtocol.serverProtocol.stream.EnsureWriterBuffer()
+				self.bufferedProtocol = transparencyBinaryServerProtocol.serverProtocol
+			}
+			self.serverProcess = self.processBinaryProtocol
+			break
+		case *BinaryServerProtocol:
+			binaryServerProtocol := self.serverProtocol.(*BinaryServerProtocol)
+			binaryServerProtocol.stream.EnsureWriterBuffer()
+			self.bufferedProtocol = binaryServerProtocol
+			self.serverProcess = self.processBinaryProtocol
+			break
+		case *TransparencyTextServerProtocol:
+			self.serverProcess = self.processTextProtocol
+			break
+		case *TextServerProtocol:
+			self.serverProcess = self.processTextProtocol
+			break
+		}
+	}
+}
+
 func (self *TransparencyBinaryClientProtocol) Close() error {
 	if self.closed {
 		return nil
 	}
 	self.closed = true
 	if self.clientProtocol != nil {
+		_ = self.clientProtocol.FlushWriteBuffered()
 		_ = self.clientProtocol.Close()
 		self.clientProtocol = nil
 	}
@@ -116,19 +164,62 @@ func (self *TransparencyBinaryClientProtocol) Process() {
 			}
 			continue
 		}
-
 		if self.serverProtocol == nil {
 			continue
 		}
 
-		switch self.serverProtocol.(type) {
-		case *TransparencyBinaryServerProtocol:
-			err = self.processBinaryProcotol(command)
+		buffered := false
+		readerBuffer := self.stream.GetReaderBuffer()
+		bufferedProtocol := self.bufferedProtocol
+		if bufferedProtocol != nil && readerBuffer.GetSize() >= 64 {
+			if atomic.CompareAndSwapUint32(&bufferedProtocol.buffered, 0, 1) {
+				buffered = true
+			} else {
+				err = bufferedProtocol.ProcessFlush()
+				if err != nil {
+					return
+				}
+				if atomic.CompareAndSwapUint32(&bufferedProtocol.buffered, 0, 1) {
+					buffered = true
+				}
+			}
+		}
+
+		err = self.serverProcess(command)
+		if err != nil {
+			if buffered {
+				_ = bufferedProtocol.ProcessFlush()
+			}
+			return
+		}
+
+		for readerBuffer.GetSize() >= 64 {
+			command, err = self.clientProtocol.Read()
 			if err != nil {
+				if buffered && bufferedProtocol != nil {
+					_ = bufferedProtocol.ProcessFlush()
+				}
+				self.rollbackLatestCommand()
+				err = self.manager.processFinish(self)
+				if err != nil {
+					return
+				}
+				continue
+			}
+			if self.serverProtocol == nil {
+				continue
+			}
+			err = self.serverProcess(command)
+			if err != nil {
+				if buffered && bufferedProtocol != nil {
+					_ = bufferedProtocol.ProcessFlush()
+				}
 				return
 			}
-		case *TransparencyTextServerProtocol:
-			err = self.processTextProcotol(command)
+		}
+
+		if buffered && bufferedProtocol != nil {
+			err = bufferedProtocol.ProcessFlush()
 			if err != nil {
 				return
 			}
@@ -136,7 +227,7 @@ func (self *TransparencyBinaryClientProtocol) Process() {
 	}
 }
 
-func (self *TransparencyBinaryClientProtocol) processBinaryProcotol(command protocol.CommandDecode) error {
+func (self *TransparencyBinaryClientProtocol) processBinaryProtocol(command protocol.CommandDecode) error {
 	serverProtocol := self.serverProtocol.(*TransparencyBinaryServerProtocol)
 	switch command.(type) {
 	case *protocol.LockResultCommand:
@@ -176,7 +267,7 @@ func (self *TransparencyBinaryClientProtocol) processBinaryProcotol(command prot
 	return nil
 }
 
-func (self *TransparencyBinaryClientProtocol) processTextProcotol(command protocol.CommandDecode) error {
+func (self *TransparencyBinaryClientProtocol) processTextProtocol(command protocol.CommandDecode) error {
 	serverProtocol := self.serverProtocol.(*TransparencyTextServerProtocol)
 	switch command.(type) {
 	case *protocol.LockResultCommand:
@@ -219,20 +310,27 @@ func (self *TransparencyBinaryClientProtocol) rollbackLatestCommand() {
 		switch self.serverProtocol.(type) {
 		case *TransparencyBinaryServerProtocol:
 			if resultCommand != nil {
-				_ = self.processBinaryProcotol(resultCommand)
+				_ = self.processBinaryProtocol(resultCommand)
 			}
 			serverProtocol := self.serverProtocol.(*TransparencyBinaryServerProtocol)
 			serverProtocol.clientProtocol = nil
 		case *TransparencyTextServerProtocol:
 			if resultCommand != nil {
-				_ = self.processTextProcotol(resultCommand)
+				_ = self.processTextProtocol(resultCommand)
 			}
 			serverProtocol := self.serverProtocol.(*TransparencyTextServerProtocol)
 			serverProtocol.clientProtocol = nil
 		}
-		self.serverProtocol = nil
+		self.UpdateServerProtocol(nil)
 	}
 	self.latestCommandType = 0xff
+}
+
+func (self *TransparencyBinaryClientProtocol) ProcessFlush() error {
+	if self.clientProtocol != nil {
+		return self.clientProtocol.FlushWriteBuffered()
+	}
+	return nil
 }
 
 type TransparencyBinaryServerProtocol struct {
@@ -346,14 +444,18 @@ func (self *TransparencyBinaryServerProtocol) CheckClient() (*TransparencyBinary
 	}
 	clientProtocol.nextClient = self.manager.clients
 	self.manager.clients = clientProtocol
-	clientProtocol.serverProtocol = self
+	clientProtocol.UpdateServerProtocol(self)
 	self.clientProtocol = clientProtocol
 	self.manager.glock.Unlock()
 	return self.clientProtocol, nil
 }
 
 func (self *TransparencyBinaryServerProtocol) Process() error {
-	self.stream.EnsureWriterBuffer()
+	if self.slock.state == STATE_FOLLOWER {
+		if _, err := self.CheckClient(); err != nil {
+			return err
+		}
+	}
 	for !self.closed {
 		buf, err := self.stream.ReadBytesSize(64)
 		if err != nil {
@@ -368,23 +470,16 @@ func (self *TransparencyBinaryServerProtocol) Process() error {
 		}
 		buffered := false
 		readerBuffer := self.stream.readerBuffer
-		if readerBuffer.GetSize() >= 64 {
-			if atomic.CompareAndSwapUint32(&self.serverProtocol.buffered, 0, 1) {
-				buffered = true
-			} else {
-				err = self.serverProtocol.ProcessFlush()
-				if err != nil {
-					return err
-				}
-				if atomic.CompareAndSwapUint32(&self.serverProtocol.buffered, 0, 1) {
-					buffered = true
-				}
+		if self.clientProtocol != nil && readerBuffer.GetSize() >= 64 {
+			clientProtocol := self.clientProtocol.clientProtocol
+			if clientProtocol != nil {
+				buffered, _ = clientProtocol.StartWriteBuffered()
 			}
 		}
 		err = self.ProcessParse(buf)
 		if err != nil {
-			if buffered {
-				_ = self.serverProtocol.ProcessFlush()
+			if buffered && self.clientProtocol != nil {
+				_ = self.clientProtocol.ProcessFlush()
 			}
 			return err
 		}
@@ -396,21 +491,21 @@ func (self *TransparencyBinaryServerProtocol) Process() error {
 
 			if self.slock.state == STATE_LEADER {
 				self.serverProtocol.rbuf = buf
-				if buffered {
-					_ = self.serverProtocol.ProcessFlush()
+				if buffered && self.clientProtocol != nil {
+					_ = self.clientProtocol.ProcessFlush()
 				}
 				return AGAIN
 			}
 			err = self.ProcessParse(buf)
 			if err != nil {
-				if buffered {
-					_ = self.serverProtocol.ProcessFlush()
+				if buffered && self.clientProtocol != nil {
+					_ = self.clientProtocol.ProcessFlush()
 				}
 				return err
 			}
 		}
-		if buffered {
-			err = self.serverProtocol.ProcessFlush()
+		if buffered && self.clientProtocol != nil {
+			err = self.clientProtocol.ProcessFlush()
 			if err != nil {
 				return err
 			}
@@ -1505,7 +1600,7 @@ func (self *TransparencyManager) AcquireClient(serverProtocol ServerProtocol) (*
 
 		binaryClient.nextClient = self.clients
 		self.clients = binaryClient
-		binaryClient.serverProtocol = serverProtocol
+		binaryClient.UpdateServerProtocol(serverProtocol)
 		return binaryClient, err
 	}
 
@@ -1513,7 +1608,7 @@ func (self *TransparencyManager) AcquireClient(serverProtocol ServerProtocol) (*
 	self.idleClients = self.idleClients.nextClient
 	binaryClient.nextClient = self.clients
 	self.clients = binaryClient
-	binaryClient.serverProtocol = serverProtocol
+	binaryClient.UpdateServerProtocol(serverProtocol)
 	return binaryClient, nil
 }
 
@@ -1553,7 +1648,7 @@ func (self *TransparencyManager) ReleaseClient(binaryClient *TransparencyBinaryC
 			serverProtocol.clientProtocol = nil
 		}
 	}
-	binaryClient.serverProtocol = nil
+	binaryClient.UpdateServerProtocol(nil)
 	binaryClient.idleTime = time.Now()
 	return nil
 }
@@ -1569,6 +1664,7 @@ func (self *TransparencyManager) OpenClient(initCommand *protocol.InitCommand) (
 	if err != nil {
 		return nil, err
 	}
+	binaryClient.stream.EnsureWriterBuffer()
 	binaryClient.idleTime = time.Now()
 	go binaryClient.Process()
 	return binaryClient, nil
@@ -1614,7 +1710,7 @@ func (self *TransparencyManager) CloseClient(binaryClient *TransparencyBinaryCli
 			serverProtocol.clientProtocol = nil
 		}
 	}
-	binaryClient.serverProtocol = nil
+	binaryClient.UpdateServerProtocol(nil)
 	binaryClient.idleTime = time.Now()
 	return nil
 }

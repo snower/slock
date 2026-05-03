@@ -851,57 +851,115 @@ func (self *ReplicationClient) Process() error {
 	go self.ProcessAofAppend()
 	go self.ProcessPushAofLock()
 
+	self.stream.EnsureWriterBuffer()
 	for !self.closed {
-		aofLock := self.rbufs[self.rbufIndex]
-		n, err := self.stream.ReadBytes(aofLock.buf)
-		if err != nil || n != 64 {
-			self.replayQueue <- nil
-			self.aofQueue <- nil
-			self.pushQueue <- nil
-			if err == nil {
-				return errors.New("read stream size error")
-			}
-			return err
-		}
-		err = aofLock.Decode()
+		aofLock, err := self.ProcessReadParse()
 		if err != nil {
-			self.replayQueue <- nil
-			self.aofQueue <- nil
-			self.pushQueue <- nil
 			return err
-		}
-		if aofLock.CommandType == protocol.COMMAND_QUIT {
-			self.replayQueue <- nil
-			self.aofQueue <- nil
-			self.pushQueue <- nil
-			self.manager.slock.logger.Infof("Replication client recv quit command")
-			return nil
-		}
-		if aofLock.AofFlag&AOF_FLAG_CONTAINS_DATA != 0 {
-			buf, derr := self.stream.ReadBytesFrame()
-			if derr != nil {
-				self.replayQueue <- nil
-				self.aofQueue <- nil
-				self.pushQueue <- nil
-				return derr
-			}
-			aofLock.data = buf
-			self.state.recvDataSize += uint64(len(buf))
 		}
 
-		self.state.recvCount++
-		self.replayQueue <- aofLock
-		self.aofQueue <- aofLock
-		self.pushQueue <- aofLock
-		self.state.loadCount++
-		self.rbufIndex++
-		if self.rbufIndex >= len(self.rbufs) {
-			self.rbufIndex = 0
+		buffered := false
+		readerBuffer := self.stream.GetReaderBuffer()
+		if readerBuffer.GetSize() >= 64 {
+			buffered, _ = self.protocol.StartWriteBuffered()
+		}
+
+		err = self.ProcessPush(aofLock)
+		if err != nil {
+			if buffered {
+				_ = self.protocol.FlushWriteBuffered()
+			}
+			if err == io.EOF && aofLock.CommandType == protocol.COMMAND_QUIT {
+				return nil
+			}
+			return err
+		}
+
+		for readerBuffer.GetSize() >= 64 {
+			aofLock, err = self.ProcessReadParse()
+			if err != nil {
+				if buffered {
+					_ = self.protocol.FlushWriteBuffered()
+				}
+				return err
+			}
+
+			err = self.ProcessPush(aofLock)
+			if err != nil {
+				if buffered {
+					_ = self.protocol.FlushWriteBuffered()
+				}
+				if err == io.EOF && aofLock.CommandType == protocol.COMMAND_QUIT {
+					return nil
+				}
+				return err
+			}
+		}
+
+		if buffered {
+			err = self.protocol.FlushWriteBuffered()
+			if err != nil {
+				return err
+			}
 		}
 	}
 	self.replayQueue <- nil
 	self.aofQueue <- nil
 	self.pushQueue <- nil
+	return nil
+}
+
+func (self *ReplicationClient) ProcessReadParse() (*AofLock, error) {
+	aofLock := self.rbufs[self.rbufIndex]
+	n, err := self.stream.ReadBytes(aofLock.buf)
+	if err != nil || n != 64 {
+		self.replayQueue <- nil
+		self.aofQueue <- nil
+		self.pushQueue <- nil
+		if err == nil {
+			return nil, errors.New("read stream size error")
+		}
+		return nil, err
+	}
+	err = aofLock.Decode()
+	if err != nil {
+		self.replayQueue <- nil
+		self.aofQueue <- nil
+		self.pushQueue <- nil
+		return nil, err
+	}
+	return aofLock, nil
+}
+
+func (self *ReplicationClient) ProcessPush(aofLock *AofLock) error {
+	if aofLock.CommandType == protocol.COMMAND_QUIT {
+		self.replayQueue <- nil
+		self.aofQueue <- nil
+		self.pushQueue <- nil
+		self.manager.slock.logger.Infof("Replication client recv quit command")
+		return io.EOF
+	}
+	if aofLock.AofFlag&AOF_FLAG_CONTAINS_DATA != 0 {
+		buf, derr := self.stream.ReadBytesFrame()
+		if derr != nil {
+			self.replayQueue <- nil
+			self.aofQueue <- nil
+			self.pushQueue <- nil
+			return derr
+		}
+		aofLock.data = buf
+		self.state.recvDataSize += uint64(len(buf))
+	}
+
+	self.state.recvCount++
+	self.replayQueue <- aofLock
+	self.aofQueue <- aofLock
+	self.pushQueue <- aofLock
+	self.state.loadCount++
+	self.rbufIndex++
+	if self.rbufIndex >= len(self.rbufs) {
+		self.rbufIndex = 0
+	}
 	return nil
 }
 
@@ -1068,29 +1126,14 @@ func (self *ReplicationClient) HandleAcked(ackLock *ReplicationAckLock) error {
 	if ackLock.aofResult != 0 && ackLock.lockResult.Result == 0 {
 		ackLock.lockResult.Result = protocol.RESULT_ERROR
 	}
-	err := ackLock.lockResult.Encode(ackLock.buf)
-	if err != nil {
-		return err
-	}
-	self.glock.Lock()
-	if self.stream == nil {
-		self.glock.Unlock()
+	if self.protocol == nil {
 		return errors.New("stream closed")
 	}
-	err = self.stream.WriteBytes(ackLock.buf)
+	err := self.protocol.WriteLockResultCommand(ackLock.lockResult, ackLock.buf)
 	if err != nil {
-		self.glock.Unlock()
 		return err
 	}
-	if ackLock.lockResult.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
-		err = self.stream.WriteBytes(ackLock.lockResult.Data.Data)
-		if err != nil {
-			self.glock.Unlock()
-			return err
-		}
-	}
-	self.state.ackCount++
-	self.glock.Unlock()
+	atomic.AddUint64(&self.state.ackCount, 1)
 	return nil
 }
 

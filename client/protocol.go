@@ -5,11 +5,13 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"github.com/snower/slock/protocol"
 	"net"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
+
+	"github.com/snower/slock/protocol"
 )
 
 type ClientProtocol interface {
@@ -24,14 +26,15 @@ type ClientProtocol interface {
 }
 
 type BinaryClientProtocol struct {
-	stream *Stream
-	rglock *sync.Mutex
-	wglock *sync.Mutex
-	wbuf   []byte
+	stream   *Stream
+	rglock   *sync.Mutex
+	wglock   *sync.Mutex
+	wbuf     []byte
+	buffered uint32
 }
 
 func NewBinaryClientProtocol(stream *Stream) *BinaryClientProtocol {
-	return &BinaryClientProtocol{stream, &sync.Mutex{}, &sync.Mutex{}, make([]byte, 64)}
+	return &BinaryClientProtocol{stream, &sync.Mutex{}, &sync.Mutex{}, make([]byte, 64), 0}
 }
 
 func (self *BinaryClientProtocol) Close() error {
@@ -206,30 +209,114 @@ func (self *BinaryClientProtocol) Write(command protocol.CommandEncode) error {
 		self.wglock.Unlock()
 		return err
 	}
+	data := command.EncodeData()
+
+	writerBuffer := self.stream.writerBuffer
+	if writerBuffer != nil && (data == nil || len(data)+128 < len(self.stream.writerBuffer.buf)) {
+		buffered := atomic.LoadUint32(&self.buffered)
+		if buffered > 0 {
+			if buffered == 2 || atomic.CompareAndSwapUint32(&self.buffered, 1, 2) {
+				if data != nil {
+					if writerBuffer.index+64+len(data) > len(writerBuffer.buf) {
+						err = writerBuffer.WriteToConn(self.stream.conn)
+						if err != nil {
+							self.wglock.Unlock()
+							return err
+						}
+					}
+					copy(writerBuffer.buf[writerBuffer.index:], wbuf)
+					writerBuffer.index += 64
+					copy(writerBuffer.buf[writerBuffer.index:], data)
+					writerBuffer.index += len(data)
+				} else {
+					copy(writerBuffer.buf[writerBuffer.index:], wbuf)
+					writerBuffer.index += 64
+				}
+				if writerBuffer.index+64 > len(writerBuffer.buf) {
+					err = writerBuffer.WriteToConn(self.stream.conn)
+					if err != nil {
+						self.wglock.Unlock()
+						return err
+					}
+				}
+				self.wglock.Unlock()
+				return nil
+			}
+		}
+	}
+
 	err = self.stream.WriteBytes(wbuf)
 	if err != nil {
 		self.wglock.Unlock()
 		return err
 	}
+	if data != nil {
+		err = self.stream.WriteBytes(data)
+		if err != nil {
+			self.wglock.Unlock()
+			return err
+		}
+	}
+	self.wglock.Unlock()
+	return err
+}
 
-	switch command.(type) {
-	case *protocol.LockCommand:
-		lockCommand := command.(*protocol.LockCommand)
-		if lockCommand.Flag&protocol.LOCK_FLAG_CONTAINS_DATA != 0 {
-			err = self.stream.WriteBytes(lockCommand.Data.Data)
-			if err != nil {
+func (self *BinaryClientProtocol) WriteLockResultCommand(command *protocol.LockResultCommand, wbuf []byte) error {
+	if len(wbuf) != 64 {
+		return errors.New("buffer size is invalid")
+	}
+	err := command.Encode(wbuf)
+	if err != nil {
+		self.wglock.Unlock()
+		return err
+	}
+	data := command.EncodeData()
+
+	self.wglock.Lock()
+	writerBuffer := self.stream.writerBuffer
+	if writerBuffer != nil && (data == nil || len(data)+128 < len(self.stream.writerBuffer.buf)) {
+		buffered := atomic.LoadUint32(&self.buffered)
+		if buffered > 0 {
+			if buffered == 2 || atomic.CompareAndSwapUint32(&self.buffered, 1, 2) {
+				if data != nil {
+					if writerBuffer.index+64+len(data) > len(writerBuffer.buf) {
+						err = writerBuffer.WriteToConn(self.stream.conn)
+						if err != nil {
+							self.wglock.Unlock()
+							return err
+						}
+					}
+					copy(writerBuffer.buf[writerBuffer.index:], wbuf)
+					writerBuffer.index += 64
+					copy(writerBuffer.buf[writerBuffer.index:], data)
+					writerBuffer.index += len(data)
+				} else {
+					copy(writerBuffer.buf[writerBuffer.index:], wbuf)
+					writerBuffer.index += 64
+				}
+				if writerBuffer.index+64 > len(writerBuffer.buf) {
+					err = writerBuffer.WriteToConn(self.stream.conn)
+					if err != nil {
+						self.wglock.Unlock()
+						return err
+					}
+				}
 				self.wglock.Unlock()
-				return err
+				return nil
 			}
 		}
-	case *protocol.CallCommand:
-		callCommand := command.(*protocol.CallCommand)
-		if callCommand.ContentLen > 0 {
-			err = self.stream.WriteBytes(callCommand.Data)
-			if err != nil {
-				self.wglock.Unlock()
-				return err
-			}
+	}
+
+	err = self.stream.WriteBytes(wbuf)
+	if err != nil {
+		self.wglock.Unlock()
+		return err
+	}
+	if data != nil {
+		err = self.stream.WriteBytes(data)
+		if err != nil {
+			self.wglock.Unlock()
+			return err
 		}
 	}
 	self.wglock.Unlock()
@@ -254,6 +341,38 @@ func (self *BinaryClientProtocol) RemoteAddr() net.Addr {
 
 func (self *BinaryClientProtocol) LocalAddr() net.Addr {
 	return self.stream.LocalAddr()
+}
+
+func (self *BinaryClientProtocol) StartWriteBuffered() (bool, error) {
+	if atomic.CompareAndSwapUint32(&self.buffered, 0, 1) {
+		return true, nil
+	} else {
+		err := self.FlushWriteBuffered()
+		if err != nil {
+			return false, err
+		}
+		if atomic.CompareAndSwapUint32(&self.buffered, 0, 1) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (self *BinaryClientProtocol) FlushWriteBuffered() error {
+	if !atomic.CompareAndSwapUint32(&self.buffered, 1, 0) {
+		self.wglock.Lock()
+		if atomic.CompareAndSwapUint32(&self.buffered, 2, 0) {
+			err := self.stream.Flush()
+			if err != nil {
+				self.wglock.Unlock()
+				return err
+			}
+		} else {
+			atomic.CompareAndSwapUint32(&self.buffered, 1, 0)
+		}
+		self.wglock.Unlock()
+	}
+	return nil
 }
 
 type TextClientProtocol struct {

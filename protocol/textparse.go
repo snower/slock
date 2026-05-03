@@ -23,6 +23,10 @@ func (self *TextRequestCommand) Decode(buf []byte) error {
 	return self.Parser.ParseRequest()
 }
 
+func (self *TextRequestCommand) DecodeData(_ []byte) error {
+	return nil
+}
+
 func (self *TextRequestCommand) Encode(buf []byte) error {
 	buildBuf := self.Parser.BuildRequest(self.Args)
 	if len(buildBuf) > len(buf) || self.Parser.bufIndex == self.Parser.bufLen {
@@ -30,6 +34,10 @@ func (self *TextRequestCommand) Encode(buf []byte) error {
 	}
 
 	copy(buf, buildBuf)
+	return nil
+}
+
+func (self *TextRequestCommand) EncodeData() []byte {
 	return nil
 }
 
@@ -55,6 +63,10 @@ func (self *TextResponseCommand) Decode(buf []byte) error {
 	return self.Parser.ParseResponse()
 }
 
+func (self *TextResponseCommand) DecodeData(_ []byte) error {
+	return nil
+}
+
 func (self *TextResponseCommand) Encode(buf []byte) error {
 	isSuccess := false
 	message := self.Message
@@ -70,6 +82,10 @@ func (self *TextResponseCommand) Encode(buf []byte) error {
 	}
 
 	copy(buf, buildBuf)
+	return nil
+}
+
+func (self *TextResponseCommand) EncodeData() []byte {
 	return nil
 }
 
