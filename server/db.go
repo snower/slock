@@ -212,9 +212,9 @@ func (self *LockDBExecutor) Run() {
 		if self.db.status == STATE_LEADER {
 			switch executorTask.command.CommandType {
 			case protocol.COMMAND_LOCK:
-				_ = self.db.Lock(executorTask.serverProtocol, executorTask.command, PRIORITY_MUTEX_TYPE_MIDDLE, deActivePriority)
+				_ = self.db.Lock(executorTask.serverProtocol.GetProxy(), executorTask.command, PRIORITY_MUTEX_TYPE_MIDDLE, deActivePriority)
 			case protocol.COMMAND_UNLOCK:
-				_ = self.db.UnLock(executorTask.serverProtocol, executorTask.command, PRIORITY_MUTEX_TYPE_MIDDLE, deActivePriority)
+				_ = self.db.UnLock(executorTask.serverProtocol.GetProxy(), executorTask.command, PRIORITY_MUTEX_TYPE_MIDDLE, deActivePriority)
 			}
 		}
 		if atomic.AddUint32(&executorTask.lockManager.refCount, 0xffffffff) == 0 {
@@ -1311,10 +1311,6 @@ func (self *LockDB) addWaitRemoveLockManager(lockManager *LockManager) {
 }
 
 func (self *LockDB) initNewLockManager(dbId uint8, freeLockManagerTail uint32) {
-	for i := uint16(0); i < self.managerMaxGlocks; i++ {
-		self.managerGlocks[i].HighPriorityMutexWait()
-	}
-
 	self.glock.Lock()
 	lockManager := self.freeLockManagers[freeLockManagerTail]
 	if lockManager != nil {
@@ -1417,11 +1413,8 @@ func (self *LockDB) GetOrNewLockManager(command *protocol.LockCommand) *LockMana
 			return fastLockManager
 		}
 	} else if fastValueLock == 1 {
-		for i := 1; atomic.LoadUint32(&fastValue.lock) == 1; i++ {
-			for j := uint16(0); j < self.managerMaxGlocks; j++ {
-				self.managerGlocks[j].HighPriorityMutexWait()
-			}
-			time.Sleep(time.Nanosecond * time.Duration(i*10))
+		for atomic.LoadUint32(&fastValue.lock) == 1 {
+			runtime.Gosched()
 		}
 
 		fastLockManager := fastValue.manager
@@ -1488,11 +1481,8 @@ func (self *LockDB) GetLockManager(command *protocol.LockCommand) *LockManager {
 			return nil
 		}
 	} else if fastValueLock == 1 {
-		for i := 1; atomic.LoadUint32(&fastValue.lock) == 1; i++ {
-			for j := uint16(0); j < self.managerMaxGlocks; j++ {
-				self.managerGlocks[j].HighPriorityMutexWait()
-			}
-			time.Sleep(time.Nanosecond * time.Duration(i*10))
+		for atomic.LoadUint32(&fastValue.lock) == 1 {
+			runtime.Gosched()
 		}
 
 		fastLockManager := fastValue.manager
@@ -2753,26 +2743,42 @@ func (self *LockDB) unlockTreeLock(serverProtocol ServerProtocol, command *proto
 			return false
 		}
 
-		command.LockKey = currentCommand.LockKey
-		command.LockId = currentCommand.LockId
+		currentLockCommand.CommandType = command.CommandType
+		currentLockCommand.RequestId = protocol.GenRequestId()
+		currentLockCommand.Flag = command.Flag | protocol.UNLOCK_FLAG_UNLOCK_TREE_LOCK
+		currentLockCommand.LockKey = currentCommand.LockKey
+		currentLockCommand.LockId = currentCommand.LockId
+		currentLockCommand.Timeout = command.Timeout
+		currentLockCommand.TimeoutFlag = command.TimeoutFlag
+		currentLockCommand.Expried = command.Expried
+		currentLockCommand.ExpriedFlag = command.ExpriedFlag
+		currentLockCommand.Count = command.Count
+		currentLockCommand.Rcount = command.Rcount
+		currentLockCommand.Data = nil
 		lockManager.glock.PriorityUnlock()
+		_ = self.UnLock(serverProtocol, currentLockCommand, PRIORITY_MUTEX_TYPE_MIDDLE, false)
 		_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, uint16(lockManager.locked), currentLock.locked, lockManager.GetLockData())
-		_ = serverProtocol.FreeLockCommand(currentLockCommand)
-
-		command.RequestId = protocol.GenRequestId()
-		_ = self.PushExecutorLockCommand(serverProtocol, command)
+		_ = serverProtocol.FreeLockCommand(command)
 		return true
 	}
 
+	lockKey, lockId := currentLockCommand.LockKey, currentLockCommand.LockId
+	currentLockCommand.CommandType = command.CommandType
+	currentLockCommand.RequestId = protocol.GenRequestId()
+	currentLockCommand.Flag = command.Flag | protocol.UNLOCK_FLAG_UNLOCK_TREE_LOCK
+	currentLockCommand.LockKey = lockId
+	currentLockCommand.LockId = lockKey
+	currentLockCommand.Timeout = command.Timeout
+	currentLockCommand.TimeoutFlag = command.TimeoutFlag
+	currentLockCommand.Expried = command.Expried
+	currentLockCommand.ExpriedFlag = command.ExpriedFlag
+	currentLockCommand.Count = command.Count
+	currentLockCommand.Rcount = command.Rcount
+	currentLockCommand.Data = nil
 	lockManager.glock.PriorityUnlock()
-	command.LockKey = currentLockCommand.LockId
-	command.LockId = currentLockCommand.LockKey
+	_ = self.UnLock(serverProtocol, currentLockCommand, PRIORITY_MUTEX_TYPE_MIDDLE, false)
 	_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, uint16(lockManager.locked), currentLock.locked, lockManager.GetLockData())
-	_ = serverProtocol.FreeLockCommand(currentLockCommand)
-
-	command.Flag |= protocol.UNLOCK_FLAG_UNLOCK_TREE_LOCK
-	command.RequestId = protocol.GenRequestId()
-	_ = self.PushExecutorLockCommand(serverProtocol, command)
+	_ = serverProtocol.FreeLockCommand(command)
 	return true
 }
 
