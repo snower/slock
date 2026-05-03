@@ -126,13 +126,20 @@ func (self *StreamWriterBuffer) Bytes() []byte {
 func (self *StreamWriterBuffer) WriteToConn(conn net.Conn) error {
 	n, err := conn.Write(self.buf[:self.index])
 	if err != nil {
+		if n > 0 {
+			copy(self.buf, self.buf[n:self.index])
+			self.index = self.index - n
+		}
 		return err
 	}
 	for n < self.index {
 		nn, nerr := conn.Write(self.buf[n:self.index])
 		if nerr != nil {
-			copy(self.buf, self.buf[n:self.index])
-			self.index = 0
+			n += nn
+			if n > 0 {
+				copy(self.buf, self.buf[n:self.index])
+				self.index = self.index - n
+			}
 			return nerr
 		}
 		n += nn

@@ -212,35 +212,45 @@ func (self *BinaryClientProtocol) Write(command protocol.CommandEncode) error {
 	data := command.EncodeData()
 
 	writerBuffer := self.stream.writerBuffer
-	if writerBuffer != nil && (data == nil || len(data)+128 < len(self.stream.writerBuffer.buf)) {
-		buffered := atomic.LoadUint32(&self.buffered)
-		if buffered > 0 {
-			if buffered == 2 || atomic.CompareAndSwapUint32(&self.buffered, 1, 2) {
-				if data != nil {
-					if writerBuffer.index+64+len(data) > len(writerBuffer.buf) {
+	if writerBuffer != nil {
+		if data == nil || len(data)+128 < len(self.stream.writerBuffer.buf) {
+			buffered := atomic.LoadUint32(&self.buffered)
+			if buffered > 0 {
+				if buffered == 2 || atomic.CompareAndSwapUint32(&self.buffered, 1, 2) {
+					if data != nil {
+						if writerBuffer.index+64+len(data) > len(writerBuffer.buf) {
+							err = writerBuffer.WriteToConn(self.stream.conn)
+							if err != nil {
+								self.wglock.Unlock()
+								return err
+							}
+						}
+						copy(writerBuffer.buf[writerBuffer.index:], wbuf)
+						writerBuffer.index += 64
+						copy(writerBuffer.buf[writerBuffer.index:], data)
+						writerBuffer.index += len(data)
+					} else {
+						copy(writerBuffer.buf[writerBuffer.index:], wbuf)
+						writerBuffer.index += 64
+					}
+					if writerBuffer.index+64 > len(writerBuffer.buf) {
 						err = writerBuffer.WriteToConn(self.stream.conn)
 						if err != nil {
 							self.wglock.Unlock()
 							return err
 						}
 					}
-					copy(writerBuffer.buf[writerBuffer.index:], wbuf)
-					writerBuffer.index += 64
-					copy(writerBuffer.buf[writerBuffer.index:], data)
-					writerBuffer.index += len(data)
-				} else {
-					copy(writerBuffer.buf[writerBuffer.index:], wbuf)
-					writerBuffer.index += 64
+					self.wglock.Unlock()
+					return nil
 				}
-				if writerBuffer.index+64 > len(writerBuffer.buf) {
-					err = writerBuffer.WriteToConn(self.stream.conn)
-					if err != nil {
-						self.wglock.Unlock()
-						return err
-					}
+			}
+		} else if atomic.LoadUint32(&self.buffered) == 2 {
+			if writerBuffer.index > 0 {
+				err = writerBuffer.WriteToConn(self.stream.conn)
+				if err != nil {
+					self.wglock.Unlock()
+					return err
 				}
-				self.wglock.Unlock()
-				return nil
 			}
 		}
 	}
@@ -274,35 +284,45 @@ func (self *BinaryClientProtocol) WriteLockResultCommand(command *protocol.LockR
 
 	self.wglock.Lock()
 	writerBuffer := self.stream.writerBuffer
-	if writerBuffer != nil && (data == nil || len(data)+128 < len(self.stream.writerBuffer.buf)) {
-		buffered := atomic.LoadUint32(&self.buffered)
-		if buffered > 0 {
-			if buffered == 2 || atomic.CompareAndSwapUint32(&self.buffered, 1, 2) {
-				if data != nil {
-					if writerBuffer.index+64+len(data) > len(writerBuffer.buf) {
+	if writerBuffer != nil {
+		if data == nil || len(data)+128 < len(self.stream.writerBuffer.buf) {
+			buffered := atomic.LoadUint32(&self.buffered)
+			if buffered > 0 {
+				if buffered == 2 || atomic.CompareAndSwapUint32(&self.buffered, 1, 2) {
+					if data != nil {
+						if writerBuffer.index+64+len(data) > len(writerBuffer.buf) {
+							err = writerBuffer.WriteToConn(self.stream.conn)
+							if err != nil {
+								self.wglock.Unlock()
+								return err
+							}
+						}
+						copy(writerBuffer.buf[writerBuffer.index:], wbuf)
+						writerBuffer.index += 64
+						copy(writerBuffer.buf[writerBuffer.index:], data)
+						writerBuffer.index += len(data)
+					} else {
+						copy(writerBuffer.buf[writerBuffer.index:], wbuf)
+						writerBuffer.index += 64
+					}
+					if writerBuffer.index+64 > len(writerBuffer.buf) {
 						err = writerBuffer.WriteToConn(self.stream.conn)
 						if err != nil {
 							self.wglock.Unlock()
 							return err
 						}
 					}
-					copy(writerBuffer.buf[writerBuffer.index:], wbuf)
-					writerBuffer.index += 64
-					copy(writerBuffer.buf[writerBuffer.index:], data)
-					writerBuffer.index += len(data)
-				} else {
-					copy(writerBuffer.buf[writerBuffer.index:], wbuf)
-					writerBuffer.index += 64
+					self.wglock.Unlock()
+					return nil
 				}
-				if writerBuffer.index+64 > len(writerBuffer.buf) {
-					err = writerBuffer.WriteToConn(self.stream.conn)
-					if err != nil {
-						self.wglock.Unlock()
-						return err
-					}
+			}
+		} else if atomic.LoadUint32(&self.buffered) == 2 {
+			if writerBuffer.index > 0 {
+				err = writerBuffer.WriteToConn(self.stream.conn)
+				if err != nil {
+					self.wglock.Unlock()
+					return err
 				}
-				self.wglock.Unlock()
-				return nil
 			}
 		}
 	}
