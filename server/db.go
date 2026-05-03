@@ -2755,9 +2755,10 @@ func (self *LockDB) unlockTreeLock(serverProtocol ServerProtocol, command *proto
 		currentLockCommand.Count = command.Count
 		currentLockCommand.Rcount = command.Rcount
 		currentLockCommand.Data = nil
+		lockManagerLocked, currentLockLocked, lockManagerLockData := lockManager.locked, currentLock.locked, lockManager.GetLockData()
 		lockManager.glock.PriorityUnlock()
 		_ = self.UnLock(serverProtocol, currentLockCommand, PRIORITY_MUTEX_TYPE_MIDDLE, false)
-		_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, uint16(lockManager.locked), currentLock.locked, lockManager.GetLockData())
+		_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, uint16(lockManagerLocked), currentLockLocked, lockManagerLockData)
 		_ = serverProtocol.FreeLockCommand(command)
 		return true
 	}
@@ -2775,9 +2776,10 @@ func (self *LockDB) unlockTreeLock(serverProtocol ServerProtocol, command *proto
 	currentLockCommand.Count = command.Count
 	currentLockCommand.Rcount = command.Rcount
 	currentLockCommand.Data = nil
+	lockManagerLocked, currentLockLocked, lockManagerLockData := lockManager.locked, currentLock.locked, lockManager.GetLockData()
 	lockManager.glock.PriorityUnlock()
 	_ = self.UnLock(serverProtocol, currentLockCommand, PRIORITY_MUTEX_TYPE_MIDDLE, false)
-	_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, uint16(lockManager.locked), currentLock.locked, lockManager.GetLockData())
+	_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_SUCCED, uint16(lockManagerLocked), currentLockLocked, lockManagerLockData)
 	_ = serverProtocol.FreeLockCommand(command)
 	return true
 }

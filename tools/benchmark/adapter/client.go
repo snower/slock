@@ -21,7 +21,20 @@ func randLockData(dataLength int) *protocol.LockCommandData {
 	return protocol.NewLockCommandDataFromOriginBytes(data)
 }
 
-func runClientBenchmark(slockClient *client.Client, count *uint32, maxCount uint32, keys [][16]byte, waiter chan bool, timeout uint32, expried uint32, dataLength int, dataRate float64) {
+func buildLockData(dataLength int, dataType int, lockType uint8, lockId [16]byte) *protocol.LockCommandData {
+	switch dataType {
+	case 1:
+		command := protocol.NewLockCommand(0, lockId, [16]byte{1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1}, 5, 10, 0)
+		command.CommandType = lockType
+		return protocol.NewLockCommandDataExecuteData(command, 0)
+	case 2:
+		return protocol.NewLockCommandDataIncrData(1)
+	default:
+		return randLockData(dataLength)
+	}
+}
+
+func runClientBenchmark(slockClient *client.Client, count *uint32, maxCount uint32, keys [][16]byte, waiter chan bool, timeout uint32, expried uint32, dataLength int, dataRate float64, dataType int) {
 	isClose := false
 	go func() {
 		<-slockClient.Unavailable()
@@ -38,7 +51,7 @@ func runClientBenchmark(slockClient *client.Client, count *uint32, maxCount uint
 		lock := slockClient.Lock(lockKey, timeout, expried)
 
 		if dataLength > 0 && rand.Float64() >= dataRate {
-			_, err := lock.LockWithData(randLockData(dataLength))
+			_, err := lock.LockWithData(buildLockData(dataLength, dataType, protocol.COMMAND_LOCK, lock.GetLockId()))
 			if err != nil {
 				fmt.Printf("Lock Error %v\n", err)
 				continue
@@ -53,7 +66,7 @@ func runClientBenchmark(slockClient *client.Client, count *uint32, maxCount uint
 
 		if (expried & 0xffff) > 0 {
 			if dataLength > 0 && rand.Float64() >= dataRate {
-				_, err := lock.UnlockWithData(randLockData(dataLength))
+				_, err := lock.UnlockWithData(buildLockData(dataLength, dataType, protocol.COMMAND_UNLOCK, lock.GetLockId()))
 				if err != nil {
 					fmt.Printf("UnLock Error %v\n", err)
 					continue
@@ -75,7 +88,7 @@ func runClientBenchmark(slockClient *client.Client, count *uint32, maxCount uint
 	close(waiter)
 }
 
-func StartClientBenchmark(clientCount int, concurrentc int, maxCount int, keys [][16]byte, port int, host string, timeout uint32, expried uint32, dataLength int, dataRate float64) {
+func StartClientBenchmark(clientCount int, concurrentc int, maxCount int, keys [][16]byte, port int, host string, timeout uint32, expried uint32, dataLength int, dataRate float64, dataType int) {
 	fmt.Printf("Run %d Client, %d concurrentc, %d Count Lock and Unlock\n", clientCount, concurrentc, maxCount)
 
 	clients := make([]*client.Client, clientCount)
@@ -103,7 +116,7 @@ func StartClientBenchmark(clientCount int, concurrentc int, maxCount int, keys [
 	startTime := time.Now().UnixNano()
 	for i := 0; i < concurrentc; i++ {
 		waiters[i] = make(chan bool, 1)
-		go runClientBenchmark(clients[i%clientCount], &count, uint32(maxCount), keys, waiters[i], timeout, expried, dataLength, dataRate)
+		go runClientBenchmark(clients[i%clientCount], &count, uint32(maxCount), keys, waiters[i], timeout, expried, dataLength, dataRate, dataType)
 	}
 	for _, waiter := range waiters {
 		<-waiter
