@@ -1467,6 +1467,10 @@ func (self *BinaryServerProtocol) ProcessCommad(command protocol.ICommand) error
 			if err != nil {
 				return err
 			}
+			err = self.ProcessFlush()
+			if err != nil {
+				return err
+			}
 
 			serverProtocol := NewTextServerProtocol(self.slock, self.stream)
 			err = serverProtocol.Process()
