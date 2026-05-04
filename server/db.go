@@ -1583,7 +1583,7 @@ func (self *LockDB) RemoveLockManager(lockManager *LockManager) {
 		} else {
 			freeLength = self.maxFreeLockManagerCount - self.freeLockManagerTail + self.freeLockManagerHead
 		}
-		if self.maxFreeLockManagerCount-freeLength < 4096 {
+		if self.maxFreeLockManagerCount-freeLength > 4096 {
 			freeLockManagerHead := atomic.AddUint32(&self.freeLockManagerHead, 1) % self.maxFreeLockManagerCount
 			if self.freeLockManagers[freeLockManagerHead] == nil {
 				self.freeLockManagers[freeLockManagerHead] = lockManager
@@ -1626,7 +1626,7 @@ func (self *LockDB) RemoveLockManager(lockManager *LockManager) {
 	} else {
 		freeLength = self.maxFreeLockManagerCount - self.freeLockManagerTail + self.freeLockManagerHead
 	}
-	if self.maxFreeLockManagerCount-freeLength < 4096 {
+	if self.maxFreeLockManagerCount-freeLength > 4096 {
 		freeLockManagerHead := atomic.AddUint32(&self.freeLockManagerHead, 1) % self.maxFreeLockManagerCount
 		if self.freeLockManagers[freeLockManagerHead] == nil {
 			self.freeLockManagers[freeLockManagerHead] = lockManager
