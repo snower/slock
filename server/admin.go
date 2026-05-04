@@ -574,7 +574,7 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 
 	if section == "" || section == "stats" {
 		dbCount := 0
-		freeLockManagerCount := 0
+		freeLockManagerCount, freeLockManagerQueueCount := 0, 0
 		freeLockCount, freeLongWaitQueueCount, freeMillisecondWaitQueueCount := 0, 0, 0
 		freeLockCommandCount, cacheLockCommandCount := 0, 0
 		totalCommandCount := uint64(0)
@@ -584,6 +584,9 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 			if db != nil {
 				dbCount++
 				freeLockManagerCount = db.GetFreeLockManagerLen()
+				db.glock.Lock()
+				freeLockManagerQueueCount = int(db.freeLockManagerQueue.Len())
+				db.glock.Unlock()
 				for i := uint16(0); i < db.managerMaxGlocks; i++ {
 					db.managerGlocks[i].PriorityLock(PRIORITY_MUTEX_TYPE_NONE)
 					freeLockCount += int(db.freeLocks[i].Len())
@@ -645,6 +648,7 @@ func (self *Admin) commandHandleInfoCommand(serverProtocol *TextServerProtocol, 
 		infos = append(infos, fmt.Sprintf("free_command_count:%d", freeLockCommandCount))
 		infos = append(infos, fmt.Sprintf("cache_command_count:%d", cacheLockCommandCount))
 		infos = append(infos, fmt.Sprintf("free_lock_manager_count:%d", freeLockManagerCount))
+		infos = append(infos, fmt.Sprintf("free_lock_manager_queue_count:%d", freeLockManagerQueueCount))
 		infos = append(infos, fmt.Sprintf("free_lock_count:%d", freeLockCount))
 		infos = append(infos, fmt.Sprintf("free_long_wait_queue_count:%d", freeLongWaitQueueCount))
 		infos = append(infos, fmt.Sprintf("free_millisecond_wait_queue_count:%d", freeMillisecondWaitQueueCount))

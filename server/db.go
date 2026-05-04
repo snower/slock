@@ -354,6 +354,9 @@ func (self *LockDBFreeCollector) Collect(lastCollectTime int64, db *LockDB) erro
 	if lockAvgCount <= self.lastLockAvgCount*2 {
 		if freeLockManagerCount >= minLockManagerCount && freeLockManagerCount-self.lastFreeLockManagerCount <= lockAvgCount*2 {
 			db.deInitNewLockManager(freeLockManagerCount/20, minLockManagerCount)
+			db.glock.Lock()
+			db.freeLockManagerQueue.freeQueue()
+			db.glock.Unlock()
 		}
 
 		if freeLockCount >= minLockCount && freeLockCount-self.lastFreeLockCount <= lockAvgCount*4 {
@@ -1371,7 +1374,7 @@ func (self *LockDB) initNewLockManager(dbId uint8, freeLockManagerTail uint32) {
 
 func (self *LockDB) deInitNewLockManager(count int, minSize int) {
 	for i := 0; i < count; i++ {
-		self.glock.Unlock()
+		self.glock.Lock()
 		lockManager := self.freeLockManagerQueue.PopRight()
 		if lockManager != nil {
 			self.glock.Unlock()
@@ -1402,7 +1405,7 @@ func (self *LockDB) deInitNewLockManager(count int, minSize int) {
 }
 
 func (self *LockDB) GetFreeLockManagerLen() int {
-	self.glock.Unlock()
+	self.glock.Lock()
 	queueLength := int(self.freeLockManagerQueue.Len())
 	self.glock.Unlock()
 
