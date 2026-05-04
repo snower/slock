@@ -1775,10 +1775,3 @@ func (self *PriorityMutex) HighPriorityUnlock() {
 		self.DeActivePriority(PRIORITY_MUTEX_TYPE_HIGH)
 	}
 }
-
-func (self *PriorityMutex) HighPriorityMutexWait() {
-	if atomic.LoadUint32(&self.priorityValue)&0x04 != 0 {
-		self.priorityMutexes[2].Lock()
-		self.priorityMutexes[2].Unlock()
-	}
-}

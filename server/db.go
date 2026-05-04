@@ -286,9 +286,7 @@ func (self *LockDBExecutor) FlushQueue() {
 	for executorTask != nil {
 		nextTask := executorTask.next
 		if atomic.AddUint32(&executorTask.lockManager.refCount, 0xffffffff) == 0 {
-			executorTask.lockManager.glock.PriorityLock(PRIORITY_MUTEX_TYPE_MIDDLE)
 			self.db.RemoveLockManager(executorTask.lockManager)
-			executorTask.lockManager.glock.PriorityUnlock()
 		}
 		_ = executorTask.serverProtocol.FreeLockCommandLocked(executorTask.command)
 		executorTask.next = nil
@@ -963,7 +961,7 @@ func (self *LockDB) flushTimeOut(glockIndex uint16, doTimeout bool) {
 		for _, lock := range doTimeoutLocks {
 			self.doTimeOut(lock, true, false)
 		}
-		self.managerGlocks[glockIndex].PriorityLock(PRIORITY_MUTEX_TYPE_HIGH)
+		self.managerGlocks[glockIndex].PriorityLock(PRIORITY_MUTEX_TYPE_NONE)
 	}
 }
 
@@ -1225,7 +1223,7 @@ func (self *LockDB) flushExpried(glockIndex uint16, doExpried bool) {
 		for _, lock := range doExpriedLocks {
 			self.doExpried(lock, true, false)
 		}
-		self.managerGlocks[glockIndex].PriorityLock(PRIORITY_MUTEX_TYPE_HIGH)
+		self.managerGlocks[glockIndex].PriorityLock(PRIORITY_MUTEX_TYPE_NONE)
 	}
 }
 
