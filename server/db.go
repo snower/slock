@@ -460,6 +460,7 @@ type LockDB struct {
 	mGlock                    *sync.RWMutex
 	managerGlocks             []*PriorityMutex
 	freeLockManagers          []*LockManager
+	freeLockManagerQueue      *LockManagerQueue
 	freeLocks                 []*LockQueue
 	freeLongWaitQueues        []*LongWaitLockFreeQueue
 	freeMillisecondWaitQueues []*MillisecondWaitLockFreeQueue
@@ -529,6 +530,7 @@ func NewLockDB(slock *SLock, dbId uint8) *LockDB {
 		mGlock:                    &sync.RWMutex{},
 		managerGlocks:             managerGlocks,
 		freeLockManagers:          make([]*LockManager, maxFreeLockManagerCount),
+		freeLockManagerQueue:      NewLockManagerQueue(4, 64, 1024),
 		freeLocks:                 freeLocks,
 		freeLongWaitQueues:        freeLongWaitQueues,
 		freeMillisecondWaitQueues: freeMillisecondWaitQueues,
@@ -1309,8 +1311,32 @@ func (self *LockDB) addWaitRemoveLockManager(lockManager *LockManager) {
 }
 
 func (self *LockDB) initNewLockManager(dbId uint8, freeLockManagerTail uint32) {
+	for i := uint16(0); i < self.managerMaxGlocks; i++ {
+		if atomic.LoadUint32(&self.managerGlocks[i].priorityValue)&0x04 != 0 {
+			runtime.Gosched()
+		}
+	}
+
 	self.glock.Lock()
 	lockManager := self.freeLockManagers[freeLockManagerTail]
+	if lockManager != nil {
+		self.glock.Unlock()
+		return
+	}
+	for i := 0; i < 8; i++ {
+		lockManager = self.freeLockManagerQueue.PopRight()
+		if lockManager == nil {
+			break
+		}
+		freeLockManagerHead := atomic.AddUint32(&self.freeLockManagerHead, 1) % self.maxFreeLockManagerCount
+		if self.freeLockManagers[freeLockManagerHead] != nil {
+			_ = self.freeLockManagerQueue.Push(lockManager)
+			self.glock.Unlock()
+			return
+		}
+		self.freeLockManagers[freeLockManagerHead] = lockManager
+	}
+	lockManager = self.freeLockManagers[freeLockManagerTail]
 	if lockManager != nil {
 		self.glock.Unlock()
 		return
@@ -1318,12 +1344,6 @@ func (self *LockDB) initNewLockManager(dbId uint8, freeLockManagerTail uint32) {
 
 	lockManagers := make([]LockManager, 8)
 	for i := 0; i < 8; i++ {
-		freeLockManagerHead := atomic.AddUint32(&self.freeLockManagerHead, 1) % self.maxFreeLockManagerCount
-		if self.freeLockManagers[freeLockManagerHead] != nil && self.freeLockManagers[freeLockManagerTail] != nil {
-			self.glock.Unlock()
-			return
-		}
-
 		lockManagers[i].lockDb = self
 		lockManagers[i].dbId = dbId
 		lockManagers[i].locks = nil
@@ -1339,36 +1359,58 @@ func (self *LockDB) initNewLockManager(dbId uint8, freeLockManagerTail uint32) {
 		if self.managerGlockIndex >= self.managerMaxGlocks {
 			self.managerGlockIndex = 0
 		}
+		freeLockManagerHead := atomic.AddUint32(&self.freeLockManagerHead, 1) % self.maxFreeLockManagerCount
 		if self.freeLockManagers[freeLockManagerHead] != nil {
-			self.freeLockManagers[freeLockManagerTail] = &lockManagers[i]
-			self.glock.Unlock()
-			return
+			_ = self.freeLockManagerQueue.Push(&lockManagers[i])
+		} else {
+			self.freeLockManagers[freeLockManagerHead] = &lockManagers[i]
 		}
-		self.freeLockManagers[freeLockManagerHead] = &lockManagers[i]
 	}
 	self.glock.Unlock()
 }
 
 func (self *LockDB) deInitNewLockManager(count int, minSize int) {
 	for i := 0; i < count; i++ {
+		self.glock.Unlock()
+		lockManager := self.freeLockManagerQueue.PopRight()
+		if lockManager != nil {
+			self.glock.Unlock()
+			lockManager.currentLock = nil
+			lockManager.currentData = nil
+			lockManager.locks = nil
+			lockManager.waitLocks = nil
+			lockManager.freeLocks = nil
+			continue
+		}
+		self.glock.Unlock()
+
 		if self.GetFreeLockManagerLen() <= minSize {
 			return
 		}
 		freeLockManagerTail := atomic.AddUint32(&self.freeLockManagerTail, 1) % self.maxFreeLockManagerCount
-		lockManager := self.freeLockManagers[freeLockManagerTail]
+		lockManager = self.freeLockManagers[freeLockManagerTail]
 		if lockManager == nil {
 			return
 		}
 		self.freeLockManagers[freeLockManagerTail] = nil
+		lockManager.currentLock = nil
+		lockManager.currentData = nil
+		lockManager.locks = nil
+		lockManager.waitLocks = nil
+		lockManager.freeLocks = nil
 	}
 }
 
 func (self *LockDB) GetFreeLockManagerLen() int {
+	self.glock.Unlock()
+	queueLength := int(self.freeLockManagerQueue.Len())
+	self.glock.Unlock()
+
 	freeLockManagerHead, freeLockManagerTail := atomic.LoadUint32(&self.freeLockManagerHead), atomic.LoadUint32(&self.freeLockManagerTail)
 	if freeLockManagerHead >= freeLockManagerTail {
-		return int(freeLockManagerHead - freeLockManagerTail)
+		return int(freeLockManagerHead-freeLockManagerTail) + queueLength
 	}
-	return int(self.maxFreeLockManagerCount - freeLockManagerTail + freeLockManagerHead)
+	return int(self.maxFreeLockManagerCount-freeLockManagerTail+freeLockManagerHead) + queueLength
 }
 
 func (self *LockDB) GetOrNewLockManager(command *protocol.LockCommand) *LockManager {
@@ -1524,27 +1566,31 @@ func (self *LockDB) RemoveLockManager(lockManager *LockManager) {
 			0, 0, 0, 0, 0, 0, 0, 0,
 			0, 0, 0, 0, 0, 0, 0, 0
 		lockManager.fastKeyValue = nil
-
-		freeLockManagerHead := atomic.AddUint32(&self.freeLockManagerHead, 1) % self.maxFreeLockManagerCount
-		if self.freeLockManagers[freeLockManagerHead] == nil {
-			self.freeLockManagers[freeLockManagerHead] = lockManager
-
-			if lockManager.locks != nil {
-				lockManager.locks.Reset()
-			}
-			if lockManager.waitLocks != nil {
-				lockManager.waitLocks.Reset()
-			}
-			lockManager.currentData = nil
-			atomic.AddUint32(&lockManager.state.KeyCount, 0xffffffff)
-			return
+		if lockManager.locks != nil {
+			lockManager.locks.Reset()
 		}
-
-		lockManager.currentLock = nil
+		if lockManager.waitLocks != nil {
+			lockManager.waitLocks.Reset()
+		}
 		lockManager.currentData = nil
-		lockManager.locks = nil
-		lockManager.waitLocks = nil
-		lockManager.freeLocks = nil
+
+		var freeLength uint32
+		if self.freeLockManagerHead >= self.freeLockManagerTail {
+			freeLength = self.freeLockManagerHead - self.freeLockManagerTail
+		} else {
+			freeLength = self.maxFreeLockManagerCount - self.freeLockManagerTail + self.freeLockManagerHead
+		}
+		if self.maxFreeLockManagerCount-freeLength < 4096 {
+			freeLockManagerHead := atomic.AddUint32(&self.freeLockManagerHead, 1) % self.maxFreeLockManagerCount
+			if self.freeLockManagers[freeLockManagerHead] == nil {
+				self.freeLockManagers[freeLockManagerHead] = lockManager
+				atomic.AddUint32(&lockManager.state.KeyCount, 0xffffffff)
+				return
+			}
+		}
+		self.glock.Lock()
+		_ = self.freeLockManagerQueue.Push(lockManager)
+		self.glock.Unlock()
 		atomic.AddUint32(&lockManager.state.KeyCount, 0xffffffff)
 		return
 	}
@@ -1563,27 +1609,31 @@ func (self *LockDB) RemoveLockManager(lockManager *LockManager) {
 		0, 0, 0, 0, 0, 0, 0, 0,
 		0, 0, 0, 0, 0, 0, 0, 0
 	lockManager.fastKeyValue = nil
-
-	freeLockManagerHead := atomic.AddUint32(&self.freeLockManagerHead, 1) % self.maxFreeLockManagerCount
-	if self.freeLockManagers[freeLockManagerHead] == nil {
-		self.freeLockManagers[freeLockManagerHead] = lockManager
-
-		if lockManager.locks != nil {
-			lockManager.locks.Reset()
-		}
-		if lockManager.waitLocks != nil {
-			lockManager.waitLocks.Reset()
-		}
-		lockManager.currentData = nil
-		atomic.AddUint32(&lockManager.state.KeyCount, 0xffffffff)
-		return
+	if lockManager.locks != nil {
+		lockManager.locks.Reset()
 	}
-
-	lockManager.currentLock = nil
+	if lockManager.waitLocks != nil {
+		lockManager.waitLocks.Reset()
+	}
 	lockManager.currentData = nil
-	lockManager.locks = nil
-	lockManager.waitLocks = nil
-	lockManager.freeLocks = nil
+
+	var freeLength uint32
+	if self.freeLockManagerHead >= self.freeLockManagerTail {
+		freeLength = self.freeLockManagerHead - self.freeLockManagerTail
+	} else {
+		freeLength = self.maxFreeLockManagerCount - self.freeLockManagerTail + self.freeLockManagerHead
+	}
+	if self.maxFreeLockManagerCount-freeLength < 4096 {
+		freeLockManagerHead := atomic.AddUint32(&self.freeLockManagerHead, 1) % self.maxFreeLockManagerCount
+		if self.freeLockManagers[freeLockManagerHead] == nil {
+			self.freeLockManagers[freeLockManagerHead] = lockManager
+			atomic.AddUint32(&lockManager.state.KeyCount, 0xffffffff)
+			return
+		}
+	}
+	self.glock.Lock()
+	_ = self.freeLockManagerQueue.Push(lockManager)
+	self.glock.Unlock()
 	atomic.AddUint32(&lockManager.state.KeyCount, 0xffffffff)
 }
 
