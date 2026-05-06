@@ -172,6 +172,10 @@ func NewCommand(commandType uint8) *Command {
 }
 
 func (self *Command) Decode(buf []byte) error {
+	if len(buf) < 64 {
+		return errors.New("buf too short")
+	}
+
 	self.Magic = uint8(buf[0])
 	self.Version = uint8(buf[1])
 	self.CommandType = uint8(buf[2])
@@ -189,6 +193,10 @@ func (self *Command) DecodeData(_ []byte) error {
 }
 
 func (self *Command) Encode(buf []byte) error {
+	if len(buf) < 64 {
+		return errors.New("buf too short")
+	}
+
 	buf[0] = byte(self.Magic)
 	buf[1] = byte(self.Version)
 	buf[2] = byte(self.CommandType)
@@ -227,6 +235,10 @@ func NewResultCommand(command ICommand, result uint8) *ResultCommand {
 }
 
 func (self *ResultCommand) Decode(buf []byte) error {
+	if len(buf) < 64 {
+		return errors.New("buf too short")
+	}
+
 	self.Magic = uint8(buf[0])
 	self.Version = uint8(buf[1])
 	self.CommandType = uint8(buf[2])
@@ -246,6 +258,10 @@ func (self *ResultCommand) DecodeData(_ []byte) error {
 }
 
 func (self *ResultCommand) Encode(buf []byte) error {
+	if len(buf) < 64 {
+		return errors.New("buf too short")
+	}
+
 	buf[0] = byte(self.Magic)
 	buf[1] = byte(self.Version)
 	buf[2] = byte(self.CommandType)
@@ -1148,6 +1164,10 @@ func NewStateCommand(dbId uint8) *StateCommand {
 }
 
 func (self *StateCommand) Decode(buf []byte) error {
+	if len(buf) < 64 {
+		return errors.New("buf too short")
+	}
+
 	self.Magic = uint8(buf[0])
 	self.Version = uint8(buf[1])
 	self.CommandType = uint8(buf[2])
@@ -1168,6 +1188,10 @@ func (self *StateCommand) DecodeData(_ []byte) error {
 }
 
 func (self *StateCommand) Encode(buf []byte) error {
+	if len(buf) < 64 {
+		return errors.New("buf too short")
+	}
+
 	buf[0] = byte(self.Magic)
 	buf[1] = byte(self.Version)
 	buf[2] = byte(self.CommandType)
@@ -1209,6 +1233,10 @@ func NewStateResultCommand(command *StateCommand, result uint8, flag uint8, dbSt
 }
 
 func (self *StateResultCommand) Decode(buf []byte) error {
+	if len(buf) < 64 {
+		return errors.New("buf too short")
+	}
+
 	self.Magic = uint8(buf[0])
 	self.Version = uint8(buf[1])
 	self.CommandType = uint8(buf[2])
@@ -1240,6 +1268,10 @@ func (self *StateResultCommand) DecodeData(_ []byte) error {
 }
 
 func (self *StateResultCommand) Encode(buf []byte) error {
+	if len(buf) < 64 {
+		return errors.New("buf too short")
+	}
+
 	buf[0] = byte(self.Magic)
 	buf[1] = byte(self.Version)
 	buf[2] = byte(self.CommandType)
@@ -1324,6 +1356,10 @@ func NewAdminCommand(adminType uint8) *AdminCommand {
 }
 
 func (self *AdminCommand) Decode(buf []byte) error {
+	if len(buf) < 64 {
+		return errors.New("buf too short")
+	}
+
 	self.Magic = uint8(buf[0])
 	self.Version = uint8(buf[1])
 	self.CommandType = uint8(buf[2])
@@ -1343,6 +1379,10 @@ func (self *AdminCommand) DecodeData(_ []byte) error {
 }
 
 func (self *AdminCommand) Encode(buf []byte) error {
+	if len(buf) < 64 {
+		return errors.New("buf too short")
+	}
+
 	buf[0] = byte(self.Magic)
 	buf[1] = byte(self.Version)
 	buf[2] = byte(self.CommandType)
@@ -1376,6 +1416,10 @@ func NewAdminResultCommand(command *AdminCommand, result uint8) *AdminResultComm
 }
 
 func (self *AdminResultCommand) Decode(buf []byte) error {
+	if len(buf) < 64 {
+		return errors.New("buf too short")
+	}
+
 	self.Magic = uint8(buf[0])
 	self.Version = uint8(buf[1])
 	self.CommandType = uint8(buf[2])
@@ -1395,6 +1439,10 @@ func (self *AdminResultCommand) DecodeData(_ []byte) error {
 }
 
 func (self *AdminResultCommand) Encode(buf []byte) error {
+	if len(buf) < 64 {
+		return errors.New("buf too short")
+	}
+
 	buf[0] = byte(self.Magic)
 	buf[1] = byte(self.Version)
 	buf[2] = byte(self.CommandType)
@@ -1429,6 +1477,10 @@ func NewPingCommand() *PingCommand {
 }
 
 func (self *PingCommand) Decode(buf []byte) error {
+	if len(buf) < 64 {
+		return errors.New("buf too short")
+	}
+
 	self.Magic = uint8(buf[0])
 	self.Version = uint8(buf[1])
 	self.CommandType = uint8(buf[2])
@@ -1446,6 +1498,10 @@ func (self *PingCommand) DecodeData(_ []byte) error {
 }
 
 func (self *PingCommand) Encode(buf []byte) error {
+	if len(buf) < 64 {
+		return errors.New("buf too short")
+	}
+
 	buf[0] = byte(self.Magic)
 	buf[1] = byte(self.Version)
 	buf[2] = byte(self.CommandType)
@@ -1477,6 +1533,10 @@ func NewPingResultCommand(command *PingCommand, result uint8) *PingResultCommand
 }
 
 func (self *PingResultCommand) Decode(buf []byte) error {
+	if len(buf) < 64 {
+		return errors.New("buf too short")
+	}
+
 	self.Magic = uint8(buf[0])
 	self.Version = uint8(buf[1])
 	self.CommandType = uint8(buf[2])
@@ -1496,6 +1556,10 @@ func (self *PingResultCommand) DecodeData(_ []byte) error {
 }
 
 func (self *PingResultCommand) Encode(buf []byte) error {
+	if len(buf) < 64 {
+		return errors.New("buf too short")
+	}
+
 	buf[0] = byte(self.Magic)
 	buf[1] = byte(self.Version)
 	buf[2] = byte(self.CommandType)
@@ -1530,6 +1594,10 @@ func NewQuitCommand() *QuitCommand {
 }
 
 func (self *QuitCommand) Decode(buf []byte) error {
+	if len(buf) < 64 {
+		return errors.New("buf too short")
+	}
+
 	self.Magic = uint8(buf[0])
 	self.Version = uint8(buf[1])
 	self.CommandType = uint8(buf[2])
@@ -1547,6 +1615,10 @@ func (self *QuitCommand) DecodeData(_ []byte) error {
 }
 
 func (self *QuitCommand) Encode(buf []byte) error {
+	if len(buf) < 64 {
+		return errors.New("buf too short")
+	}
+
 	buf[0] = byte(self.Magic)
 	buf[1] = byte(self.Version)
 	buf[2] = byte(self.CommandType)
@@ -1578,6 +1650,10 @@ func NewQuitResultCommand(command *QuitCommand, result uint8) *QuitResultCommand
 }
 
 func (self *QuitResultCommand) Decode(buf []byte) error {
+	if len(buf) < 64 {
+		return errors.New("buf too short")
+	}
+
 	self.Magic = uint8(buf[0])
 	self.Version = uint8(buf[1])
 	self.CommandType = uint8(buf[2])
@@ -1597,6 +1673,10 @@ func (self *QuitResultCommand) DecodeData(_ []byte) error {
 }
 
 func (self *QuitResultCommand) Encode(buf []byte) error {
+	if len(buf) < 64 {
+		return errors.New("buf too short")
+	}
+
 	buf[0] = byte(self.Magic)
 	buf[1] = byte(self.Version)
 	buf[2] = byte(self.CommandType)
@@ -1641,6 +1721,10 @@ func NewCallCommand(methodName string, data []byte) *CallCommand {
 }
 
 func (self *CallCommand) Decode(buf []byte) error {
+	if len(buf) < 64 {
+		return errors.New("buf too short")
+	}
+
 	self.Magic = uint8(buf[0])
 	self.Version = uint8(buf[1])
 	self.CommandType = uint8(buf[2])
@@ -1664,6 +1748,10 @@ func (self *CallCommand) DecodeData(data []byte) error {
 }
 
 func (self *CallCommand) Encode(buf []byte) error {
+	if len(buf) < 64 {
+		return errors.New("buf too short")
+	}
+
 	if len(self.MethodName) > 38 {
 		return errors.New("MethodName too long")
 	}
@@ -1721,6 +1809,10 @@ func NewCallResultCommand(command *CallCommand, result uint8, errType string, da
 }
 
 func (self *CallResultCommand) Decode(buf []byte) error {
+	if len(buf) < 64 {
+		return errors.New("buf too short")
+	}
+
 	self.Magic = uint8(buf[0])
 	self.Version = uint8(buf[1])
 	self.CommandType = uint8(buf[2])
@@ -1746,6 +1838,10 @@ func (self *CallResultCommand) DecodeData(data []byte) error {
 }
 
 func (self *CallResultCommand) Encode(buf []byte) error {
+	if len(buf) < 64 {
+		return errors.New("buf too short")
+	}
+
 	if len(self.ErrType) > 37 {
 		return errors.New("ErrType too long")
 	}
@@ -1797,6 +1893,10 @@ func NewLeaderCommand() *LeaderCommand {
 }
 
 func (self *LeaderCommand) Decode(buf []byte) error {
+	if len(buf) < 64 {
+		return errors.New("buf too short")
+	}
+
 	self.Magic = uint8(buf[0])
 	self.Version = uint8(buf[1])
 	self.CommandType = uint8(buf[2])
@@ -1815,6 +1915,10 @@ func (self *LeaderCommand) DecodeData(_ []byte) error {
 }
 
 func (self *LeaderCommand) Encode(buf []byte) error {
+	if len(buf) < 64 {
+		return errors.New("buf too short")
+	}
+
 	buf[0] = byte(self.Magic)
 	buf[1] = byte(self.Version)
 	buf[2] = byte(self.CommandType)
@@ -1848,6 +1952,10 @@ func NewLeaderResultCommand(command *LeaderCommand, result uint8, host string) *
 }
 
 func (self *LeaderResultCommand) Decode(buf []byte) error {
+	if len(buf) < 64 {
+		return errors.New("buf too short")
+	}
+
 	self.Magic = uint8(buf[0])
 	self.Version = uint8(buf[1])
 	self.CommandType = uint8(buf[2])
@@ -1867,6 +1975,10 @@ func (self *LeaderResultCommand) DecodeData(_ []byte) error {
 }
 
 func (self *LeaderResultCommand) Encode(buf []byte) error {
+	if len(buf) < 64 {
+		return errors.New("buf too short")
+	}
+
 	if len(self.Host) > 43 {
 		return errors.New("Host too long")
 	}
@@ -1917,6 +2029,10 @@ func NewSubscribeCommand(clientId uint32, subscribeId uint32, subscribeType uint
 }
 
 func (self *SubscribeCommand) Decode(buf []byte) error {
+	if len(buf) < 64 {
+		return errors.New("buf too short")
+	}
+
 	self.Magic = uint8(buf[0])
 	self.Version = uint8(buf[1])
 	self.CommandType = uint8(buf[2])
@@ -1946,6 +2062,10 @@ func (self *SubscribeCommand) DecodeData(_ []byte) error {
 }
 
 func (self *SubscribeCommand) Encode(buf []byte) error {
+	if len(buf) < 64 {
+		return errors.New("buf too short")
+	}
+
 	buf[0] = byte(self.Magic)
 	buf[1] = byte(self.Version)
 	buf[2] = byte(self.CommandType)
@@ -2007,6 +2127,10 @@ func NewSubscribeResultCommand(command *SubscribeCommand, result uint8, subscrib
 }
 
 func (self *SubscribeResultCommand) Decode(buf []byte) error {
+	if len(buf) < 64 {
+		return errors.New("buf too short")
+	}
+
 	self.Magic = uint8(buf[0])
 	self.Version = uint8(buf[1])
 	self.CommandType = uint8(buf[2])
@@ -2027,6 +2151,10 @@ func (self *SubscribeResultCommand) DecodeData(_ []byte) error {
 }
 
 func (self *SubscribeResultCommand) Encode(buf []byte) error {
+	if len(buf) < 64 {
+		return errors.New("buf too short")
+	}
+
 	buf[0] = byte(self.Magic)
 	buf[1] = byte(self.Version)
 	buf[2] = byte(self.CommandType)
