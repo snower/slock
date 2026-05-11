@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/snower/slock/protocol"
@@ -44,11 +45,12 @@ type IClient interface {
 type Client struct {
 	glock              *sync.Mutex
 	replset            *ReplsetClient
-	protocol           ClientProtocol
+	protocol           *BinaryClientProtocol
 	dbs                []*Database
 	dbLock             *sync.Mutex
 	requests           map[[16]byte]chan protocol.ICommand
 	requestLock        *sync.Mutex
+	pendingWriteCount  uint64
 	subscribers        map[uint32]*Subscriber
 	fastSubscribers    []*Subscriber
 	subscribeLock      *sync.Mutex
@@ -66,7 +68,7 @@ type Client struct {
 func NewClient(host string, port uint) *Client {
 	address := fmt.Sprintf("%s:%d", host, port)
 	client := &Client{&sync.Mutex{}, nil, nil, make([]*Database, 256),
-		&sync.Mutex{}, make(map[[16]byte]chan protocol.ICommand, 4096), &sync.Mutex{},
+		&sync.Mutex{}, make(map[[16]byte]chan protocol.ICommand, 4096), &sync.Mutex{}, 0,
 		make(map[uint32]*Subscriber, 4), make([]*Subscriber, 0), &sync.Mutex{}, address, protocol.GenClientId(),
 		0, false, make(chan bool, 1), nil, nil, 0, 0}
 	return client
@@ -161,6 +163,7 @@ func (self *Client) connect(host string, clientId [16]byte) error {
 	}
 
 	stream := NewStream(conn)
+	stream.EnsureWriterBuffer()
 	clientProtocol := NewBinaryClientProtocol(stream)
 	err = self.initProtocol(clientProtocol, clientId)
 	if err != nil {
@@ -376,7 +379,9 @@ func (self *Client) ExecuteCommand(command protocol.ICommand, timeout int) (prot
 	waiter := make(chan protocol.ICommand, 1)
 	self.requests[requestId] = waiter
 	self.requestLock.Unlock()
+	defer close(waiter)
 
+	atomic.AddUint64(&self.pendingWriteCount, 1)
 	self.glock.Lock()
 	if self.protocol == nil {
 		self.glock.Unlock()
@@ -386,6 +391,11 @@ func (self *Client) ExecuteCommand(command protocol.ICommand, timeout int) (prot
 		}
 		self.requestLock.Unlock()
 		return nil, ClientNotOpenError
+	}
+	pendingWriteCount := atomic.AddUint64(&self.pendingWriteCount, 0xffffffffffffffff)
+	buffered := atomic.LoadUint32(&self.protocol.buffered) > 0
+	if pendingWriteCount > 0 && !buffered {
+		buffered = atomic.CompareAndSwapUint32(&self.protocol.buffered, 0, 1)
 	}
 	err := self.protocol.Write(command)
 	self.glock.Unlock()
@@ -397,14 +407,27 @@ func (self *Client) ExecuteCommand(command protocol.ICommand, timeout int) (prot
 		self.requestLock.Unlock()
 		return nil, ClientWriteCommandError
 	}
+	if pendingWriteCount == 0 && buffered {
+		err = self.protocol.FlushWriteBuffered()
+		if err != nil {
+			self.requestLock.Lock()
+			if _, ok := self.requests[requestId]; ok {
+				delete(self.requests, requestId)
+			}
+			self.requestLock.Unlock()
+			return nil, ClientWriteCommandError
+		}
+	}
 
+	timer := time.NewTimer(time.Duration(timeout+1) * time.Second)
 	select {
 	case r := <-waiter:
+		timer.Stop()
 		if r == nil {
 			return nil, errors.New("wait timeout")
 		}
 		return r, nil
-	case <-time.After(time.Duration(timeout+1) * time.Second):
+	case <-timer.C:
 		self.requestLock.Lock()
 		if _, ok := self.requests[requestId]; ok {
 			delete(self.requests, requestId)
@@ -415,15 +438,27 @@ func (self *Client) ExecuteCommand(command protocol.ICommand, timeout int) (prot
 }
 
 func (self *Client) SendCommand(command protocol.ICommand) error {
+	atomic.AddUint64(&self.pendingWriteCount, 1)
 	self.glock.Lock()
 	if self.protocol == nil {
 		self.glock.Unlock()
 		return ClientNotOpenError
 	}
+	pendingWriteCount := atomic.AddUint64(&self.pendingWriteCount, 0xffffffffffffffff)
+	buffered := atomic.LoadUint32(&self.protocol.buffered) > 0
+	if pendingWriteCount > 0 && !buffered {
+		buffered = atomic.CompareAndSwapUint32(&self.protocol.buffered, 0, 1)
+	}
 	err := self.protocol.Write(command)
 	self.glock.Unlock()
 	if err != nil {
 		return ClientWriteCommandError
+	}
+	if pendingWriteCount == 0 && buffered {
+		err = self.protocol.FlushWriteBuffered()
+		if err != nil {
+			return ClientWriteCommandError
+		}
 	}
 	return nil
 }
@@ -637,7 +672,7 @@ func NewReplsetClient(hosts []string) *ReplsetClient {
 
 	for _, host := range hosts {
 		client := &Client{&sync.Mutex{}, replsetClient, nil, replsetClient.dbs,
-			replsetClient.dbLock, make(map[[16]byte]chan protocol.ICommand, 64), &sync.Mutex{},
+			replsetClient.dbLock, make(map[[16]byte]chan protocol.ICommand, 64), &sync.Mutex{}, 0,
 			make(map[uint32]*Subscriber, 4), make([]*Subscriber, 0), &sync.Mutex{}, host, protocol.GenClientId(),
 			0, false, make(chan bool, 1), nil, nil, 0, 0}
 		replsetClient.clients = append(replsetClient.clients, client)
