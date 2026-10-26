@@ -1,6 +1,6 @@
 package server
 
-const VERSION = "2.1.12"
+const VERSION = "2.1.13"
 
 const QUEUE_MAX_MALLOC_SIZE = 0x3ffffff
 
