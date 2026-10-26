@@ -2281,6 +2281,9 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 		return nil
 	}
 
+	var waitLock *Lock = nil
+	var waitLockProtocol *ProxyServerProtocol = nil
+	var waitLockCommand *protocol.LockCommand = nil
 	if command.TimeoutFlag&protocol.TIMEOUT_FLAG_LESS_LOCK_VERSION_IS_LOCK_SUCCED != 0 {
 		if self.checkLessLockVersion(lockManager, command) {
 			lockData := lockManager.GetLockData()
@@ -2299,6 +2302,12 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 			_ = serverProtocol.FreeLockCommand(command)
 			return nil
 		}
+
+		waitLock = lockManager.SearchWaitLock(command)
+		if waitLock != nil {
+			waitLockProtocol, waitLockCommand = waitLock.protocol, waitLock.command
+			self.doCancelWaitLock(lockManager, waitLock)
+		}
 	}
 
 	if command.Timeout > 0 && (command.TimeoutFlag&protocol.TIMEOUT_FLAG_TIMEOUT_WHEN_CONTAINS_DATA == 0 || lockManager.GetLockData() == nil) {
@@ -2311,6 +2320,11 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 		lock.refCount++
 		lockManager.state.WaitCount++
 		lockManager.glock.PriorityUnlock()
+
+		if waitLock != nil && waitLockProtocol != nil && waitLockCommand != nil {
+			_ = waitLockProtocol.ProcessLockResultCommandLocked(waitLockCommand, protocol.RESULT_UNLOCK_ERROR, uint16(lockManager.locked), waitLock.locked, lockManager.GetLockData())
+			_ = waitLockProtocol.FreeLockCommandLocked(waitLockCommand)
+		}
 		return nil
 	}
 
@@ -2323,6 +2337,10 @@ func (self *LockDB) Lock(serverProtocol ServerProtocol, command *protocol.LockCo
 	}
 	lockManager.glock.PriorityUnlock()
 
+	if waitLock != nil && waitLockProtocol != nil && waitLockCommand != nil {
+		_ = waitLockProtocol.ProcessLockResultCommandLocked(waitLockCommand, protocol.RESULT_UNLOCK_ERROR, uint16(lockManager.locked), waitLock.locked, lockManager.GetLockData())
+		_ = waitLockProtocol.FreeLockCommandLocked(waitLockCommand)
+	}
 	_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_TIMEOUT, uint16(lockManager.locked), lock.locked, lockManager.GetLockData())
 	_ = serverProtocol.FreeLockCommand(command)
 	return nil
@@ -2694,21 +2712,7 @@ func (self *LockDB) wakeUpWaitLock(lockManager *LockManager, waitLock *Lock, ser
 }
 
 func (self *LockDB) cancelWaitLock(lockManager *LockManager, command *protocol.LockCommand, serverProtocol ServerProtocol) {
-	var waitLock *Lock = nil
-	if lockManager.waitLocks != nil {
-		for _, waitLocks := range lockManager.waitLocks.IterNodes() {
-			for _, lock := range waitLocks {
-				if lock.timeouted {
-					continue
-				}
-
-				if lock.command.LockId == command.LockId {
-					waitLock = lock
-				}
-			}
-		}
-	}
-
+	waitLock := lockManager.SearchWaitLock(command)
 	if waitLock == nil {
 		lockManager.state.UnlockErrorCount++
 		lockManager.glock.PriorityUnlock()
@@ -2718,12 +2722,27 @@ func (self *LockDB) cancelWaitLock(lockManager *LockManager, command *protocol.L
 		return
 	}
 
+	lockLocked, lockProtocol, lockCommand := waitLock.locked, waitLock.protocol, waitLock.command
+	self.doCancelWaitLock(lockManager, waitLock)
+	lockManager.glock.PriorityUnlock()
+
+	_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_LOCKED_ERROR, uint16(lockManager.locked), waitLock.locked, lockManager.GetLockData())
+	_ = serverProtocol.FreeLockCommand(command)
+	_ = lockProtocol.ProcessLockResultCommandLocked(lockCommand, protocol.RESULT_UNLOCK_ERROR, uint16(lockManager.locked), waitLock.locked, lockManager.GetLockData())
+	_ = lockProtocol.FreeLockCommandLocked(lockCommand)
+
+	if lockLocked > 0 {
+		self.wakeUpWaitLocks(lockManager, nil)
+	}
+}
+
+func (self *LockDB) doCancelWaitLock(lockManager *LockManager, waitLock *Lock) {
 	lockLocked := waitLock.locked
 	waitLock.timeouted = true
 	if waitLock.longWaitIndex > 0 {
 		self.RemoveLongTimeOut(waitLock)
 	}
-	lockProtocol, lockCommand := waitLock.protocol, waitLock.command
+	lockCommand := waitLock.command
 
 	if lockLocked > 0 {
 		lockManager.locked -= uint32(lockLocked)
@@ -2742,16 +2761,6 @@ func (self *LockDB) cancelWaitLock(lockManager *LockManager, command *protocol.L
 		self.RemoveLockManager(lockManager)
 	}
 	lockManager.state.UnLockCount++
-	lockManager.glock.PriorityUnlock()
-
-	_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_LOCKED_ERROR, uint16(lockManager.locked), waitLock.locked, lockManager.GetLockData())
-	_ = serverProtocol.FreeLockCommand(command)
-	_ = lockProtocol.ProcessLockResultCommandLocked(lockCommand, protocol.RESULT_UNLOCK_ERROR, uint16(lockManager.locked), waitLock.locked, lockManager.GetLockData())
-	_ = lockProtocol.FreeLockCommandLocked(lockCommand)
-
-	if lockLocked > 0 {
-		self.wakeUpWaitLocks(lockManager, nil)
-	}
 }
 
 func (self *LockDB) addUnlockLockCommandToWaitLock(lockManager *LockManager, command *protocol.LockCommand, requestCommand *protocol.LockCommand, serverProtocol ServerProtocol) {

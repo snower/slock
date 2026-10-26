@@ -1,10 +1,11 @@
 package client
 
 import (
-	"github.com/snower/slock/protocol"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/snower/slock/protocol"
 )
 
 func TestGroupEvent_Default(t *testing.T) {
@@ -302,6 +303,65 @@ func TestGroupEvent_WakeupWithData(t *testing.T) {
 		_, err = event.SetWithData(protocol.NewLockCommandDataSetString("bbb"))
 		if err != nil {
 			t.Errorf("Event Set Fail %v", err)
+			return
+		}
+	})
+}
+
+func TestGroupEvent_CancelSameWaitedLock(t *testing.T) {
+	testWithClient(t, func(client *Client) {
+		event := client.GroupEvent(testString2Key("TestGroupEvent_CancelSameWaitedLock"), 1, 1, 5, 5)
+		isSeted, err := event.IsSet()
+		if err != nil {
+			t.Errorf("Event Check Seted Fail %v", err)
+			return
+		}
+		if !isSeted {
+			t.Errorf("Event Check Seted Status Error %v", err)
+			return
+		}
+
+		_, err = event.Clear()
+		if err != nil {
+			t.Errorf("Event Clear Fail %v", err)
+			return
+		}
+
+		isSeted, err = event.IsSet()
+		if err != nil {
+			t.Errorf("Event Clear Seted Fail %v", err)
+			return
+		}
+		if isSeted {
+			t.Errorf("Event Clear Seted Status Error %v", err)
+			return
+		}
+
+		go func() {
+			time.Sleep(300 * time.Millisecond)
+			_, err = event.Set()
+			if err != nil {
+				t.Errorf("Event Wakeup Set Fail %v", err)
+				return
+			}
+		}()
+
+		go func() {
+			r, rerr := event.Wait(60)
+			if rerr != nil {
+				t.Errorf("Event Cancel Wait Fail %v", rerr)
+				return
+			}
+			if r.Result != protocol.RESULT_UNLOCK_ERROR {
+				t.Errorf("Event Cancel Wait Fail %v", r.Result)
+				return
+			}
+		}()
+
+		time.Sleep(100 * time.Millisecond)
+		_, err = event.Wait(60)
+		if err != nil {
+			t.Errorf("Event Wait Fail %v", err)
 			return
 		}
 	})

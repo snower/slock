@@ -12,6 +12,7 @@ type ILockManagerRingQueue interface {
 	Push(lock *Lock)
 	Pop() *Lock
 	Head() *Lock
+	Search(command *protocol.LockCommand) *Lock
 	IterNodes() [][]*Lock
 	MaxPriority() uint8
 	Len() int
@@ -56,6 +57,16 @@ func (self *LockManagerRingQueue) Head() *Lock {
 		return nil
 	}
 	return self.queue[self.index]
+}
+
+func (self *LockManagerRingQueue) Search(command *protocol.LockCommand) *Lock {
+	for i := self.index; i < len(self.queue); i++ {
+		lock := self.queue[i]
+		if !lock.timeouted && lock.command.LockId == command.LockId {
+			return lock
+		}
+	}
+	return nil
 }
 
 func (self *LockManagerRingQueue) IterNodes() [][]*Lock {
@@ -150,6 +161,16 @@ func (self *LockManagerPriorityRingQueue) Pop() *Lock {
 func (self *LockManagerPriorityRingQueue) Head() *Lock {
 	for _, node := range self.priorityNodes {
 		lock := node.ringQueue.Head()
+		if lock != nil {
+			return lock
+		}
+	}
+	return nil
+}
+
+func (self *LockManagerPriorityRingQueue) Search(command *protocol.LockCommand) *Lock {
+	for _, node := range self.priorityNodes {
+		lock := node.ringQueue.Search(command)
 		if lock != nil {
 			return lock
 		}
@@ -483,6 +504,21 @@ func (self *LockManagerWaitQueue) Head() *Lock {
 	return nil
 }
 
+func (self *LockManagerWaitQueue) Search(command *protocol.LockCommand) *Lock {
+	if self.fastQueue != nil && self.fastIndex < len(self.fastQueue) && self.fastIndex >= 0 {
+		for i := self.fastIndex; i < len(self.fastQueue); i++ {
+			lock := self.fastQueue[i]
+			if !lock.timeouted && lock.command.LockId == command.LockId {
+				return lock
+			}
+		}
+	}
+	if self.ringQueue != nil {
+		return self.ringQueue.Search(command)
+	}
+	return nil
+}
+
 func (self *LockManagerWaitQueue) Reset() {
 	if self.fastQueue != nil {
 		if cap(self.fastQueue) > 8 {
@@ -809,6 +845,13 @@ func (self *LockManager) GetWaitLock() *Lock {
 		return lock
 	}
 	return nil
+}
+
+func (self *LockManager) SearchWaitLock(command *protocol.LockCommand) *Lock {
+	if self.waitLocks == nil {
+		return nil
+	}
+	return self.waitLocks.Search(command)
 }
 
 func (self *LockManager) PushLockAof(lock *Lock, aofFlag uint16) error {
