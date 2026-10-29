@@ -2724,6 +2724,9 @@ func (self *LockDB) cancelWaitLock(lockManager *LockManager, command *protocol.L
 
 	lockLocked, lockProtocol, lockCommand := waitLock.locked, waitLock.protocol, waitLock.command
 	self.doCancelWaitLock(lockManager, waitLock)
+	if atomic.LoadUint32(&lockManager.refCount) == 0 {
+		self.RemoveLockManager(lockManager)
+	}
 	lockManager.glock.PriorityUnlock()
 
 	_ = serverProtocol.ProcessLockResultCommand(command, protocol.RESULT_LOCKED_ERROR, uint16(lockManager.locked), waitLock.locked, lockManager.GetLockData())
@@ -2755,10 +2758,6 @@ func (self *LockDB) doCancelWaitLock(lockManager *LockManager, waitLock *Lock) {
 			lockManager.waited = false
 		}
 		lockManager.state.WaitCount--
-	}
-
-	if atomic.LoadUint32(&lockManager.refCount) == 0 {
-		self.RemoveLockManager(lockManager)
 	}
 	lockManager.state.UnLockCount++
 }
